@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Balloon Belt v9</title>
+<title>Balloon Belt v11</title>
 <style>
   :root {
     --font-sans: system-ui, -apple-system, sans-serif;
@@ -48,6 +48,10 @@
   .toggle-btn{padding:4px 12px;border-radius:7px;border:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:12px;color:var(--color-text-secondary);transition:background 0.15s,color 0.15s,border-color 0.15s}
   .toggle-btn:hover{background:rgba(255,255,255,0.07)}
   .toggle-btn.active{background:rgba(100,200,100,0.15);color:#7defa0;border-color:#4a9e62;font-weight:600}
+  #pending-wrap{width:360px}
+  #pending-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:4px;text-align:center}
+  #pending-row{display:flex;gap:3px;justify-content:center;flex-wrap:wrap;min-height:14px}
+  .pending-ball{width:14px;height:14px;border-radius:50%;background-position:center;box-shadow:inset 0 -1px 2px rgba(0,0,0,0.35), inset 0 1px 1px rgba(255,255,255,0.25), 0 1px 2px rgba(0,0,0,0.35);border:0.5px solid rgba(0,0,0,0.35)}
   #carriers-wrap{width:360px}
   #carriers-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:6px;text-align:center}
   #carriers-grid{display:flex;gap:4px;justify-content:center;flex-wrap:nowrap;width:360px}
@@ -71,9 +75,11 @@
   #score-bar{display:flex;gap:24px;font-size:13px;color:var(--color-text-secondary)}
   #score-bar span b{color:var(--color-text-primary);font-weight:500}
   h1{font-size:16px;font-weight:500;color:var(--color-text-secondary);letter-spacing:0.05em}
+  #version-badge{position:fixed;top:8px;right:10px;font-size:10px;color:rgba(255,255,255,0.35);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:0.5px;pointer-events:none;z-index:100}
 </style>
 </head>
 <body>
+<div id="version-badge">v11</div>
 <div id="game">
   <h1>🎈 Balloon Belt</h1>
   <div id="score-bar">
@@ -120,6 +126,10 @@
     <div id="belt-label">dopravní pás → obraz</div>
     <svg id="belt-svg" viewBox="0 0 360 64" xmlns="http://www.w3.org/2000/svg"></svg>
   </div>
+  <div id="pending-wrap">
+    <div id="pending-label">ve frontě</div>
+    <div id="pending-row"></div>
+  </div>
   <div id="carriers-wrap">
     <div id="carriers-label">nosiče</div>
     <div id="carriers-grid"></div>
@@ -132,7 +142,7 @@ const COLS=7;
 const GW=36,GH=31,IMG_GH=27;
 const UPC=4;
 const PPU=10;
-let grid,belt,columns,score,loops,running,difficulty='easy',gravityOn=false,currentLevel='shapes';
+let grid,belt,pending,columns,score,loops,running,difficulty='easy',gravityOn=false,currentLevel='shapes';
 let beltAnim=0,lastBeltTime=null;
 // === BELT LAUNCH POINT ===
 const BELT_LX=28,BELT_RX=332,BELT_BALL_R=14;
@@ -489,6 +499,37 @@ function getOpenEmptyCells(g){
   }
   return open;
 }
+function getReachableCountOfColor(g,color){
+  // Vrátí počet pixelů v souvislých komponentách, které mají aspoň 1 přímo vystavený pixel.
+  // Projektily dokážou kaskádově zničit celou komponentu, jakmile se dostanou k jednomu vystavenému.
+  const open=getOpenEmptyCells(g);
+  const reachable=new Set();
+  const stack=[];
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    if(g[y][x]!==color)continue;
+    let exp=false;
+    if(y>0&&open.has((y-1)*GW+x))exp=true;
+    else if(y<GH-1&&open.has((y+1)*GW+x))exp=true;
+    else if(x>0&&open.has(y*GW+(x-1)))exp=true;
+    else if(x<GW-1&&open.has(y*GW+(x+1)))exp=true;
+    if(exp){
+      const k=y*GW+x;
+      if(!reachable.has(k)){reachable.add(k);stack.push([x,y]);}
+    }
+  }
+  while(stack.length){
+    const [x,y]=stack.pop();
+    for(const [nx,ny] of [[x-1,y],[x+1,y],[x,y-1],[x,y+1]]){
+      if(nx<0||nx>=GW||ny<0||ny>=GH)continue;
+      const k=ny*GW+nx;
+      if(reachable.has(k))continue;
+      if(g[ny][nx]!==color)continue;
+      reachable.add(k);
+      stack.push([nx,ny]);
+    }
+  }
+  return reachable.size;
+}
 function getExposedPixelsOfColor(g,color){
   const open=getOpenEmptyCells(g);
   const out=[];
@@ -626,8 +667,9 @@ function isLevelSolvable(startGrid,carrierQueue){
       if(!any)return false;
       continue;
     }
-    const color=queue.shift();
-    remaining[color]=(remaining[color]||0)+UPC*PPU;
+    const slot=queue.shift();
+    const color=slot.color;
+    remaining[color]=(remaining[color]||0)+slot.projectiles;
     const avail=getAvailableColors(g);
     for(const c of avail){
       if((remaining[c]||0)<=0)continue;
@@ -646,13 +688,30 @@ function isLevelSolvable(startGrid,carrierQueue){
   }
   return !anyLeft(g);
 }
+function distributeProjectiles(total){
+  const base=Math.floor(total/UPC);
+  const extra=total%UPC;
+  const balls=[];
+  for(let i=0;i<UPC;i++)balls.push(base+(i<extra?1:0));
+  return balls;
+}
+function splitIntoCarriers(color,total){
+  const full=UPC*PPU;
+  const out=[];
+  const fullCount=Math.floor(total/full);
+  const remainder=total%full;
+  for(let i=0;i<fullCount;i++)out.push({color,projectiles:full});
+  if(remainder>0){
+    if(remainder<3&&out.length>0)out[out.length-1].projectiles+=remainder;
+    else out.push({color,projectiles:remainder});
+  }
+  return out;
+}
 function generateCarrierQueue(pxCounts){
   const q=[];
   for(let c=0;c<pxCounts.length;c++){
     if(!pxCounts[c])continue;
-    // Předpokládáme ~50% efektivitu projektilů (respawn, míjení) → 2× více nosičů
-    const n=Math.ceil(pxCounts[c]/(UPC*PPU*0.5));
-    for(let i=0;i<n;i++)q.push(c);
+    for(const slot of splitIntoCarriers(c,pxCounts[c]))q.push(slot);
   }
   return q;
 }
@@ -669,20 +728,20 @@ function makeColumns(pxCounts){
     q=originalQ.slice();
     if(difficulty==='easy'){
       q.sort((a,b)=>{
-        const av=avail.has(a)?0:1,bv=avail.has(b)?0:1;
-        return av!==bv?av-bv:depth[a]-depth[b];
+        const av=avail.has(a.color)?0:1,bv=avail.has(b.color)?0:1;
+        return av!==bv?av-bv:depth[a.color]-depth[b.color];
       });
       for(let i=q.length-1;i>0;i--){
         const j=Math.max(0,Math.min(q.length-1,i+Math.floor((Math.random()-0.5)*3)));
         [q[i],q[j]]=[q[j],q[i]];
       }
     } else if(difficulty==='hard'){
-      const cc={};for(const c of q)cc[c]=(cc[c]||0)+1;
+      const cc={};for(const s of q)cc[s.color]=(cc[s.color]||0)+1;
       q.sort((a,b)=>{
-        const al=avail.has(a)?1:0,bl=avail.has(b)?1:0;
+        const al=avail.has(a.color)?1:0,bl=avail.has(b.color)?1:0;
         if(al!==bl)return bl-al;
-        if(!al&&!bl)return depth[b]-depth[a];
-        return cc[a]-cc[b];
+        if(!al&&!bl)return depth[b.color]-depth[a.color];
+        return cc[a.color]-cc[b.color];
       });
     } else {
       for(let i=q.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[q[i],q[j]]=[q[j],q[i]];}
@@ -692,7 +751,10 @@ function makeColumns(pxCounts){
   }
   if(!ok){
     for(let c=0;c<COLORS.length;c++){
-      if(pxCounts[c]>0){bestQ.push(c);bestQ.push(c);}
+      if(pxCounts[c]>0){
+        bestQ.push({color:c,projectiles:UPC*PPU});
+        bestQ.push({color:c,projectiles:UPC*PPU});
+      }
     }
   }
   return buildColsFromQueue(bestQ);
@@ -707,7 +769,8 @@ function buildColsFromQueue(q){
     for(const c of order){
       if(qi<q.length){
         const hidden=cols[c].length>0&&Math.random()<hr;
-        cols[c].push({color:q[qi++],hidden});
+        const src=q[qi++];
+        cols[c].push({color:src.color,hidden,projectiles:src.projectiles});
       }
     }
   }
@@ -789,7 +852,7 @@ function drawBelt(){
   for(let i=0;i<BELT_CAP;i++){
     const bx=startX+(i*spacing+offset)%totalLen;
     if(i<belt.length){
-      const color=COLORS[belt[i]];
+      const color=COLORS[belt[i].ci];
       ballGrp.appendChild(mk('circle',{cx:bx,cy:ballY,r:ballR,fill:color,stroke:'rgba(0,0,0,0.25)','stroke-width':1}));
       ballGrp.appendChild(mk('circle',{cx:bx-4,cy:ballY-4,r:4,fill:'rgba(255,255,255,0.35)'}));
     } else {
@@ -825,13 +888,19 @@ function drawCarriers(){
         div.innerHTML='<div class="cbox-hid">?</div>';
       } else {
         const bg=COLORS[slot.color];
-        // Každý balónek: sférický highlight + tmavá kontura
-        const ballStyle='border-radius:50%;min-width:0;min-height:0;'
+        const commonStyle='border-radius:50%;min-width:0;min-height:0;aspect-ratio:1;width:100%;max-width:18px;justify-self:center;align-self:center;';
+        const activeBall='<div style="'+commonStyle
           +'background:radial-gradient(circle at 36% 32%, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0) 52%), '+bg+';'
-          +'box-shadow:inset 0 -2px 4px rgba(0,0,0,0.3), 0 0 0 1.5px rgba(0,0,0,0.28);';
-        const oneBall='<div style="'+ballStyle+'"></div>';
-        const fourBalls=oneBall+oneBall+oneBall+oneBall;
-        div.innerHTML='<div class="cbox" style="background:'+bg+';border:1.5px solid rgba(0,0,0,0.45)">'+fourBalls+'</div>';
+          +'box-shadow:inset 0 -2px 4px rgba(0,0,0,0.3), 0 0 0 1.5px rgba(0,0,0,0.28);"></div>';
+        const dudBall='<div style="'+commonStyle
+          +'background:transparent;'
+          +'box-shadow:inset 0 0 0 1.5px rgba(255,255,255,0.25);opacity:0.4;"></div>';
+        const dist=distributeProjectiles(slot.projectiles||UPC*PPU);
+        let ballsHTML='';
+        for(const p of dist)ballsHTML+=(p>0?activeBall:dudBall);
+        const isCleanup=(slot.projectiles||UPC*PPU)<UPC*PPU;
+        const borderStyle=isCleanup?'border:2px dashed rgba(255,255,255,0.55)':'border:1.5px solid rgba(0,0,0,0.45)';
+        div.innerHTML='<div class="cbox" style="background:'+bg+';'+borderStyle+'">'+ballsHTML+'</div>';
       }
       if(active){div.dataset.col=c;div.dataset.row=r;div.addEventListener('click',onCarrierClick);}
       col.appendChild(div);
@@ -846,14 +915,36 @@ function onCarrierClick(e){
   const slot=columns[c][r];
   if(!slot)return;
   const color=slot.color;
-  const space=BELT_CAP-belt.length;
-  if(space<=0){setStatus('Pás je plný!');return;}
-  const toAdd=Math.min(UPC,space);
-  for(let i=0;i<toAdd;i++)belt.push(color);
+  const projectiles=slot.projectiles||UPC*PPU;
+  const balls=distributeProjectiles(projectiles).map(p=>({ci:color,ppu:p}));
+  const space=Math.max(0,BELT_CAP-belt.length);
+  const toBelt=Math.min(balls.length,space);
+  for(let i=0;i<toBelt;i++)belt.push(balls[i]);
+  for(let i=toBelt;i<balls.length;i++)pending.push(balls[i]);
+  const toQueue=balls.length-toBelt;
   columns[c][r]=null;
-  noMatchPasses=0; // reset – nový obsah na pásu
-  drawCarriers();drawBelt();
-  setStatus(toAdd+' balónků přidáno na pás');
+  noMatchPasses=0;
+  drawCarriers();drawBelt();drawPending();
+  setStatus(toQueue?toBelt+' na pás, '+toQueue+' do fronty':balls.length+' balónků přidáno na pás');
+}
+function drainPending(){
+  let moved=false;
+  while(pending.length&&belt.length<BELT_CAP){
+    belt.push(pending.shift());
+    moved=true;
+  }
+  if(moved)noMatchPasses=0;
+  return moved;
+}
+function drawPending(){
+  const el=document.getElementById('pending-row');
+  el.innerHTML='';
+  for(const ball of pending){
+    const d=document.createElement('div');
+    d.className='pending-ball';
+    d.style.background='radial-gradient(circle at 36% 32%, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0) 52%), '+COLORS[ball.ci];
+    el.appendChild(d);
+  }
 }
 function checkLaunchPoint(prevAnim, curAnim){
   if(!running||belt.length===0)return;
@@ -865,53 +956,79 @@ function checkLaunchPoint(prevAnim, curAnim){
     // Kulička prošla otvorem zleva doprava (bez wrap, wrap nemíří přes LAUNCH_TRACK)
     if(!(prevTrack<LAUNCH_TRACK&&curTrack>=LAUNCH_TRACK))continue;
 
-    const color=belt[i];
+    const ball=belt[i];
+    const color=ball.ci;
+    if(ball.ppu<=0){
+      belt.splice(i,1);
+      drainPending();
+      drawBelt();drawPending();
+      continue;
+    }
+    const pxNow=countPixels(grid);
+    if((pxNow[color]||0)===0){
+      belt.splice(i,1);
+      drainPending();
+      drawBelt();drawPending();
+      continue;
+    }
     const avail=getAvailableColors(grid);
     if(!avail.has(color)){
       // Špatná barva – projede dál
       noMatchPasses++;
       // Okamžitá kontrola: pokud žádná barva na pásu nesedí → nemusíme čekat na kolečko
-      const beltColors=new Set(belt);
+      const beltColors=new Set(belt.map(b=>b.ci));
       const anyMatch=[...beltColors].some(c=>avail.has(c));
       if(!anyMatch||noMatchPasses>=BELT_CAP){
         noMatchPasses=0;
         if(belt.length>=BELT_CAP){endGame(false);return;}
-        if(anyLeft(grid)&&cntCarriers()===0){refillCarriers();}
-        else setStatus('Žádná shoda – přidej jinou barvu');
+        if(anyLeft(grid)){
+          const def=computeAmmoDeficit();
+          if(def.some(d=>d>0))refillCarriers();
+          else setStatus('Žádná shoda – přidej jinou barvu');
+        }
       }
       continue;
     }
 
-    // Před konzumací koule zjisti, jestli vůbec potřebujeme nové projektily
-    const exposedCount=getExposedPixelsOfColor(grid,color).length;
+    const exposedCount=getReachableCountOfColor(grid,color);
     const alreadyFlying=particles.filter(p=>p.phase==='fly'&&p.ci===color).length;
-    const count=Math.max(0,Math.min(PPU,exposedCount,MAX_PER_COLOR)-alreadyFlying);
+    const inQueue=gunQueue.filter(q=>q.ci===color).length;
+    const totalActive=alreadyFlying+inQueue;
 
-    if(exposedCount===0||count===0){
-      // Projektily není třeba – koule projede otvorem bez konzumace (drží místo na pásu)
+    if(exposedCount===0||totalActive>=exposedCount){
+      // Dost projektilů už lítá pro aktuálně odkryté pixely – koule projede bez konzumace
       stuckPassCount++;
-      // Pokud pás jel 2 kolečka bez jediné konzumace a nejsou nosiče → doplň záchranné nosiče
-      if(stuckPassCount>=BELT_CAP*2&&cntCarriers()===0&&anyLeft(grid)){
-        stuckPassCount=0;
-        refillCarriers();
+      if(stuckPassCount>=BELT_CAP*2){
+        if(belt.length>=BELT_CAP){
+          // Pás plný a žádná koule se nespotřebuje → zamčený stav, konec
+          endGame(false);
+          return;
+        }
+        if(anyLeft(grid)){
+          const def=computeAmmoDeficit();
+          if(def.some(d=>d>0)){
+            stuckPassCount=0;
+            refillCarriers();
+          }
+        }
       }
       continue;
     }
     stuckPassCount=0;
 
-    // Skutečně potřebujeme projektily → teprve teď kouli spotřebuj
+    // Spotřebuj celou kouli → vystřel všech ball.ppu projektilů najednou
     noMatchPasses=0;
     loops=0;
     belt.splice(i,1);
-    drawBelt();
-    // Rozděl 160° arc na count sektorů, v každém náhodný úhel → zamíchej
+    drainPending();
+    drawBelt();drawPending();
+    const count=ball.ppu;
     const angles=[];
     for(let j=0;j<count;j++){
       const sectorStart=-Math.PI/2-GUN_SPREAD+(j/count)*2*GUN_SPREAD;
       const sectorEnd=sectorStart+(2*GUN_SPREAD/count);
       angles.push(sectorStart+Math.random()*(sectorEnd-sectorStart));
     }
-    // Fisher-Yates shuffle pro organické pořadí
     for(let j=angles.length-1;j>0;j--){
       const k=Math.floor(Math.random()*(j+1));
       [angles[j],angles[k]]=[angles[k],angles[j]];
@@ -928,8 +1045,12 @@ function checkLaunchPoint(prevAnim, curAnim){
       setTimeout(()=>{if(running){applyIslandGravity(grid);applyIslandGravity(grid);drawGrid();}},600);
     }
 
-    if(belt.length===0&&anyLeft(grid)&&cntCarriers()===0){
-      setTimeout(()=>{if(running&&anyLeft(grid)&&cntCarriers()===0)refillCarriers();},1800);
+    if(belt.length===0&&anyLeft(grid)){
+      setTimeout(()=>{
+        if(!running||!anyLeft(grid))return;
+        const def=computeAmmoDeficit();
+        if(def.some(d=>d>0))refillCarriers();
+      },1800);
     }
   }
 }
@@ -947,16 +1068,36 @@ function destroyPixels(colors,cm){
     remainingUnits[color]=td>0?td:0;
   }
 }
-function refillCarriers(){
+function computeAmmoDeficit(){
   const pxCounts=countPixels(grid);
-  const newCols=makeColumns(pxCounts);
-  for(let c=0;c<COLS;c++){
-    for(const slot of newCols[c]){
-      if(slot!==null)columns[c].push(slot);
+  const deficits=new Array(COLORS.length).fill(0);
+  for(let c=0;c<COLORS.length;c++){
+    if(!pxCounts[c])continue;
+    let proj=0;
+    for(let col=0;col<COLS;col++)for(const s of columns[col])if(s&&s.color===c)proj+=(s.projectiles||UPC*PPU);
+    for(const b of belt)if(b.ci===c)proj+=b.ppu;
+    for(const b of pending)if(b.ci===c)proj+=b.ppu;
+    proj+=particles.filter(p=>p.phase==='fly'&&p.ci===c).length;
+    proj+=gunQueue.filter(q=>q.ci===c).length;
+    const d=pxCounts[c]-proj;
+    if(d>0)deficits[c]=d;
+  }
+  return deficits;
+}
+function refillCarriers(){
+  const deficits=computeAmmoDeficit();
+  let added=0;
+  for(let c=0;c<COLORS.length;c++){
+    if(deficits[c]<=0)continue;
+    for(const slot of splitIntoCarriers(c,deficits[c])){
+      let shortest=0;
+      for(let k=1;k<COLS;k++)if(columns[k].length<columns[shortest].length)shortest=k;
+      columns[shortest].push({color:slot.color,hidden:false,projectiles:slot.projectiles});
+      added++;
     }
   }
   drawCarriers();
-  setStatus('Záchranné nosiče doplněny');
+  if(added)setStatus('Záchranné nosiče doplněny (+'+added+')');
 }
 function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
@@ -966,12 +1107,12 @@ function endGame(win){
   document.getElementById('overlay').classList.add('show');
 }
 function initGame(){
-  grid=makeGrid();belt=[];score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
+  grid=makeGrid();belt=[];pending=[];score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
   particles=[];gunQueue=[];gunFireTimer=0;
   columns=makeColumns(countPixels(grid));
   document.getElementById('score').textContent=0;
   document.getElementById('overlay').classList.remove('show');
-  drawGrid();drawBelt();drawCarriers();
+  drawGrid();drawBelt();drawPending();drawCarriers();
   setStatus('Klikni na aktivní nosič');
 }
 document.getElementById('restart-btn').addEventListener('click',initGame);
