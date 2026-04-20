@@ -134,6 +134,195 @@ const UPC=4;
 const PPU=10;
 let grid,belt,columns,score,loops,running,difficulty='easy',gravityOn=false,currentLevel='shapes',remainingUnits;
 let beltAnim=0,lastBeltTime=null;
+// === BOUNCING PARTICLE SYSTEM ===
+let particles=[],particleCanvas,particleCtx,particlesFlying=false;
+const SCALE=10;       // grid px → display px
+const PSPEED=320;          // konstantní rychlost px/s (billiard model)
+const PBOUNCE_HOME=0.15;   // kolik % směru po odrazu míří k vlastní barvě
+const PWOBBLE=0.12;        // náhodné zatočení každý snímek (radiány)
+const MAX_PER_COLOR=10;    // max částic na barvu
+
+function initParticleCanvas(){
+  if(particleCanvas)return;
+  particleCanvas=document.createElement('canvas');
+  particleCanvas.width=360;particleCanvas.height=310;
+  particleCanvas.style.cssText='position:absolute;left:0;top:0;width:360px;height:310px;pointer-events:none;z-index:2';
+  document.getElementById('image-area').appendChild(particleCanvas);
+  particleCtx=particleCanvas.getContext('2d');
+}
+
+// Najde nejbližší pixel dané barvy v gridu (display souřadnice)
+function nearestSameColor(ci,px,py){
+  let best=null,bd=Infinity;
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    if(grid[y][x]!==ci)continue;
+    const tx=x*SCALE+SCALE/2,ty=y*SCALE+SCALE/2;
+    const d=(tx-px)**2+(ty-py)**2;
+    if(d<bd){bd=d;best={tx,ty};}
+  }
+  return best;
+}
+
+function launchBouncingParticles(matching,cm,onDone){
+  if(!matching.size){onDone();return;}
+  particlesFlying=true;
+  let popped=0,total=0;
+  let done=false;
+  const finish=()=>{if(done)return;done=true;particlesFlying=false;onDone();};
+  const safety=setTimeout(finish,2500);
+  const onPop=()=>{popped++;if(popped>=total){clearTimeout(safety);finish();}};
+
+  for(const c of matching){
+    const prev=remainingUnits[c]||0;
+    const budget=cm[c]*PPU+prev;
+    const count=Math.min(budget,MAX_PER_COLOR);
+    remainingUnits[c]=budget-count; // přebytek na příště
+    for(let i=0;i<count;i++){
+      total++;
+      // Start ve spodní třetině canvasu (buffer zóna + spodek obrazu)
+      const angle=-Math.PI/2+(Math.random()-0.5)*Math.PI*0.9;
+      particles.push({
+        x:10+Math.random()*340, y:IMG_GH*SCALE+Math.random()*(GH-IMG_GH)*SCALE*0.8,
+        vx:Math.cos(angle)*PSPEED,
+        vy:Math.sin(angle)*PSPEED,
+        ci:c, color:COLORS[c],
+        phase:'fly',
+        stuckT:0,
+        popR:0, popX:0, popY:0,
+        onPop
+      });
+    }
+  }
+  if(total===0){clearTimeout(safety);finish();}
+}
+
+function steerAfterBounce(p){
+  // Po odrazu: PBOUNCE_HOME % směru namíří k nejbližšímu pixelu vlastní barvy
+  const near=nearestSameColor(p.ci,p.x,p.y);
+  if(!near)return;
+  const dx=near.tx-p.x, dy=near.ty-p.y;
+  const d=Math.sqrt(dx*dx+dy*dy)||1;
+  p.vx=p.vx*(1-PBOUNCE_HOME)+(dx/d)*PSPEED*PBOUNCE_HOME;
+  p.vy=p.vy*(1-PBOUNCE_HOME)+(dy/d)*PSPEED*PBOUNCE_HOME;
+  // Normalizuj zpět na konstantní rychlost
+  const s=Math.sqrt(p.vx*p.vx+p.vy*p.vy)||1;
+  p.vx=p.vx/s*PSPEED; p.vy=p.vy/s*PSPEED;
+}
+
+function updateParticles(dt){
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    if(!p)continue;
+    if(p.phase==='pop'){
+      p.popR+=dt*90;
+      if(p.popR>10)particles.splice(i,1);
+      continue;
+    }
+
+    // Průběžný wobble – malé náhodné zatočení aby neletěly rovně
+    const wAngle=(Math.random()-0.5)*PWOBBLE;
+    const wc=Math.cos(wAngle),ws=Math.sin(wAngle);
+    const wvx=p.vx*wc-p.vy*ws, wvy=p.vx*ws+p.vy*wc;
+    p.vx=wvx; p.vy=wvy;
+
+    // Udržuj konstantní rychlost (billiard)
+    const spd=Math.sqrt(p.vx*p.vx+p.vy*p.vy)||1;
+    p.vx=p.vx/spd*PSPEED; p.vy=p.vy/spd*PSPEED;
+
+    // Pokud žádný pixel vlastní barvy nezbývá → pop
+    const hasTarget=nearestSameColor(p.ci,p.x,p.y);
+    if(!hasTarget){p.phase='pop';p.popX=p.x;p.popY=p.y;p.onPop();continue;}
+
+    // Navrhovaná nová pozice
+    let nx=p.x+p.vx*dt, ny=p.y+p.vy*dt;
+    let bounced=false;
+
+    // Odraz od celého canvasu – svisle 0 až GH řad (včetně buffer zóny)
+    const YMAX=GH*SCALE-2;
+    if(nx<1){nx=1;p.vx=Math.abs(p.vx);bounced=true;}
+    if(nx>358){nx=358;p.vx=-Math.abs(p.vx);bounced=true;}
+    if(ny<2){ny=2;p.vy=Math.abs(p.vy);bounced=true;}
+    if(ny>YMAX){ny=YMAX;p.vy=-Math.abs(p.vy);bounced=true;}
+
+    // Kontrola gridu
+    const gx=Math.floor(nx/SCALE), gy=Math.floor(ny/SCALE);
+    const cell=(gy>=0&&gy<GH&&gx>=0&&gx<GW)?grid[gy][gx]:-1;
+
+    if(cell===p.ci){
+      // Vlastní barva → zniční pixel + okamžitá gravitace (island gravity až na konci kola)
+      grid[gy][gx]=-1;
+      if(gravityOn) applyGravityToCol(grid,gx);
+      drawGrid();
+      p.phase='pop'; p.popX=nx; p.popY=ny; p.onPop();
+      // Okamžitá kontrola výhry – nezávisí na onDone callbacku
+      if(running && !anyLeft(grid)){
+        particles.forEach(q=>{if(q.phase==='fly'){q.phase='pop';q.popX=q.x;q.popY=q.y;}});
+        particlesFlying=false;
+        setTimeout(()=>{if(running)endGame(true);},80);
+      }
+    } else if(cell>-1){
+      // Špatná barva → odraz + silný náhodný kick aby neklouzaly po hranici
+      const prevGx=Math.floor(p.x/SCALE), prevGy=Math.floor(p.y/SCALE);
+      if(prevGx!==gx) p.vx=-p.vx;
+      if(prevGy!==gy) p.vy=-p.vy;
+      if(prevGx===gx&&prevGy===gy){p.vx=-p.vx;p.vy=-p.vy;}
+      // Přimíchej náhodný směr (40%) aby se odrazily dovnitř, ne podél okraje
+      const kickA=Math.random()*Math.PI*2;
+      p.vx=p.vx*0.6+Math.cos(kickA)*PSPEED*0.4;
+      p.vy=p.vy*0.6+Math.sin(kickA)*PSPEED*0.4;
+      bounced=true;
+      p.stuckT+=dt;
+      if(p.stuckT>0.45){
+        // Uvíznutí → teleportuj na náhodné volné místo
+        for(let a=0;a<30;a++){
+          const rx=5+Math.random()*350, ry=5+Math.random()*300;
+          const rg=grid[Math.floor(ry/SCALE)]?.[Math.floor(rx/SCALE)];
+          if(rg===-1||rg===undefined){p.x=rx;p.y=ry;p.stuckT=0;break;}
+        }
+      }
+    } else {
+      p.x=nx; p.y=ny; p.stuckT=0;
+    }
+
+    // Po odrazu nasměruj k vlastní barvě
+    if(bounced) steerAfterBounce(p);
+  }
+}
+
+function drawParticles(){
+  if(!particleCtx)return;
+  particleCtx.clearRect(0,0,360,310);
+  for(const p of particles){
+    if(p.phase==='fly'){
+      const spd=Math.sqrt(p.vx*p.vx+p.vy*p.vy)||1;
+      // Stopa
+      particleCtx.save();
+      particleCtx.globalAlpha=0.28;
+      particleCtx.beginPath();
+      particleCtx.arc(p.x-p.vx/spd*10,p.y-p.vy/spd*10,4,0,Math.PI*2);
+      particleCtx.fillStyle=p.color;particleCtx.fill();
+      particleCtx.restore();
+      // Balónek
+      particleCtx.save();
+      particleCtx.beginPath();
+      particleCtx.arc(p.x,p.y,6,0,Math.PI*2);
+      particleCtx.fillStyle=p.color;particleCtx.fill();
+      particleCtx.strokeStyle='rgba(0,0,0,0.28)';particleCtx.lineWidth=1;particleCtx.stroke();
+      particleCtx.beginPath();
+      particleCtx.arc(p.x-1.8,p.y-1.8,2,0,Math.PI*2);
+      particleCtx.fillStyle='rgba(255,255,255,0.5)';particleCtx.fill();
+      particleCtx.restore();
+    } else {
+      const alpha=Math.max(0,1-p.popR/10);
+      particleCtx.save();
+      particleCtx.globalAlpha=alpha;
+      particleCtx.beginPath();
+      particleCtx.arc(p.popX,p.popY,p.popR,0,Math.PI*2);
+      particleCtx.strokeStyle=p.color;particleCtx.lineWidth=2;particleCtx.stroke();
+      particleCtx.restore();
+    }
+  }
+}
 function makeGridShapes(){
   const g=[];
   for(let y=0;y<IMG_GH;y++){
@@ -265,12 +454,82 @@ function anyLeft(g){
   return false;
 }
 function applyGravityTo(g){
-  for(let x=0;x<GW;x++){
-    const px=[];
-    for(let y=0;y<IMG_GH-1;y++)if(g[y][x]!==-1)px.push(g[y][x]);
-    for(let y=0;y<IMG_GH-1;y++){
-      const fb=(IMG_GH-2)-y;
-      g[y][x]=fb<px.length?px[px.length-1-fb]:-1;
+  for(let x=0;x<GW;x++) applyGravityToCol(g,x);
+}
+function applyGravityToCol(g,col){
+  const px=[];
+  for(let y=0;y<IMG_GH-1;y++)if(g[y][col]!==-1)px.push(g[y][col]);
+  for(let y=0;y<IMG_GH-1;y++){
+    const fb=(IMG_GH-2)-y;
+    g[y][col]=fb<px.length?px[px.length-1-fb]:-1;
+  }
+}
+
+// Island gravity – jen odtržené menší skupiny spadnou dolů; hlavní masa zůstane
+function applyIslandGravity(g){
+  const FLOOR=IMG_GH-2;
+
+  // Najdi všechny propojené komponenty
+  const visited=new Set();
+  const comps=[];
+  for(let y=0;y<=FLOOR;y++) for(let x=0;x<GW;x++){
+    if(g[y][x]===-1||visited.has(y*GW+x))continue;
+    const comp=[];const q=[{x,y}];
+    while(q.length){
+      const{x:cx,y:cy}=q.pop();const ck=cy*GW+cx;
+      if(visited.has(ck))continue;visited.add(ck);
+      comp.push({x:cx,y:cy,c:g[cy][cx]});
+      for(const[nx,ny] of [[cx-1,cy],[cx+1,cy],[cx,cy-1],[cx,cy+1]]){
+        if(nx<0||nx>=GW||ny<0||ny>FLOOR)continue;
+        if(g[ny][nx]!==-1&&!visited.has(ny*GW+nx))q.push({x:nx,y:ny});
+      }
+    }
+    comps.push(comp);
+  }
+
+  // Pokud je jen jedna komponenta (nebo žádná), nic nepadá
+  if(comps.length<=1)return;
+  // Jeden průchod – volající rozhodne kolikrát zavolat
+
+  // Největší komponenta = hlavní masa → zůstane na místě
+  const mainIdx=comps.reduce((mi,c,i)=>c.length>comps[mi].length?i:mi,0);
+
+  for(let ci=0;ci<comps.length;ci++){
+    if(ci===mainIdx)continue;
+    scatterIsland(g, comps[ci], FLOOR);
+  }
+}
+
+// Rozsype ostrov – každý pixel padne samostatně na dno nejbližšího sloupce
+function scatterIsland(g, comp, FLOOR){
+  // Odeber pixely z gridu
+  for(const{x,y} of comp) g[y][x]=-1;
+
+  // Zamíchej pro náhodné pořadí ukládání
+  const px=[...comp];
+  for(let i=px.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [px[i],px[j]]=[px[j],px[i]];
+  }
+
+  // Každý pixel umísti na dno nejbližšího dostupného sloupce
+  for(const{x,c} of px){
+    // Malá šance na posunutí ±1 pro efekt rozsypání
+    const dx=Math.random()<0.45?(Math.random()<0.5?-1:1):0;
+    const preferred=Math.max(0,Math.min(GW-1,x+dx));
+
+    // Zkus preferred, pak střídavě vzdálenější sloupce
+    const order=[preferred];
+    for(let d=1;d<=GW;d++){
+      if(preferred-d>=0)order.push(preferred-d);
+      if(preferred+d<GW)order.push(preferred+d);
+    }
+
+    for(const tx of order){
+      // Najdi nejnižší prázdnou buňku ve sloupci
+      let bot=FLOOR;
+      while(bot>=0&&g[bot][tx]!==-1)bot--;
+      if(bot>=0){g[bot][tx]=c;break;}
     }
   }
 }
@@ -516,19 +775,19 @@ function onCarrierClick(e){
   scheduleMatch();
 }
 let mt=null;
-function scheduleMatch(){if(mt)clearTimeout(mt);mt=setTimeout(processMatch,600);}
+function scheduleMatch(){
+  if(particlesFlying)return; // čekáme na přistání
+  if(mt)clearTimeout(mt);mt=setTimeout(processMatch,150);
+}
 function processMatch(){
-  if(!running)return;
+  if(!running||particlesFlying)return;
   const avail=getAvailableColors(grid);
   const bset=new Set(belt);
   const matching=new Set();
   for(const c of bset)if(avail.has(c))matching.add(c);
   for(const c of avail)if((remainingUnits[c]||0)>0)matching.add(c);
   if(!matching.size){
-    if(belt.length>=BELT_CAP){
-      // Pás plný a žádná shoda – konec hry
-      endGame(false);return;
-    }
+    if(belt.length>=BELT_CAP){endGame(false);return;}
     if(belt.length){
       loops++;
       if(loops>=BELT_CAP){endGame(false);return;}
@@ -538,49 +797,46 @@ function processMatch(){
     }
     return;
   }
-  // Kolik balónků z pásu skutečně spotřebovat
   const cm={};
   for(const c of matching){
     const onBelt=belt.filter(b=>b===c).length;
     const exposed=getExposedPixelsOfColor(grid,c).length;
     const stored=remainingUnits[c]||0;
-    // Kolik pixelů ještě není pokryto zásobníkem
     const notCovered=Math.max(0,exposed-stored);
     const unitsNeeded=Math.ceil(notCovered/PPU);
     cm[c]=Math.min(onBelt,unitsNeeded);
   }
-  // Odeber ze pásu jen potřebný počet, zbytek zůstane
   for(const c of matching){
-    let toRemove=cm[c];
-    let i=0;
+    let toRemove=cm[c];let i=0;
     while(toRemove>0&&i<belt.length){
-      if(belt[i]===c){belt.splice(i,1);toRemove--;}
-      else i++;
+      if(belt[i]===c){belt.splice(i,1);toRemove--;}else i++;
     }
   }
-  destroyPixels([...matching],cm);
-  if(gravityOn){applyGravityTo(grid);}
+  drawBelt();
 
-  // Vyčisti pás a zásobník – odeber barvy které v gridu vůbec neexistují
-  const inGrid=new Set();
-  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++)if(grid[y][x]>=0)inGrid.add(grid[y][x]);
-  belt=belt.filter(c=>inGrid.has(c));
-  for(const k in remainingUnits)if(!inGrid.has(Number(k)))delete remainingUnits[k];
-
-  score+=matching.size*10;
-  document.getElementById('score').textContent=score;
-  loops=0;
-  setStatus('Zásah! +'+matching.size*10);
-  drawBelt();drawGrid();
-  if(!anyLeft(grid)){endGame(true);return;}
-  // Počkej delší než scheduleMatch (600 ms) – možná zbývající projektily
-  // v zásobníku stihnou zničit poslední pixely a vyvolat výhru dřív
-  if(cntCarriers()===0&&anyLeft(grid)){
-    setTimeout(()=>{
-      if(running&&anyLeft(grid)&&cntCarriers()===0)refillCarriers();
-    },900);
-  }
-  scheduleMatch();
+  // Spusť bouncing částice – ničí pixely samy při zásahu
+  launchBouncingParticles(matching,cm,()=>{
+    if(!running)return;
+    // Finální gravitace po skončení kola (island max 2 průchody = dopad + jeden odskok)
+    if(gravityOn)applyGravityTo(grid);
+    else{applyIslandGravity(grid);applyIslandGravity(grid);}
+    drawGrid();
+    // Vyčisti pás a zásobník od mrtvých barev
+    const inGrid=new Set();
+    for(let y=0;y<GH;y++)for(let x=0;x<GW;x++)if(grid[y][x]>=0)inGrid.add(grid[y][x]);
+    belt=belt.filter(c=>inGrid.has(c));
+    for(const k in remainingUnits)if(!inGrid.has(Number(k)))delete remainingUnits[k];
+    score+=matching.size*10;
+    document.getElementById('score').textContent=score;
+    loops=0;
+    setStatus('Zásah! +'+matching.size*10);
+    drawBelt();drawGrid();
+    if(!anyLeft(grid)){endGame(true);return;}
+    if(cntCarriers()===0&&anyLeft(grid)){
+      setTimeout(()=>{if(running&&anyLeft(grid)&&cntCarriers()===0)refillCarriers();},1800);
+    }
+    scheduleMatch();
+  });
 }
 function destroyPixels(colors,cm){
   for(const color of colors){
@@ -616,6 +872,7 @@ function endGame(win){
 }
 function initGame(){
   grid=makeGrid();belt=[];score=0;loops=0;running=true;remainingUnits={};
+  particles=[];particlesFlying=false;
   columns=makeColumns(countPixels(grid));
   document.getElementById('score').textContent=0;
   document.getElementById('overlay').classList.remove('show');
@@ -640,12 +897,18 @@ document.getElementById('gravity-btn').addEventListener('click',()=>{
 });
 
 initGame();
+initParticleCanvas();
 
-// Animační smyčka pásu – běží pořád, 40 px/s
+// Animační smyčka – pás 40 px/s + particle systém
 (function beltLoop(ts){
-  if(lastBeltTime!==null) beltAnim+=(ts-lastBeltTime)/1000*40;
+  if(lastBeltTime!==null){
+    const dt=(ts-lastBeltTime)/1000;
+    beltAnim+=dt*40;
+    updateParticles(dt);
+  }
   lastBeltTime=ts;
   drawBelt();
+  drawParticles();
   requestAnimationFrame(beltLoop);
 })(0);
 </script>
