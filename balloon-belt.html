@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Balloon Belt v9</title>
+<style>
+  :root {
+    --font-sans: system-ui, -apple-system, sans-serif;
+    --color-text-primary: #f0f0f0;
+    --color-text-secondary: #aaa;
+    --color-text-tertiary: #777;
+    --color-border-primary: #888;
+    --color-border-secondary: #444;
+    --color-border-tertiary: #333;
+    --color-background-primary: #1a1a1a;
+    --color-background-secondary: #2a2a2a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-sans);
+    background: #111;
+    color: var(--color-text-primary);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 20px 0 40px;
+  }
+  #game{display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px;max-width:480px;margin:0 auto;width:100%}
+  #status{font-size:13px;color:var(--color-text-secondary);min-height:18px;text-align:center}
+  #image-area{width:360px;height:310px;border:2px solid #555;border-radius:8px;overflow:hidden;background:#111;position:relative}
+  #pixel-canvas{display:block;width:360px;height:310px;image-rendering:pixelated}
+  #belt-wrap{width:360px}
+  #belt-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:4px;text-align:center}
+  #belt-svg{width:360px;height:64px;display:block}
+  .controls{width:360px;display:flex;flex-direction:column;gap:8px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-secondary);border-radius:12px;padding:10px 14px}
+  .ctrl-row-top{display:flex;justify-content:space-between;align-items:flex-end;gap:8px}
+  .ctrl-row-bottom{display:flex;justify-content:flex-end;align-items:center;gap:8px;border-top:0.5px solid var(--color-border-secondary);padding-top:8px}
+  .ctrl-group{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+  .ctrl-label{font-size:10px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.07em;font-weight:500;padding-left:2px}
+  .seg{display:flex;border-radius:7px;overflow:hidden;border:0.5px solid var(--color-border-secondary)}
+  .btn{padding:4px 11px;border:none;border-right:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:12px;color:var(--color-text-secondary);transition:background 0.12s,color 0.12s;white-space:nowrap}
+  .btn:last-child{border-right:none}
+  .btn:hover{background:rgba(255,255,255,0.07);color:var(--color-text-primary)}
+  .btn.active{background:rgba(255,255,255,0.13);color:var(--color-text-primary);font-weight:600}
+  .gravity-label{font-size:10px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.07em;font-weight:500}
+  .toggle-btn{padding:4px 12px;border-radius:7px;border:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:12px;color:var(--color-text-secondary);transition:background 0.15s,color 0.15s,border-color 0.15s}
+  .toggle-btn:hover{background:rgba(255,255,255,0.07)}
+  .toggle-btn.active{background:rgba(100,200,100,0.15);color:#7defa0;border-color:#4a9e62;font-weight:600}
+  #carriers-wrap{width:360px}
+  #carriers-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:6px;text-align:center}
+  #carriers-grid{display:flex;gap:4px;justify-content:center;flex-wrap:nowrap;width:360px}
+  .carrier-col{display:flex;flex-direction:column;gap:6px;align-items:center}
+  .carrier{user-select:none}
+  .carrier.active{cursor:pointer;opacity:1}
+  .carrier.active:hover .cbox{transform:scale(1.08)}
+  .carrier.inactive{opacity:0.25;cursor:default;pointer-events:none}
+  .carrier.hiddenq{opacity:1;cursor:default;pointer-events:none}
+  .carrier.empty{opacity:0;pointer-events:none;width:48px;height:48px;display:block}
+  .cbox{width:48px;height:48px;border-radius:10px;padding:4px;display:grid;grid-template-columns:1fr 1fr;gap:2px;box-sizing:border-box;transition:transform 0.12s;box-shadow:inset 0 3px 9px rgba(0,0,0,0.5),inset 0 -1px 3px rgba(255,255,255,0.08),0 2px 5px rgba(0,0,0,0.45)}
+  .cball{border-radius:50%;min-width:0;min-height:0}
+  .cbox-hid{width:48px;height:48px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:rgba(255,255,255,0.4);box-shadow:inset 0 3px 9px rgba(0,0,0,0.5),0 2px 5px rgba(0,0,0,0.45);background:#282828;border:1.5px solid rgba(255,255,255,0.07);transition:transform 0.12s;box-sizing:border-box}
+  #overlay{display:none;position:absolute;inset:0;background:rgba(0,0,0,0.55);align-items:center;justify-content:center;z-index:10;border-radius:6px}
+  #overlay.show{display:flex}
+  #overlay-box{background:rgba(20,20,20,0.92);border:0.5px solid rgba(255,255,255,0.12);border-radius:12px;padding:1.5rem 2rem;text-align:center;backdrop-filter:blur(6px)}
+  #overlay-box h3{font-size:18px;font-weight:500;margin-bottom:8px}
+  #overlay-box p{font-size:13px;color:var(--color-text-secondary);margin-bottom:16px}
+  #restart-btn{padding:8px 20px;border-radius:8px;border:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:14px;color:var(--color-text-primary)}
+  #restart-btn:hover{background:var(--color-background-secondary)}
+  #score-bar{display:flex;gap:24px;font-size:13px;color:var(--color-text-secondary)}
+  #score-bar span b{color:var(--color-text-primary);font-weight:500}
+  h1{font-size:16px;font-weight:500;color:var(--color-text-secondary);letter-spacing:0.05em}
+</style>
+</head>
+<body>
+<div id="game">
+  <h1>🎈 Balloon Belt</h1>
+  <div id="score-bar">
+    <span>Skóre: <b id="score">0</b></span>
+    <span>Belt: <b id="belt-count">0</b>/14</span>
+    <span>Nosiče: <b id="carriers-left">0</b></span>
+  </div>
+  <div class="controls">
+    <div class="ctrl-row-top">
+      <div class="ctrl-group">
+        <span class="ctrl-label">level</span>
+        <div class="seg">
+          <button class="btn active" data-level="shapes">tvary</button>
+          <button class="btn" data-level="stripes">pruhy</button>
+          <button class="btn" data-level="mix">mix</button>
+        </div>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">obtížnost</span>
+        <div class="seg">
+          <button class="btn active" data-diff="easy">snadná</button>
+          <button class="btn" data-diff="medium">střední</button>
+          <button class="btn" data-diff="hard">těžká</button>
+        </div>
+      </div>
+    </div>
+    <div class="ctrl-row-bottom">
+      <span class="gravity-label">gravitace</span>
+      <button class="toggle-btn" id="gravity-btn">vypnuto</button>
+    </div>
+  </div>
+  <div id="status">Klikni na aktivní nosič</div>
+  <div id="image-area">
+    <canvas id="pixel-canvas" width="36" height="31"></canvas>
+    <div id="overlay">
+      <div id="overlay-box">
+        <h3 id="overlay-title">Konec</h3>
+        <p id="overlay-msg"></p>
+        <button id="restart-btn">Hrát znovu</button>
+      </div>
+    </div>
+  </div>
+  <div id="belt-wrap">
+    <div id="belt-label">dopravní pás → obraz</div>
+    <svg id="belt-svg" viewBox="0 0 360 64" xmlns="http://www.w3.org/2000/svg"></svg>
+  </div>
+  <div id="carriers-wrap">
+    <div id="carriers-label">nosiče</div>
+    <div id="carriers-grid"></div>
+  </div>
+</div>
+<script>
+const COLORS=['#3dd64a','#ff7a1a','#5bc8f5','#1b9aff','#ff4fa3','#f5d800','#8b4dff'];
+const BELT_CAP=14;
+const COLS=7;
+const GW=36,GH=31,IMG_GH=27;
+const UPC=4;
+const PPU=10;
+let grid,belt,columns,score,loops,running,difficulty='easy',gravityOn=false,currentLevel='shapes',remainingUnits;
+let beltAnim=0,lastBeltTime=null;
+function makeGridShapes(){
+  const g=[];
+  for(let y=0;y<IMG_GH;y++){
+    const r=[];
+    for(let x=0;x<GW;x++){
+      if(y===IMG_GH-1){r.push(-1);continue;}
+      r.push(Math.floor(y/3)%2===0?5:6);
+    }
+    g.push(r);
+  }
+  const shapes=[
+    {cx:18,cy:13,rx:14,ry:11,c:1},{cx:18,cy:14,rx:10,ry:8,c:0},
+    {cx:11,cy:16,rx:6,ry:5,c:3},{cx:25,cy:16,rx:6,ry:5,c:2},
+    {cx:11,cy:17,rx:4,ry:3,c:4},{cx:25,cy:17,rx:4,ry:3,c:6}
+  ];
+  for(const s of shapes)
+    for(let y=0;y<IMG_GH-1;y++)for(let x=0;x<GW;x++){
+      const dx=(x-s.cx)/s.rx,dy=(y-s.cy)/s.ry;
+      if(dx*dx+dy*dy<=1)g[y][x]=s.c;
+    }
+  return g;
+}
+function makeGridStripes(){
+  const g=[];
+  for(let y=0;y<IMG_GH;y++)g.push(new Array(GW).fill(-1));
+  const cw=Math.floor(GW/3);
+  const pats=[
+    [{c:0,h:3},{c:3,h:2},{c:5,h:2},{c:4,h:2},{c:0,h:3},{c:3,h:2},{c:5,h:2},{c:4,h:3},{c:0,h:2},{c:6,h:3},{c:5,h:3}],
+    [{c:1,h:2},{c:4,h:3},{c:6,h:2},{c:3,h:2},{c:2,h:3},{c:1,h:2},{c:4,h:3},{c:0,h:2},{c:6,h:2},{c:1,h:3},{c:4,h:3}],
+    [{c:2,h:3},{c:4,h:2},{c:2,h:2},{c:0,h:3},{c:3,h:2},{c:2,h:2},{c:0,h:3},{c:4,h:2},{c:2,h:3},{c:0,h:3},{c:3,h:2}]
+  ];
+  for(let col=0;col<3;col++){
+    const xs=col*cw,xe=col===2?GW:xs+cw;
+    let y=0;
+    for(const s of pats[col]){
+      for(let dy=0;dy<s.h&&y<IMG_GH-1;dy++,y++)
+        for(let x=xs;x<xe;x++)g[y][x]=s.c;
+      if(y>=IMG_GH-1)break;
+    }
+  }
+  return g;
+}
+function makeGridMix(){
+  const g=makeGridStripes();
+  for(let y=Math.floor(IMG_GH*0.55);y<IMG_GH-1;y++)for(let x=0;x<GW;x++)g[y][x]=5;
+  const shapes=[
+    {cx:8,cy:21,rx:5,ry:3,c:1},{cx:18,cy:22,rx:5,ry:3,c:0},
+    {cx:28,cy:21,rx:5,ry:3,c:3},{cx:13,cy:23,rx:3,ry:2,c:4},{cx:23,cy:23,rx:3,ry:2,c:6}
+  ];
+  for(const s of shapes)
+    for(let y=0;y<IMG_GH-1;y++)for(let x=0;x<GW;x++){
+      const dx=(x-s.cx)/s.rx,dy=(y-s.cy)/s.ry;
+      if(dx*dx+dy*dy<=1)g[y][x]=s.c;
+    }
+  return g;
+}
+function makeGrid(){
+  let g;
+  if(currentLevel==='stripes')g=makeGridStripes();
+  else if(currentLevel==='mix')g=makeGridMix();
+  else g=makeGridShapes();
+  // 4 prázdné řady dole (buffer zóna)
+  for(let i=0;i<4;i++)g.push(new Array(GW).fill(-1));
+  return g;
+}
+function countPixels(g){
+  const c=new Array(COLORS.length).fill(0);
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++)if(g[y][x]>=0)c[g[y][x]]++;
+  return c;
+}
+function colorDepth(g){
+  const d=new Array(COLORS.length).fill(0),cnt=new Array(COLORS.length).fill(0);
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    const c=g[y][x];if(c<0)continue;
+    d[c]+=Math.min(x,GW-1-x,y,GH-1-y);cnt[c]++;
+  }
+  return d.map((v,i)=>cnt[i]?v/cnt[i]:0);
+}
+function getOpenEmptyCells(g){
+  const open=new Set();
+  const stack=[];
+  const push=(x,y)=>{
+    const k=y*GW+x;
+    if(open.has(k))return;
+    if(g[y][x]!==-1)return;
+    open.add(k);stack.push([x,y]);
+  };
+  for(let x=0;x<GW;x++)push(x,GH-1);
+  while(stack.length){
+    const [x,y]=stack.pop();
+    if(x>0)push(x-1,y);
+    if(x<GW-1)push(x+1,y);
+    if(y>0)push(x,y-1);
+    if(y<GH-1)push(x,y+1);
+  }
+  return open;
+}
+function getExposedPixelsOfColor(g,color){
+  const open=getOpenEmptyCells(g);
+  const out=[];
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    if(g[y][x]!==color)continue;
+    let exp=false;
+    if(y>0&&open.has((y-1)*GW+x))exp=true;
+    else if(y<GH-1&&open.has((y+1)*GW+x))exp=true;
+    else if(x>0&&open.has(y*GW+(x-1)))exp=true;
+    else if(x<GW-1&&open.has(y*GW+(x+1)))exp=true;
+    if(exp)out.push({x,y});
+  }
+  return out;
+}
+function getAvailableColors(g){
+  const open=getOpenEmptyCells(g);
+  const s=new Set();
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    const c=g[y][x];
+    if(c===-1||s.has(c))continue;
+    let exp=false;
+    if(y>0&&open.has((y-1)*GW+x))exp=true;
+    else if(y<GH-1&&open.has((y+1)*GW+x))exp=true;
+    else if(x>0&&open.has(y*GW+(x-1)))exp=true;
+    else if(x<GW-1&&open.has(y*GW+(x+1)))exp=true;
+    if(exp)s.add(c);
+  }
+  return s;
+}
+function anyLeft(g){
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++)if(g[y][x]!==-1)return true;
+  return false;
+}
+function applyGravityTo(g){
+  for(let x=0;x<GW;x++){
+    const px=[];
+    for(let y=0;y<IMG_GH-1;y++)if(g[y][x]!==-1)px.push(g[y][x]);
+    for(let y=0;y<IMG_GH-1;y++){
+      const fb=(IMG_GH-2)-y;
+      g[y][x]=fb<px.length?px[px.length-1-fb]:-1;
+    }
+  }
+}
+function isLevelSolvable(startGrid,carrierQueue){
+  const g=startGrid.map(r=>r.slice());
+  const remaining={};
+  const queue=carrierQueue.slice();
+  let safeguard=10000;
+  while(anyLeft(g)&&safeguard-->0){
+    if(!queue.length){
+      let any=false;
+      for(const c in remaining){
+        if(remaining[c]>0){
+          const exp=getExposedPixelsOfColor(g,Number(c));
+          if(exp.length){
+            const take=Math.min(remaining[c],exp.length);
+            exp.sort((a,b)=>b.y-a.y);
+            for(let i=0;i<take;i++)g[exp[i].y][exp[i].x]=-1;
+            remaining[c]-=take;
+            if(gravityOn)applyGravityTo(g);
+            any=true;
+          }
+        }
+      }
+      if(!any)return false;
+      continue;
+    }
+    const color=queue.shift();
+    remaining[color]=(remaining[color]||0)+UPC*PPU;
+    const avail=getAvailableColors(g);
+    for(const c of avail){
+      if((remaining[c]||0)<=0)continue;
+      let td=remaining[c];
+      while(td>0){
+        const exp=getExposedPixelsOfColor(g,c);
+        if(!exp.length)break;
+        exp.sort((a,b)=>b.y-a.y);
+        const take=Math.min(td,exp.length);
+        for(let i=0;i<take;i++)g[exp[i].y][exp[i].x]=-1;
+        td-=take;
+      }
+      remaining[c]=td>0?td:0;
+      if(gravityOn)applyGravityTo(g);
+    }
+  }
+  return !anyLeft(g);
+}
+function generateCarrierQueue(pxCounts){
+  const q=[];
+  for(let c=0;c<pxCounts.length;c++){
+    if(!pxCounts[c])continue;
+    const n=Math.ceil(pxCounts[c]/(UPC*PPU));
+    for(let i=0;i<n;i++)q.push(c);
+  }
+  return q;
+}
+function makeColumns(pxCounts){
+  const depth=colorDepth(grid);
+  const avail=getAvailableColors(grid);
+  let q=generateCarrierQueue(pxCounts);
+  const originalQ=q.slice();
+  let attempts=0;
+  let ok=false;
+  let bestQ=q.slice();
+  while(attempts<20){
+    attempts++;
+    q=originalQ.slice();
+    if(difficulty==='easy'){
+      q.sort((a,b)=>{
+        const av=avail.has(a)?0:1,bv=avail.has(b)?0:1;
+        return av!==bv?av-bv:depth[a]-depth[b];
+      });
+      for(let i=q.length-1;i>0;i--){
+        const j=Math.max(0,Math.min(q.length-1,i+Math.floor((Math.random()-0.5)*3)));
+        [q[i],q[j]]=[q[j],q[i]];
+      }
+    } else if(difficulty==='hard'){
+      const cc={};for(const c of q)cc[c]=(cc[c]||0)+1;
+      q.sort((a,b)=>{
+        const al=avail.has(a)?1:0,bl=avail.has(b)?1:0;
+        if(al!==bl)return bl-al;
+        if(!al&&!bl)return depth[b]-depth[a];
+        return cc[a]-cc[b];
+      });
+    } else {
+      for(let i=q.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[q[i],q[j]]=[q[j],q[i]];}
+    }
+    if(isLevelSolvable(grid,q)){ok=true;bestQ=q.slice();break;}
+    bestQ=q.slice();
+  }
+  if(!ok){
+    for(let c=0;c<COLORS.length;c++){
+      if(pxCounts[c]>0){bestQ.push(c);bestQ.push(c);}
+    }
+  }
+  return buildColsFromQueue(bestQ);
+}
+function buildColsFromQueue(q){
+  const hr=difficulty==='easy'?0:difficulty==='medium'?0.5:0.75;
+  const rows=Math.ceil(q.length/COLS);
+  const cols=[];for(let c=0;c<COLS;c++)cols.push([]);
+  let qi=0;
+  for(let r=0;r<rows;r++){
+    const order=[...Array(COLS).keys()].sort(()=>Math.random()-0.5);
+    for(const c of order){
+      if(qi<q.length){
+        const hidden=cols[c].length>0&&Math.random()<hr;
+        cols[c].push({color:q[qi++],hidden});
+      }
+    }
+  }
+  const ml=Math.max(...cols.map(c=>c.length));
+  for(const col of cols)while(col.length<ml)col.push(null);
+  return cols;
+}
+function drawGrid(){
+  const cv=document.getElementById('pixel-canvas');
+  const ctx=cv.getContext('2d');
+  ctx.clearRect(0,0,GW,GH);
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++)
+    if(grid[y][x]!==-1){ctx.fillStyle=COLORS[grid[y][x]];ctx.fillRect(x,y,1,1);}
+}
+function drawBelt(){
+  const svg=document.getElementById('belt-svg');
+  svg.innerHTML='';
+  const W=360,H=64;
+  const rollerR=28;
+  const trackY1=18,trackY2=46;
+  const lx=rollerR,rx=W-rollerR;
+  const ns='http://www.w3.org/2000/svg';
+  const mk=(tag,attrs)=>{const e=document.createElementNS(ns,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;};
+
+  // Clip path – koule za válci zmizí
+  const defs=mk('defs',{});
+  const clip=mk('clipPath',{id:'bc'});
+  clip.appendChild(mk('rect',{x:lx+1,y:trackY1-2,width:rx-lx-2,height:trackY2-trackY1+4}));
+  defs.appendChild(clip);
+  svg.appendChild(defs);
+
+  // Pásy
+  svg.appendChild(mk('line',{x1:lx,y1:trackY1,x2:rx,y2:trackY1,stroke:'#888','stroke-width':4,'stroke-linecap':'round'}));
+  svg.appendChild(mk('line',{x1:lx,y1:trackY2,x2:rx,y2:trackY2,stroke:'#888','stroke-width':4,'stroke-linecap':'round'}));
+
+  // Animované šipky
+  const arrowY=(trackY1+trackY2)/2;
+  const arrowPeriod=30;
+  const arrowOff=beltAnim%arrowPeriod;
+  const arrowGrp=mk('g',{'clip-path':'url(#bc)'});
+  for(let ax=lx+(arrowOff%arrowPeriod);ax<rx+arrowPeriod;ax+=arrowPeriod){
+    arrowGrp.appendChild(mk('polyline',{points:`${ax},${arrowY-5} ${ax+10},${arrowY} ${ax},${arrowY+5}`,fill:'none',stroke:'#666','stroke-width':2,'stroke-linecap':'round','stroke-linejoin':'round'}));
+  }
+  svg.appendChild(arrowGrp);
+
+  // Válce navrch
+  [lx,rx].forEach(cx=>{
+    svg.appendChild(mk('ellipse',{cx,cy:H/2,rx:8,ry:rollerR-2,fill:'#666',stroke:'#444','stroke-width':2}));
+    svg.appendChild(mk('ellipse',{cx,cy:H/2,rx:4,ry:12,fill:'#888',stroke:'#555','stroke-width':1}));
+    svg.appendChild(mk('circle',{cx,cy:H/2,r:4,fill:'#aaa'}));
+  });
+
+  // Animované koule
+  const ballR=14;
+  const startX=lx+ballR+8;
+  const endX=rx-ballR-8;
+  const trackW=endX-startX;
+  const spacing=trackW/(BELT_CAP-1);
+  const totalLen=BELT_CAP*spacing;
+  const ballY=(trackY1+trackY2)/2;
+  const offset=beltAnim%totalLen;
+
+  const ballGrp=mk('g',{'clip-path':'url(#bc)'});
+  for(let i=0;i<BELT_CAP;i++){
+    const bx=startX+(i*spacing+offset)%totalLen;
+    if(i<belt.length){
+      const color=COLORS[belt[i]];
+      ballGrp.appendChild(mk('circle',{cx:bx,cy:ballY,r:ballR,fill:color,stroke:'rgba(0,0,0,0.25)','stroke-width':1}));
+      ballGrp.appendChild(mk('circle',{cx:bx-4,cy:ballY-4,r:4,fill:'rgba(255,255,255,0.35)'}));
+    } else {
+      ballGrp.appendChild(mk('circle',{cx:bx,cy:ballY,r:ballR,fill:'none',stroke:'#3a3a3a','stroke-width':1.5,'stroke-dasharray':'4,3'}));
+    }
+  }
+  svg.appendChild(ballGrp);
+
+  document.getElementById('belt-count').textContent=belt.length;
+}
+function cntCarriers(){
+  let n=0;
+  for(let c=0;c<COLS;c++)for(const s of columns[c])if(s!==null)n++;
+  return n;
+}
+function drawCarriers(){
+  const el=document.getElementById('carriers-grid');
+  el.innerHTML='';
+  for(let c=0;c<COLS;c++){
+    const col=document.createElement('div');
+    col.className='carrier-col';
+    for(let r=0;r<columns[c].length;r++){
+      const slot=columns[c][r];
+      const empty=slot===null;
+      let active=false;
+      if(!empty){active=true;for(let rr=0;rr<r;rr++)if(columns[c][rr]!==null){active=false;break;}}
+      const hidden=!empty&&!active&&slot.hidden===true;
+      const div=document.createElement('div');
+      div.className='carrier '+(empty?'empty':active?'active':hidden?'hiddenq':'inactive');
+      if(empty){
+        div.innerHTML='';
+      } else if(hidden){
+        div.innerHTML='<div class="cbox-hid">?</div>';
+      } else {
+        const bg=COLORS[slot.color];
+        // Každý balónek: sférický highlight + tmavá kontura
+        const ballStyle='border-radius:50%;min-width:0;min-height:0;'
+          +'background:radial-gradient(circle at 36% 32%, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0) 52%), '+bg+';'
+          +'box-shadow:inset 0 -2px 4px rgba(0,0,0,0.3), 0 0 0 1.5px rgba(0,0,0,0.28);';
+        const oneBall='<div style="'+ballStyle+'"></div>';
+        const fourBalls=oneBall+oneBall+oneBall+oneBall;
+        div.innerHTML='<div class="cbox" style="background:'+bg+';border:1.5px solid rgba(0,0,0,0.45)">'+fourBalls+'</div>';
+      }
+      if(active){div.dataset.col=c;div.dataset.row=r;div.addEventListener('click',onCarrierClick);}
+      col.appendChild(div);
+    }
+    el.appendChild(col);
+  }
+  document.getElementById('carriers-left').textContent=cntCarriers();
+}
+function onCarrierClick(e){
+  const c=+e.currentTarget.dataset.col,r=+e.currentTarget.dataset.row;
+  if(!running)return;
+  const slot=columns[c][r];
+  if(!slot)return;
+  const color=slot.color;
+  const space=BELT_CAP-belt.length;
+  const toAdd=Math.min(UPC,space);
+  const toStore=UPC-toAdd;
+  for(let i=0;i<toAdd;i++)belt.push(color);
+  if(toStore>0)remainingUnits[color]=(remainingUnits[color]||0)+toStore*PPU;
+  columns[c][r]=null;
+  drawCarriers();drawBelt();
+  if(toStore>0)
+    setStatus(toAdd+' balónků na pásu, '+toStore+' v paměti');
+  else
+    setStatus(UPC+' balónky na pásu');
+  scheduleMatch();
+}
+let mt=null;
+function scheduleMatch(){if(mt)clearTimeout(mt);mt=setTimeout(processMatch,600);}
+function processMatch(){
+  if(!running)return;
+  const avail=getAvailableColors(grid);
+  const bset=new Set(belt);
+  const matching=new Set();
+  for(const c of bset)if(avail.has(c))matching.add(c);
+  for(const c of avail)if((remainingUnits[c]||0)>0)matching.add(c);
+  if(!matching.size){
+    if(belt.length>=BELT_CAP){
+      // Pás plný a žádná shoda – konec hry
+      endGame(false);return;
+    }
+    if(belt.length){
+      loops++;
+      if(loops>=BELT_CAP){endGame(false);return;}
+      setStatus('Žádná shoda – přidej jinou barvu');
+    } else if(anyLeft(grid)&&cntCarriers()===0){
+      refillCarriers();
+    }
+    return;
+  }
+  // Kolik balónků z pásu skutečně spotřebovat
+  const cm={};
+  for(const c of matching){
+    const onBelt=belt.filter(b=>b===c).length;
+    const exposed=getExposedPixelsOfColor(grid,c).length;
+    const stored=remainingUnits[c]||0;
+    // Kolik pixelů ještě není pokryto zásobníkem
+    const notCovered=Math.max(0,exposed-stored);
+    const unitsNeeded=Math.ceil(notCovered/PPU);
+    cm[c]=Math.min(onBelt,unitsNeeded);
+  }
+  // Odeber ze pásu jen potřebný počet, zbytek zůstane
+  for(const c of matching){
+    let toRemove=cm[c];
+    let i=0;
+    while(toRemove>0&&i<belt.length){
+      if(belt[i]===c){belt.splice(i,1);toRemove--;}
+      else i++;
+    }
+  }
+  destroyPixels([...matching],cm);
+  if(gravityOn){applyGravityTo(grid);}
+
+  // Vyčisti pás a zásobník – odeber barvy které v gridu vůbec neexistují
+  const inGrid=new Set();
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++)if(grid[y][x]>=0)inGrid.add(grid[y][x]);
+  belt=belt.filter(c=>inGrid.has(c));
+  for(const k in remainingUnits)if(!inGrid.has(Number(k)))delete remainingUnits[k];
+
+  score+=matching.size*10;
+  document.getElementById('score').textContent=score;
+  loops=0;
+  setStatus('Zásah! +'+matching.size*10);
+  drawBelt();drawGrid();
+  if(!anyLeft(grid)){endGame(true);return;}
+  // Počkej delší než scheduleMatch (600 ms) – možná zbývající projektily
+  // v zásobníku stihnou zničit poslední pixely a vyvolat výhru dřív
+  if(cntCarriers()===0&&anyLeft(grid)){
+    setTimeout(()=>{
+      if(running&&anyLeft(grid)&&cntCarriers()===0)refillCarriers();
+    },900);
+  }
+  scheduleMatch();
+}
+function destroyPixels(colors,cm){
+  for(const color of colors){
+    const prev=remainingUnits[color]||0;
+    let td=(cm[color]*PPU)+prev;
+    while(td>0){
+      const exp=getExposedPixelsOfColor(grid,color);
+      if(!exp.length)break;
+      exp.sort((a,b)=>b.y-a.y);
+      exp.slice(0,td).forEach(p=>{grid[p.y][p.x]=-1;});
+      td-=Math.min(exp.length,td);
+    }
+    remainingUnits[color]=td>0?td:0;
+  }
+}
+function refillCarriers(){
+  const pxCounts=countPixels(grid);
+  const newCols=makeColumns(pxCounts);
+  for(let c=0;c<COLS;c++){
+    for(const slot of newCols[c]){
+      if(slot!==null)columns[c].push(slot);
+    }
+  }
+  drawCarriers();
+  setStatus('Záchranné nosiče doplněny');
+}
+function setStatus(m){document.getElementById('status').textContent=m;}
+function endGame(win){
+  running=false;
+  document.getElementById('overlay-title').textContent=win?'Vyhráno!':'Game Over';
+  document.getElementById('overlay-msg').textContent=(win?'Obraz zničen.':'Belt zablokován.')+' Skóre: '+score;
+  document.getElementById('overlay').classList.add('show');
+}
+function initGame(){
+  grid=makeGrid();belt=[];score=0;loops=0;running=true;remainingUnits={};
+  columns=makeColumns(countPixels(grid));
+  document.getElementById('score').textContent=0;
+  document.getElementById('overlay').classList.remove('show');
+  drawGrid();drawBelt();drawCarriers();
+  setStatus('Klikni na aktivní nosič');
+}
+document.getElementById('restart-btn').addEventListener('click',initGame);
+document.querySelectorAll('[data-level]').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('[data-level]').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');currentLevel=b.dataset.level;initGame();
+}));
+document.querySelectorAll('[data-diff]').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('[data-diff]').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');difficulty=b.dataset.diff;initGame();
+}));
+document.getElementById('gravity-btn').addEventListener('click',()=>{
+  gravityOn=!gravityOn;
+  const btn=document.getElementById('gravity-btn');
+  btn.textContent=gravityOn?'zapnuto':'vypnuto';
+  btn.classList.toggle('active',gravityOn);
+  initGame();
+});
+
+initGame();
+
+// Animační smyčka pásu – běží pořád, 40 px/s
+(function beltLoop(ts){
+  if(lastBeltTime!==null) beltAnim+=(ts-lastBeltTime)/1000*40;
+  lastBeltTime=ts;
+  drawBelt();
+  requestAnimationFrame(beltLoop);
+})(0);
+</script>
+</body>
+</html>
