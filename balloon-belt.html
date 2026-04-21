@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Balloon Belt v11</title>
+<title>Balloon Belt v12</title>
 <style>
   :root {
     --font-sans: system-ui, -apple-system, sans-serif;
@@ -29,7 +29,7 @@
   }
   #game{display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px;max-width:480px;margin:0 auto;width:100%}
   #status{font-size:13px;color:var(--color-text-secondary);min-height:18px;text-align:center}
-  #image-area{width:360px;height:310px;border:2px solid #555;border-radius:8px;overflow:hidden;background:#111;position:relative}
+  #image-area{width:360px;height:310px;border:2px solid #555;border-radius:8px;overflow:hidden;background:#353535;position:relative}
   #pixel-canvas{display:block;width:360px;height:310px;image-rendering:pixelated}
   #belt-wrap{width:360px}
   #belt-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:4px;text-align:center}
@@ -79,7 +79,7 @@
 </style>
 </head>
 <body>
-<div id="version-badge">v11</div>
+<div id="version-badge">v12</div>
 <div id="game">
   <h1>🎈 Balloon Belt</h1>
   <div id="score-bar">
@@ -95,6 +95,7 @@
           <button class="btn active" data-level="shapes">tvary</button>
           <button class="btn" data-level="stripes">pruhy</button>
           <button class="btn" data-level="mix">mix</button>
+          <button class="btn" data-level="smiley">smajlík</button>
         </div>
       </div>
       <div class="ctrl-group">
@@ -136,7 +137,7 @@
   </div>
 </div>
 <script>
-const COLORS=['#3dd64a','#ff7a1a','#5bc8f5','#1b9aff','#ff4fa3','#f5d800','#8b4dff'];
+const COLORS=['#3dd64a','#ff7a1a','#5bc8f5','#1b9aff','#ff4fa3','#f5d800','#8b4dff','#141414','#ffffff'];
 const BELT_CAP=14;
 const COLS=7;
 const GW=36,GH=31,IMG_GH=27;
@@ -154,13 +155,40 @@ const LAUNCH_X=180;                                // střed pásu – otvor
 const LAUNCH_TRACK=LAUNCH_X-BELT_STARTX;          // ~130
 let noMatchPasses=0;
 let stuckPassCount=0;   // kolikrát v řadě koule prošla bez konzumace (count===0)
-// === ROZPTYL STŘEL (C: sektorový náhodný rozptyl) ===
-const GUN_SPREAD=80*Math.PI/180;  // ±80° od svislice = 160° celkem
-let gunQueue=[];                   // fronta čekajících střel {ci,color,angle}
+// === POJÍZDNÝ KANON ===
+let gunQueue=[];                   // fronta čekajících střel {ci,color}
 let gunFireTimer=0;
-const GUN_FIRE_INTERVAL=0.04;     // 40 ms mezi výstřely
+const GUN_FIRE_INTERVAL=0.05;     // 50 ms mezi výstřely
+const CANNON_Y=GH*10-6;           // 304 – těsně nad spodní hranou (SCALE je 10)
+const CANNON_MIN_X=16;
+const CANNON_MAX_X=344;
+const CANNON_SPEED=560;           // px/s podél spodní hrany
+const CANNON_ARRIVE_EPS=1.5;      // px – kdy se považuje za „na pozici"
+const CANNON_LEAD=0.4;            // 0..1 – jak blízko pod cíl kanon dojede (nižší = víc rotace hlavně)
+let cannonX=LAUNCH_X, cannonAngle=-Math.PI/2;
+let cannonLock=null;              // {ci, gx, gy, idealX, angle, type} – drží vybraný cíl, aby kanon nekmital
+let introSeq=0;                   // token pro zrušení naplánovaného intra při resetu/přepnutí levelu
 // === BOUNCING PARTICLE SYSTEM ===
 let particles=[],particleCanvas,particleCtx;
+let shards=[];                    // odlétající střípky při zásahu – jen vizuál, nezasahují do fyziky
+function spawnPopShards(x,y,color){
+  const n=8;
+  for(let i=0;i<n;i++){
+    const ang=(i/n)*Math.PI*2+(Math.random()-0.5)*0.7;
+    const spd=70+Math.random()*110;
+    shards.push({
+      x,y,
+      vx:Math.cos(ang)*spd,
+      vy:Math.sin(ang)*spd-45,           // lehký impuls vzhůru, pak gravitace
+      size:1.6+Math.random()*2.4,
+      rot:Math.random()*Math.PI,
+      vrot:(Math.random()-0.5)*12,
+      life:0,
+      maxLife:0.35+Math.random()*0.28,
+      color
+    });
+  }
+}
 const SCALE=10;
 const PSPEED=320;
 const PSPREAD=0.35;
@@ -185,6 +213,82 @@ function nearestSameColor(ci,px,py){
     if(d<bd){bd=d;best={tx,ty};}
   }
   return best;
+}
+
+// Vybere střelu pro kanon: vrátí {idealX, angle, dist, type} pro nejlepší cíl barvy ci.
+// Upřednostňuje přímé zásahy, jinak zkusí odraz od levé/pravé stěny nebo stropu.
+// Když nic čisté není, vrátí direct s penaltou (projektil se zkusí proflákat přes odraz).
+// Zkusí najít úhel (přímý nebo odrazový), který simulací trefí cíl. Vrací {angle,type} nebo null.
+function findShotFromX(idealX,cannonYPos,tx,ty,ci){
+  const WALL_L=1,WALL_R=358,WALL_T=1;
+  const MUZZLE=14;
+  const tries=[];
+  tries.push({type:'direct',angle:Math.atan2(ty-cannonYPos,tx-idealX)});
+  {
+    const t=idealX/(idealX+tx);
+    const by=cannonYPos+(ty-cannonYPos)*t;
+    if(by>WALL_T&&by<cannonYPos-5)
+      tries.push({type:'bank-L',angle:Math.atan2(by-cannonYPos,WALL_L-idealX)});
+  }
+  {
+    const t=(WALL_R-idealX)/((WALL_R-idealX)+(WALL_R-tx));
+    const by=cannonYPos+(ty-cannonYPos)*t;
+    if(by>WALL_T&&by<cannonYPos-5)
+      tries.push({type:'bank-R',angle:Math.atan2(by-cannonYPos,WALL_R-idealX)});
+  }
+  {
+    const t=cannonYPos/(cannonYPos+ty);
+    const bx=idealX+(tx-idealX)*t;
+    if(bx>WALL_L+5&&bx<WALL_R-5)
+      tries.push({type:'bank-T',angle:Math.atan2(WALL_T-cannonYPos,bx-idealX)});
+  }
+  for(const tr of tries){
+    const mx=idealX+Math.cos(tr.angle)*MUZZLE;
+    const my=cannonYPos+Math.sin(tr.angle)*MUZZLE;
+    if(simulateShotReaches(mx,my,tr.angle,ci)) return tr;
+  }
+  return null;
+}
+
+function pickCannonShot(ci,cannonXPos,cannonYPos){
+  const exposed=getExposedPixelsOfColor(grid,ci);
+  if(!exposed.length)return null;
+  const candidates=[];
+  for(const {x,y} of exposed){
+    const tx=x*SCALE+SCALE/2, ty=y*SCALE+SCALE/2;
+    const rawIdeal=cannonXPos+(tx-cannonXPos)*CANNON_LEAD;
+    const lerpX=Math.max(CANNON_MIN_X,Math.min(CANNON_MAX_X,rawIdeal));
+    const underX=Math.max(CANNON_MIN_X,Math.min(CANNON_MAX_X,tx));
+    // Zkus různé pozice kanonu – od preferované (lerp) po krajní fallbacky.
+    // První pozice s úspěšnou trajektorií vyhrává.
+    const positions=[lerpX,underX,CANNON_MIN_X+20,CANNON_MAX_X-20];
+    let found=null;
+    for(const pos of positions){
+      const shot=findShotFromX(pos,cannonYPos,tx,ty,ci);
+      if(shot){found={idealX:pos,angle:shot.angle,type:shot.type};break;}
+    }
+    if(found){
+      candidates.push({idealX:found.idealX,tx,ty,angle:found.angle,type:found.type});
+    } else {
+      // Skutečně žádná cesta – blokovaný fallback (použijeme jen pokud fakt nic lepšího není)
+      candidates.push({idealX:lerpX,tx,ty,angle:Math.atan2(ty-cannonYPos,tx-lerpX),type:'blocked'});
+    }
+  }
+  const typeWeight={direct:0,'bank-L':1,'bank-R':1,'bank-T':2,blocked:3};
+  candidates.sort((a,b)=>{
+    // 1) Nejdřív cokoliv, co není blokované – raději netrefovaný cíl z jiné řady než pálit do hmoty
+    const aB=a.type==='blocked'?1:0, bB=b.type==='blocked'?1:0;
+    if(aB!==bB) return aB-bB;
+    // 2) Bottom-up po řadách
+    const rowA=Math.floor(a.ty/SCALE), rowB=Math.floor(b.ty/SCALE);
+    if(rowA!==rowB) return rowB-rowA;
+    // 3) Přímý > bok > strop
+    const tw=typeWeight[a.type]-typeWeight[b.type];
+    if(tw!==0) return tw;
+    // 4) Horizontálně nejblíž – plynulý sweep
+    return Math.abs(a.tx-cannonXPos)-Math.abs(b.tx-cannonXPos);
+  });
+  return candidates[0];
 }
 
 function launchBouncingParticles(matching,cm,onDone){
@@ -255,6 +359,29 @@ function respawnParticle(p){
   p.stuckT=0; p.bounceStreak=0; p.totalT=0;
 }
 
+// Odsimuluje let projektilu stejnou fyzikou jako updateParticles (odraz od stěn, pohyb dt=1/60).
+// Vrátí true, když první zasažený barevný pixel = targetCi. Špatná barva = false.
+function simulateShotReaches(sx,sy,angle,targetCi,maxSteps=240){
+  let x=sx,y=sy;
+  let vx=Math.cos(angle)*PSPEED, vy=Math.sin(angle)*PSPEED;
+  const dt=1/60;
+  const YMAX=GH*SCALE-2;
+  for(let s=0;s<maxSteps;s++){
+    let nx=x+vx*dt, ny=y+vy*dt;
+    if(nx<1){nx=1; vx=Math.abs(vx);}
+    else if(nx>358){nx=358; vx=-Math.abs(vx);}
+    if(ny<2){ny=2; vy=Math.abs(vy);}
+    else if(ny>YMAX) return false;
+    const gx=Math.floor(nx/SCALE), gy=Math.floor(ny/SCALE);
+    if(gy>=0&&gy<GH&&gx>=0&&gx<GW){
+      const cell=grid[gy][gx];
+      if(cell===targetCi) return true;
+      if(cell>-1) return false;
+    }
+    x=nx; y=ny;
+  }
+  return false;
+}
 function hasLineOfSight(x1,y1,x2,y2,ownColor){
   // Paprsek z (x1,y1) do (x2,y2) – vrátí false pokud kříží špatnou barvu
   const dx=x2-x1,dy=y2-y1;
@@ -295,6 +422,15 @@ function steerAfterBounce(p){
 }
 
 function updateParticles(dt){
+  for(let i=shards.length-1;i>=0;i--){
+    const s=shards[i];
+    s.life+=dt;
+    if(s.life>=s.maxLife){shards.splice(i,1);continue;}
+    s.vy+=300*dt;
+    s.vx*=0.96;
+    s.x+=s.vx*dt; s.y+=s.vy*dt;
+    s.rot+=s.vrot*dt;
+  }
   for(let i=particles.length-1;i>=0;i--){
     const p=particles[i];
     if(!p)continue;
@@ -339,6 +475,7 @@ function updateParticles(dt){
       if(gravityOn)applyGravityToCol(grid,gx);
       drawGrid();
       p.phase='pop'; p.popX=nx; p.popY=ny; p.onPop();
+      spawnPopShards(nx,ny,p.color);
       if(running&&!anyLeft(grid)){
         particles.forEach(q=>{if(q.phase==='fly'){q.phase='pop';q.popX=q.x;q.popY=q.y;}});
         setTimeout(()=>{if(running)endGame(true);},80);
@@ -368,9 +505,57 @@ function updateParticles(dt){
   }
 }
 
+function drawCannon(){
+  if(!particleCtx)return;
+  const ctx=particleCtx;
+  const nextColor=gunQueue.length>0?gunQueue[0].color:null;
+  ctx.save();
+  ctx.translate(cannonX,CANNON_Y);
+  // Stín pod kanonem
+  ctx.fillStyle='rgba(0,0,0,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(0,6,15,3,0,0,Math.PI*2);
+  ctx.fill();
+  // Podvozek (lichoběžník)
+  ctx.fillStyle='#2b2d35';
+  ctx.strokeStyle='#6a6e78';
+  ctx.lineWidth=1;
+  ctx.beginPath();
+  ctx.moveTo(-15,5);
+  ctx.lineTo(15,5);
+  ctx.lineTo(11,-3);
+  ctx.lineTo(-11,-3);
+  ctx.closePath();
+  ctx.fill();ctx.stroke();
+  // Kolečka – statická (pohyb naznačený stínem)
+  ctx.fillStyle='#111';
+  ctx.beginPath();ctx.arc(-9,5,2.2,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(9,5,2.2,0,Math.PI*2);ctx.fill();
+  // Otočný talíř
+  ctx.fillStyle='#44464f';
+  ctx.beginPath();ctx.arc(0,-3,5,0,Math.PI*2);ctx.fill();
+  // Hlaveň – otočená k cíli (-PI/2 = svisle nahoru)
+  ctx.rotate(cannonAngle+Math.PI/2);
+  ctx.fillStyle='#4d5058';
+  ctx.strokeStyle='#7a7e88';
+  ctx.lineWidth=1;
+  ctx.fillRect(-2.6,-15,5.2,14);
+  ctx.strokeRect(-2.6,-15,5.2,14);
+  // Hrdlo – barevné náznak další střely
+  if(nextColor){
+    ctx.fillStyle=nextColor;
+    ctx.beginPath();
+    ctx.arc(0,-15,2.2,0,Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,0.4)';
+    ctx.stroke();
+  }
+  ctx.restore();
+}
 function drawParticles(){
   if(!particleCtx)return;
   particleCtx.clearRect(0,0,360,310);
+  drawCannon();
   for(const p of particles){
     if(p.phase==='fly'){
       const spd=Math.sqrt(p.vx*p.vx+p.vy*p.vy)||1;
@@ -398,8 +583,30 @@ function drawParticles(){
       particleCtx.beginPath();
       particleCtx.arc(p.popX,p.popY,p.popR,0,Math.PI*2);
       particleCtx.strokeStyle=p.color;particleCtx.lineWidth=2;particleCtx.stroke();
+      // Rychlý světelný záblesk
+      if(p.popR<4){
+        particleCtx.globalAlpha=0.55*(1-p.popR/4);
+        particleCtx.beginPath();
+        particleCtx.arc(p.popX,p.popY,6+p.popR,0,Math.PI*2);
+        particleCtx.fillStyle='#ffffff';particleCtx.fill();
+      }
       particleCtx.restore();
     }
+  }
+  // Střípky – vykreslí se nad particly (hezky překryjí pop ring)
+  for(const s of shards){
+    const t=s.life/s.maxLife;
+    const alpha=Math.max(0,1-t*t);
+    particleCtx.save();
+    particleCtx.globalAlpha=alpha;
+    particleCtx.translate(s.x,s.y);
+    particleCtx.rotate(s.rot);
+    particleCtx.fillStyle=s.color;
+    particleCtx.fillRect(-s.size/2,-s.size/2,s.size,s.size);
+    particleCtx.strokeStyle='rgba(0,0,0,0.35)';
+    particleCtx.lineWidth=0.5;
+    particleCtx.strokeRect(-s.size/2,-s.size/2,s.size,s.size);
+    particleCtx.restore();
   }
 }
 function makeGridShapes(){
@@ -458,10 +665,74 @@ function makeGridMix(){
     }
   return g;
 }
+function makeGridSmiley(variant){
+  // variant: 'final' (default) | 'neutral' (straight mouth, obě oči) | 'wink' (úsměv + zavřené pravé oko)
+  variant=variant||'final';
+  // Barvy: 0 zelená, 1 oranžová, 2 světlomodrá, 3 modrá, 4 růžová, 5 žlutá, 6 fialová, 7 černá, 8 bílá
+  const BG=3, SKIN=5, OUTL=7, BLUSH=4, EYEW=8, TONG=8;
+  const g=new Array(IMG_GH);
+  for(let y=0;y<IMG_GH;y++)g[y]=new Array(GW).fill(BG);
+  const cx=17.5, cy=12.5, R=11.2, r=10.2;
+  // Tvář – žlutá výplň s černou konturou
+  for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+    const d=Math.hypot(x-cx,y-cy);
+    if(d<=R){g[y][x]=(d>=r)?OUTL:SKIN;}
+  }
+  // Duhový paprskový rámeček v rozích (ať to vypadá hot)
+  const rays=[
+    {cx:2,cy:2,c:1},{cx:33,cy:2,c:0},
+    {cx:2,cy:24,c:6},{cx:33,cy:24,c:4}
+  ];
+  for(const s of rays)for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+    const d=Math.hypot(x-s.cx,y-s.cy);
+    if(d<=2.2&&g[y][x]===BG)g[y][x]=s.c;
+  }
+  // Oči – černý kroužek s bílým highlightem, pravé lze zavřít (wink)
+  const eyes=[{x:13,y:10},{x:22,y:10}];
+  for(let i=0;i<eyes.length;i++){
+    const e=eyes[i];
+    const closed=(variant==='wink'&&i===1);
+    if(closed){
+      for(let xx=e.x-2;xx<=e.x+2;xx++)if(xx>=0&&xx<GW)g[e.y][xx]=OUTL;
+      g[e.y-1][e.x-2]=OUTL;g[e.y-1][e.x+2]=OUTL;
+    } else {
+      for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+        const d=Math.hypot(x-e.x,y-e.y);
+        if(d<=2.4)g[y][x]=OUTL;
+      }
+      for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+        const d=Math.hypot(x-(e.x-0.6),y-(e.y-0.6));
+        if(d<=0.9)g[y][x]=EYEW;
+      }
+    }
+  }
+  // Tvářičky – růžové skvrny jen přes žlutou kůži
+  for(const c of [{x:9,y:14},{x:26,y:14}])
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+      const dx=x-c.x,dy=(y-c.y)*1.3;
+      if(dx*dx+dy*dy<=3.2&&g[y][x]===SKIN)g[y][x]=BLUSH;
+    }
+  // Pusa – pro 'neutral' rovná linka, jinak úsměv s bílým „zubem"
+  if(variant==='neutral'){
+    for(let xx=14;xx<=21;xx++)if(g[16][xx]===SKIN)g[16][xx]=OUTL;
+  } else {
+    const mcx=17.5, mcy=14.2, mR=6.0, mr=4.9;
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+      const dx=(x-mcx), dy=(y-mcy)*1.25;
+      const d=Math.hypot(dx,dy);
+      if(y>=mcy&&d<=mR&&g[y][x]===SKIN){
+        if(d>=mr)g[y][x]=OUTL;
+        else if(y>=mcy+1.2)g[y][x]=TONG;
+      }
+    }
+  }
+  return g;
+}
 function makeGrid(){
   let g;
   if(currentLevel==='stripes')g=makeGridStripes();
   else if(currentLevel==='mix')g=makeGridMix();
+  else if(currentLevel==='smiley')g=makeGridSmiley();
   else g=makeGridShapes();
   // 4 prázdné řady dole (buffer zóna)
   for(let i=0;i<4;i++)g.push(new Array(GW).fill(-1));
@@ -575,74 +846,6 @@ function applyGravityToCol(g,col){
   }
 }
 
-// Island gravity – jen odtržené menší skupiny spadnou dolů; hlavní masa zůstane
-function applyIslandGravity(g){
-  const FLOOR=IMG_GH-2;
-
-  // Najdi všechny propojené komponenty
-  const visited=new Set();
-  const comps=[];
-  for(let y=0;y<=FLOOR;y++) for(let x=0;x<GW;x++){
-    if(g[y][x]===-1||visited.has(y*GW+x))continue;
-    const comp=[];const q=[{x,y}];
-    while(q.length){
-      const{x:cx,y:cy}=q.pop();const ck=cy*GW+cx;
-      if(visited.has(ck))continue;visited.add(ck);
-      comp.push({x:cx,y:cy,c:g[cy][cx]});
-      for(const[nx,ny] of [[cx-1,cy],[cx+1,cy],[cx,cy-1],[cx,cy+1]]){
-        if(nx<0||nx>=GW||ny<0||ny>FLOOR)continue;
-        if(g[ny][nx]!==-1&&!visited.has(ny*GW+nx))q.push({x:nx,y:ny});
-      }
-    }
-    comps.push(comp);
-  }
-
-  // Pokud je jen jedna komponenta (nebo žádná), nic nepadá
-  if(comps.length<=1)return;
-  // Jeden průchod – volající rozhodne kolikrát zavolat
-
-  // Největší komponenta = hlavní masa → zůstane na místě
-  const mainIdx=comps.reduce((mi,c,i)=>c.length>comps[mi].length?i:mi,0);
-
-  for(let ci=0;ci<comps.length;ci++){
-    if(ci===mainIdx)continue;
-    scatterIsland(g, comps[ci], FLOOR);
-  }
-}
-
-// Rozsype ostrov – každý pixel padne samostatně na dno nejbližšího sloupce
-function scatterIsland(g, comp, FLOOR){
-  // Odeber pixely z gridu
-  for(const{x,y} of comp) g[y][x]=-1;
-
-  // Zamíchej pro náhodné pořadí ukládání
-  const px=[...comp];
-  for(let i=px.length-1;i>0;i--){
-    const j=Math.floor(Math.random()*(i+1));
-    [px[i],px[j]]=[px[j],px[i]];
-  }
-
-  // Každý pixel umísti na dno nejbližšího dostupného sloupce
-  for(const{x,c} of px){
-    // Malá šance na posunutí ±1 pro efekt rozsypání
-    const dx=Math.random()<0.45?(Math.random()<0.5?-1:1):0;
-    const preferred=Math.max(0,Math.min(GW-1,x+dx));
-
-    // Zkus preferred, pak střídavě vzdálenější sloupce
-    const order=[preferred];
-    for(let d=1;d<=GW;d++){
-      if(preferred-d>=0)order.push(preferred-d);
-      if(preferred+d<GW)order.push(preferred+d);
-    }
-
-    for(const tx of order){
-      // Najdi nejnižší prázdnou buňku ve sloupci
-      let bot=FLOOR;
-      while(bot>=0&&g[bot][tx]!==-1)bot--;
-      if(bot>=0){g[bot][tx]=c;break;}
-    }
-  }
-}
 function isLevelSolvable(startGrid,carrierQueue){
   const g=startGrid.map(r=>r.slice());
   const remaining={};
@@ -809,18 +1012,6 @@ function drawBelt(){
   svg.appendChild(mk('line',{x1:hx2,y1:trackY1,x2:rx,y2:trackY1,stroke:'#888','stroke-width':4,'stroke-linecap':'round'}));
   svg.appendChild(mk('line',{x1:lx,y1:trackY2,x2:hx1,y2:trackY2,stroke:'#888','stroke-width':4,'stroke-linecap':'round'}));
   svg.appendChild(mk('line',{x1:hx2,y1:trackY2,x2:rx,y2:trackY2,stroke:'#888','stroke-width':4,'stroke-linecap':'round'}));
-  // Statický oblouk – znázorňuje 160° rozptyl střel
-  const arcR=13, oy=trackY1-4;
-  const aL=-Math.PI/2-GUN_SPREAD, aR=-Math.PI/2+GUN_SPREAD;
-  const arcX1=LAUNCH_X+Math.cos(aL)*arcR, arcY1=oy+Math.sin(aL)*arcR;
-  const arcX2=LAUNCH_X+Math.cos(aR)*arcR, arcY2=oy+Math.sin(aR)*arcR;
-  svg.appendChild(mk('path',{d:`M ${arcX1} ${arcY1} A ${arcR} ${arcR} 0 0 1 ${arcX2} ${arcY2}`,
-    fill:'none',stroke:'rgba(255,255,255,0.55)','stroke-width':1.5,'stroke-linecap':'round'}));
-  // Svislá osa
-  svg.appendChild(mk('line',{x1:LAUNCH_X,y1:oy,x2:LAUNCH_X,y2:oy-arcR,
-    stroke:'rgba(255,255,255,0.8)','stroke-width':1.5,'stroke-linecap':'round'}));
-  svg.appendChild(mk('circle',{cx:LAUNCH_X,cy:oy,r:2,fill:'#fff'}));
-
   // Animované šipky
   const arrowY=(trackY1+trackY2)/2;
   const arrowPeriod=30;
@@ -1023,27 +1214,12 @@ function checkLaunchPoint(prevAnim, curAnim){
     drainPending();
     drawBelt();drawPending();
     const count=ball.ppu;
-    const angles=[];
     for(let j=0;j<count;j++){
-      const sectorStart=-Math.PI/2-GUN_SPREAD+(j/count)*2*GUN_SPREAD;
-      const sectorEnd=sectorStart+(2*GUN_SPREAD/count);
-      angles.push(sectorStart+Math.random()*(sectorEnd-sectorStart));
-    }
-    for(let j=angles.length-1;j>0;j--){
-      const k=Math.floor(Math.random()*(j+1));
-      [angles[j],angles[k]]=[angles[k],angles[j]];
-    }
-    for(let j=0;j<count;j++){
-      gunQueue.push({ci:color,color:COLORS[color],angle:angles[j]});
+      gunQueue.push({ci:color,color:COLORS[color]});
     }
     score+=10;
     document.getElementById('score').textContent=score;
     setStatus('Zásah!');
-
-    // Island gravity se aplikuje s malým zpožděním (projektily mezitím něco zbourají)
-    if(!gravityOn){
-      setTimeout(()=>{if(running){applyIslandGravity(grid);applyIslandGravity(grid);drawGrid();}},600);
-    }
 
     if(belt.length===0&&anyLeft(grid)){
       setTimeout(()=>{
@@ -1108,10 +1284,25 @@ function endGame(win){
 }
 function initGame(){
   grid=makeGrid();belt=[];pending=[];score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
-  particles=[];gunQueue=[];gunFireTimer=0;
+  particles=[];shards=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;
   columns=makeColumns(countPixels(grid));
   document.getElementById('score').textContent=0;
   document.getElementById('overlay').classList.remove('show');
+  introSeq++;
+  if(currentLevel==='smiley'){
+    // Intro: neutrál → úsměv → mrknutí → úsměv. Mění jen displej; finální grid se obnoví na konci.
+    const finalGrid=grid;
+    grid=makeGridSmiley('neutral');for(let i=0;i<4;i++)grid.push(new Array(GW).fill(-1));
+    const mySeq=introSeq;
+    const at=(ms,fn)=>setTimeout(()=>{if(mySeq===introSeq)fn();},ms);
+    const swap=v=>{
+      if(v==='final'){grid=finalGrid;} else {grid=makeGridSmiley(v);for(let i=0;i<4;i++)grid.push(new Array(GW).fill(-1));}
+      drawGrid();
+    };
+    at(550,()=>swap('final'));
+    at(1150,()=>swap('wink'));
+    at(1500,()=>swap('final'));
+  }
   drawGrid();drawBelt();drawPending();drawCarriers();
   setStatus('Klikni na aktivní nosič');
 }
@@ -1143,22 +1334,59 @@ initParticleCanvas();
     beltAnim+=dt*50;
     checkLaunchPoint(prevAnim,beltAnim);
 
-    // Sektorový rozptyl – vystřeluj z fronty v předpočítaných úhlech
+    // Pojízdný kanon – vybere nejlepší výstřel (přímý nebo s odrazem od stěny)
     if(gunQueue.length>0){
-      gunFireTimer+=dt;
-      if(gunFireTimer>=GUN_FIRE_INTERVAL){
-        gunFireTimer=0;
-        const item=gunQueue.shift();
-        particles.push({
-          x:LAUNCH_X+(Math.random()-0.5)*6,
-          y:GH*SCALE-2,
-          vx:Math.cos(item.angle)*PSPEED,
-          vy:Math.sin(item.angle)*PSPEED,
-          ci:item.ci,color:item.color,
-          phase:'fly',stuckT:0,bounceStreak:0,totalT:0,
-          popR:0,popX:0,popY:0,onPop:()=>{}
-        });
+      const item=gunQueue[0];
+      // Lock cíle: nepřepočítávat každý snímek, jinak se idealX/target mění s pozicí kanonu → kmitání.
+      // Invalidace: jiná barva ve frontě, nebo cíl už není v gridu.
+      if(cannonLock){
+        if(cannonLock.ci!==item.ci) cannonLock=null;
+        else if(grid[cannonLock.gy]&&grid[cannonLock.gy][cannonLock.gx]!==item.ci) cannonLock=null;
       }
+      let shot=cannonLock;
+      if(!shot){
+        const picked=pickCannonShot(item.ci,cannonX,CANNON_Y);
+        if(picked){
+          cannonLock={ci:item.ci,gx:Math.floor(picked.tx/SCALE),gy:Math.floor(picked.ty/SCALE),
+                      idealX:picked.idealX,angle:picked.angle,type:picked.type};
+          shot=cannonLock;
+        }
+      }
+      if(!shot){
+        gunQueue.shift();
+        gunFireTimer=0;
+      } else {
+        const ddx=shot.idealX-cannonX;
+        const step=CANNON_SPEED*dt;
+        if(Math.abs(ddx)<=step) cannonX=shot.idealX;
+        else cannonX+=Math.sign(ddx)*step;
+        cannonAngle=shot.angle;
+        if(Math.abs(shot.idealX-cannonX)<=CANNON_ARRIVE_EPS){
+          gunFireTimer+=dt;
+          if(gunFireTimer>=GUN_FIRE_INTERVAL){
+            gunFireTimer=0;
+            gunQueue.shift();
+            cannonLock=null;
+            const a=cannonAngle+(Math.random()-0.5)*0.06;
+            const muzzleX=cannonX+Math.cos(cannonAngle)*14;
+            const muzzleY=CANNON_Y+Math.sin(cannonAngle)*14;
+            particles.push({
+              x:muzzleX,y:muzzleY,
+              vx:Math.cos(a)*PSPEED,vy:Math.sin(a)*PSPEED,
+              ci:item.ci,color:item.color,
+              phase:'fly',stuckT:0,bounceStreak:0,totalT:0,
+              popR:0,popX:0,popY:0,onPop:()=>{}
+            });
+          }
+        } else {
+          gunFireTimer=0;
+        }
+      }
+    } else {
+      // Klidový stav – plynule narovnej hlaveň svisle
+      const diff=(-Math.PI/2)-cannonAngle;
+      cannonAngle+=diff*Math.min(1,dt*4);
+      gunFireTimer=0;
     }
 
     updateParticles(dt);
