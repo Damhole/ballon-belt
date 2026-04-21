@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Balloon Belt v14</title>
+<title>Balloon Belt v15</title>
 <style>
   :root {
     --font-sans: system-ui, -apple-system, sans-serif;
@@ -83,7 +83,7 @@
 </style>
 </head>
 <body>
-<div id="version-badge">v14</div>
+<div id="version-badge">v15</div>
 <div id="game">
   <h1>🎈 Balloon Belt</h1>
   <div id="score-bar">
@@ -1376,7 +1376,8 @@ function makeColumns(pxCounts){
   return buildColsFromQueue(bestQ);
 }
 function buildColsFromQueue(q){
-  const hr=difficulty==='easy'?0:difficulty==='medium'?0.5:0.75;
+  if(difficulty==='hard')return buildColsHard(q);
+  const hr=difficulty==='easy'?0:0.5;
   const rows=Math.ceil(q.length/COLS);
   const cols=[];for(let c=0;c<COLS;c++)cols.push([]);
   let qi=0;
@@ -1389,6 +1390,46 @@ function buildColsFromQueue(q){
         cols[c].push({color:src.color,hidden,projectiles:src.projectiles});
       }
     }
+  }
+  const ml=Math.max(...cols.map(c=>c.length));
+  for(const col of cols)while(col.length<ml)col.push(null);
+  return cols;
+}
+function buildColsHard(q){
+  // Těžká obtížnost:
+  //  - nahoře je viditelně jen jeden carrier od každé vzácné barvy (rare first)
+  //  - zbylé top-row sloty dostanou mystery (?) carrier z dominantní barvy → nevíš co klikáš
+  //  - VŠECHNY carriery v hlubších řadách jsou skryté jako ?
+  //  - dominantní barvy tak nejsou nahoře viditelné a nemůžeš je zbrkle vybrat první
+  const byColor={};
+  for(const s of q){(byColor[s.color]=byColor[s.color]||[]).push(s);}
+  const keys=Object.keys(byColor).map(Number).sort((a,b)=>byColor[a].length-byColor[b].length);
+  const cols=[];for(let c=0;c<COLS;c++)cols.push([]);
+  const colOrder=[...Array(COLS).keys()].sort(()=>Math.random()-0.5);
+  // Top row – visible: po jednom carrieru z každé rare barvy
+  let ci=0;
+  for(let k=0;k<keys.length&&ci<COLS;k++,ci++){
+    const s=byColor[keys[k]].shift();
+    cols[colOrder[ci]].push({color:s.color,hidden:false,projectiles:s.projectiles});
+  }
+  // Top row – mystery fill: doplň zbývající sloty nahoře hidden carrierem z nejabundantnější barvy
+  for(let k=keys.length-1;k>=0&&ci<COLS;k--){
+    while(byColor[keys[k]].length>0&&ci<COLS){
+      const s=byColor[keys[k]].shift();
+      cols[colOrder[ci++]].push({color:s.color,hidden:true,projectiles:s.projectiles});
+    }
+  }
+  // Zbytek do hlubších řad, všechno hidden, náhodně rozhozené
+  const rest=[];
+  for(const k of keys)for(const s of byColor[k])rest.push(s);
+  for(let i=rest.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [rest[i],rest[j]]=[rest[j],rest[i]];
+  }
+  for(const s of rest){
+    let shortest=0;
+    for(let c=1;c<COLS;c++)if(cols[c].length<cols[shortest].length)shortest=c;
+    cols[shortest].push({color:s.color,hidden:true,projectiles:s.projectiles});
   }
   const ml=Math.max(...cols.map(c=>c.length));
   for(const col of cols)while(col.length<ml)col.push(null);
@@ -1965,7 +2006,7 @@ function refillCarriers(){
     for(const slot of splitIntoCarriers(c,deficits[c])){
       let shortest=0;
       for(let k=1;k<COLS;k++)if(columns[k].length<columns[shortest].length)shortest=k;
-      columns[shortest].push({color:slot.color,hidden:false,projectiles:slot.projectiles});
+      columns[shortest].push({color:slot.color,hidden:difficulty==='hard',projectiles:slot.projectiles});
       added++;
     }
   }
