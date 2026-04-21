@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Balloon Belt v15</title>
+<title>Balloon Belt v16</title>
 <style>
   :root {
     --font-sans: system-ui, -apple-system, sans-serif;
@@ -83,7 +83,7 @@
 </style>
 </head>
 <body>
-<div id="version-badge">v15</div>
+<div id="version-badge">v16</div>
 <div id="game">
   <h1>🎈 Balloon Belt</h1>
   <div id="score-bar">
@@ -170,7 +170,7 @@ let stuckPassCount=0;   // kolikrát v řadě koule prošla bez konzumace (count
 // === POJÍZDNÝ KANON ===
 let gunQueue=[];                   // fronta čekajících střel {ci,color}
 let gunFireTimer=0;
-const GUN_FIRE_INTERVAL=0.05;     // 50 ms mezi výstřely
+const GUN_FIRE_INTERVAL=0.04;     // 40 ms mezi výstřely
 const CANNON_Y=GH*10-6;           // 304 – těsně nad spodní hranou (SCALE je 10)
 const CANNON_MIN_X=16;
 const CANNON_MAX_X=344;
@@ -1702,7 +1702,7 @@ function onCarrierClick(e){
 // === Trychtýř – fyzika koulí ve frontě. Široký konec dole u nosičů,
 // úzký nahoře u pásu. „Gravitace" míří vzhůru k pásu – koule stoupají
 // skrz trychtýř a vstupují otvorem na pás.
-const FUN={w:360,h:90,narrowY:14,wideY:82,narrowL:156,narrowR:204,wideL:10,wideR:350,r:14};
+const FUN={w:360,h:90,narrowY:14,wideY:82,narrowL:150,narrowR:210,wideL:10,wideR:350,r:14};
 function addToPending(ball){
   ball.r=FUN.r;
   ball.x=FUN.wideL+24+Math.random()*(FUN.wideR-FUN.wideL-48);
