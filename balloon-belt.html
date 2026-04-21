@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Balloon Belt v12</title>
+<title>Balloon Belt v13</title>
 <style>
   :root {
     --font-sans: system-ui, -apple-system, sans-serif;
@@ -30,7 +30,7 @@
   #game{display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px;max-width:480px;margin:0 auto;width:100%}
   #status{font-size:13px;color:var(--color-text-secondary);min-height:18px;text-align:center}
   #image-area{width:360px;height:310px;border:2px solid #555;border-radius:8px;overflow:hidden;background:#353535;position:relative}
-  #pixel-canvas{display:block;width:360px;height:310px;image-rendering:pixelated}
+  #pixel-canvas{display:block;width:360px;height:310px}
   #belt-wrap{width:360px}
   #belt-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:4px;text-align:center}
   #belt-svg{width:360px;height:64px;display:block}
@@ -40,6 +40,11 @@
   .ctrl-group{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
   .ctrl-label{font-size:10px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.07em;font-weight:500;padding-left:2px}
   .seg{display:flex;border-radius:7px;overflow:hidden;border:0.5px solid var(--color-border-secondary)}
+  .stepper{display:flex;align-items:stretch;border-radius:7px;overflow:hidden;border:0.5px solid var(--color-border-secondary);background:rgba(255,255,255,0.04);min-width:130px}
+  .step-arrow{border:none;background:transparent;color:var(--color-text-secondary);cursor:pointer;padding:4px 10px;font-size:14px;line-height:1;transition:background 0.12s,color 0.12s;user-select:none}
+  .step-arrow:hover{background:rgba(255,255,255,0.07);color:var(--color-text-primary)}
+  .step-arrow:active{background:rgba(255,255,255,0.13)}
+  .step-label{flex:1;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--color-text-primary);padding:0 6px;min-width:70px}
   .btn{padding:4px 11px;border:none;border-right:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:12px;color:var(--color-text-secondary);transition:background 0.12s,color 0.12s;white-space:nowrap}
   .btn:last-child{border-right:none}
   .btn:hover{background:rgba(255,255,255,0.07);color:var(--color-text-primary)}
@@ -50,8 +55,7 @@
   .toggle-btn.active{background:rgba(100,200,100,0.15);color:#7defa0;border-color:#4a9e62;font-weight:600}
   #pending-wrap{width:360px}
   #pending-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:4px;text-align:center}
-  #pending-row{display:flex;gap:3px;justify-content:center;flex-wrap:wrap;min-height:14px}
-  .pending-ball{width:14px;height:14px;border-radius:50%;background-position:center;box-shadow:inset 0 -1px 2px rgba(0,0,0,0.35), inset 0 1px 1px rgba(255,255,255,0.25), 0 1px 2px rgba(0,0,0,0.35);border:0.5px solid rgba(0,0,0,0.35)}
+  #pending-canvas{display:block;margin:0 auto;background:transparent}
   #carriers-wrap{width:360px}
   #carriers-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:6px;text-align:center}
   #carriers-grid{display:flex;gap:4px;justify-content:center;flex-wrap:nowrap;width:360px}
@@ -79,7 +83,7 @@
 </style>
 </head>
 <body>
-<div id="version-badge">v12</div>
+<div id="version-badge">v13</div>
 <div id="game">
   <h1>🎈 Balloon Belt</h1>
   <div id="score-bar">
@@ -91,11 +95,10 @@
     <div class="ctrl-row-top">
       <div class="ctrl-group">
         <span class="ctrl-label">level</span>
-        <div class="seg">
-          <button class="btn active" data-level="shapes">tvary</button>
-          <button class="btn" data-level="stripes">pruhy</button>
-          <button class="btn" data-level="mix">mix</button>
-          <button class="btn" data-level="smiley">smajlík</button>
+        <div class="stepper">
+          <button class="step-arrow" id="level-prev" aria-label="předchozí level">‹</button>
+          <span class="step-label" id="level-label">tvary</span>
+          <button class="step-arrow" id="level-next" aria-label="další level">›</button>
         </div>
       </div>
       <div class="ctrl-group">
@@ -110,11 +113,13 @@
     <div class="ctrl-row-bottom">
       <span class="gravity-label">gravitace</span>
       <button class="toggle-btn" id="gravity-btn">vypnuto</button>
+      <span class="gravity-label">rakety</span>
+      <button class="toggle-btn" id="rockets-btn">vypnuto</button>
     </div>
   </div>
   <div id="status">Klikni na aktivní nosič</div>
   <div id="image-area">
-    <canvas id="pixel-canvas" width="36" height="31"></canvas>
+    <canvas id="pixel-canvas" width="360" height="310"></canvas>
     <div id="overlay">
       <div id="overlay-box">
         <h3 id="overlay-title">Konec</h3>
@@ -129,7 +134,7 @@
   </div>
   <div id="pending-wrap">
     <div id="pending-label">ve frontě</div>
-    <div id="pending-row"></div>
+    <canvas id="pending-canvas" width="360" height="90"></canvas>
   </div>
   <div id="carriers-wrap">
     <div id="carriers-label">nosiče</div>
@@ -143,7 +148,14 @@ const COLS=7;
 const GW=36,GH=31,IMG_GH=27;
 const UPC=4;
 const PPU=10;
-let grid,belt,pending,columns,score,loops,running,difficulty='easy',gravityOn=false,currentLevel='shapes';
+// Raketové nosiče – per level 2 nosiče, každý má předem danou 1 cílovou barvu (level design).
+const ROCKET_TARGETS={
+  smiley:[8,7],
+  moon:[8,5],
+  starwars:[5,1],
+  frog:[0,7]
+};
+let grid,belt,pending,columns,score,loops,running,difficulty='easy',gravityOn=false,rocketsOn=false,currentLevel='smiley';
 let beltAnim=0,lastBeltTime=null;
 // === BELT LAUNCH POINT ===
 const BELT_LX=28,BELT_RX=332,BELT_BALL_R=14;
@@ -434,9 +446,55 @@ function updateParticles(dt){
   for(let i=particles.length-1;i>=0;i--){
     const p=particles[i];
     if(!p)continue;
+    if(p.phase==='rocket'){
+      p.totalT+=dt; p.trailT+=dt;
+      const dx=p.tx-p.x, dy=p.ty-p.y;
+      const d=Math.hypot(dx,dy);
+      if(d<4||p.totalT>2.5){
+        // Výbuch – vymaž pixely cílové barvy v okruhu.
+        // Když v radiusu nic není (např. centroid padl mimo barvu),
+        // přecíluj na nejbližší existující pixel téže barvy.
+        let gxC=Math.floor(p.tx/SCALE), gyC=Math.floor(p.ty/SCALE);
+        const R=5, maxDestroy=20;
+        const collect=(cx,cy)=>{
+          const out=[];
+          for(let ry=-R;ry<=R&&out.length<maxDestroy;ry++)
+            for(let rx=-R;rx<=R&&out.length<maxDestroy;rx++){
+              if(rx*rx+ry*ry>R*R)continue;
+              const xx=cx+rx, yy=cy+ry;
+              if(xx<0||xx>=GW||yy<0||yy>=IMG_GH)continue;
+              if(grid[yy][xx]===p.ci)out.push({xx,yy});
+            }
+          return out;
+        };
+        let hits=collect(gxC,gyC);
+        if(!hits.length){
+          const near=findNearestPixelOfColor(p.ci,gxC,gyC);
+          if(near){gxC=near.gx;gyC=near.gy;p.tx=gxC*SCALE+SCALE/2;p.ty=gyC*SCALE+SCALE/2;hits=collect(gxC,gyC);}
+        }
+        const destroyed=hits.length;
+        for(const h of hits){
+          grid[h.yy][h.xx]=-1;
+          spawnPopShards(h.xx*SCALE+SCALE/2,h.yy*SCALE+SCALE/2,p.color);
+        }
+        if(destroyed){
+          drawGrid();
+          score+=destroyed*10;
+          document.getElementById('score').textContent=score;
+        }
+        // Rázová vlna
+        particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
+        particles.splice(i,1);
+        if(running&&!anyLeft(grid)){setTimeout(()=>{if(running)endGame(true);},80);}
+        continue;
+      }
+      p.x+=dx/d*p.speed*dt;
+      p.y+=dy/d*p.speed*dt;
+      continue;
+    }
     if(p.phase==='pop'){
-      p.popR+=dt*90;
-      if(p.popR>10)particles.splice(i,1);
+      p.popR+=dt*(p.maxPopR?p.maxPopR*9:90);
+      if(p.popR>(p.maxPopR||10))particles.splice(i,1);
       continue;
     }
 
@@ -576,8 +634,40 @@ function drawParticles(){
       particleCtx.arc(p.x-1.5,p.y-1.5,1.6,0,Math.PI*2);
       particleCtx.fillStyle='rgba(255,255,255,0.5)';particleCtx.fill();
       particleCtx.restore();
+    } else if(p.phase==='rocket'){
+      const dx=p.tx-p.x, dy=p.ty-p.y;
+      const ang=Math.atan2(dy,dx);
+      // Plamenná stopa – pulzující z kouře za raketou
+      const tx=p.x-Math.cos(ang)*8, ty=p.y-Math.sin(ang)*8;
+      particleCtx.save();
+      particleCtx.globalAlpha=0.55;
+      particleCtx.beginPath();
+      particleCtx.arc(tx,ty,4+Math.sin(p.totalT*40)*1.2,0,Math.PI*2);
+      particleCtx.fillStyle='#ffb347';particleCtx.fill();
+      particleCtx.globalAlpha=0.85;
+      particleCtx.beginPath();
+      particleCtx.arc(tx+Math.cos(ang)*2,ty+Math.sin(ang)*2,2.2,0,Math.PI*2);
+      particleCtx.fillStyle='#fff7c2';particleCtx.fill();
+      particleCtx.restore();
+      // Tělo rakety
+      particleCtx.save();
+      particleCtx.translate(p.x,p.y);
+      particleCtx.rotate(ang);
+      particleCtx.fillStyle='#e8e8ee';
+      particleCtx.fillRect(-5,-2.2,10,4.4);
+      particleCtx.fillStyle=p.color;
+      particleCtx.fillRect(2,-2.2,3,4.4);
+      particleCtx.strokeStyle='rgba(0,0,0,0.45)';
+      particleCtx.lineWidth=0.8;
+      particleCtx.strokeRect(-5,-2.2,10,4.4);
+      // Špička
+      particleCtx.beginPath();
+      particleCtx.moveTo(5,-2.2);particleCtx.lineTo(8,0);particleCtx.lineTo(5,2.2);particleCtx.closePath();
+      particleCtx.fillStyle='#c0c4cc';particleCtx.fill();particleCtx.stroke();
+      particleCtx.restore();
     } else {
-      const alpha=Math.max(0,1-p.popR/10);
+      const maxR=p.maxPopR||10;
+      const alpha=Math.max(0,1-p.popR/maxR);
       particleCtx.save();
       particleCtx.globalAlpha=alpha;
       particleCtx.beginPath();
@@ -728,12 +818,259 @@ function makeGridSmiley(variant){
   }
   return g;
 }
+function makeGridMoon(variant){
+  // variant: 'empty'|'moon'|'plusses'|'stars'|'final'|'twinkle-a'|'twinkle-b' (default 'final')
+  variant=variant||'final';
+  const BG=6, CRES=2, DARK=7, STAR=8, PLUS=5;
+  const g=new Array(IMG_GH);
+  for(let y=0;y<IMG_GH;y++)g[y]=new Array(GW).fill(BG);
+  const hasMoon=variant!=='empty';
+  const hasPlusses=variant==='plusses'||variant==='stars'||variant==='final'||variant==='twinkle-a'||variant==='twinkle-b';
+  const hasStars=variant==='stars'||variant==='final'||variant==='twinkle-a'||variant==='twinkle-b';
+  if(hasMoon){
+    const cx=18.5, cy=13.5, R=10.4, off=4.2;
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+      const d1=Math.hypot(x-cx,y-cy);
+      const d2=Math.hypot(x-(cx+off),y-cy);
+      if(d1<=R)g[y][x]=(d2<=R)?DARK:CRES;
+    }
+  }
+  const plusses=[{x:6,y:6},{x:33,y:12},{x:5,y:17},{x:28,y:1},{x:14,y:25},{x:32,y:25},{x:2,y:25}];
+  if(hasPlusses)for(const p of plusses){
+    const cells=[{x:p.x,y:p.y},{x:p.x-1,y:p.y},{x:p.x+1,y:p.y},{x:p.x,y:p.y-1},{x:p.x,y:p.y+1}];
+    for(const q of cells){
+      if(q.x>=0&&q.x<GW&&q.y>=0&&q.y<IMG_GH&&g[q.y][q.x]===BG)g[q.y][q.x]=PLUS;
+    }
+  }
+  const bgStars=[{x:3,y:2},{x:7,y:1},{x:31,y:3},{x:33,y:7},{x:2,y:11},{x:34,y:14},{x:4,y:22},{x:31,y:22},{x:10,y:25},{x:26,y:25},{x:1,y:17},{x:16,y:0}];
+  const innerStars=[{x:19,y:9},{x:22,y:12},{x:24,y:9},{x:18,y:17},{x:24,y:17},{x:21,y:15}];
+  if(hasStars){
+    for(const s of bgStars)if(g[s.y]&&g[s.y][s.x]===BG)g[s.y][s.x]=STAR;
+    for(const s of innerStars)if(g[s.y]&&g[s.y][s.x]===DARK)g[s.y][s.x]=STAR;
+  }
+  // Zablikání – některé hvězdičky dočasně nažloutlé
+  if(variant==='twinkle-a'||variant==='twinkle-b'){
+    const setA=[{x:7,y:1},{x:33,y:7},{x:19,y:9},{x:24,y:17},{x:10,y:25}];
+    const setB=[{x:3,y:2},{x:34,y:14},{x:22,y:12},{x:18,y:17},{x:1,y:17},{x:31,y:22}];
+    const twinkle=variant==='twinkle-a'?setA:setB;
+    for(const s of twinkle)if(g[s.y]&&g[s.y][s.x]===STAR)g[s.y][s.x]=PLUS;
+  }
+  return g;
+}
+function makeGridC3PO(variant){
+  // C-3PO – zlatá robotí hlava se dvěma kulatými očima a mřížkou pusy,
+  // na tmavém mozaikovém pozadí.
+  // varianty: 'final' (default), 'ha-open' – otevřená pusa pro smích.
+  variant=variant||'final';
+  const BG=7, GOLD=5, SHADOW=1, EYE=1, DARK=7, WHITE=8;
+  const g=[];
+  for(let y=0;y<IMG_GH;y++)g.push(new Array(GW).fill(BG));
+  // Barevné střípky v pozadí (mozaika)
+  const speckles=[
+    [1,1,2],[4,2,4],[7,0,6],[11,2,0],[29,1,3],[32,2,6],[34,0,2],[27,3,4],
+    [2,5,4],[34,5,0],[1,8,6],[33,7,3],[0,12,4],[35,10,6],[1,15,0],[34,13,2],
+    [0,18,3],[35,17,4],[2,21,6],[33,22,0],[5,25,2],[30,25,6],[15,26,3],[22,26,4],
+    [10,25,0],[25,26,2],[1,25,4],[34,25,3],[8,20,6],[27,20,2]
+  ];
+  for(const [x,y,c] of speckles)if(x>=0&&x<GW&&y>=0&&y<IMG_GH)g[y][x]=c;
+  // Hlava – protažený ovál
+  const cx=17.5, cy=11, rx=9.5, ry=10;
+  for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+    const dx=(x-cx)/rx, dy=(y-cy)/ry;
+    if(dx*dx+dy*dy<=1)g[y][x]=GOLD;
+  }
+  // Krk – lichoběžník pod hlavou
+  for(let y=20;y<=25;y++){
+    const w=7-Math.floor((y-20)/2);
+    for(let x=Math.floor(cx-w);x<=Math.ceil(cx+w);x++){
+      if(x>=0&&x<GW)g[y][x]=(y>=24)?SHADOW:GOLD;
+    }
+  }
+  // Hrany hlavy – stín (oranžová), nejdřív detekuj, pak obarvi
+  const edge=[];
+  for(let y=0;y<IMG_GH;y++){
+    edge.push([]);
+    for(let x=0;x<GW;x++){
+      let e=false;
+      if(g[y][x]===GOLD){
+        for(const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]]){
+          const nx=x+dx, ny=y+dy;
+          if(nx<0||nx>=GW||ny<0||ny>=IMG_GH||g[ny][nx]!==GOLD){e=true;break;}
+        }
+      }
+      edge[y].push(e);
+    }
+  }
+  for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++)if(edge[y][x])g[y][x]=SHADOW;
+  // Oči – tmavý kruh s oranžovým zářícím středem
+  const eyes=[{x:13,y:10},{x:22,y:10}];
+  for(const e of eyes){
+    for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){
+      const d=Math.hypot(dx,dy);
+      if(d<=2.3){
+        const nx=e.x+dx, ny=e.y+dy;
+        if(nx>=0&&nx<GW&&ny>=0&&ny<IMG_GH)g[ny][nx]=DARK;
+      }
+    }
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+      const d=Math.hypot(dx,dy);
+      if(d<=1.2){
+        const nx=e.x+dx, ny=e.y+dy;
+        if(nx>=0&&nx<GW&&ny>=0&&ny<IMG_GH)g[ny][nx]=EYE;
+      }
+    }
+    // Bílý odlesk
+    g[e.y-1][e.x]=WHITE;
+  }
+  // Nos – svislá linka mezi očima
+  for(let y=12;y<=15;y++)if(g[y]&&g[y][17]===GOLD)g[y][17]=SHADOW;
+  if(variant==='ha-open'){
+    // Mechanické otevření – čelist sjede dolů o 2 řádky.
+    // Horní ret zůstává, mezi ním a mřížkou se objeví tmavá mezera.
+    for(let x=11;x<=24;x++){
+      if(g[16]&&g[16][x]===GOLD)g[16][x]=SHADOW; // horní ret
+    }
+    for(let y=17;y<=18;y++)for(let x=12;x<=23;x++){
+      if(g[y]&&g[y][x]!==BG)g[y][x]=DARK;        // tmavá mezera v ústech
+    }
+    for(let x=12;x<=23;x++){
+      for(let y=19;y<=20;y++){
+        if(g[y]&&g[y][x]!==BG)g[y][x]=(x%2===0?DARK:GOLD); // přesunutá mřížka
+      }
+    }
+    for(let x=11;x<=24;x++){
+      if(g[21]&&g[21][x]===GOLD)g[21][x]=SHADOW; // dolní ret o 2 níž
+    }
+  } else {
+    // Ústa – mřížka se svislými tmavými pruhy
+    for(let x=12;x<=23;x++){
+      for(let y=17;y<=18;y++){
+        if(g[y]&&g[y][x]!==BG)g[y][x]=(x%2===0?DARK:GOLD);
+      }
+    }
+    // Horní a spodní lem pusy
+    for(let x=11;x<=24;x++){
+      if(g[16]&&(g[16][x]===GOLD))g[16][x]=SHADOW;
+      if(g[19]&&(g[19][x]===GOLD))g[19][x]=SHADOW;
+    }
+  }
+  // Uši / výstupky po stranách hlavy
+  for(let dy=-1;dy<=1;dy++){
+    if(g[11+dy])g[11+dy][6]=SHADOW;
+    if(g[11+dy])g[11+dy][29]=SHADOW;
+  }
+  return g;
+}
+function makeGridFrog(variant, yOff){
+  // Žabka (Keroppi-styl) vynořující se z vody. Hlava = široký ovál, nahoře
+  // dvě vyčnívající oční bulvy. yOff posune tělo dolů → postupné vynoření.
+  variant=variant||'final';
+  yOff=yOff||0;
+  const BG=8, GREEN=0, OUT=7, WATER=2, WATER_D=3, PINK=4, WHITE=8;
+  const g=[];
+  for(let y=0;y<IMG_GH;y++)g.push(new Array(GW).fill(BG));
+  // Voda
+  const wcx=18, wcy=21, wrx=16, wry=5, WATER_Y=18;
+  for(let y=17;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+    const dx=(x-wcx)/wrx, dy=(y-wcy)/wry;
+    if(dx*dx+dy*dy<=1)g[y][x]=WATER;
+  }
+  for(let y=17;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+    const dx=(x-wcx)/wrx, dy=(y-wcy)/wry;
+    const r=dx*dx+dy*dy;
+    if(r>0.78&&r<=1&&g[y][x]===WATER)g[y][x]=WATER_D;
+  }
+  if(variant==='water-only')return g;
+  // Hlava – široký plochý ovál
+  const headCX=18, headCY=13+yOff, headRX=11, headRY=5.6;
+  // Oční bulvy – dva kruhy nad hlavou
+  const eyeLCX=12, eyeRCX=24, eyeCY=7+yOff, eyeR=3.8;
+  const isHead=(x,y)=>{
+    const dx=(x-headCX)/headRX, dy=(y-headCY)/headRY;
+    return dx*dx+dy*dy<=1;
+  };
+  const isEye=(x,y)=>{
+    const dl=(x-eyeLCX)*(x-eyeLCX)+(y-eyeCY)*(y-eyeCY);
+    if(dl<=eyeR*eyeR)return true;
+    const dr=(x-eyeRCX)*(x-eyeRCX)+(y-eyeCY)*(y-eyeCY);
+    return dr<=eyeR*eyeR;
+  };
+  const cells=new Set();
+  for(let y=0;y<WATER_Y;y++)for(let x=0;x<GW;x++){
+    if(isHead(x,y)||isEye(x,y)){
+      g[y][x]=GREEN;
+      cells.add(y*GW+x);
+    }
+  }
+  // Kontura proti pozadí (ne proti vodě)
+  const edges=[];
+  for(let y=0;y<IMG_GH;y++){
+    const row=[];
+    for(let x=0;x<GW;x++){
+      let e=false;
+      if(cells.has(y*GW+x)){
+        for(const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]]){
+          const nx=x+dx, ny=y+dy;
+          if(nx<0||nx>=GW||ny<0||ny>=IMG_GH){e=true;break;}
+          if(!cells.has(ny*GW+nx)&&g[ny][nx]===BG){e=true;break;}
+        }
+      }
+      row.push(e);
+    }
+    edges.push(row);
+  }
+  for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++)if(edges[y][x])g[y][x]=OUT;
+  const paint=(y,x,c,onlyIfBody)=>{
+    if(y<0||y>=WATER_Y||x<0||x>=GW)return;
+    if(onlyIfBody&&g[y][x]!==GREEN&&g[y][x]!==OUT)return;
+    g[y][x]=c;
+  };
+  // Bílky očí – vnitřek bulvy
+  const innerR=eyeR-1.0;
+  for(let y=0;y<WATER_Y;y++)for(let x=0;x<GW;x++){
+    const dl=(x-eyeLCX)*(x-eyeLCX)+(y-eyeCY)*(y-eyeCY);
+    if(dl<=innerR*innerR&&cells.has(y*GW+x))g[y][x]=WHITE;
+    const dr=(x-eyeRCX)*(x-eyeRCX)+(y-eyeCY)*(y-eyeCY);
+    if(dr<=innerR*innerR&&cells.has(y*GW+x))g[y][x]=WHITE;
+  }
+  // Zornice – velké černé kruhy se světlým odleskem
+  const pupilR=1.9;
+  const pupY=eyeCY+0.4;
+  for(let y=0;y<WATER_Y;y++)for(let x=0;x<GW;x++){
+    const dl=Math.hypot(x-eyeLCX,y-pupY);
+    if(dl<=pupilR&&cells.has(y*GW+x))g[y][x]=OUT;
+    const dr=Math.hypot(x-eyeRCX,y-pupY);
+    if(dr<=pupilR&&cells.has(y*GW+x))g[y][x]=OUT;
+  }
+  // Odlesky
+  paint(Math.round(pupY-1), eyeLCX, WHITE);
+  paint(Math.round(pupY-1), eyeRCX, WHITE);
+  // Tvářičky – růžové skvrny po stranách hlavy
+  const cheekY=headCY+2;
+  for(const ccx of [8,28]){
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+      if(dx*dx+dy*dy<=2){
+        const yy=cheekY+dy, xx=ccx+dx;
+        if(yy>=0&&yy<WATER_Y&&xx>=0&&xx<GW&&g[yy][xx]===GREEN)g[yy][xx]=PINK;
+      }
+    }
+  }
+  // Úsměv – nízký oblouček pod očima
+  const mouthY=headCY+2;
+  paint(mouthY+1,16,OUT,true);
+  paint(mouthY+1,17,OUT,true);
+  paint(mouthY+1,18,OUT,true);
+  paint(mouthY+1,19,OUT,true);
+  paint(mouthY,15,OUT,true);
+  paint(mouthY,20,OUT,true);
+  return g;
+}
 function makeGrid(){
   let g;
-  if(currentLevel==='stripes')g=makeGridStripes();
-  else if(currentLevel==='mix')g=makeGridMix();
-  else if(currentLevel==='smiley')g=makeGridSmiley();
-  else g=makeGridShapes();
+  if(currentLevel==='moon')g=makeGridMoon();
+  else if(currentLevel==='starwars')g=makeGridC3PO();
+  else if(currentLevel==='frog')g=makeGridFrog();
+  else g=makeGridSmiley();
   // 4 prázdné řady dole (buffer zóna)
   for(let i=0;i<4;i++)g.push(new Array(GW).fill(-1));
   return g;
@@ -981,12 +1318,74 @@ function buildColsFromQueue(q){
   for(const col of cols)while(col.length<ml)col.push(null);
   return cols;
 }
+function shadeHex(hex,amt){
+  // amt v (-1..1): záporná ztmaví, kladná zesvětlí
+  const h=hex.replace('#','');
+  const r=parseInt(h.substr(0,2),16),g=parseInt(h.substr(2,2),16),b=parseInt(h.substr(4,2),16);
+  const f=c=>Math.max(0,Math.min(255,Math.round(c+(amt<0?c*amt:(255-c)*amt))));
+  return 'rgb('+f(r)+','+f(g)+','+f(b)+')';
+}
+const _shadeCache={};
+function shadeCached(hex,amt){
+  const k=hex+'|'+amt;
+  return _shadeCache[k]||(_shadeCache[k]=shadeHex(hex,amt));
+}
+// Sprite každé barvy = 10x10 bead s lesklým highlightem vlevo nahoře a stínem vpravo dole.
+// Mezi buňkami zůstává 2px mezera (průhledný rámeček), takže prosvítá tmavé pozadí = mřížka.
+const _beadSpriteCache={};
+function getBeadSprite(color){
+  if(_beadSpriteCache[color])return _beadSpriteCache[color];
+  const cv=document.createElement('canvas');
+  cv.width=SCALE;cv.height=SCALE;
+  const c=cv.getContext('2d');
+  const s=SCALE-0.2, r=1;           // téměř bez mezery – separace hlavně tmavým gradientem
+  c.beginPath();
+  c.moveTo(r,0);
+  c.lineTo(s-r,0);
+  c.quadraticCurveTo(s,0,s,r);
+  c.lineTo(s,s-r);
+  c.quadraticCurveTo(s,s,s-r,s);
+  c.lineTo(r,s);
+  c.quadraticCurveTo(0,s,0,s-r);
+  c.lineTo(0,r);
+  c.quadraticCurveTo(0,0,r,0);
+  c.closePath();
+  c.fillStyle=color;c.fill();
+  c.globalCompositeOperation='source-atop';
+  const lg=c.createLinearGradient(0,0,s,s);
+  lg.addColorStop(0,'rgba(255,255,255,0.14)');
+  lg.addColorStop(0.55,'rgba(255,255,255,0)');
+  lg.addColorStop(1,'rgba(0,0,0,0.35)');
+  c.fillStyle=lg;c.fillRect(0,0,SCALE,SCALE);
+  const rg=c.createRadialGradient(2.2,2.2,0.2,2.2,2.2,2.8);
+  rg.addColorStop(0,'rgba(255,255,255,0.38)');
+  rg.addColorStop(0.55,'rgba(255,255,255,0.08)');
+  rg.addColorStop(1,'rgba(255,255,255,0)');
+  c.fillStyle=rg;c.fillRect(0,0,SCALE,SCALE);
+  c.globalCompositeOperation='source-over';
+  _beadSpriteCache[color]=cv;
+  return cv;
+}
 function drawGrid(){
   const cv=document.getElementById('pixel-canvas');
   const ctx=cv.getContext('2d');
-  ctx.clearRect(0,0,GW,GH);
-  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++)
-    if(grid[y][x]!==-1){ctx.fillStyle=COLORS[grid[y][x]];ctx.fillRect(x,y,1,1);}
+  const W=GW*SCALE, H=GH*SCALE;
+  ctx.clearRect(0,0,W,H);
+  // Vržené stíny na prázdný prostor pod tvary (hloubkový efekt)
+  for(let y=0;y<GH-1;y++)for(let x=0;x<GW;x++){
+    if(grid[y][x]!==-1&&grid[y+1][x]===-1){
+      const px=x*SCALE, py=(y+1)*SCALE;
+      ctx.fillStyle='rgba(0,0,0,0.4)';
+      ctx.fillRect(px+1,py,SCALE-1,3);
+      ctx.fillStyle='rgba(0,0,0,0.2)';
+      ctx.fillRect(px+1,py+3,SCALE-1,2);
+    }
+  }
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    const c=grid[y][x];
+    if(c===-1)continue;
+    ctx.drawImage(getBeadSprite(COLORS[c]), x*SCALE, y*SCALE);
+  }
 }
 function drawBelt(){
   const svg=document.getElementById('belt-svg');
@@ -1043,9 +1442,19 @@ function drawBelt(){
   for(let i=0;i<BELT_CAP;i++){
     const bx=startX+(i*spacing+offset)%totalLen;
     if(i<belt.length){
-      const color=COLORS[belt[i].ci];
-      ballGrp.appendChild(mk('circle',{cx:bx,cy:ballY,r:ballR,fill:color,stroke:'rgba(0,0,0,0.25)','stroke-width':1}));
-      ballGrp.appendChild(mk('circle',{cx:bx-4,cy:ballY-4,r:4,fill:'rgba(255,255,255,0.35)'}));
+      const b=belt[i];
+      const color=COLORS[b.ci];
+      if(b.rocket){
+        // Raketová koule – tmavé jádro s barevným prstencem a ikonou rakety
+        ballGrp.appendChild(mk('circle',{cx:bx,cy:ballY,r:ballR,fill:'#1a1f2e',stroke:color,'stroke-width':3}));
+        ballGrp.appendChild(mk('circle',{cx:bx,cy:ballY,r:ballR-4,fill:'none',stroke:color,'stroke-width':1,opacity:0.5}));
+        const txt=mk('text',{x:bx,y:ballY+5,'text-anchor':'middle','font-size':14,fill:'#fff'});
+        txt.textContent='🚀';
+        ballGrp.appendChild(txt);
+      } else {
+        ballGrp.appendChild(mk('circle',{cx:bx,cy:ballY,r:ballR,fill:color,stroke:'rgba(0,0,0,0.25)','stroke-width':1}));
+        ballGrp.appendChild(mk('circle',{cx:bx-4,cy:ballY-4,r:4,fill:'rgba(255,255,255,0.35)'}));
+      }
     } else {
       ballGrp.appendChild(mk('circle',{cx:bx,cy:ballY,r:ballR,fill:'none',stroke:'#3a3a3a','stroke-width':1.5,'stroke-dasharray':'4,3'}));
     }
@@ -1077,6 +1486,11 @@ function drawCarriers(){
         div.innerHTML='';
       } else if(hidden){
         div.innerHTML='<div class="cbox-hid">?</div>';
+      } else if(slot.type==='rocket'){
+        const dc=COLORS[slot.color];
+        div.innerHTML='<div class="cbox" style="background:linear-gradient(160deg,#3a3f5a,#111824);border:1.5px solid '+dc+';box-shadow:0 0 6px '+dc+'55 inset;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#fff;font-size:20px;line-height:1">🚀'
+          +'<span style="width:10px;height:10px;border-radius:50%;background:'+dc+';box-shadow:0 0 5px '+dc+'"></span>'
+          +'</div>';
       } else {
         const bg=COLORS[slot.color];
         const commonStyle='border-radius:50%;min-width:0;min-height:0;aspect-ratio:1;width:100%;max-width:18px;justify-self:center;align-self:center;';
@@ -1100,41 +1514,219 @@ function drawCarriers(){
   }
   document.getElementById('carriers-left').textContent=cntCarriers();
 }
+function findColorCentroid(ci){
+  // Najdi největší souvislý shluk a vrať jeho těžiště – vyhneme se tak
+  // problému, že průměr dvou oddělených oblastí padne mezi ně.
+  const seen=[];
+  for(let y=0;y<IMG_GH;y++)seen.push(new Array(GW).fill(false));
+  let best=null;
+  for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+    if(seen[y][x]||grid[y][x]!==ci)continue;
+    const stack=[[x,y]];seen[y][x]=true;
+    let sx=0,sy=0,n=0;
+    while(stack.length){
+      const [cx,cy]=stack.pop();
+      sx+=cx;sy+=cy;n++;
+      for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+        const nx=cx+dx,ny=cy+dy;
+        if(nx<0||nx>=GW||ny<0||ny>=IMG_GH)continue;
+        if(seen[ny][nx]||grid[ny][nx]!==ci)continue;
+        seen[ny][nx]=true;stack.push([nx,ny]);
+      }
+    }
+    if(!best||n>best.n)best={gx:Math.round(sx/n),gy:Math.round(sy/n),n};
+  }
+  return best;
+}
+function findNearestPixelOfColor(ci,gx,gy){
+  let best=null,bestD=Infinity;
+  for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+    if(grid[y][x]!==ci)continue;
+    const d=(x-gx)*(x-gx)+(y-gy)*(y-gy);
+    if(d<bestD){bestD=d;best={gx:x,gy:y};}
+  }
+  return best;
+}
+function launchRocket(ci){
+  const target=findColorCentroid(ci);
+  if(!target)return false;
+  particles.push({
+    phase:'rocket', ci, color:COLORS[ci],
+    x:cannonX, y:CANNON_Y-6,
+    tx:target.gx*SCALE+SCALE/2, ty:target.gy*SCALE+SCALE/2,
+    speed:300, totalT:0, trailT:0,
+    popR:0, popX:0, popY:0
+  });
+  return true;
+}
 function onCarrierClick(e){
   const c=+e.currentTarget.dataset.col,r=+e.currentTarget.dataset.row;
   if(!running)return;
   const slot=columns[c][r];
   if(!slot)return;
+  if(slot.type==='rocket'){
+    const balls=[{ci:slot.color,ppu:20,rocket:true},{ci:slot.color,ppu:20,rocket:true}];
+    for(const b of balls)addToPending(b);
+    columns[c][r]=null;
+    noMatchPasses=0;
+    drawCarriers();drawBelt();drawPending();
+    setStatus('🚀 Rakety v trychtýři!');
+    return;
+  }
   const color=slot.color;
   const projectiles=slot.projectiles||UPC*PPU;
   const balls=distributeProjectiles(projectiles).map(p=>({ci:color,ppu:p}));
-  const space=Math.max(0,BELT_CAP-belt.length);
-  const toBelt=Math.min(balls.length,space);
-  for(let i=0;i<toBelt;i++)belt.push(balls[i]);
-  for(let i=toBelt;i<balls.length;i++)pending.push(balls[i]);
-  const toQueue=balls.length-toBelt;
+  for(const b of balls)addToPending(b);
   columns[c][r]=null;
   noMatchPasses=0;
   drawCarriers();drawBelt();drawPending();
-  setStatus(toQueue?toBelt+' na pás, '+toQueue+' do fronty':balls.length+' balónků přidáno na pás');
+  setStatus(balls.length+' balónků v trychtýři');
+}
+// === Trychtýř – fyzika koulí ve frontě. Široký konec dole u nosičů,
+// úzký nahoře u pásu. „Gravitace" míří vzhůru k pásu – koule stoupají
+// skrz trychtýř a vstupují otvorem na pás.
+const FUN={w:360,h:90,narrowY:14,wideY:82,narrowL:159,narrowR:201,wideL:10,wideR:350,r:14};
+function addToPending(ball){
+  ball.r=FUN.r;
+  ball.x=FUN.wideL+24+Math.random()*(FUN.wideR-FUN.wideL-48);
+  ball.y=FUN.wideY-6-Math.random()*8;
+  ball.vx=(Math.random()-0.5)*40;
+  ball.vy=-20;
+  pending.push(ball);
+}
+function collideFunnelSeg(b,x1,y1,x2,y2){
+  const sx=x2-x1, sy=y2-y1;
+  const seg2=sx*sx+sy*sy;
+  let t=((b.x-x1)*sx+(b.y-y1)*sy)/seg2;
+  t=Math.max(0,Math.min(1,t));
+  const cx=x1+t*sx, cy=y1+t*sy;
+  const dx=b.x-cx, dy=b.y-cy;
+  const d=Math.hypot(dx,dy);
+  if(d<b.r&&d>0.001){
+    const nx=dx/d, ny=dy/d;
+    const ov=b.r-d;
+    b.x+=nx*ov; b.y+=ny*ov;
+    const vn=b.vx*nx+b.vy*ny;
+    if(vn<0){const e=0.2;b.vx-=(1+e)*vn*nx;b.vy-=(1+e)*vn*ny;}
+  }
+}
+function updatePending(dt){
+  if(pending.length===0)return;
+  const steps=4, h=Math.min(dt,0.05)/steps;
+  for(let s=0;s<steps;s++){
+    for(const b of pending){
+      b.vy-=700*h;            // gravitace směrem k pásu (nahoru)
+      b.vx*=0.995;
+      b.x+=b.vx*h; b.y+=b.vy*h;
+    }
+    // Ball-ball
+    for(let i=0;i<pending.length;i++)for(let j=i+1;j<pending.length;j++){
+      const a=pending[i], b=pending[j];
+      const dx=b.x-a.x, dy=b.y-a.y;
+      const d=Math.hypot(dx,dy), min=a.r+b.r;
+      if(d<min&&d>0.001){
+        const nx=dx/d, ny=dy/d, ov=(min-d)/2;
+        a.x-=nx*ov; a.y-=ny*ov;
+        b.x+=nx*ov; b.y+=ny*ov;
+        const rvx=b.vx-a.vx, rvy=b.vy-a.vy;
+        const vn=rvx*nx+rvy*ny;
+        if(vn<0){
+          const e=0.25, imp=(1+e)*vn/2;
+          a.vx+=imp*nx; a.vy+=imp*ny;
+          b.vx-=imp*nx; b.vy-=imp*ny;
+        }
+      }
+    }
+    // Stěny trychtýře (široko dole, úzko nahoře) + dno u nosičů
+    const gate=belt.length>=BELT_CAP;
+    for(const b of pending){
+      collideFunnelSeg(b,FUN.wideL,FUN.wideY,FUN.narrowL,FUN.narrowY);
+      collideFunnelSeg(b,FUN.wideR,FUN.wideY,FUN.narrowR,FUN.narrowY);
+      // Strop mimo otvor – uzavře trychtýř nahoře po stranách otvoru
+      collideFunnelSeg(b,0,FUN.narrowY,FUN.narrowL,FUN.narrowY);
+      collideFunnelSeg(b,FUN.narrowR,FUN.narrowY,FUN.w,FUN.narrowY);
+      // Dno u nosičů – koule nesmí propadnout dolů
+      if(b.y+b.r>FUN.wideY){
+        b.y=FUN.wideY-b.r;
+        if(b.vy>0) b.vy*=-0.3;
+      }
+      // Boční tvrdé zastavení – kdyby koule při impulzu klipla za okraj
+      if(b.x<b.r){b.x=b.r;if(b.vx<0)b.vx*=-0.3;}
+      if(b.x>FUN.w-b.r){b.x=FUN.w-b.r;if(b.vx>0)b.vx*=-0.3;}
+      // Sanity clamp do tvaru trychtýře – interpolovaná šířka v dané výšce
+      if(b.y>=FUN.narrowY&&b.y<=FUN.wideY){
+        const t=(FUN.wideY-b.y)/(FUN.wideY-FUN.narrowY);
+        const lx=FUN.wideL+t*(FUN.narrowL-FUN.wideL);
+        const rx=FUN.wideR+t*(FUN.narrowR-FUN.wideR);
+        if(b.x<lx+b.r){b.x=lx+b.r;if(b.vx<0)b.vx=-b.vx*0.3;}
+        if(b.x>rx-b.r){b.x=rx-b.r;if(b.vx>0)b.vx=-b.vx*0.3;}
+      }
+    }
+    // Gate = vodorovný strop mezi narrowL a narrowR když nemá pás místo
+    if(gate){
+      for(const b of pending){
+        if(b.y-b.r<FUN.narrowY && b.x>FUN.narrowL-2 && b.x<FUN.narrowR+2){
+          b.y=FUN.narrowY+b.r;
+          if(b.vy<0) b.vy*=-0.25;
+        }
+      }
+    }
+    // Výstupní pohltání – koule prošla úzkým otvorem nahoru
+    for(let i=pending.length-1;i>=0;i--){
+      const b=pending[i];
+      if(b.y+b.r<FUN.narrowY-4){
+        if(belt.length<BELT_CAP){
+          pending.splice(i,1);
+          delete b.x; delete b.y; delete b.vx; delete b.vy; delete b.r;
+          belt.push(b);
+          noMatchPasses=0;
+          drawBelt();
+        } else {
+          b.y=FUN.narrowY+b.r; b.vy=60;
+        }
+      }
+    }
+  }
 }
 function drainPending(){
-  let moved=false;
-  while(pending.length&&belt.length<BELT_CAP){
-    belt.push(pending.shift());
-    moved=true;
-  }
-  if(moved)noMatchPasses=0;
-  return moved;
+  // Fyzika trychtýře řídí odtok – tady už nic netáhne.
+  // Ponecháno pro zpětnou kompatibilitu callerů.
+  return pending.length>0;
 }
+let pendingCtx=null;
 function drawPending(){
-  const el=document.getElementById('pending-row');
-  el.innerHTML='';
-  for(const ball of pending){
-    const d=document.createElement('div');
-    d.className='pending-ball';
-    d.style.background='radial-gradient(circle at 36% 32%, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0) 52%), '+COLORS[ball.ci];
-    el.appendChild(d);
+  const canvas=document.getElementById('pending-canvas');
+  if(!canvas)return;
+  if(!pendingCtx)pendingCtx=canvas.getContext('2d');
+  const ctx=pendingCtx;
+  ctx.clearRect(0,0,FUN.w,FUN.h);
+  // Stěny trychtýře – široko dole (u nosičů), úzko nahoře (u pásu)
+  ctx.strokeStyle='rgba(180,190,210,0.6)';
+  ctx.lineWidth=2;
+  ctx.lineCap='round';
+  ctx.beginPath();
+  ctx.moveTo(FUN.wideL,FUN.wideY); ctx.lineTo(FUN.narrowL,FUN.narrowY);
+  ctx.moveTo(FUN.wideR,FUN.wideY); ctx.lineTo(FUN.narrowR,FUN.narrowY);
+  ctx.stroke();
+  // Gate – zobraz čárou nahoře když je pás plný
+  if(belt.length>=BELT_CAP){
+    ctx.strokeStyle='rgba(255,120,120,0.75)';
+    ctx.beginPath();
+    ctx.moveTo(FUN.narrowL,FUN.narrowY); ctx.lineTo(FUN.narrowR,FUN.narrowY);
+    ctx.stroke();
+  }
+  // Koule
+  for(const b of pending){
+    if(b.x===undefined)continue;
+    const g=ctx.createRadialGradient(b.x-b.r*0.3,b.y-b.r*0.3,1,b.x,b.y,b.r);
+    g.addColorStop(0,'rgba(255,255,255,0.7)');
+    g.addColorStop(0.4,COLORS[b.ci]);
+    g.addColorStop(1,COLORS[b.ci]);
+    ctx.fillStyle=g;
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,0.35)';
+    ctx.lineWidth=0.8;
+    ctx.stroke();
   }
 }
 function checkLaunchPoint(prevAnim, curAnim){
@@ -1160,6 +1752,17 @@ function checkLaunchPoint(prevAnim, curAnim){
       belt.splice(i,1);
       drainPending();
       drawBelt();drawPending();
+      continue;
+    }
+    // Raketová koule – odpal přímo, bez kontroly dosahu / kolizí
+    if(ball.rocket){
+      belt.splice(i,1);
+      drainPending();
+      drawBelt();drawPending();
+      launchRocket(color);
+      noMatchPasses=0;
+      stuckPassCount=0;
+      setStatus('🚀 Raketa letí!');
       continue;
     }
     const avail=getAvailableColors(grid);
@@ -1286,31 +1889,207 @@ function initGame(){
   grid=makeGrid();belt=[];pending=[];score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
   particles=[];shards=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;
   columns=makeColumns(countPixels(grid));
+  // Injekce raketových nosičů – per level předdefinované 2 pozice
+  const rockets=rocketsOn?ROCKET_TARGETS[currentLevel]:null;
+  if(rockets){
+    const slots=[{col:2,row:1},{col:5,row:1}];
+    for(let i=0;i<rockets.length&&i<slots.length;i++){
+      const s=slots[i];
+      while(columns[s.col].length<s.row)columns[s.col].push(null);
+      columns[s.col].splice(s.row,0,{type:'rocket',color:rockets[i]});
+    }
+  }
   document.getElementById('score').textContent=0;
   document.getElementById('overlay').classList.remove('show');
   introSeq++;
   if(currentLevel==='smiley'){
-    // Intro: neutrál → úsměv → mrknutí → úsměv. Mění jen displej; finální grid se obnoví na konci.
+    // Stop-motion sestavení neutrálního smajlíka → úsměv → mrknutí → úsměv
     const finalGrid=grid;
-    grid=makeGridSmiley('neutral');for(let i=0;i<4;i++)grid.push(new Array(GW).fill(-1));
     const mySeq=introSeq;
-    const at=(ms,fn)=>setTimeout(()=>{if(mySeq===introSeq)fn();},ms);
-    const swap=v=>{
-      if(v==='final'){grid=finalGrid;} else {grid=makeGridSmiley(v);for(let i=0;i<4;i++)grid.push(new Array(GW).fill(-1));}
+    const BG=3;
+    const neutralGrid=makeGridSmiley('neutral');for(let i=0;i<4;i++)neutralGrid.push(new Array(GW).fill(-1));
+    grid=new Array(IMG_GH);
+    for(let y=0;y<IMG_GH;y++)grid[y]=new Array(GW).fill(BG);
+    for(let i=0;i<4;i++)grid.push(new Array(GW).fill(-1));
+    const cxf=17.5, cyf=12.5;
+    const cells=[];
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+      const c=neutralGrid[y][x];
+      if(c===-1||c===BG)continue;
+      cells.push({x,y,c,d:Math.hypot(x-cxf,y-cyf)});
+    }
+    cells.sort((a,b)=>a.d-b.d);
+    const batch=8, interval=50;
+    let idx=0;
+    const step=()=>{
+      if(mySeq!==introSeq) return;
+      for(let k=0;k<batch&&idx<cells.length;k++,idx++){
+        const p=cells[idx];
+        grid[p.y][p.x]=p.c;
+      }
       drawGrid();
+      if(idx<cells.length) setTimeout(step,interval);
+      else {
+        const at=(ms,fn)=>setTimeout(()=>{if(mySeq===introSeq)fn();},ms);
+        const swap=v=>{
+          if(v==='final'){grid=finalGrid;} else {grid=makeGridSmiley(v);for(let i=0;i<4;i++)grid.push(new Array(GW).fill(-1));}
+          drawGrid();
+        };
+        at(350,()=>swap('final'));    // úsměv
+        at(900,()=>swap('wink'));     // mrknutí
+        at(1250,()=>swap('final'));   // konec
+      }
     };
-    at(550,()=>swap('final'));
-    at(1150,()=>swap('wink'));
-    at(1500,()=>swap('final'));
+    setTimeout(step,120);
+  } else if(currentLevel==='moon'){
+    // Stop-motion build: měsíc roste zevnitř ven, mezitím naskakují hvězdy a jiskry
+    const finalGrid=grid;
+    const mySeq=introSeq;
+    grid=makeGridMoon('empty');for(let i=0;i<4;i++)grid.push(new Array(GW).fill(-1));
+    const BG=6;
+    const moonCells=[], sparkCells=[];
+    const cxm=18.5, cym=13.5;
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+      const c=finalGrid[y][x];
+      if(c===-1||c===BG)continue;
+      if(c===2||c===7) moonCells.push({x,y,c,d:Math.hypot(x-cxm,y-cym)});
+      else sparkCells.push({x,y,c});
+    }
+    moonCells.sort((a,b)=>a.d-b.d);
+    for(let i=sparkCells.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[sparkCells[i],sparkCells[j]]=[sparkCells[j],sparkCells[i]];}
+    const sequence=[...moonCells, ...sparkCells];
+    const batch=7, interval=55;
+    let idx=0;
+    const step=()=>{
+      if(mySeq!==introSeq) return;
+      for(let k=0;k<batch&&idx<sequence.length;k++,idx++){
+        const p=sequence[idx];
+        grid[p.y][p.x]=p.c;
+      }
+      drawGrid();
+      if(idx<sequence.length) setTimeout(step,interval);
+      else {
+        grid=finalGrid;drawGrid();
+        // Závěrečné zatřpytění – dvě vlny twinkle pak návrat
+        const at=(ms,fn)=>setTimeout(()=>{if(mySeq===introSeq)fn();},ms);
+        const swap=v=>{
+          if(v==='final'){grid=finalGrid;} else {grid=makeGridMoon(v);for(let i=0;i<4;i++)grid.push(new Array(GW).fill(-1));}
+          drawGrid();
+        };
+        at(180,()=>swap('twinkle-a'));
+        at(380,()=>swap('final'));
+        at(540,()=>swap('twinkle-b'));
+        at(740,()=>swap('twinkle-a'));
+        at(900,()=>swap('final'));
+      }
+    };
+    setTimeout(step,120);
+  } else if(currentLevel==='starwars'){
+    // Stop-motion sestavení C-3PO zevnitř ven, pak smích „Ha ha ha"
+    const finalGrid=grid;
+    const mySeq=introSeq;
+    const BG=7;
+    grid=new Array(IMG_GH);
+    for(let y=0;y<IMG_GH;y++)grid[y]=new Array(GW).fill(BG);
+    for(let i=0;i<4;i++)grid.push(new Array(GW).fill(-1));
+    const cxf=17.5, cyf=12;
+    const cells=[];
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+      const c=finalGrid[y][x];
+      if(c===-1||c===BG)continue;
+      cells.push({x,y,c,d:Math.hypot(x-cxf,y-cyf)});
+    }
+    cells.sort((a,b)=>a.d-b.d);
+    const batch=9, interval=45;
+    let idx=0;
+    const step=()=>{
+      if(mySeq!==introSeq) return;
+      for(let k=0;k<batch&&idx<cells.length;k++,idx++){
+        const p=cells[idx];
+        grid[p.y][p.x]=p.c;
+      }
+      drawGrid();
+      if(idx<cells.length) setTimeout(step,interval);
+      else {
+        const at=(ms,fn)=>setTimeout(()=>{if(mySeq===introSeq)fn();},ms);
+        const swap=v=>{
+          if(v==='final'){grid=finalGrid;} else {grid=makeGridC3PO(v);for(let i=0;i<4;i++)grid.push(new Array(GW).fill(-1));}
+          drawGrid();
+        };
+        // Ha ha ha – třikrát otevřít a zavřít pusu
+        at(250,()=>swap('ha-open'));
+        at(450,()=>swap('final'));
+        at(650,()=>swap('ha-open'));
+        at(850,()=>swap('final'));
+        at(1050,()=>swap('ha-open'));
+        at(1300,()=>swap('final'));
+      }
+    };
+    setTimeout(step,120);
+  } else if(currentLevel==='frog'){
+    // 1) Stop-motion modrého ovalu od středu ven
+    // 2) Žabka se vynoří ze středu vody (yOff klesá z ~8)
+    const finalGrid=grid;
+    const mySeq=introSeq;
+    const empty=[];
+    for(let y=0;y<IMG_GH;y++)empty.push(new Array(GW).fill(8));
+    for(let i=0;i<4;i++)empty.push(new Array(GW).fill(-1));
+    grid=empty;drawGrid();
+    // Posbírej vodní buňky z cílové vodní mřížky, seřaď podle vzdálenosti od středu
+    const waterGrid=makeGridFrog('water-only');
+    const wcx=18, wcy=21;
+    const waterCells=[];
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+      const c=waterGrid[y][x];
+      if(c===2||c===3)waterCells.push({x,y,c,d:Math.hypot(x-wcx,y-wcy)});
+    }
+    waterCells.sort((a,b)=>a.d-b.d);
+    const waterBase=[];
+    for(let y=0;y<IMG_GH;y++)waterBase.push(new Array(GW).fill(8));
+    for(let i=0;i<4;i++)waterBase.push(new Array(GW).fill(-1));
+    let widx=0;
+    const waterBatch=8, waterInt=55;
+    const waterStep=()=>{
+      if(mySeq!==introSeq) return;
+      for(let k=0;k<waterBatch&&widx<waterCells.length;k++,widx++){
+        const p=waterCells[widx];
+        waterBase[p.y][p.x]=p.c;
+      }
+      grid=waterBase.map(r=>r.slice());
+      drawGrid();
+      if(widx<waterCells.length) setTimeout(waterStep,waterInt);
+      else setTimeout(riseStep,280);
+    };
+    const offsets=[8,7,6,5,4,3,2,1,0];
+    let i=0;
+    const riseStep=()=>{
+      if(mySeq!==introSeq) return;
+      const yOff=offsets[i];
+      const ng=makeGridFrog('final',yOff);
+      for(let k=0;k<4;k++)ng.push(new Array(GW).fill(-1));
+      grid=ng;drawGrid();
+      i++;
+      if(i<offsets.length) setTimeout(riseStep,170);
+      else { grid=finalGrid; drawGrid(); }
+    };
+    setTimeout(waterStep,220);
   }
   drawGrid();drawBelt();drawPending();drawCarriers();
   setStatus('Klikni na aktivní nosič');
 }
 document.getElementById('restart-btn').addEventListener('click',initGame);
-document.querySelectorAll('[data-level]').forEach(b=>b.addEventListener('click',()=>{
-  document.querySelectorAll('[data-level]').forEach(x=>x.classList.remove('active'));
-  b.classList.add('active');currentLevel=b.dataset.level;initGame();
-}));
+const LEVELS=[{key:'smiley',label:'smajlík'},{key:'moon',label:'měsíc'},{key:'starwars',label:'C-3PO'},{key:'frog',label:'žabka'}];
+let levelIdx=LEVELS.findIndex(l=>l.key===currentLevel);
+if(levelIdx<0)levelIdx=0;
+function stepLevel(dir){
+  levelIdx=(levelIdx+dir+LEVELS.length)%LEVELS.length;
+  currentLevel=LEVELS[levelIdx].key;
+  document.getElementById('level-label').textContent=LEVELS[levelIdx].label;
+  initGame();
+}
+document.getElementById('level-prev').addEventListener('click',()=>stepLevel(-1));
+document.getElementById('level-next').addEventListener('click',()=>stepLevel(1));
+document.getElementById('level-label').textContent=LEVELS[levelIdx].label;
 document.querySelectorAll('[data-diff]').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('[data-diff]').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');difficulty=b.dataset.diff;initGame();
@@ -1320,6 +2099,13 @@ document.getElementById('gravity-btn').addEventListener('click',()=>{
   const btn=document.getElementById('gravity-btn');
   btn.textContent=gravityOn?'zapnuto':'vypnuto';
   btn.classList.toggle('active',gravityOn);
+  initGame();
+});
+document.getElementById('rockets-btn').addEventListener('click',()=>{
+  rocketsOn=!rocketsOn;
+  const btn=document.getElementById('rockets-btn');
+  btn.textContent=rocketsOn?'zapnuto':'vypnuto';
+  btn.classList.toggle('active',rocketsOn);
   initGame();
 });
 
@@ -1390,10 +2176,12 @@ initParticleCanvas();
     }
 
     updateParticles(dt);
+    updatePending(dt);
   }
   lastBeltTime=ts;
   drawBelt();
   drawParticles();
+  drawPending();
   requestAnimationFrame(beltLoop);
 })(0);
 </script>
