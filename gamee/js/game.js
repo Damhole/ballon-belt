@@ -17,8 +17,15 @@ const GARAGE_DEFS={
   starwars:{col:3,carriers:[{color:5},{color:1},{color:8}]},
   frog:  {col:3,carriers:[{color:0},{color:7},{color:3}]},
 };
-let grid,belt,pending,columns,score,loops,running,difficulty='easy',gravityOn=false,rocketsOn=false,garageOn=false,currentLevel='smiley';
+let grid,belt,pending,columns,score,loops,running,difficulty='easy',gravityOn=false,rocketsOn=false,garageMode='off',currentLevel='smiley';
+// garageMode: 'off' | 'single' (1 náhodný směr) | 'multi' (2-4 náhodné směry)
+const GAR_DIR_VEC={N:[0,-1],S:[0,1],W:[-1,0],E:[1,0]};
 let beltAnim=0,lastBeltTime=null;
+// Limit: max 4 nosiče (= 16 koulí) v trychtýři současně. Hard block:
+// pokud pending > 12, klik na nosič se ignoruje a zobrazí se varování.
+const PENDING_DISPENSE_THRESHOLD=12; // > 12 → klik je odmítnut
+let funnelWarnTimer=0; // vteřin do skrytí varování
+let nudgeTimer=0; // periodické „pomoc uvízlé kouli" pro natural anti-stuck
 // Gamee state
 let paused=false, gameStarted=false, playTime=0, playTimer=null, beltLoopStarted=false;
 // === BELT LAUNCH POINT ===
@@ -404,7 +411,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v19');
+          gamee.updateScore(score,playTime,'balloon-belt-v21');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -1067,6 +1074,24 @@ function colorDepth(g){
   }
   return d.map((v,i)=>cnt[i]?v/cnt[i]:0);
 }
+function progressionLayers(g){
+  // Simuluje postupné odkrývání obrazu. Layer 0 = barvy dostupné od začátku (na obvodu),
+  // layer 1 = barvy dostupné po vyčištění layer 0, atd. Používá se pro hard-mode
+  // ordering: needed (nízký layer) → hluboko, non-critical (vysoký layer) → nahoru.
+  const layers={};
+  const g2=g.map(r=>r.slice());
+  let layer=0;
+  while(layer<20){
+    const avail=getAvailableColors(g2);
+    if(!avail.size)break;
+    for(const c of avail)if(!(c in layers))layers[c]=layer;
+    for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+      if(avail.has(g2[y][x]))g2[y][x]=-1;
+    }
+    layer++;
+  }
+  return layers;
+}
 function getOpenEmptyCells(g){
   const open=new Set();
   const stack=[];
@@ -1162,6 +1187,76 @@ function applyGravityToCol(g,col){
   }
 }
 
+function isHoneycombSolvable(startGrid,cols){
+  // Simulates honeycomb play: each step picks any currently-active carrier
+  // (top row or any with a null neighbor) whose color maximally reduces remaining pixels.
+  // If nothing helpful is active, digs the active carrier that unlocks the most new neighbors.
+  const g=startGrid.map(r=>r.slice());
+  const C=cols.map(col=>col.slice());
+  function active(c,r){
+    if(c<0||c>=COLS||r<0)return false;
+    const col=C[c];if(!col||r>=col.length)return false;
+    const slot=col[r];if(!slot||slot.wall||slot.type==='garage')return false;
+    if(r===0)return true;
+    if(col[r-1]===null)return true;
+    if(r+1<col.length&&col[r+1]===null)return true;
+    if(c>0){const lc=C[c-1];if(lc&&r<lc.length&&lc[r]===null)return true;}
+    if(c+1<COLS){const rc=C[c+1];if(rc&&r<rc.length&&rc[r]===null)return true;}
+    return false;
+  }
+  function listActive(){
+    const a=[];
+    for(let c=0;c<COLS;c++)for(let r=0;r<C[c].length;r++)if(active(c,r))a.push([c,r]);
+    return a;
+  }
+  function applyColor(color,proj){
+    let td=proj;
+    while(td>0){
+      const exp=getExposedPixelsOfColor(g,color);
+      if(!exp.length)break;
+      exp.sort((a,b)=>b.y-a.y);
+      const take=Math.min(td,exp.length);
+      for(let i=0;i<take;i++)g[exp[i].y][exp[i].x]=-1;
+      td-=take;
+      if(gravityOn)applyGravityTo(g);
+    }
+  }
+  let safeguard=500;
+  while(anyLeft(g)&&safeguard-->0){
+    const act=listActive();
+    if(!act.length)return false;
+    const avail=getAvailableColors(g);
+    let best=-1,bestGain=-1;
+    for(let i=0;i<act.length;i++){
+      const [c,r]=act[i];
+      const color=C[c][r].color;
+      if(!avail.has(color))continue;
+      const gain=getExposedPixelsOfColor(g,color).length;
+      if(gain>bestGain){bestGain=gain;best=i;}
+    }
+    if(best<0){
+      // žádný aktivní nosič nepomůže → kopeme, vyber ten jehož odstranění odhalí nejvíc (neboli má nejvíc nenull slotů jako souseda)
+      let bi=0,bd=-1;
+      for(let i=0;i<act.length;i++){
+        const [c,r]=act[i];
+        let d=0;
+        const n=[[c,r+1],[c-1,r],[c+1,r]];
+        for(const [nc,nr] of n){
+          if(nc<0||nc>=COLS||nr<0)continue;
+          const nc2=C[nc];if(!nc2||nr>=nc2.length)continue;
+          const s=nc2[nr];if(s&&!s.wall&&s.type!=='garage')d++;
+        }
+        if(d>bd){bd=d;bi=i;}
+      }
+      best=bi;
+    }
+    const [bc,br]=act[best];
+    const slot=C[bc][br];
+    applyColor(slot.color,slot.projectiles);
+    C[bc][br]=null;
+  }
+  return !anyLeft(g);
+}
 function isLevelSolvable(startGrid,carrierQueue){
   const g=startGrid.map(r=>r.slice());
   const remaining={};
@@ -1255,87 +1350,219 @@ function makeColumns(pxCounts){
         [q[i],q[j]]=[q[j],q[i]];
       }
     } else if(difficulty==='hard'){
-      const cc={};for(const s of q)cc[s.color]=(cc[s.color]||0)+1;
+      // Honeycomb Hard: progression layer určuje hloubku. Obraz se čistí bottom-up, carriers
+      // kopeme top-down → chronologie se shoduje:
+      //   layer 0 (dostupné v obraze od začátku = potřeba hned) → TOP rows, viditelné
+      //   layer 1+ (postupně potřeba později) → DEEP rows, skryté pod `?`
+      // Hráč při kopání narazí na `?` a musí hádat, která chodba skrývá právě potřebnou barvu
+      // pro aktuální progresi — může se splést (odkryje layer 2 barvu když potřeba layer 1).
+      const layers=progressionLayers(grid);
+      // Sort ASC podle layeru → low-layer první = top rows.
       q.sort((a,b)=>{
-        const al=avail.has(a.color)?1:0,bl=avail.has(b.color)?1:0;
-        if(al!==bl)return bl-al;
-        if(!al&&!bl)return depth[b.color]-depth[a.color];
-        return cc[a.color]-cc[b.color];
+        const la=layers[a.color]??99, lb=layers[b.color]??99;
+        if(la!==lb)return la-lb;
+        return Math.random()-0.5;
       });
+      // Round-robin po barvách v RÁMCI stejného layer bucketu → stejné barvy se nelepí do klastru,
+      // hráč má v každém sloupci šanci na různé barvy stejné vrstvy.
+      const buckets={};
+      for(const s of q){const l=layers[s.color]??99;(buckets[l]=buckets[l]||[]).push(s);}
+      const sortedLayers=Object.keys(buckets).map(Number).sort((a,b)=>a-b);
+      const reordered=[];
+      for(const l of sortedLayers)reordered.push(...distributeForVariety(buckets[l]));
+      q=reordered;
     } else {
       for(let i=q.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[q[i],q[j]]=[q[j],q[i]];}
     }
-    if(isLevelSolvable(grid,q)){ok=true;bestQ=q.slice();break;}
+    const candidate=buildColsFromQueue(q);
+    if(isHoneycombSolvable(grid,candidate)){return candidate;}
     bestQ=q.slice();
   }
-  if(!ok){
-    for(let c=0;c<COLORS.length;c++){
-      if(pxCounts[c]>0){
-        bestQ.push({color:c,projectiles:UPC*PPU});
-        bestQ.push({color:c,projectiles:UPC*PPU});
+  // Žádný safety-net fallback — počet nosičů odpovídá přesně pxCounts.
+  // Pokud by žádný z 20 pokusů nebyl solvable, vrátíme poslední kandidát
+  // (solvability check je greedy → může být konzervativní).
+  return buildColsFromQueue(bestQ);
+}
+const MAX_ROWS=7;
+function distributeForVariety(q){
+  // Round-robin podle barev → vedle sebe (v row-major fillu) nebudou stejné barvy.
+  // Rozbíjí monolitní klastry nejhojnější barvy (typicky pozadí) v top row.
+  const byColor={};
+  for(const s of q){(byColor[s.color]=byColor[s.color]||[]).push(s);}
+  const keys=Object.keys(byColor).sort((a,b)=>byColor[b].length-byColor[a].length);
+  const out=[];
+  while(out.length<q.length){
+    let progressed=false;
+    for(const k of keys){
+      if(byColor[k].length){out.push(byColor[k].shift());progressed=true;if(out.length===q.length)break;}
+    }
+    if(!progressed)break;
+  }
+  return out;
+}
+function bfsAllReachable(rows,wallSet){
+  // Každá non-wall buňka musí být dosažitelná ortogonálně z top row (r=0).
+  // Zdi v runtime nikdy nezmizí, takže statická dosažitelnost = garance že
+  // každý nosič půjde odkopat.
+  const visited=new Set();
+  const queue=[];
+  for(let c=0;c<COLS;c++){
+    const key=c; // r=0
+    if(!wallSet.has(key)){visited.add(key);queue.push([c,0]);}
+  }
+  if(!visited.size)return false;
+  while(queue.length){
+    const [c,r]=queue.shift();
+    const n=[[c,r-1],[c,r+1],[c-1,r],[c+1,r]];
+    for(const [nc,nr] of n){
+      if(nc<0||nc>=COLS||nr<0||nr>=rows)continue;
+      const key=nr*COLS+nc;
+      if(visited.has(key)||wallSet.has(key))continue;
+      visited.add(key);
+      queue.push([nc,nr]);
+    }
+  }
+  for(let r=0;r<rows;r++)for(let c=0;c<COLS;c++){
+    const key=r*COLS+c;
+    if(!wallSet.has(key)&&!visited.has(key))return false;
+  }
+  return true;
+}
+function validateColumnsReachable(cols){
+  // BFS na finálním stavu columns (po případné garáž-injekci). Každý reálný nosič
+  // (ne wall, ne garáž) musí být dosažitelný z top row přes non-blocker cesty.
+  // Blocker = out-of-bounds, {wall:true}, {type:'garage'}. null = hole (connector).
+  const N=COLS;
+  const isBlocker=(c,r)=>{
+    if(c<0||c>=N||r<0)return true;
+    const col=cols[c];
+    if(!col||r>=col.length)return true;
+    const s=col[r];
+    if(s===null)return false;
+    return !!s.wall||s.type==='garage';
+  };
+  const visited=new Set();
+  const queue=[];
+  for(let c=0;c<N;c++){
+    if(cols[c].length&&!isBlocker(c,0)){visited.add(c);queue.push([c,0]);}
+  }
+  while(queue.length){
+    const [c,r]=queue.shift();
+    for(const [dc,dr] of [[0,-1],[0,1],[-1,0],[1,0]]){
+      const nc=c+dc,nr=r+dr;
+      if(isBlocker(nc,nr))continue;
+      const k=nr*N+nc;
+      if(visited.has(k))continue;
+      visited.add(k);queue.push([nc,nr]);
+    }
+  }
+  for(let c=0;c<N;c++){
+    for(let r=0;r<cols[c].length;r++){
+      const s=cols[c][r];
+      if(!s||s.wall||s.type==='garage')continue;
+      if(!visited.has(r*N+c))return false;
+    }
+  }
+  return true;
+}
+function placeWallsWithStrategy(rows,wallsNeeded,sortFn){
+  // Greedy placement s BFS-kontrolou connectivity na každém kroku.
+  // Fallback bottom-up zajistí, že doplníme požadovaný počet zdí (pokud to topologie dovolí).
+  const candidates=[];
+  for(let r=0;r<rows;r++)for(let c=0;c<COLS;c++)candidates.push({c,r});
+  sortFn(candidates);
+  const wallSet=new Set();
+  let placed=0;
+  for(const {c,r} of candidates){
+    if(placed>=wallsNeeded)break;
+    const key=r*COLS+c;
+    wallSet.add(key);
+    if(!bfsAllReachable(rows,wallSet)){wallSet.delete(key);continue;}
+    placed++;
+  }
+  if(placed<wallsNeeded){
+    for(let r=rows-1;r>=0&&placed<wallsNeeded;r--){
+      for(let c=COLS-1;c>=0&&placed<wallsNeeded;c--){
+        const key=r*COLS+c;
+        if(wallSet.has(key))continue;
+        wallSet.add(key);
+        if(!bfsAllReachable(rows,wallSet)){wallSet.delete(key);continue;}
+        placed++;
       }
     }
   }
-  return buildColsFromQueue(bestQ);
+  return wallSet;
+}
+function countBranchPoints(rows,wallSet){
+  // Rozcestí = buňka s ≥3 non-wall sousedy. Víc rozcestí = víc rozhodovacích bodů pro hráče.
+  let junctions=0;
+  for(let r=0;r<rows;r++)for(let c=0;c<COLS;c++){
+    if(wallSet.has(r*COLS+c))continue;
+    let open=0;
+    for(const [dc,dr] of [[0,-1],[0,1],[-1,0],[1,0]]){
+      const nc=c+dc,nr=r+dr;
+      if(nc<0||nc>=COLS||nr<0||nr>=rows)continue;
+      if(!wallSet.has(nr*COLS+nc))open++;
+    }
+    if(open>=3)junctions++;
+  }
+  return junctions;
 }
 function buildColsFromQueue(q){
-  if(difficulty==='hard')return buildColsHard(q);
-  const hr=difficulty==='easy'?0:0.5;
-  const rows=Math.ceil(q.length/COLS);
+  // Grid velikost = ceil(q.length/COLS) řádků (cap MAX_ROWS). Zbytek slotů
+  // doplníme zdmi `{wall:true}` s BFS kontrolou dosažitelnosti — každý nosič
+  // musí mít non-wall cestu na top row, jinak by byl "trapped".
+  const hr=difficulty==='easy'?0:difficulty==='hard'?0.8:0.45;
+  const maxSlots=COLS*MAX_ROWS;
+  const qUsed=q.length>maxSlots?q.slice(0,maxSlots):q;
+  // Velikost gridu (rows) jde za obtížností, ne za počtem nosičů:
+  //   easy   → přesně tolik řádků kolik nosičů vyžaduje (minimum zdí, rovná cesta)
+  //   medium → o 1 řádek víc (trocha zdí = variace)
+  //   hard   → o 3 řádky víc (maze s víc rozcestími)
+  const baseRows=Math.max(1,Math.ceil(qUsed.length/COLS));
+  const extra=difficulty==='hard'?3:difficulty==='medium'?1:0;
+  const rows=Math.min(MAX_ROWS,baseRows+extra);
+  const totalSlots=rows*COLS;
+  const wallsNeeded=Math.max(0,totalSlots-qUsed.length);
+  let wallSet;
+  if(difficulty==='easy'){
+    // Easy: zdi na spodek (padding).
+    wallSet=placeWallsWithStrategy(rows,wallsNeeded,(a)=>a.sort((x,y)=>(y.r-x.r)||(Math.random()-0.5)));
+  } else if(difficulty==='hard'){
+    // Hard: multi-candidate scoring — generuj K random layoutů, vyber ten s nejvíc rozcestími.
+    // Dává hráči víc rozhodovacích bodů, kterou chodbou kopat za needed barvou.
+    let best=null, bestScore=-1;
+    for(let trial=0;trial<12;trial++){
+      const ws=placeWallsWithStrategy(rows,wallsNeeded,(a)=>a.sort(()=>Math.random()-0.5));
+      if(ws.size<wallsNeeded)continue;
+      const score=countBranchPoints(rows,ws);
+      if(score>bestScore){bestScore=score;best=ws;}
+    }
+    wallSet=best||placeWallsWithStrategy(rows,wallsNeeded,(a)=>a.sort(()=>Math.random()-0.5));
+  } else {
+    wallSet=placeWallsWithStrategy(rows,wallsNeeded,(a)=>a.sort(()=>Math.random()-0.5));
+  }
+  // Pokud by pořád zbývaly "díry" (nemělo by nastat), extra nosiči je truncate.
+  const effectiveCarriers=totalSlots-wallSet.size;
+  // Hard už má layered+rozptýlené ordering z makeColumns → nepřemíchávat, jinak by se ztratilo progression-based hloubkové umístění needed barev.
+  const carrierQ=qUsed;
+  const finalQ=carrierQ.length>effectiveCarriers?carrierQ.slice(0,effectiveCarriers):carrierQ;
   const cols=[];for(let c=0;c<COLS;c++)cols.push([]);
   let qi=0;
   for(let r=0;r<rows;r++){
-    const order=[...Array(COLS).keys()].sort(()=>Math.random()-0.5);
-    for(const c of order){
-      if(qi<q.length){
-        const hidden=cols[c].length>0&&Math.random()<hr;
-        const src=q[qi++];
+    for(let c=0;c<COLS;c++){
+      const key=r*COLS+c;
+      if(wallSet.has(key)){
+        cols[c].push({wall:true});
+      } else if(qi<finalQ.length){
+        const hidden=r>0&&Math.random()<hr;
+        const src=finalQ[qi++];
         cols[c].push({color:src.color,hidden,projectiles:src.projectiles});
+      } else {
+        cols[c].push({wall:true});
       }
     }
   }
-  const ml=Math.max(...cols.map(c=>c.length));
-  for(const col of cols)while(col.length<ml)col.push(null);
-  return cols;
-}
-function buildColsHard(q){
-  // Těžká obtížnost:
-  //  - nahoře je viditelně jen jeden carrier od každé vzácné barvy (rare first)
-  //  - zbylé top-row sloty dostanou mystery (?) carrier z dominantní barvy → nevíš co klikáš
-  //  - VŠECHNY carriery v hlubších řadách jsou skryté jako ?
-  //  - dominantní barvy tak nejsou nahoře viditelné a nemůžeš je zbrkle vybrat první
-  const byColor={};
-  for(const s of q){(byColor[s.color]=byColor[s.color]||[]).push(s);}
-  const keys=Object.keys(byColor).map(Number).sort((a,b)=>byColor[a].length-byColor[b].length);
-  const cols=[];for(let c=0;c<COLS;c++)cols.push([]);
-  const colOrder=[...Array(COLS).keys()].sort(()=>Math.random()-0.5);
-  // Top row – visible: po jednom carrieru z každé rare barvy
-  let ci=0;
-  for(let k=0;k<keys.length&&ci<COLS;k++,ci++){
-    const s=byColor[keys[k]].shift();
-    cols[colOrder[ci]].push({color:s.color,hidden:false,projectiles:s.projectiles});
-  }
-  // Top row – mystery fill: doplň zbývající sloty nahoře hidden carrierem z nejabundantnější barvy
-  for(let k=keys.length-1;k>=0&&ci<COLS;k--){
-    while(byColor[keys[k]].length>0&&ci<COLS){
-      const s=byColor[keys[k]].shift();
-      cols[colOrder[ci++]].push({color:s.color,hidden:true,projectiles:s.projectiles});
-    }
-  }
-  // Zbytek do hlubších řad, všechno hidden, náhodně rozhozené
-  const rest=[];
-  for(const k of keys)for(const s of byColor[k])rest.push(s);
-  for(let i=rest.length-1;i>0;i--){
-    const j=Math.floor(Math.random()*(i+1));
-    [rest[i],rest[j]]=[rest[j],rest[i]];
-  }
-  for(const s of rest){
-    let shortest=0;
-    for(let c=1;c<COLS;c++)if(cols[c].length<cols[shortest].length)shortest=c;
-    cols[shortest].push({color:s.color,hidden:true,projectiles:s.projectiles});
-  }
-  const ml=Math.max(...cols.map(c=>c.length));
-  for(const col of cols)while(col.length<ml)col.push(null);
   return cols;
 }
 function shadeHex(hex,amt){
@@ -1485,8 +1712,24 @@ function drawBelt(){
 }
 function cntCarriers(){
   let n=0;
-  for(let c=0;c<COLS;c++)for(const s of columns[c])if(s!==null)n++;
+  for(let c=0;c<COLS;c++)for(const s of columns[c])if(s!==null&&!s.wall)n++;
   return n;
+}
+function isCarrierActive(c,r){
+  // Honeycomb pravidlo: aktivní je nosič, který má alespoň jednoho volného ortogonálního
+  // souseda. "Volný" = null (dug-out hole) nebo horní okraj gridu (r===0).
+  // Wall sentinel `{wall:true}` značí padding — představuje "zeď" a NENÍ volný.
+  if(c<0||c>=COLS||r<0)return false;
+  const col=columns[c];
+  if(!col||r>=col.length)return false;
+  const slot=col[r];
+  if(!slot||slot.wall)return false;
+  if(r===0)return true;
+  if(col[r-1]===null)return true;
+  if(r+1<col.length&&col[r+1]===null)return true;
+  if(c>0){const lc=columns[c-1];if(lc&&r<lc.length&&lc[r]===null)return true;}
+  if(c+1<COLS){const rc=columns[c+1];if(rc&&r<rc.length&&rc[r]===null)return true;}
+  return false;
 }
 function drawCarriers(){
   const el=document.getElementById('carriers-grid');
@@ -1496,13 +1739,13 @@ function drawCarriers(){
     col.className='carrier-col';
     for(let r=0;r<columns[c].length;r++){
       const slot=columns[c][r];
-      const empty=slot===null;
-      let active=false;
-      if(!empty){active=true;for(let rr=0;rr<r;rr++)if(columns[c][rr]!==null){active=false;break;}}
+      const empty=slot===null||(slot&&slot.wall===true);
+      const active=!empty&&isCarrierActive(c,r);
       const hidden=!empty&&!active&&slot.hidden===true;
       const isGarage=!empty&&slot&&slot.type==='garage';
+      const garageLocked=isGarage&&!active;
       const div=document.createElement('div');
-      div.className='carrier '+(empty?'empty':(active&&!isGarage)?'active':hidden?'hiddenq':'inactive');
+      div.className='carrier '+(empty?'empty':isGarage?('garage'+(garageLocked?' locked':'')):active?'active':hidden?'hiddenq':'inactive');
       if(empty){
         div.innerHTML='';
       } else if(hidden){
@@ -1510,7 +1753,13 @@ function drawCarriers(){
       } else if(isGarage){
         const nextColor=slot.queue.length?COLORS[slot.queue[0].color]:'#2a2a2a';
         const count=slot.queue.length;
-        div.innerHTML='<div class="cbox" style="background:'+nextColor+';display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:1.5px solid rgba(0,0,0,0.45)">'
+        const dirs=slot.directions||['N'];
+        const arrMap={N:'gar-arr gar-arr-n',S:'gar-arr gar-arr-s',W:'gar-arr gar-arr-w',E:'gar-arr gar-arr-e'};
+        const arrGlyph={N:'\u25B2',S:'\u25BC',W:'\u25C0',E:'\u25B6'};
+        let arrHTML='';
+        for(const d of dirs)arrHTML+='<span class="'+arrMap[d]+'">'+arrGlyph[d]+'</span>';
+        div.innerHTML='<div class="cbox" style="position:relative;background:'+nextColor+';display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:1.5px solid rgba(0,0,0,0.45)">'
+          +arrHTML
           +'<span style="font-size:16px;line-height:1">🏠</span>'
           +'<span style="font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,0.8)">'+count+'</span>'
           +'</div>';
@@ -1592,18 +1841,22 @@ function onCarrierClick(e){
   if(!running)return;
   const slot=columns[c][r];
   if(!slot)return;
+  // Hard limit: v trychtýři max 4 nosiče (16 koulí). Klik se neodbaví a zobrazí se varování.
+  if(pending.length>PENDING_DISPENSE_THRESHOLD){
+    showFunnelWarning();
+    return;
+  }
   if(slot.type==='rocket'){
-    const balls=[{ci:slot.color,ppu:20,rocket:true},{ci:slot.color,ppu:20,rocket:true}];
-    for(const b of balls)addToPending(b);
+    addToPending({ci:slot.color,ppu:20,rocket:true});
+    addToPending({ci:slot.color,ppu:20,rocket:true});
     columns[c][r]=null;
     noMatchPasses=0;
     drawCarriers();drawBelt();drawPending();
     setStatus('🚀 Rakety v trychtýři!');
     return;
   }
-  const color=slot.color;
   const projectiles=slot.projectiles||UPC*PPU;
-  const balls=distributeProjectiles(projectiles).map(p=>({ci:color,ppu:p}));
+  const balls=distributeProjectiles(projectiles).map(p=>({ci:slot.color,ppu:p}));
   for(const b of balls)addToPending(b);
   columns[c][r]=null;
   noMatchPasses=0;
@@ -1611,15 +1864,45 @@ function onCarrierClick(e){
   drawCarriers();drawBelt();drawPending();
   setStatus(balls.length+' balónků v trychtýři');
 }
+function showFunnelWarning(){
+  funnelWarnTimer=1.8;
+  const el=document.getElementById('funnel-warning');
+  if(el){el.textContent='Funnel full — max 4 carriers at once. Wait for balls to reach the belt.';el.classList.add('show');}
+}
+function updateFunnelWarning(dt){
+  if(funnelWarnTimer<=0)return;
+  funnelWarnTimer-=dt;
+  if(funnelWarnTimer<=0){
+    const el=document.getElementById('funnel-warning');
+    if(el)el.classList.remove('show');
+  }
+}
 function updateGarages(){
+  // Garáž jako "zamčený blok": odemkne se až má ≥1 null souseda v povolených směrech
+  // (slot.directions). Pak vydá další nosič z queue do prvního volného povoleného
+  // souseda. Když je queue prázdná, celá garáž zmizí (pozice → null).
   for(let c=0;c<COLS;c++){
     for(let r=0;r<columns[c].length;r++){
       const slot=columns[c][r];
-      if(!slot||slot.type!=='garage'||!slot.queue.length)continue;
-      if(r===0)continue;
-      if(columns[c][r-1]===null){
+      if(!slot||slot.type!=='garage')continue;
+      const dirs=slot.directions||['N'];
+      let freeNeighbor=null;
+      for(const d of dirs){
+        const [dc,dr]=GAR_DIR_VEC[d];
+        const nc=c+dc,nr=r+dr;
+        if(nc<0||nc>=COLS||nr<0)continue;
+        const ncol=columns[nc];
+        if(!ncol||nr>=ncol.length)continue;
+        // Jen "hole" (null) — wall sentinel NENÍ volný slot.
+        if(ncol[nr]===null){freeNeighbor=[nc,nr];break;}
+      }
+      if(!freeNeighbor)continue;
+      if(slot.queue.length){
         const next=slot.queue.shift();
-        columns[c][r-1]={color:next.color,projectiles:UPC*PPU};
+        const [nc,nr]=freeNeighbor;
+        columns[nc][nr]={color:next.color,projectiles:UPC*PPU};
+      } else {
+        columns[c][r]=null;
       }
     }
   }
@@ -1655,7 +1938,38 @@ function collideFunnelSeg(b,x1,y1,x2,y2){
     if(vn<0){const e=0.2;b.vx-=(1+e)*vn*nx;b.vy-=(1+e)*vn*ny;}
   }
 }
+function nudgeStuckNearOpening(dt){
+  // Periodicky (každých ~0.45s) najdi kouli nejblíže otvoru a pokud má malou rychlost,
+  // dej jí cílený impulz vzhůru s mírnou korekcí ke středu otvoru. Napodobuje
+  // „lehké cvrnknutí" — vypadá přirozeně, neexploduje fronta.
+  nudgeTimer+=dt;
+  if(nudgeTimer<0.45)return;
+  if(pending.length===0){nudgeTimer=0;return;}
+  const openCX=(FUN.narrowL+FUN.narrowR)/2;
+  let best=null, bestY=Infinity;
+  for(const b of pending){
+    if(b.x===undefined)continue;
+    // Musí být v oblasti blízko otvoru (horní část trychtýře) a relativně klidná
+    if(b.y>FUN.narrowY+50)continue;
+    const speed2=b.vx*b.vx+b.vy*b.vy;
+    if(speed2>1800)continue; // už se hýbe — nech
+    if(b.y<bestY){bestY=b.y;best=b;}
+  }
+  if(best){
+    const dx=openCX-best.x;
+    // Upward impulz + lehká boční korekce k otvoru. Random jitter pro organicky pocit.
+    best.vy-=180+Math.random()*120;
+    best.vx+=Math.sign(dx||1)*(40+Math.random()*40)+(Math.random()-0.5)*30;
+    best.stuckT=-0.1;
+    nudgeTimer=0;
+  } else {
+    // Nikdo není zaseknutý — čekej další cyklus, ale resetuj časovač jen částečně
+    nudgeTimer=0.3;
+  }
+}
 function updatePending(dt){
+  updateFunnelWarning(dt);
+  nudgeStuckNearOpening(dt);
   if(pending.length===0)return;
   const steps=4, h=Math.min(dt,0.05)/steps;
   for(let s=0;s<steps;s++){
@@ -1882,7 +2196,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v19');
+    gamee.updateScore(score,playTime,'balloon-belt-v21');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -1947,7 +2261,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v19');
+  gamee.updateScore(score,playTime,'balloon-belt-v21');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -1967,7 +2281,7 @@ function startLevel(){
   playTimer=setInterval(function(){if(!paused&&running)playTime++;},1000);
   gamee.gameStart();
   if(!beltLoopStarted){beltLoopStarted=true;lastBeltTime=null;requestAnimationFrame(beltLoop);}
-  grid=makeGrid();belt=[];pending=[];score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
+  grid=makeGrid();belt=[];pending=[];nudgeTimer=0;funnelWarnTimer=0;score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
   particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;
   columns=makeColumns(countPixels(grid));
   // Injekce raketových nosičů – per level předdefinované 2 pozice
@@ -1980,25 +2294,64 @@ function startLevel(){
       columns[s.col].splice(s.row,0,{type:'rocket',color:rockets[i]});
     }
   }
-  // Injekce garáže – drží nosiče a auto-vydává je když je slot nad ní prázdný
-  if(garageOn&&GARAGE_DEFS[currentLevel]){
-    const {col,carriers}=GARAGE_DEFS[currentLevel];
-    const queue=carriers.map(c=>({color:c.color}));
-    // Odeber z columns nejhlubší nosič dané barvy – garáž ho nahradí
-    for(const gc of carriers){
-      let removed=false;
-      for(let c=COLS-1;c>=0&&!removed;c--){
-        for(let r=columns[c].length-1;r>=0&&!removed;r--){
-          const s=columns[c][r];
-          if(s&&!s.type&&s.color===gc.color){columns[c].splice(r,1);removed=true;}
+  // Injekce garáže – drží nosiče a auto-vydává je přes nastavené směry.
+  // ROOT CAUSE fix (v21): předtím `splice` nosičů dělal jagged sloupce → vznikly
+  // izolované ostrůvky. Teď nahrazujeme nosiče zdmi (rectangular zůstane) a po
+  // injekci validujeme connectivity; pokud selže, regenerujeme makeColumns.
+  if(garageMode!=='off'&&GARAGE_DEFS[currentLevel]){
+    const {col:gcol,carriers:gcarriers}=GARAGE_DEFS[currentLevel];
+    let injected=false;
+    for(let attempt=0;attempt<10&&!injected;attempt++){
+      if(attempt>0)columns=makeColumns(countPixels(grid));
+      const backup=columns.map(c=>c.map(s=>s?{...s}:s));
+      // 1) Nahraď N nosičů odpovídající barvy zdmi (zachová rectangular → connectivity base).
+      let allReplaced=true;
+      for(const gc of gcarriers){
+        let replaced=false;
+        for(let c=COLS-1;c>=0&&!replaced;c--){
+          for(let r=columns[c].length-1;r>=0&&!replaced;r--){
+            const s=columns[c][r];
+            if(s&&!s.type&&!s.wall&&s.color===gc.color){
+              columns[c][r]={wall:true};
+              replaced=true;
+            }
+          }
         }
+        if(!replaced){allReplaced=false;break;}
       }
+      if(!allReplaced){columns=backup;continue;}
+      // 2) Garáž se přidá jako nový řádek na konec target sloupce (jagged +1 dole,
+      //    pouze v jednom sloupci — neobjeví se "díra" mezi sloupci).
+      if(columns[gcol].length>=MAX_ROWS){columns=backup;continue;}
+      const targetRow=columns[gcol].length;
+      // 3) Spočítej dostupné směry pro garáž (non-wall, non-garage sousedi v gridu).
+      const validDirs=[];
+      for(const d of Object.keys(GAR_DIR_VEC)){
+        const [dc,dr]=GAR_DIR_VEC[d];
+        const nc=gcol+dc,nr=targetRow+dr;
+        if(nc<0||nc>=COLS||nr<0)continue;
+        const ncol=columns[nc];
+        if(!ncol||nr>=ncol.length)continue;
+        const n=ncol[nr];
+        if(n&&(n.wall||n.type==='garage'))continue;
+        validDirs.push(d);
+      }
+      if(!validDirs.length){columns=backup;continue;}
+      let chosenDirs;
+      if(garageMode==='single'){
+        chosenDirs=[validDirs[Math.floor(Math.random()*validDirs.length)]];
+      } else {
+        const want=2+Math.floor(Math.random()*3);
+        const shuffled=validDirs.slice().sort(()=>Math.random()-0.5);
+        chosenDirs=shuffled.slice(0,Math.min(want,shuffled.length));
+      }
+      const queue=gcarriers.map(c=>({color:c.color}));
+      columns[gcol].push({type:'garage',directions:chosenDirs,queue});
+      // 4) Finální BFS — každý reálný nosič musí být dosažitelný z top row.
+      if(!validateColumnsReachable(columns)){columns=backup;continue;}
+      injected=true;
     }
-    // Trim trailing nulls (padding z makeColumns) aby nevznikaly vizuální mezery
-    while(columns[col].length>0&&columns[col][columns[col].length-1]===null)
-      columns[col].pop();
-    // Jeden null nad garáží = slot pro první vydaný nosič
-    columns[col].push(null,{type:'garage',direction:'N',queue});
+    // Pokud 10× selhalo, garáž tiše vypadne (grid zůstane bez ní — lepší než unsolvable).
   }
   document.getElementById('score').textContent=0;
   document.getElementById('overlay').classList.remove('show');
@@ -2248,10 +2601,11 @@ function setupDOM(){
     startLevel();
   });
   document.getElementById('garage-btn').addEventListener('click',()=>{
-    garageOn=!garageOn;
+    garageMode=garageMode==='off'?'single':garageMode==='single'?'multi':'off';
     const btn=document.getElementById('garage-btn');
-    btn.textContent=garageOn?'zapnuto':'vypnuto';
-    btn.classList.toggle('active',garageOn);
+    const labels={off:'vypnuto',single:'1 směr',multi:'více směrů'};
+    btn.textContent=labels[garageMode];
+    btn.classList.toggle('active',garageMode!=='off');
     startLevel();
   });
 }
@@ -2365,7 +2719,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v19');
+      gamee.updateScore(score,playTime,'balloon-belt-v21');
       event.detail.callback();
     });
 

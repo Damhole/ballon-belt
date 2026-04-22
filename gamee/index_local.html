@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <head>
   <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-  <title>Balloon Belt v19</title>
+  <title>Balloon Belt v21</title>
   <script type="text/javascript" src="./lib/gamee-js-stub.js"></script>
   <meta name="viewport" content="viewport-fit=cover">
   <link rel="stylesheet" href="./css/game.css">
@@ -9,6 +9,7 @@
 </head>
 <body onload="initGame()">
 <div id="game">
+  <div id="version-badge">v21</div>
   <h1>🎈 Balloon Belt</h1>
   <div id="score-bar">
     <span>Skóre: <b id="score">0</b></span>
@@ -72,6 +73,7 @@
   </div>
   <div id="pending-wrap">
     <div id="pending-label">ve frontě</div>
+    <div id="funnel-warning"></div>
     <canvas id="pending-canvas" width="360" height="90"></canvas>
   </div>
   <div id="carriers-wrap">
