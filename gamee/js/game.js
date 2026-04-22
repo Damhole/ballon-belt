@@ -1,147 +1,3 @@
-<!DOCTYPE html>
-<html lang="cs">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Balloon Belt v16</title>
-<style>
-  :root {
-    --font-sans: system-ui, -apple-system, sans-serif;
-    --color-text-primary: #f0f0f0;
-    --color-text-secondary: #aaa;
-    --color-text-tertiary: #777;
-    --color-border-primary: #888;
-    --color-border-secondary: #444;
-    --color-border-tertiary: #333;
-    --color-background-primary: #1a1a1a;
-    --color-background-secondary: #2a2a2a;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: var(--font-sans);
-    background: #111;
-    color: var(--color-text-primary);
-    min-height: 100vh;
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding: 20px 0 40px;
-  }
-  #game{display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px;max-width:480px;margin:0 auto;width:100%}
-  #status{font-size:13px;color:var(--color-text-secondary);min-height:18px;text-align:center}
-  #image-area{width:360px;height:310px;border:2px solid #555;border-radius:8px;overflow:hidden;background:#353535;position:relative}
-  #pixel-canvas{display:block;width:360px;height:310px}
-  #belt-wrap{width:360px}
-  #belt-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:4px;text-align:center}
-  #belt-svg{width:360px;height:64px;display:block}
-  .controls{width:360px;display:flex;flex-direction:column;gap:8px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-secondary);border-radius:12px;padding:10px 14px}
-  .ctrl-row-top{display:flex;justify-content:space-between;align-items:flex-end;gap:8px}
-  .ctrl-row-bottom{display:flex;justify-content:flex-end;align-items:center;gap:8px;border-top:0.5px solid var(--color-border-secondary);padding-top:8px}
-  .ctrl-group{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
-  .ctrl-label{font-size:10px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.07em;font-weight:500;padding-left:2px}
-  .seg{display:flex;border-radius:7px;overflow:hidden;border:0.5px solid var(--color-border-secondary)}
-  .stepper{display:flex;align-items:stretch;border-radius:7px;overflow:hidden;border:0.5px solid var(--color-border-secondary);background:rgba(255,255,255,0.04);min-width:130px}
-  .step-arrow{border:none;background:transparent;color:var(--color-text-secondary);cursor:pointer;padding:4px 10px;font-size:14px;line-height:1;transition:background 0.12s,color 0.12s;user-select:none}
-  .step-arrow:hover{background:rgba(255,255,255,0.07);color:var(--color-text-primary)}
-  .step-arrow:active{background:rgba(255,255,255,0.13)}
-  .step-label{flex:1;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--color-text-primary);padding:0 6px;min-width:70px}
-  .btn{padding:4px 11px;border:none;border-right:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:12px;color:var(--color-text-secondary);transition:background 0.12s,color 0.12s;white-space:nowrap}
-  .btn:last-child{border-right:none}
-  .btn:hover{background:rgba(255,255,255,0.07);color:var(--color-text-primary)}
-  .btn.active{background:rgba(255,255,255,0.13);color:var(--color-text-primary);font-weight:600}
-  .gravity-label{font-size:10px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.07em;font-weight:500}
-  .toggle-btn{padding:4px 12px;border-radius:7px;border:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:12px;color:var(--color-text-secondary);transition:background 0.15s,color 0.15s,border-color 0.15s}
-  .toggle-btn:hover{background:rgba(255,255,255,0.07)}
-  .toggle-btn.active{background:rgba(100,200,100,0.15);color:#7defa0;border-color:#4a9e62;font-weight:600}
-  #pending-wrap{width:360px}
-  #pending-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:4px;text-align:center}
-  #pending-canvas{display:block;margin:0 auto;background:transparent}
-  #carriers-wrap{width:360px}
-  #carriers-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:6px;text-align:center}
-  #carriers-grid{display:flex;gap:4px;justify-content:center;flex-wrap:nowrap;width:360px}
-  .carrier-col{display:flex;flex-direction:column;gap:6px;align-items:center}
-  .carrier{user-select:none}
-  .carrier.active{cursor:pointer;opacity:1}
-  .carrier.active:hover .cbox{transform:scale(1.08)}
-  .carrier.inactive{opacity:0.25;cursor:default;pointer-events:none}
-  .carrier.hiddenq{opacity:1;cursor:default;pointer-events:none}
-  .carrier.empty{opacity:0;pointer-events:none;width:48px;height:48px;display:block}
-  .cbox{width:48px;height:48px;border-radius:10px;padding:4px;display:grid;grid-template-columns:1fr 1fr;gap:2px;box-sizing:border-box;transition:transform 0.12s;box-shadow:inset 0 3px 9px rgba(0,0,0,0.5),inset 0 -1px 3px rgba(255,255,255,0.08),0 2px 5px rgba(0,0,0,0.45)}
-  .cball{border-radius:50%;min-width:0;min-height:0}
-  .cbox-hid{width:48px;height:48px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:rgba(255,255,255,0.4);box-shadow:inset 0 3px 9px rgba(0,0,0,0.5),0 2px 5px rgba(0,0,0,0.45);background:#282828;border:1.5px solid rgba(255,255,255,0.07);transition:transform 0.12s;box-sizing:border-box}
-  #overlay{display:none;position:absolute;inset:0;background:rgba(0,0,0,0.55);align-items:center;justify-content:center;z-index:10;border-radius:6px}
-  #overlay.show{display:flex}
-  #overlay-box{background:rgba(20,20,20,0.92);border:0.5px solid rgba(255,255,255,0.12);border-radius:12px;padding:1.5rem 2rem;text-align:center;backdrop-filter:blur(6px)}
-  #overlay-box h3{font-size:18px;font-weight:500;margin-bottom:8px}
-  #overlay-box p{font-size:13px;color:var(--color-text-secondary);margin-bottom:16px}
-  #restart-btn{padding:8px 20px;border-radius:8px;border:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:14px;color:var(--color-text-primary)}
-  #restart-btn:hover{background:var(--color-background-secondary)}
-  #score-bar{display:flex;gap:24px;font-size:13px;color:var(--color-text-secondary)}
-  #score-bar span b{color:var(--color-text-primary);font-weight:500}
-  h1{font-size:16px;font-weight:500;color:var(--color-text-secondary);letter-spacing:0.05em}
-  #version-badge{position:fixed;top:8px;right:10px;font-size:10px;color:rgba(255,255,255,0.35);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:0.5px;pointer-events:none;z-index:100}
-</style>
-</head>
-<body>
-<div id="version-badge">v16</div>
-<div id="game">
-  <h1>🎈 Balloon Belt</h1>
-  <div id="score-bar">
-    <span>Skóre: <b id="score">0</b></span>
-    <span>Belt: <b id="belt-count">0</b>/14</span>
-    <span>Nosiče: <b id="carriers-left">0</b></span>
-  </div>
-  <div class="controls">
-    <div class="ctrl-row-top">
-      <div class="ctrl-group">
-        <span class="ctrl-label">level</span>
-        <div class="stepper">
-          <button class="step-arrow" id="level-prev" aria-label="předchozí level">‹</button>
-          <span class="step-label" id="level-label">tvary</span>
-          <button class="step-arrow" id="level-next" aria-label="další level">›</button>
-        </div>
-      </div>
-      <div class="ctrl-group">
-        <span class="ctrl-label">obtížnost</span>
-        <div class="seg">
-          <button class="btn active" data-diff="easy">snadná</button>
-          <button class="btn" data-diff="medium">střední</button>
-          <button class="btn" data-diff="hard">těžká</button>
-        </div>
-      </div>
-    </div>
-    <div class="ctrl-row-bottom">
-      <span class="gravity-label">gravitace</span>
-      <button class="toggle-btn" id="gravity-btn">vypnuto</button>
-      <span class="gravity-label">rakety</span>
-      <button class="toggle-btn" id="rockets-btn">vypnuto</button>
-    </div>
-  </div>
-  <div id="status">Klikni na aktivní nosič</div>
-  <div id="image-area">
-    <canvas id="pixel-canvas" width="360" height="310"></canvas>
-    <div id="overlay">
-      <div id="overlay-box">
-        <h3 id="overlay-title">Konec</h3>
-        <p id="overlay-msg"></p>
-        <button id="restart-btn">Hrát znovu</button>
-      </div>
-    </div>
-  </div>
-  <div id="belt-wrap">
-    <div id="belt-label">dopravní pás → obraz</div>
-    <svg id="belt-svg" viewBox="0 0 360 64" xmlns="http://www.w3.org/2000/svg"></svg>
-  </div>
-  <div id="pending-wrap">
-    <div id="pending-label">ve frontě</div>
-    <canvas id="pending-canvas" width="360" height="90"></canvas>
-  </div>
-  <div id="carriers-wrap">
-    <div id="carriers-label">nosiče</div>
-    <div id="carriers-grid"></div>
-  </div>
-</div>
-<script>
 const COLORS=['#3dd64a','#ff7a1a','#5bc8f5','#1b9aff','#ff4fa3','#f5d800','#8b4dff','#141414','#ffffff'];
 const BELT_CAP=14;
 const COLS=7;
@@ -155,8 +11,16 @@ const ROCKET_TARGETS={
   starwars:[5,1],
   frog:[0,7]
 };
-let grid,belt,pending,columns,score,loops,running,difficulty='easy',gravityOn=false,rocketsOn=false,currentLevel='smiley';
+const GARAGE_DEFS={
+  smiley:{col:3,carriers:[{color:3},{color:0},{color:4}]},
+  moon:  {col:4,carriers:[{color:5},{color:2},{color:6}]},
+  starwars:{col:3,carriers:[{color:5},{color:1},{color:8}]},
+  frog:  {col:3,carriers:[{color:0},{color:7},{color:3}]},
+};
+let grid,belt,pending,columns,score,loops,running,difficulty='easy',gravityOn=false,rocketsOn=false,garageOn=false,currentLevel='smiley';
 let beltAnim=0,lastBeltTime=null;
+// Gamee state
+let paused=false, gameStarted=false, playTime=0, playTimer=null, beltLoopStarted=false;
 // === BELT LAUNCH POINT ===
 const BELT_LX=28,BELT_RX=332,BELT_BALL_R=14;
 const BELT_STARTX=BELT_LX+BELT_BALL_R+8;          // 50
@@ -540,6 +404,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
+          gamee.updateScore(score,playTime,'balloon-belt-v17');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -1141,11 +1006,49 @@ function makeGridFrog(variant, yOff){
   paint(mouthY,20,OUT,true);
   return g;
 }
+function makeGridMondrian(){
+  // Mondrian – komplexní kompozice s více bloky (inspirováno Composition with Large Red Plane)
+  // Barvy: 1=červená, 3=modrá, 5=žlutá, 7=černá, 8=bílá
+  const BL=7,WH=8,RE=1,BU=3,YE=5;
+  const g=[];
+  for(let y=0;y<IMG_GH;y++)g.push(new Array(GW).fill(-1));
+  const fill=(x0,y0,x1,y1,c)=>{for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++)g[y][x]=c;};
+
+  // Vnější rám (2px)
+  fill(0,0,35,1,BL); fill(0,25,35,26,BL);
+  fill(0,0,1,26,BL); fill(34,0,35,26,BL);
+
+  // Žluté proužky nahoře a dole
+  fill(2,2,33,3,YE);
+  fill(2,23,33,24,YE);
+
+  // Černé linky
+  fill(0,4,35,5,BL);      // H0 plná (pod horním žlutým)
+  fill(10,0,11,26,BL);    // V1 plná (~28% zleva)
+  fill(24,0,25,26,BL);    // V2 plná (~67% zleva)
+  fill(10,13,35,14,BL);   // H1 částečná (vpravo od V1)
+  fill(0,18,25,19,BL);    // H2 částečná (vlevo od V2)
+  fill(17,4,18,14,BL);    // V3 částečná (střední sekce, jen horní část)
+  fill(29,13,30,26,BL);   // V4 částečná (pravá sekce, jen dolní část)
+
+  // Barevné bloky
+  fill(2,6,9,17,BU);      // velká modrá vlevo nahoře
+  fill(2,20,9,22,WH);     // bílá vlevo dole
+  fill(12,6,16,12,RE);    // červená střed-vlevo nahoře
+  fill(19,6,23,12,WH);    // bílá střed-vpravo nahoře
+  fill(12,15,23,17,WH);   // bílá střed (mezi H1 a H2)
+  fill(12,20,23,22,RE);   // červená střed dole
+  fill(26,6,33,12,WH);    // bílá vpravo nahoře
+  fill(26,15,28,22,BU);   // modrá vpravo-dole vlevo od V4
+  fill(31,15,33,22,WH);   // bílá vpravo-dole vpravo od V4
+  return g;
+}
 function makeGrid(){
   let g;
   if(currentLevel==='moon')g=makeGridMoon();
   else if(currentLevel==='starwars')g=makeGridC3PO();
   else if(currentLevel==='frog')g=makeGridFrog();
+  else if(currentLevel==='mondrian')g=makeGridMondrian();
   else g=makeGridSmiley();
   // 4 prázdné řady dole (buffer zóna)
   for(let i=0;i<4;i++)g.push(new Array(GW).fill(-1));
@@ -1597,12 +1500,20 @@ function drawCarriers(){
       let active=false;
       if(!empty){active=true;for(let rr=0;rr<r;rr++)if(columns[c][rr]!==null){active=false;break;}}
       const hidden=!empty&&!active&&slot.hidden===true;
+      const isGarage=!empty&&slot&&slot.type==='garage';
       const div=document.createElement('div');
-      div.className='carrier '+(empty?'empty':active?'active':hidden?'hiddenq':'inactive');
+      div.className='carrier '+(empty?'empty':(active&&!isGarage)?'active':hidden?'hiddenq':'inactive');
       if(empty){
         div.innerHTML='';
       } else if(hidden){
         div.innerHTML='<div class="cbox-hid">?</div>';
+      } else if(isGarage){
+        const nextColor=slot.queue.length?COLORS[slot.queue[0].color]:'#2a2a2a';
+        const count=slot.queue.length;
+        div.innerHTML='<div class="cbox" style="background:'+nextColor+';display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:1.5px solid rgba(0,0,0,0.45)">'
+          +'<span style="font-size:16px;line-height:1">🏠</span>'
+          +'<span style="font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,0.8)">'+count+'</span>'
+          +'</div>';
       } else if(slot.type==='rocket'){
         const dc=COLORS[slot.color];
         div.innerHTML='<div class="cbox" style="background:linear-gradient(160deg,#3a3f5a,#111824);border:1.5px solid '+dc+';box-shadow:0 0 6px '+dc+'55 inset;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#fff;font-size:20px;line-height:1">🚀'
@@ -1624,7 +1535,7 @@ function drawCarriers(){
         const borderStyle=isCleanup?'border:2px dashed rgba(255,255,255,0.55)':'border:1.5px solid rgba(0,0,0,0.45)';
         div.innerHTML='<div class="cbox" style="background:'+bg+';'+borderStyle+'">'+ballsHTML+'</div>';
       }
-      if(active){div.dataset.col=c;div.dataset.row=r;div.addEventListener('click',onCarrierClick);}
+      if(active&&!isGarage){div.dataset.col=c;div.dataset.row=r;div.addEventListener('click',onCarrierClick);}
       col.appendChild(div);
     }
     el.appendChild(col);
@@ -1696,8 +1607,22 @@ function onCarrierClick(e){
   for(const b of balls)addToPending(b);
   columns[c][r]=null;
   noMatchPasses=0;
+  updateGarages();
   drawCarriers();drawBelt();drawPending();
   setStatus(balls.length+' balónků v trychtýři');
+}
+function updateGarages(){
+  for(let c=0;c<COLS;c++){
+    for(let r=0;r<columns[c].length;r++){
+      const slot=columns[c][r];
+      if(!slot||slot.type!=='garage'||!slot.queue.length)continue;
+      if(r===0)continue;
+      if(columns[c][r-1]===null){
+        const next=slot.queue.shift();
+        columns[c][r-1]={color:next.color,projectiles:UPC*PPU};
+      }
+    }
+  }
 }
 // === Trychtýř – fyzika koulí ve frontě. Široký konec dole u nosičů,
 // úzký nahoře u pásu. „Gravitace" míří vzhůru k pásu – koule stoupají
@@ -1957,6 +1882,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
+    gamee.updateScore(score,playTime,'balloon-belt-v17');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -1988,7 +1914,11 @@ function computeAmmoDeficit(){
   for(let c=0;c<COLORS.length;c++){
     if(!pxCounts[c])continue;
     let proj=0;
-    for(let col=0;col<COLS;col++)for(const s of columns[col])if(s&&s.color===c)proj+=(s.projectiles||UPC*PPU);
+    for(let col=0;col<COLS;col++)for(const s of columns[col]){
+      if(!s)continue;
+      if(s.type==='garage'){for(const gc of s.queue)if(gc.color===c)proj+=UPC*PPU;}
+      else if(s.color===c)proj+=(s.projectiles||UPC*PPU);
+    }
     for(const b of belt)if(b.ci===c)proj+=b.ppu;
     for(const b of pending)if(b.ci===c)proj+=b.ppu;
     proj+=particles.filter(p=>p.phase==='fly'&&p.ci===c).length;
@@ -2016,6 +1946,9 @@ function refillCarriers(){
 function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
+  if(playTimer){clearInterval(playTimer);playTimer=null;}
+  gamee.updateScore(score,playTime,'balloon-belt-v17');
+  gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
     setTimeout(spawnConfetti,280);
@@ -2027,7 +1960,13 @@ function endGame(win){
     document.getElementById('overlay').classList.add('show');
   },win?1400:0);
 }
-function initGame(){
+function startLevel(){
+  gameStarted=true;
+  if(playTimer)clearInterval(playTimer);
+  playTime=0;
+  playTimer=setInterval(function(){if(!paused&&running)playTime++;},1000);
+  gamee.gameStart();
+  if(!beltLoopStarted){beltLoopStarted=true;lastBeltTime=null;requestAnimationFrame(beltLoop);}
   grid=makeGrid();belt=[];pending=[];score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
   particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;
   columns=makeColumns(countPixels(grid));
@@ -2040,6 +1979,26 @@ function initGame(){
       while(columns[s.col].length<s.row)columns[s.col].push(null);
       columns[s.col].splice(s.row,0,{type:'rocket',color:rockets[i]});
     }
+  }
+  // Injekce garáže – drží nosiče a auto-vydává je když je slot nad ní prázdný
+  if(garageOn&&GARAGE_DEFS[currentLevel]){
+    const {col,carriers}=GARAGE_DEFS[currentLevel];
+    const queue=carriers.map(c=>({color:c.color}));
+    // Odeber z columns nejhlubší nosič dané barvy – garáž ho nahradí
+    for(const gc of carriers){
+      let removed=false;
+      for(let c=COLS-1;c>=0&&!removed;c--){
+        for(let r=columns[c].length-1;r>=0&&!removed;r--){
+          const s=columns[c][r];
+          if(s&&!s.type&&s.color===gc.color){columns[c].splice(r,1);removed=true;}
+        }
+      }
+    }
+    // Trim trailing nulls (padding z makeColumns) aby nevznikaly vizuální mezery
+    while(columns[col].length>0&&columns[col][columns[col].length-1]===null)
+      columns[col].pop();
+    // Jeden null nad garáží = slot pro první vydaný nosič
+    columns[col].push(null,{type:'garage',direction:'N',queue});
   }
   document.getElementById('score').textContent=0;
   document.getElementById('overlay').classList.remove('show');
@@ -2215,58 +2174,98 @@ function initGame(){
       else { grid=finalGrid; drawGrid(); }
     };
     setTimeout(waterStep,220);
+  } else if(currentLevel==='mondrian'){
+    // Intro: černé linky se nakreslí nejdřív, pak se vybarví bloky
+    const finalGrid=grid;
+    const mySeq=introSeq;
+    const blankG=[];
+    for(let y=0;y<GH;y++)blankG.push(new Array(GW).fill(-1));
+    grid=blankG;drawGrid();
+    const lines=[],colors=[];
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+      const c=finalGrid[y][x];
+      if(c===7)lines.push({x,y,c});
+      else if(c>=0)colors.push({x,y,c});
+    }
+    let li=0;
+    const lineStep=()=>{
+      if(mySeq!==introSeq)return;
+      const batch=12;
+      for(let k=0;k<batch&&li<lines.length;k++,li++)grid[lines[li].y][lines[li].x]=lines[li].c;
+      drawGrid();
+      if(li<lines.length)setTimeout(lineStep,30);
+      else setTimeout(colorStep,180);
+    };
+    let ci2=0;
+    const colorStep=()=>{
+      if(mySeq!==introSeq)return;
+      const batch=10;
+      for(let k=0;k<batch&&ci2<colors.length;k++,ci2++)grid[colors[ci2].y][colors[ci2].x]=colors[ci2].c;
+      drawGrid();
+      if(ci2<colors.length)setTimeout(colorStep,35);
+    };
+    setTimeout(lineStep,150);
   }
+  updateGarages();
   drawGrid();drawBelt();drawPending();drawCarriers();
   setStatus('Klikni na aktivní nosič');
 }
-document.getElementById('restart-btn').addEventListener('click',initGame);
-const LEVELS=[{key:'smiley',label:'smajlík'},{key:'moon',label:'měsíc'},{key:'starwars',label:'C-3PO'},{key:'frog',label:'žabka'}];
-let levelIdx=LEVELS.findIndex(l=>l.key===currentLevel);
-if(levelIdx<0)levelIdx=0;
-function stepLevel(dir){
-  levelIdx=(levelIdx+dir+LEVELS.length)%LEVELS.length;
-  currentLevel=LEVELS[levelIdx].key;
+// ── Event listeners ─────────────────────────────────────────────────────────
+function setupDOM(){
+  const LEVELS=[{key:'smiley',label:'smajlík'},{key:'moon',label:'měsíc'},{key:'starwars',label:'C-3PO'},{key:'frog',label:'žabka'},{key:'mondrian',label:'Mondrian'}];
+  let levelIdx=LEVELS.findIndex(l=>l.key===currentLevel);
+  if(levelIdx<0)levelIdx=0;
+  function stepLevel(dir){
+    levelIdx=(levelIdx+dir+LEVELS.length)%LEVELS.length;
+    currentLevel=LEVELS[levelIdx].key;
+    document.getElementById('level-label').textContent=LEVELS[levelIdx].label;
+    startLevel();
+  }
   document.getElementById('level-label').textContent=LEVELS[levelIdx].label;
-  initGame();
+  document.getElementById('restart-btn').addEventListener('click',startLevel);
+  document.getElementById('level-prev').addEventListener('click',()=>stepLevel(-1));
+  document.getElementById('level-next').addEventListener('click',()=>stepLevel(1));
+  document.querySelectorAll('[data-diff]').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('[data-diff]').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');difficulty=b.dataset.diff;startLevel();
+  }));
+  document.getElementById('specials-toggle').addEventListener('click',()=>{
+    document.getElementById('specials-panel').classList.toggle('open');
+    document.getElementById('specials-chevron').classList.toggle('open');
+  });
+  document.getElementById('gravity-btn').addEventListener('click',()=>{
+    gravityOn=!gravityOn;
+    const btn=document.getElementById('gravity-btn');
+    btn.textContent=gravityOn?'zapnuto':'vypnuto';
+    btn.classList.toggle('active',gravityOn);
+    startLevel();
+  });
+  document.getElementById('rockets-btn').addEventListener('click',()=>{
+    rocketsOn=!rocketsOn;
+    const btn=document.getElementById('rockets-btn');
+    btn.textContent=rocketsOn?'zapnuto':'vypnuto';
+    btn.classList.toggle('active',rocketsOn);
+    startLevel();
+  });
+  document.getElementById('garage-btn').addEventListener('click',()=>{
+    garageOn=!garageOn;
+    const btn=document.getElementById('garage-btn');
+    btn.textContent=garageOn?'zapnuto':'vypnuto';
+    btn.classList.toggle('active',garageOn);
+    startLevel();
+  });
 }
-document.getElementById('level-prev').addEventListener('click',()=>stepLevel(-1));
-document.getElementById('level-next').addEventListener('click',()=>stepLevel(1));
-document.getElementById('level-label').textContent=LEVELS[levelIdx].label;
-document.querySelectorAll('[data-diff]').forEach(b=>b.addEventListener('click',()=>{
-  document.querySelectorAll('[data-diff]').forEach(x=>x.classList.remove('active'));
-  b.classList.add('active');difficulty=b.dataset.diff;initGame();
-}));
-document.getElementById('gravity-btn').addEventListener('click',()=>{
-  gravityOn=!gravityOn;
-  const btn=document.getElementById('gravity-btn');
-  btn.textContent=gravityOn?'zapnuto':'vypnuto';
-  btn.classList.toggle('active',gravityOn);
-  initGame();
-});
-document.getElementById('rockets-btn').addEventListener('click',()=>{
-  rocketsOn=!rocketsOn;
-  const btn=document.getElementById('rockets-btn');
-  btn.textContent=rocketsOn?'zapnuto':'vypnuto';
-  btn.classList.toggle('active',rocketsOn);
-  initGame();
-});
 
-initGame();
-initParticleCanvas();
-
-// Animační smyčka – pás 40 px/s + launch point + pistole + particle systém
-(function beltLoop(ts){
-  if(lastBeltTime!==null){
+// ── Animation loop ───────────────────────────────────────────────────────────
+function beltLoop(ts){
+  if(lastBeltTime!==null&&!paused){
     const dt=(ts-lastBeltTime)/1000;
     const prevAnim=beltAnim;
     beltAnim+=dt*50;
     checkLaunchPoint(prevAnim,beltAnim);
 
-    // Pojízdný kanon – vybere nejlepší výstřel (přímý nebo s odrazem od stěny)
     if(gunQueue.length>0){
       const item=gunQueue[0];
-      // Lock cíle: nepřepočítávat každý snímek, jinak se idealX/target mění s pozicí kanonu → kmitání.
-      // Invalidace: jiná barva ve frontě, nebo cíl už není v gridu.
       if(cannonLock){
         if(cannonLock.ci!==item.ci) cannonLock=null;
         else if(grid[cannonLock.gy]&&grid[cannonLock.gy][cannonLock.gx]!==item.ci) cannonLock=null;
@@ -2312,7 +2311,6 @@ initParticleCanvas();
         }
       }
     } else {
-      // Klidový stav – plynule narovnej hlaveň svisle
       const diff=(-Math.PI/2)-cannonAngle;
       cannonAngle+=diff*Math.min(1,dt*4);
       gunFireTimer=0;
@@ -2327,7 +2325,50 @@ initParticleCanvas();
   drawParticles();
   drawPending();
   requestAnimationFrame(beltLoop);
-})(0);
-</script>
-</body>
-</html>
+}
+
+// ── Gamee SDK entry point (called by body onload) ────────────────────────────
+function initGame(){
+  setupDOM();
+  initParticleCanvas();
+  // beltLoop se spustí až ve startLevel (po inicializaci stavu) – jinak by crashnul na undefined belt/grid
+
+  gamee.gameInit('FullScreen',{},['saveState'],function(error,data){
+    if(error!==null)throw error;
+    if(typeof data==='string')data=JSON.parse(data);
+
+    if(data.saveState){
+      try{
+        const saved=typeof data.saveState==='string'?JSON.parse(data.saveState):data.saveState;
+        if(saved.level)currentLevel=saved.level;
+        if(saved.difficulty)difficulty=saved.difficulty;
+      }catch(e){console.warn('saveState parse failed',e);}
+    }
+
+    gamee.emitter.addEventListener('start',function(event){
+      startLevel();
+      event.detail.callback();
+    });
+    gamee.emitter.addEventListener('pause',function(event){
+      paused=true;
+      event.detail.callback();
+    });
+    gamee.emitter.addEventListener('resume',function(event){
+      paused=false;
+      lastBeltTime=null;
+      event.detail.callback();
+    });
+    gamee.emitter.addEventListener('mute',function(event){
+      event.detail.callback();
+    });
+    gamee.emitter.addEventListener('unmute',function(event){
+      event.detail.callback();
+    });
+    gamee.emitter.addEventListener('submit',function(event){
+      gamee.updateScore(score,playTime,'balloon-belt-v17');
+      event.detail.callback();
+    });
+
+    gamee.gameReady();
+  });
+}

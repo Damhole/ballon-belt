@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
+  <title>Balloon Belt v18</title>
+  <script type="text/javascript" src="./lib/gamee-js-stub.js"></script>
+  <meta name="viewport" content="viewport-fit=cover">
+  <link rel="stylesheet" href="./css/game.css">
+  <script>var module = {};</script>
+</head>
+<body onload="initGame()">
+<div id="game">
+  <h1>🎈 Balloon Belt</h1>
+  <div id="score-bar">
+    <span>Skóre: <b id="score">0</b></span>
+    <span>Belt: <b id="belt-count">0</b>/14</span>
+    <span>Nosiče: <b id="carriers-left">0</b></span>
+  </div>
+  <div class="controls">
+    <div class="ctrl-row-top">
+      <div class="ctrl-group">
+        <span class="ctrl-label">level</span>
+        <div class="stepper">
+          <button class="step-arrow" id="level-prev" aria-label="předchozí level">‹</button>
+          <span class="step-label" id="level-label">tvary</span>
+          <button class="step-arrow" id="level-next" aria-label="další level">›</button>
+        </div>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">obtížnost</span>
+        <div class="seg">
+          <button class="btn active" data-diff="easy">snadná</button>
+          <button class="btn" data-diff="medium">střední</button>
+          <button class="btn" data-diff="hard">těžká</button>
+        </div>
+      </div>
+    </div>
+    <div class="specials-wrap">
+      <button class="specials-header" id="specials-toggle">
+        <span class="ctrl-label" style="padding-left:0">speciality</span>
+        <span class="specials-chevron" id="specials-chevron">›</span>
+      </button>
+      <div class="specials-panel" id="specials-panel">
+        <div class="special-chip">
+          <span class="special-chip-label">gravitace</span>
+          <button class="toggle-btn" id="gravity-btn">vypnuto</button>
+        </div>
+        <div class="special-chip">
+          <span class="special-chip-label">rakety</span>
+          <button class="toggle-btn" id="rockets-btn">vypnuto</button>
+        </div>
+        <div class="special-chip">
+          <span class="special-chip-label">garáž</span>
+          <button class="toggle-btn" id="garage-btn">vypnuto</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="status">Klikni na aktivní nosič</div>
+  <div id="image-area">
+    <canvas id="pixel-canvas" width="360" height="310"></canvas>
+    <div id="overlay">
+      <div id="overlay-box">
+        <h3 id="overlay-title">Konec</h3>
+        <p id="overlay-msg"></p>
+        <button id="restart-btn">Hrát znovu</button>
+      </div>
+    </div>
+  </div>
+  <div id="belt-wrap">
+    <div id="belt-label">dopravní pás → obraz</div>
+    <svg id="belt-svg" viewBox="0 0 360 64" xmlns="http://www.w3.org/2000/svg"></svg>
+  </div>
+  <div id="pending-wrap">
+    <div id="pending-label">ve frontě</div>
+    <canvas id="pending-canvas" width="360" height="90"></canvas>
+  </div>
+  <div id="carriers-wrap">
+    <div id="carriers-label">nosiče</div>
+    <div id="carriers-grid"></div>
+  </div>
+</div>
+<script type="text/javascript" src="./js/game.js"></script>
+</body>
+</html>
