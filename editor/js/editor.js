@@ -1,0 +1,592 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// Balloon Belt — Level Editor (vanilla JS)
+// Uses File System Access API to read editor/levels.json and write gamee/js/levels.js.
+// Falls back to download-only mode if FSA API isn't supported (Safari/Firefox).
+// Directory handle persists in IndexedDB so reconnect isn't needed on next visit.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const IMAGE_SOURCES = ['smiley', 'moon', 'starwars', 'frog', 'mondrian'];
+const LEVEL_TYPES = ['relaxing', 'medium', 'hard', 'hardcore'];
+
+// State -----------------------------------------------------------------------
+const state = {
+  rootHandle: null,     // FileSystemDirectoryHandle pointing at ballon-belt/ repo root
+  levels: [],           // array of level objects (source of truth in memory)
+  selectedIdx: -1,      // which level is currently open in edit panel
+  dirty: false,         // has the in-memory state diverged from disk since last save?
+  fsaSupported: 'showDirectoryPicker' in window,
+};
+
+// IndexedDB for persisting FSA directory handle -------------------------------
+const IDB_NAME = 'bbelt-editor';
+const IDB_STORE = 'handles';
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(IDB_NAME, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(IDB_STORE);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbSave(key, val) {
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(val, key);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+async function idbLoad(key) {
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const r = tx.objectStore(IDB_STORE).get(key);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+// File System access ---------------------------------------------------------
+async function verifyPermission(handle, readWrite = true) {
+  const opts = readWrite ? { mode: 'readwrite' } : { mode: 'read' };
+  if ((await handle.queryPermission(opts)) === 'granted') return true;
+  if ((await handle.requestPermission(opts)) === 'granted') return true;
+  return false;
+}
+
+async function connectFolder() {
+  if (!state.fsaSupported) {
+    alert('Your browser does not support File System Access API.\n' +
+          'Please use Chrome or Edge. (Download-only fallback mode is planned.)');
+    return;
+  }
+  try {
+    const handle = await window.showDirectoryPicker({
+      id: 'bbelt-root',
+      mode: 'readwrite',
+      startIn: 'documents',
+    });
+    // Quick sanity: the chosen folder should have a gamee/ subfolder.
+    try {
+      await handle.getDirectoryHandle('gamee');
+    } catch (e) {
+      alert('Selected folder does not contain a gamee/ subdirectory.\n' +
+            'Please pick the ballon-belt repo root.');
+      return;
+    }
+    state.rootHandle = handle;
+    await idbSave('rootHandle', handle);
+    await reloadFromDisk();
+    updateUI();
+  } catch (e) {
+    if (e.name !== 'AbortError') console.error(e);
+  }
+}
+
+async function tryRestoreConnection() {
+  if (!state.fsaSupported) return;
+  try {
+    const handle = await idbLoad('rootHandle');
+    if (!handle) return;
+    // Don't prompt on load — only try silently. User can click Connect if we fail.
+    if ((await handle.queryPermission({ mode: 'readwrite' })) === 'granted') {
+      state.rootHandle = handle;
+      await reloadFromDisk();
+      updateUI();
+    } else {
+      // Show a hint that reconnection is needed
+      setLastAction('Previous folder found — click Connect to restore access.');
+    }
+  } catch (e) {
+    console.warn('restore failed', e);
+  }
+}
+
+async function readLevelsJson() {
+  const editorDir = await state.rootHandle.getDirectoryHandle('editor');
+  const fileHandle = await editorDir.getFileHandle('levels.json');
+  const file = await fileHandle.getFile();
+  const text = await file.text();
+  return JSON.parse(text);
+}
+
+async function writeLevelsJson(levels) {
+  const editorDir = await state.rootHandle.getDirectoryHandle('editor');
+  const fileHandle = await editorDir.getFileHandle('levels.json', { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(JSON.stringify(levels, null, 2) + '\n');
+  await writable.close();
+}
+
+async function writeGameLevelsJs(levels) {
+  const gameeDir = await state.rootHandle.getDirectoryHandle('gamee');
+  const jsDir = await gameeDir.getDirectoryHandle('js');
+  const fileHandle = await jsDir.getFileHandle('levels.js', { create: true });
+  const writable = await fileHandle.createWritable();
+  const content =
+    '// ═══════════════════════════════════════════════════════════════════════════\n' +
+    '// gamee/js/levels.js  — GENERATED by editor (editor/index.html)\n' +
+    '// NEEDITOVAT RUČNĚ — otevři editor a publikuj z něj.\n' +
+    '// Pokud tento soubor chybí nebo je prázdný, hra automaticky použije\n' +
+    '// LEVELS_FALLBACK z game.js (viz resolveLevels()).\n' +
+    '// ═══════════════════════════════════════════════════════════════════════════\n' +
+    'window.LEVELS = ' + JSON.stringify(levels, null, 2) + ';\n';
+  await writable.write(content);
+  await writable.close();
+}
+
+async function reloadFromDisk() {
+  if (!state.rootHandle) return;
+  if (!(await verifyPermission(state.rootHandle))) {
+    alert('Permission to access the folder was not granted.');
+    return;
+  }
+  try {
+    state.levels = await readLevelsJson();
+    state.selectedIdx = -1;
+    state.dirty = false;
+    setLastAction('Loaded ' + state.levels.length + ' levels from editor/levels.json');
+  } catch (e) {
+    console.error(e);
+    alert('Failed to load editor/levels.json:\n' + e.message);
+  }
+}
+
+// Auto-save + auto-publish on every edit (debounced).
+// Source of truth = editor/levels.json. Game-readable copy = gamee/js/levels.js.
+// Both are rewritten together so the preview iframe always sees the latest state.
+let _autosaveTimer = null;
+function scheduleAutosave() {
+  if (!state.rootHandle) return;
+  if (_autosaveTimer) clearTimeout(_autosaveTimer);
+  _autosaveTimer = setTimeout(() => { _autosaveTimer = null; doAutosave(); }, 300);
+}
+async function doAutosave() {
+  if (!state.rootHandle) return;
+  const dupes = findDuplicateKeys(state.levels);
+  try {
+    await writeLevelsJson(state.levels);
+    if (!dupes.length) {
+      await writeGameLevelsJs(state.levels);
+      setLastAction('💾 Autosaved (' + state.levels.length + ' levels) → editor/levels.json + gamee/js/levels.js');
+      schedulePreviewReload();
+    } else {
+      setLastAction('⚠ editor/levels.json saved, but gamee/js/levels.js skipped — duplicate keys: ' + dupes.join(', '));
+    }
+    state.dirty = false;
+    $('dirty-status').hidden = true;
+  } catch (e) {
+    console.error(e);
+    setLastAction('❌ Autosave failed: ' + e.message);
+  }
+}
+
+// Manual "Publish" = force immediate save (same as autosave, but synchronous to the click).
+async function publishToGame() {
+  if (!state.rootHandle) return;
+  if (!state.levels.length) { alert('No levels to publish.'); return; }
+  const dupes = findDuplicateKeys(state.levels);
+  if (dupes.length) { alert('Cannot publish — duplicate keys: ' + dupes.join(', ')); return; }
+  if (_autosaveTimer) { clearTimeout(_autosaveTimer); _autosaveTimer = null; }
+  try {
+    await writeLevelsJson(state.levels);
+    await writeGameLevelsJs(state.levels);
+    state.dirty = false;
+    setLastAction('🚀 Published ' + state.levels.length + ' levels to gamee/js/levels.js');
+    schedulePreviewReload();
+    updateUI();
+  } catch (e) {
+    console.error(e);
+    alert('Publish failed: ' + e.message);
+  }
+}
+
+// Preview iframe ------------------------------------------------------------
+let _previewReloadTimer = null;
+function schedulePreviewReload() {
+  if (_previewReloadTimer) clearTimeout(_previewReloadTimer);
+  _previewReloadTimer = setTimeout(() => { _previewReloadTimer = null; reloadPreview(); }, 150);
+}
+function reloadPreview() {
+  const frame = $('preview-frame');
+  if (!frame) return;
+  const lvl = state.levels[state.selectedIdx];
+  if (!lvl) {
+    frame.src = 'about:blank';
+    $('preview-empty').hidden = false;
+    frame.hidden = true;
+    return;
+  }
+  $('preview-empty').hidden = true;
+  frame.hidden = false;
+  const diff = $('preview-diff').value || 'easy';
+  const url = '../gamee/index_local.html?level=' + encodeURIComponent(lvl.key) +
+              '&diff=' + encodeURIComponent(diff) +
+              '&t=' + Date.now();
+  frame.src = url;
+}
+
+// Validation helpers --------------------------------------------------------
+function findDuplicateKeys(levels) {
+  const seen = {}, dupes = new Set();
+  for (const l of levels) {
+    if (seen[l.key]) dupes.add(l.key); else seen[l.key] = true;
+  }
+  return [...dupes];
+}
+function carrierDifficultyRank() { return 3; } // editor assumes "medium" as middle
+function computeTotalDifficulty(imgDiff) {
+  const total = imgDiff + carrierDifficultyRank(); // img + 3
+  if (total <= 3) return { key: 'relaxing', label: 'Relaxing' };
+  if (total <= 5) return { key: 'medium', label: 'Medium' };
+  if (total <= 7) return { key: 'hard', label: 'Hard' };
+  return { key: 'hardcore', label: 'Hard-core' };
+}
+
+// Model mutations -----------------------------------------------------------
+function newLevel() {
+  return {
+    key: 'new-level-' + (state.levels.length + 1),
+    label: 'Nový level',
+    type: 'relaxing',
+    imageDifficulty: 1,
+    image: { source: 'smiley' },
+    blocks: [],
+    rocketTargets: null,
+    garage: null,
+  };
+}
+
+function markDirty() {
+  state.dirty = true;
+  updateUI();
+  // Auto-save + auto-publish (debounced). Editor is a dev tool, no collaborators,
+  // so there's no reason to delay writing gamee/js/levels.js — we want the live
+  // preview iframe to update on every change.
+  scheduleAutosave();
+}
+
+function addLevel() {
+  state.levels.push(newLevel());
+  state.selectedIdx = state.levels.length - 1;
+  markDirty();
+}
+
+function deleteLevel(idx) {
+  if (!confirm('Delete level "' + state.levels[idx].label + '"?')) return;
+  state.levels.splice(idx, 1);
+  if (state.selectedIdx === idx) state.selectedIdx = -1;
+  else if (state.selectedIdx > idx) state.selectedIdx -= 1;
+  markDirty();
+}
+
+function reorderLevel(fromIdx, toIdx) {
+  if (fromIdx === toIdx) return;
+  const [item] = state.levels.splice(fromIdx, 1);
+  state.levels.splice(toIdx, 0, item);
+  if (state.selectedIdx === fromIdx) state.selectedIdx = toIdx;
+  else if (state.selectedIdx > fromIdx && state.selectedIdx <= toIdx) state.selectedIdx -= 1;
+  else if (state.selectedIdx < fromIdx && state.selectedIdx >= toIdx) state.selectedIdx += 1;
+  markDirty();
+}
+
+// UI rendering --------------------------------------------------------------
+function $(id) { return document.getElementById(id); }
+function setLastAction(msg) { $('last-action').textContent = msg; }
+
+function updateUI() {
+  const connected = !!state.rootHandle;
+  const ps = $('project-status');
+  ps.textContent = connected ? '📁 Connected' : '📁 Not connected';
+  ps.className = 'status-chip ' + (connected ? 'status-connected' : 'status-disconnected');
+
+  $('dirty-status').hidden = !state.dirty;
+
+  $('btn-load').disabled = !connected;
+  $('btn-publish').disabled = !connected || !state.levels.length;
+  $('btn-add').disabled = !connected;
+  $('btn-add-from-empty').disabled = !connected;
+
+  $('list-empty').hidden = connected && state.levels.length > 0;
+  if (!connected) {
+    $('list-empty').innerHTML = 'Connect to your <code>ballon-belt</code> folder to load levels.';
+  } else if (!state.levels.length) {
+    $('list-empty').innerHTML = 'No levels yet. Click <b>+ Add</b> to create one.';
+  }
+
+  renderList();
+  renderEditor();
+}
+
+function renderList() {
+  const ul = $('level-list');
+  ul.innerHTML = '';
+  state.levels.forEach((lvl, idx) => {
+    const li = document.createElement('li');
+    li.className = 'level-item' + (idx === state.selectedIdx ? ' selected' : '');
+    li.draggable = true;
+    li.dataset.idx = idx;
+
+    const handle = document.createElement('span');
+    handle.className = 'drag-handle';
+    handle.textContent = '≡';
+    li.appendChild(handle);
+
+    const order = document.createElement('span');
+    order.className = 'level-order';
+    order.textContent = '#' + (idx + 1);
+    li.appendChild(order);
+
+    const title = document.createElement('span');
+    title.className = 'level-title';
+    title.innerHTML = escapeHTML(lvl.label) + '<span class="level-key">' + escapeHTML(lvl.key) + '</span>';
+    li.appendChild(title);
+
+    const diff = computeTotalDifficulty(lvl.imageDifficulty || 1);
+    const badge = document.createElement('span');
+    badge.className = 'diff-badge diff-' + diff.key;
+    badge.textContent = diff.label;
+    li.appendChild(badge);
+
+    const del = document.createElement('button');
+    del.className = 'level-delete';
+    del.textContent = '🗑';
+    del.addEventListener('click', (e) => { e.stopPropagation(); deleteLevel(idx); });
+    li.appendChild(del);
+
+    li.addEventListener('click', () => { state.selectedIdx = idx; updateUI(); });
+
+    // Drag & drop
+    li.addEventListener('dragstart', (e) => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(idx));
+      li.classList.add('dragging');
+    });
+    li.addEventListener('dragend', () => li.classList.remove('dragging'));
+    li.addEventListener('dragover', (e) => { e.preventDefault(); li.classList.add('drag-over'); });
+    li.addEventListener('dragleave', () => li.classList.remove('drag-over'));
+    li.addEventListener('drop', (e) => {
+      e.preventDefault();
+      li.classList.remove('drag-over');
+      const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      const to = idx;
+      if (!Number.isNaN(from)) reorderLevel(from, to);
+    });
+
+    ul.appendChild(li);
+  });
+}
+
+function escapeHTML(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[c]);
+}
+
+let _lastPreviewKey = null;
+function renderEditor() {
+  const form = $('edit-form');
+  const empty = $('edit-empty');
+  const idx = state.selectedIdx;
+  if (idx < 0 || idx >= state.levels.length) {
+    form.hidden = true;
+    empty.hidden = false;
+    if (_lastPreviewKey !== null) { _lastPreviewKey = null; schedulePreviewReload(); }
+    return;
+  }
+  form.hidden = false;
+  empty.hidden = true;
+  const lvl = state.levels[idx];
+
+  $('f-key').value = lvl.key || '';
+  $('f-label').value = lvl.label || '';
+  $('f-type').value = lvl.type || 'relaxing';
+  $('f-image-source').value = (lvl.image && lvl.image.source) || 'smiley';
+  $('f-img-diff').value = lvl.imageDifficulty || 1;
+  $('f-img-diff-val').textContent = lvl.imageDifficulty || 1;
+
+  const rocketsOn = !!lvl.rocketTargets;
+  $('f-rockets-on').checked = rocketsOn;
+  $('f-rockets-fields').hidden = !rocketsOn;
+  $('f-rocket-0').value = rocketsOn ? lvl.rocketTargets[0] : '';
+  $('f-rocket-1').value = rocketsOn ? lvl.rocketTargets[1] : '';
+
+  const garageOn = !!lvl.garage;
+  $('f-garage-on').checked = garageOn;
+  $('f-garage-fields').hidden = !garageOn;
+  $('f-garage-col').value = garageOn ? lvl.garage.col : '';
+  renderCarrierList(garageOn ? lvl.garage.carriers : []);
+
+  $('f-blocks').value = JSON.stringify(lvl.blocks || [], null, 2);
+
+  const diff = computeTotalDifficulty(lvl.imageDifficulty || 1);
+  const badge = $('summary-badge');
+  badge.textContent = diff.label;
+  badge.className = 'diff-badge diff-' + diff.key;
+
+  // Reload iframe only when the selected level actually changed — editing fields
+  // on the same level triggers reload via autosave → schedulePreviewReload.
+  if (_lastPreviewKey !== lvl.key) {
+    _lastPreviewKey = lvl.key;
+    schedulePreviewReload();
+  }
+}
+
+function renderCarrierList(carriers) {
+  const wrap = $('f-garage-carriers');
+  wrap.innerHTML = '';
+  carriers.forEach((c, i) => {
+    const chip = document.createElement('div');
+    chip.className = 'carrier-chip';
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = 0;
+    input.max = 8;
+    input.value = c.color;
+    input.addEventListener('change', () => {
+      const lvl = state.levels[state.selectedIdx];
+      if (lvl && lvl.garage) {
+        lvl.garage.carriers[i].color = parseInt(input.value, 10) || 0;
+        markDirty();
+      }
+    });
+    chip.appendChild(input);
+    const rm = document.createElement('button');
+    rm.type = 'button';
+    rm.className = 'carrier-chip-remove';
+    rm.textContent = '×';
+    rm.addEventListener('click', () => {
+      const lvl = state.levels[state.selectedIdx];
+      if (lvl && lvl.garage) {
+        lvl.garage.carriers.splice(i, 1);
+        markDirty();
+      }
+    });
+    chip.appendChild(rm);
+    wrap.appendChild(chip);
+  });
+}
+
+// Form event wiring --------------------------------------------------------
+function wireForm() {
+  const lvl = () => state.levels[state.selectedIdx];
+
+  $('f-key').addEventListener('input', (e) => {
+    if (!lvl()) return;
+    lvl().key = e.target.value.trim();
+    markDirty();
+    renderList(); // update title preview
+  });
+  $('f-label').addEventListener('input', (e) => {
+    if (!lvl()) return;
+    lvl().label = e.target.value;
+    markDirty();
+    renderList();
+  });
+  $('f-type').addEventListener('change', (e) => {
+    if (!lvl()) return;
+    lvl().type = e.target.value;
+    markDirty();
+  });
+  $('f-image-source').addEventListener('change', (e) => {
+    if (!lvl()) return;
+    lvl().image = { source: e.target.value };
+    markDirty();
+  });
+  $('f-img-diff').addEventListener('input', (e) => {
+    if (!lvl()) return;
+    const v = parseInt(e.target.value, 10);
+    lvl().imageDifficulty = v;
+    $('f-img-diff-val').textContent = v;
+    markDirty();
+    // update badge + list entry
+    const diff = computeTotalDifficulty(v);
+    const badge = $('summary-badge');
+    badge.textContent = diff.label;
+    badge.className = 'diff-badge diff-' + diff.key;
+    renderList();
+  });
+
+  $('f-rockets-on').addEventListener('change', (e) => {
+    if (!lvl()) return;
+    lvl().rocketTargets = e.target.checked ? [0, 0] : null;
+    $('f-rockets-fields').hidden = !e.target.checked;
+    if (e.target.checked) {
+      $('f-rocket-0').value = 0;
+      $('f-rocket-1').value = 0;
+    }
+    markDirty();
+  });
+  $('f-rocket-0').addEventListener('change', (e) => {
+    if (!lvl() || !lvl().rocketTargets) return;
+    lvl().rocketTargets[0] = parseInt(e.target.value, 10) || 0;
+    markDirty();
+  });
+  $('f-rocket-1').addEventListener('change', (e) => {
+    if (!lvl() || !lvl().rocketTargets) return;
+    lvl().rocketTargets[1] = parseInt(e.target.value, 10) || 0;
+    markDirty();
+  });
+
+  $('f-garage-on').addEventListener('change', (e) => {
+    if (!lvl()) return;
+    if (e.target.checked) {
+      lvl().garage = { col: 3, carriers: [{ color: 0 }] };
+    } else {
+      lvl().garage = null;
+    }
+    renderEditor();
+    markDirty();
+  });
+  $('f-garage-col').addEventListener('change', (e) => {
+    if (!lvl() || !lvl().garage) return;
+    lvl().garage.col = parseInt(e.target.value, 10) || 0;
+    markDirty();
+  });
+  $('btn-add-carrier').addEventListener('click', () => {
+    if (!lvl() || !lvl().garage) return;
+    lvl().garage.carriers.push({ color: 0 });
+    renderCarrierList(lvl().garage.carriers);
+    markDirty();
+  });
+
+  $('btn-delete').addEventListener('click', () => {
+    if (state.selectedIdx >= 0) deleteLevel(state.selectedIdx);
+  });
+  $('btn-close').addEventListener('click', () => {
+    state.selectedIdx = -1;
+    updateUI();
+  });
+}
+
+// Top-level buttons ---------------------------------------------------------
+function wireHeader() {
+  $('btn-connect').addEventListener('click', connectFolder);
+  $('btn-load').addEventListener('click', reloadFromDisk.bind(null));
+  $('btn-publish').addEventListener('click', publishToGame);
+  $('btn-add').addEventListener('click', addLevel);
+  $('btn-add-from-empty').addEventListener('click', addLevel);
+}
+
+function wirePreview() {
+  const diffSel = $('preview-diff');
+  if (diffSel) diffSel.addEventListener('change', () => reloadPreview());
+  const refresh = $('btn-preview-refresh');
+  if (refresh) refresh.addEventListener('click', () => reloadPreview());
+}
+
+// Boot ----------------------------------------------------------------------
+function boot() {
+  if (!state.fsaSupported) {
+    $('btn-connect').textContent = '❌ FSA not supported';
+    $('btn-connect').disabled = true;
+    setLastAction('File System Access API is not available in this browser. Use Chrome or Edge.');
+  }
+  wireHeader();
+  wireForm();
+  wirePreview();
+  updateUI();
+  tryRestoreConnection();
+}
+boot();

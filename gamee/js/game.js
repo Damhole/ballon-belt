@@ -5,15 +5,19 @@ const GW=36,GH=31,IMG_GH=27;
 const UPC=4;
 const PPU=10;
 // ═══════════════════════════════════════════════════════════════════════════
-// LEVEL REGISTRY — jednotná definice levelů
+// LEVEL REGISTRY — PRIORITY CHAIN
+//   1) gamee.getLevels()    ← Gamee platform (pokud v budoucnu nabídne)
+//   2) window.LEVELS        ← generováno TVÝM editorem (gamee/js/levels.js)
+//   3) LEVELS_FALLBACK      ← hardcoded default v tomhle souboru (safety net)
+//
 // Každý level = { key, label, type, imageDifficulty, image, blocks, rocketTargets, garage }
-// type:             'relaxing' | 'medium' | 'hard' | 'hardcore'  (urč. kategorie, label)
+// type:             'relaxing' | 'medium' | 'hard' | 'hardcore'
 // imageDifficulty:  1..5 (hodnotí obraz: pixely + bloky + překážky)
 // blocks:           pole definic blokových překážek (Okruh 2 – zatím []).
 // rocketTargets:    2 color indexy pro raketové nosiče (null = level nepodporuje rakety).
 // garage:           { col, carriers:[{color}] } nebo null (null = level nemá garáž).
 // ═══════════════════════════════════════════════════════════════════════════
-const LEVELS=[
+const LEVELS_FALLBACK=[
   {
     key:'smiley', label:'smajlík', type:'relaxing', imageDifficulty:1,
     image:{source:'smiley'},
@@ -50,6 +54,19 @@ const LEVELS=[
     garage:null
   }
 ];
+// Zkus postupně zdroje levelů — první neprázdný vyhrává.
+function resolveLevels(){
+  try{
+    if(typeof gamee!=='undefined'&&typeof gamee.getLevels==='function'){
+      const remote=gamee.getLevels();
+      if(Array.isArray(remote)&&remote.length){console.log('[levels] using gamee.getLevels() — '+remote.length+' levels');return remote;}
+    }
+  }catch(e){/* Gamee API chyba – ignoruj a pokračuj na další zdroj */}
+  if(typeof window!=='undefined'&&Array.isArray(window.LEVELS)&&window.LEVELS.length){console.log('[levels] using window.LEVELS (editor) — '+window.LEVELS.length+' levels');return window.LEVELS;}
+  console.log('[levels] using LEVELS_FALLBACK — '+LEVELS_FALLBACK.length+' levels');
+  return LEVELS_FALLBACK;
+}
+const LEVELS=resolveLevels();
 // Helper — najdi plnou definici levelu podle klíče (fallback na první level).
 function getLevelDef(key){return LEVELS.find(l=>l.key===key)||LEVELS[0];}
 // Převod carrier difficulty stringu na 1..5 rank.
@@ -456,7 +473,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v22');
+          gamee.updateScore(score,playTime,'balloon-belt-v23');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -2241,7 +2258,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v22');
+    gamee.updateScore(score,playTime,'balloon-belt-v23');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -2306,7 +2323,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v22');
+  gamee.updateScore(score,playTime,'balloon-belt-v23');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -2744,6 +2761,22 @@ function beltLoop(ts){
 
 // ── Gamee SDK entry point (called by body onload) ────────────────────────────
 function initGame(){
+  // Default level = first in LEVELS (so reordering in the editor actually
+  // changes which level the game opens on). The hardcoded `currentLevel='smiley'`
+  // at the top of this file is just a static init value from before LEVELS
+  // existed; honor the editor's order here.
+  if(LEVELS[0]&&LEVELS[0].key)currentLevel=LEVELS[0].key;
+
+  // Dev override via URL (?level=KEY&diff=easy) — for editor iframe preview.
+  // Applied BEFORE setupDOM so levelIdx is correct; re-applied inside gameInit
+  // callback so it also wins over any saveState data.
+  try{
+    const url=new URL(location.href);
+    const p=url.searchParams.get('level');
+    if(p&&LEVELS.some(l=>l.key===p))currentLevel=p;
+    const d=url.searchParams.get('diff');
+    if(d&&['easy','medium','hard'].includes(d))difficulty=d;
+  }catch(e){}
   setupDOM();
   initParticleCanvas();
   // beltLoop se spustí až ve startLevel (po inicializaci stavu) – jinak by crashnul na undefined belt/grid
@@ -2755,7 +2788,9 @@ function initGame(){
     if(data.saveState){
       try{
         const saved=typeof data.saveState==='string'?JSON.parse(data.saveState):data.saveState;
-        if(saved.level)currentLevel=saved.level;
+        // Only honor saveState.level if it still exists in LEVELS (editor may
+        // have removed/renamed it). Otherwise fall back to LEVELS[0].
+        if(saved.level&&LEVELS.some(l=>l.key===saved.level))currentLevel=saved.level;
         if(saved.difficulty)difficulty=saved.difficulty;
       }catch(e){console.warn('saveState parse failed',e);}
     }
@@ -2780,7 +2815,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v22');
+      gamee.updateScore(score,playTime,'balloon-belt-v23');
       event.detail.callback();
     });
 

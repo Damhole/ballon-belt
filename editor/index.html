@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <title>Balloon Belt — Level Editor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="./css/editor.css">
+</head>
+<body>
+  <div id="app">
+    <header id="app-header">
+      <h1>🎈 Balloon Belt — Level Editor</h1>
+      <div id="header-status">
+        <span id="project-status" class="status-chip status-disconnected">📁 Not connected</span>
+        <span id="dirty-status" class="status-chip" hidden>● Unsaved</span>
+      </div>
+      <div id="header-actions">
+        <button id="btn-connect" class="btn btn-primary">📁 Connect folder</button>
+        <button id="btn-load" class="btn" disabled>↻ Reload</button>
+        <button id="btn-publish" class="btn btn-publish" disabled>🚀 Publish to Game</button>
+      </div>
+    </header>
+
+    <main id="app-main">
+      <section id="list-panel">
+        <div class="panel-header">
+          <h2>Levels</h2>
+          <button id="btn-add" class="btn btn-small" disabled>+ Add</button>
+        </div>
+        <ul id="level-list" class="level-list"></ul>
+        <div id="list-empty" class="empty-state" hidden>
+          Connect to your <code>ballon-belt</code> folder to load levels.
+        </div>
+      </section>
+
+      <section id="edit-panel">
+        <div class="panel-header">
+          <h2>Edit</h2>
+        </div>
+        <div id="edit-empty" class="empty-state">
+          Select a level to edit, or <button id="btn-add-from-empty" class="btn btn-small" disabled>+ add a new one</button>.
+        </div>
+        <form id="edit-form" hidden>
+          <div class="form-row">
+            <label for="f-key">Key <span class="hint">(unique ID, lowercase)</span></label>
+            <input type="text" id="f-key" required pattern="[a-z][a-z0-9_-]*">
+          </div>
+          <div class="form-row">
+            <label for="f-label">Label <span class="hint">(display name)</span></label>
+            <input type="text" id="f-label" required>
+          </div>
+          <div class="form-row-2">
+            <div class="form-row">
+              <label for="f-type">Type</label>
+              <select id="f-type">
+                <option value="relaxing">relaxing</option>
+                <option value="medium">medium</option>
+                <option value="hard">hard</option>
+                <option value="hardcore">hardcore</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label for="f-image-source">Image source</label>
+              <select id="f-image-source">
+                <option value="smiley">smiley</option>
+                <option value="moon">moon</option>
+                <option value="starwars">starwars (C-3PO)</option>
+                <option value="frog">frog</option>
+                <option value="mondrian">mondrian</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="f-img-diff">Image difficulty <span id="f-img-diff-val" class="val">1</span>/5</label>
+            <input type="range" id="f-img-diff" min="1" max="5" step="1" value="1">
+          </div>
+
+          <div class="form-section">
+            <label class="checkbox-row">
+              <input type="checkbox" id="f-rockets-on">
+              <span>Rockets enabled</span>
+            </label>
+            <div id="f-rockets-fields" class="nested-fields" hidden>
+              <div class="form-row-2">
+                <div class="form-row">
+                  <label for="f-rocket-0">Target color 1 (0–8)</label>
+                  <input type="number" id="f-rocket-0" min="0" max="8">
+                </div>
+                <div class="form-row">
+                  <label for="f-rocket-1">Target color 2 (0–8)</label>
+                  <input type="number" id="f-rocket-1" min="0" max="8">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <label class="checkbox-row">
+              <input type="checkbox" id="f-garage-on">
+              <span>Garage enabled</span>
+            </label>
+            <div id="f-garage-fields" class="nested-fields" hidden>
+              <div class="form-row">
+                <label for="f-garage-col">Column (0–6)</label>
+                <input type="number" id="f-garage-col" min="0" max="6">
+              </div>
+              <div class="form-row">
+                <label>Carriers (colors 0–8)</label>
+                <div id="f-garage-carriers" class="carrier-list"></div>
+                <button type="button" id="btn-add-carrier" class="btn btn-small">+ carrier</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <label>Blocks <span class="hint">(Okruh 2 — zatím placeholder)</span></label>
+            <textarea id="f-blocks" rows="3" readonly class="readonly-textarea">[]</textarea>
+          </div>
+
+          <div class="summary-bar">
+            <span class="summary-label">Total difficulty:</span>
+            <span id="summary-badge" class="diff-badge diff-relaxing">Relaxing</span>
+          </div>
+
+          <div class="form-actions">
+            <button type="button" id="btn-delete" class="btn btn-danger">🗑 Delete level</button>
+            <button type="button" id="btn-close" class="btn">Close</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="preview-panel">
+        <div class="panel-header">
+          <h2>Live preview</h2>
+          <div class="preview-controls">
+            <select id="preview-diff" class="preview-select" title="Carrier difficulty for preview">
+              <option value="easy">easy</option>
+              <option value="medium">medium</option>
+              <option value="hard">hard</option>
+            </select>
+            <button id="btn-preview-refresh" class="btn btn-small" title="Reload iframe">↻</button>
+          </div>
+        </div>
+        <div id="preview-empty" class="empty-state">
+          Select a level to preview it live.
+        </div>
+        <iframe id="preview-frame" hidden title="Game preview"></iframe>
+      </section>
+    </main>
+
+    <footer id="app-footer">
+      <span class="hint">Source: <code>editor/levels.json</code> → Publishes to <code>gamee/js/levels.js</code></span>
+      <span id="last-action" class="hint"></span>
+    </footer>
+  </div>
+  <script src="./js/editor.js"></script>
+</body>
+</html>
