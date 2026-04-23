@@ -69,7 +69,7 @@ const beState = {
 // staré handly jsou GC'd a historie „resetne" sama bez explicitního úklidu).
 //
 // Snapshot = deep clone polí, která se dají editovat v editoru (label, key,
-// type, imageDifficulty, image, blocks, rocketTargets, garage). NEsnapshotujeme
+// type, image, blocks, rocketTargets, garage, carrierLayouts). NEsnapshotujeme
 // runtime state (selectedBlockIdx, pxTool, ...) — ten není součástí dokumentu.
 //
 // Coalescing: rychlé opakování stejné akce v okně 500ms (např. tažení slideru
@@ -87,7 +87,6 @@ let _histApplying = false; // guard: při aplikaci undo/redo nepushujeme do hist
 function histSnapshotLvl(lvl) {
   return JSON.parse(JSON.stringify({
     label: lvl.label, key: lvl.key, type: lvl.type,
-    imageDifficulty: lvl.imageDifficulty,
     image: lvl.image, blocks: lvl.blocks,
     rocketTargets: lvl.rocketTargets, garage: lvl.garage,
     carrierLayouts: lvl.carrierLayouts,
@@ -99,7 +98,6 @@ function histApplySnap(lvl, snap) {
   lvl.label = snap.label;
   lvl.key = snap.key;
   lvl.type = snap.type;
-  lvl.imageDifficulty = snap.imageDifficulty;
   lvl.image = snap.image;
   lvl.blocks = snap.blocks;
   lvl.rocketTargets = snap.rocketTargets;
@@ -454,13 +452,18 @@ function findDuplicateKeys(levels) {
   }
   return [...dupes];
 }
-function carrierDifficultyRank() { return 3; } // editor assumes "medium" as middle
-function computeTotalDifficulty(imgDiff) {
-  const total = imgDiff + carrierDifficultyRank(); // img + 3
-  if (total <= 3) return { key: 'relaxing', label: 'Relaxing' };
-  if (total <= 5) return { key: 'medium', label: 'Medium' };
-  if (total <= 7) return { key: 'hard', label: 'Hard' };
-  return { key: 'hardcore', label: 'Hard-core' };
+// Type badge — designer-set dropdown na úrovni levelu. Dřív se mixoval s img
+// difficulty a carrier complexity, ale to vedlo k bug (badge nikdy neukazoval
+// Relaxing, protože rank byl hardcoded 3). Teď čteme lvl.type napřímo.
+const TYPE_META = {
+  relaxing: { key: 'relaxing', label: 'Relaxing' },
+  medium:   { key: 'medium',   label: 'Medium' },
+  hard:     { key: 'hard',     label: 'Hard' },
+  hardcore: { key: 'hardcore', label: 'Hard-core' },
+};
+function typeBadge(lvl) {
+  const t = (lvl && lvl.type) || 'relaxing';
+  return TYPE_META[t] || TYPE_META.relaxing;
 }
 
 // Model mutations -----------------------------------------------------------
@@ -469,7 +472,6 @@ function newLevel() {
     key: 'new-level-' + (state.levels.length + 1),
     label: 'Nový level',
     type: 'relaxing',
-    imageDifficulty: 1,
     image: { source: 'smiley' },
     blocks: [],
     rocketTargets: null,
@@ -633,7 +635,7 @@ function renderList() {
     title.innerHTML = escapeHTML(lvl.label) + '<span class="level-key">' + escapeHTML(lvl.key) + '</span>';
     li.appendChild(title);
 
-    const diff = computeTotalDifficulty(lvl.imageDifficulty || 1);
+    const diff = typeBadge(lvl);
     const badge = document.createElement('span');
     badge.className = 'diff-badge diff-' + diff.key;
     badge.textContent = diff.label;
@@ -701,8 +703,6 @@ function renderEditor() {
   $('f-label').value = lvl.label || '';
   $('f-type').value = lvl.type || 'relaxing';
   $('f-image-source').value = (lvl.image && lvl.image.source) || 'smiley';
-  $('f-img-diff').value = lvl.imageDifficulty || 1;
-  $('f-img-diff-val').textContent = lvl.imageDifficulty || 1;
 
   $('f-gravity-on').checked = !!lvl.gravity;
 
@@ -727,7 +727,7 @@ function renderEditor() {
   // Carrier layout editor (Okruh XL) — per-difficulty variants.
   renderCarrierLayout(lvl);
 
-  const diff = computeTotalDifficulty(lvl.imageDifficulty || 1);
+  const diff = typeBadge(lvl);
   const badge = $('summary-badge');
   badge.textContent = diff.label;
   badge.className = 'diff-badge diff-' + diff.key;
@@ -2576,6 +2576,12 @@ function wireForm() {
     histPush(L, 'f-type');
     L.type = e.target.value;
     markDirty();
+    // Sync summary badge + list entry bez čekání na full re-render.
+    const diff = typeBadge(L);
+    const badge = $('summary-badge');
+    badge.textContent = diff.label;
+    badge.className = 'diff-badge diff-' + diff.key;
+    renderList();
   });
   $('f-image-source').addEventListener('change', (e) => {
     const L = lvl(); if (!L) return;
@@ -2593,20 +2599,8 @@ function wireForm() {
     renderBlockCanvas();
     markDirty();
   });
-  $('f-img-diff').addEventListener('input', (e) => {
-    const L = lvl(); if (!L) return;
-    histPush(L, 'f-imgdiff');
-    const v = parseInt(e.target.value, 10);
-    L.imageDifficulty = v;
-    $('f-img-diff-val').textContent = v;
-    markDirty();
-    // update badge + list entry
-    const diff = computeTotalDifficulty(v);
-    const badge = $('summary-badge');
-    badge.textContent = diff.label;
-    badge.className = 'diff-badge diff-' + diff.key;
-    renderList();
-  });
+  // Image difficulty slider byl odstraněn — Type (f-type) je teď jediná osa
+  // obtížnosti, kterou designer nastavuje. Viz komentář u typeBadge.
 
   $('f-gravity-on').addEventListener('change', (e) => {
     const L = lvl(); if (!L) return;

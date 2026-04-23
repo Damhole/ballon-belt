@@ -702,7 +702,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v29');
+          gamee.updateScore(score,playTime,'balloon-belt-v30');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -2853,7 +2853,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v29');
+    gamee.updateScore(score,playTime,'balloon-belt-v30');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -2918,7 +2918,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v29');
+  gamee.updateScore(score,playTime,'balloon-belt-v30');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -3418,7 +3418,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v29');
+      gamee.updateScore(score,playTime,'balloon-belt-v30');
       event.detail.callback();
     });
 

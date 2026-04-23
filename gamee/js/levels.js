@@ -341,7 +341,7 @@ window.LEVELS = [
   {
     "key": "new-level-7",
     "label": "Nový level",
-    "type": "medium",
+    "type": "relaxing",
     "imageDifficulty": 1,
     "image": {
       "source": "custom",
@@ -1583,17 +1583,19 @@ window.LEVELS = [
         "grid": [
           [
             {
-              "type": "wall"
+              "type": "carrier",
+              "color": 1
             },
             {
-              "type": "wall"
-            },
-            {
-              "type": "wall"
+              "type": "carrier",
+              "color": 3
             },
             {
               "type": "carrier",
               "color": 6
+            },
+            {
+              "type": "wall"
             },
             {
               "type": "carrier",
@@ -1601,174 +1603,126 @@ window.LEVELS = [
             },
             {
               "type": "carrier",
-              "color": 3
-            },
-            null
-          ],
-          [
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 6
-            },
-            {
-              "type": "carrier",
-              "color": 6
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 3
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 0
-            }
-          ],
-          [
-            {
-              "type": "wall"
+              "color": 8
             },
             {
               "type": "carrier",
               "color": 2
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 8
-            },
-            {
-              "type": "carrier",
-              "color": 1
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 8
             }
           ],
           [
             {
+              "type": "carrier",
+              "color": 8
+            },
+            {
               "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 2
-            },
-            {
-              "type": "carrier",
-              "color": 6
-            },
-            {
-              "type": "carrier",
-              "color": 1
             },
             {
               "type": "carrier",
               "color": 3
             },
-            null,
-            {
-              "type": "wall"
-            }
-          ],
-          [
-            null,
             {
               "type": "carrier",
-              "color": 8
-            },
-            {
-              "type": "carrier",
-              "color": 1
+              "color": 2
             },
             {
               "type": "carrier",
               "color": 0
             },
             {
-              "type": "wall"
-            },
-            {
               "type": "carrier",
-              "color": 2
-            },
-            {
-              "type": "wall"
-            }
-          ],
-          [
-            {
-              "type": "carrier",
-              "color": 4
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 2
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "wall"
+              "color": 1
             },
             {
               "type": "carrier",
               "color": 5
-            },
-            {
-              "type": "carrier",
-              "color": 3
             }
           ],
           [
-            {
-              "type": "carrier",
-              "color": 0
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "garage",
-              "queue": [
-                {
-                  "color": 2
-                },
-                {
-                  "color": 0
-                }
-              ]
-            },
             {
               "type": "carrier",
               "color": 1
             },
             {
               "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 2
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 6
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 2
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "carrier",
+              "color": 6
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 4
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 6
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 2
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
               "color": 2
             },
             {
               "type": "carrier",
               "color": 2
+            },
+            {
+              "type": "carrier",
+              "color": 1
             }
           ]
         ]

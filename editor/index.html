@@ -75,10 +75,6 @@
               </select>
             </div>
           </div>
-          <div class="form-row">
-            <label for="f-img-diff">Image difficulty <span id="f-img-diff-val" class="val">1</span>/5</label>
-            <input type="range" id="f-img-diff" min="1" max="5" step="1" value="1">
-          </div>
 
           <div class="form-section">
             <label class="checkbox-row">
@@ -214,11 +210,11 @@
             <label>Carrier layout <span class="hint">(manuální grid 7×cols; prázdné = auto-gen)</span></label>
             <div class="cl-toolbar">
               <div class="cl-tb-row">
-                <span class="cl-tb-label">obtížnost</span>
+                <span class="cl-tb-label">complexity</span>
                 <div class="cl-diff-tabs">
-                  <button type="button" class="cl-diff-tab active" data-diff="easy">easy</button>
-                  <button type="button" class="cl-diff-tab" data-diff="medium">medium</button>
-                  <button type="button" class="cl-diff-tab" data-diff="hard">hard</button>
+                  <button type="button" class="cl-diff-tab active" data-diff="easy">1</button>
+                  <button type="button" class="cl-diff-tab" data-diff="medium">2</button>
+                  <button type="button" class="cl-diff-tab" data-diff="hard">3</button>
                 </div>
               </div>
               <div class="cl-tb-row">
@@ -240,8 +236,8 @@
               </div>
             </div>
             <div id="cl-empty" class="cl-empty">
-              Žádná varianta pro tuto obtížnost. Klikni <b>+ nová</b> pro vytvoření.
-              Levely bez varianty pro danou obtížnost se auto-generují jako dnes.
+              Žádná varianta pro tuto complexity. Klikni <b>+ nová</b> pro vytvoření.
+              Levely bez varianty pro danou complexity se auto-generují jako dnes.
             </div>
             <div id="cl-capacity" class="cl-capacity" hidden>
               <div class="cl-capacity-head">
@@ -273,7 +269,7 @@
           </div>
 
           <div class="summary-bar">
-            <span class="summary-label">Total difficulty:</span>
+            <span class="summary-label">Type:</span>
             <span id="summary-badge" class="diff-badge diff-relaxing">Relaxing</span>
           </div>
 
