@@ -41,6 +41,7 @@ Seznam všech nápadů, co chceme vyzkoušet, s prioritou a stavem. Na začátku
 | P2 | 💡 idea | M | **Vizuální garage editor** — drag garáže na canvas místo čísla sloupce |
 | P2 | 💡 idea | S | **Vizuální rocket-targets picker** — místo dvou čísel klikni na sloupec |
 | P2 | 💡 idea | S | **Grid/snap helpery** — volitelný snap bloku na 3×3, pravítka na okrajích |
+| P2 | 💡 idea | M | **Foto → pixel art import** — uživatel uploadne fotku, editor ji zmenší na 36×27, kvantizuje barvy na herní paletu (0–8) pomocí nearest-neighbor v RGB prostoru a vyplní pixel editor. Celé vanilla JS přes `<input type=file>` + OffscreenCanvas + `getImageData`. Detailní popis níže ⬇ |
 | P3 | 💡 idea | M | **Export/Import JSON** jednoho levelu — sdílení mezi větvemi/lidmi mimo FSA |
 | P3 | 💡 idea | S | **Pattern stamps** v pixel editoru — uložené „stamp" pixel arty (koule, srdce, hvězda) |
 
@@ -130,6 +131,39 @@ stavět v monolitu napůl a později přepisovat data model). Tile types: `carri
 - Integrace s level generation (až se to začne dělat) — generátor ukládá do
   `carrierLayouts` nebo jen flag „auto-generate"? _Pragmatický tip později: uložit,
   aby výsledek byl reprodukovatelný._
+
+### Deep dive: Foto → pixel art import
+
+**Proč:** Ručně kreslit 36×27 pixelů je zdlouhavé. Pokud hráč/designer chce level
+„kočka" nebo „auto", je mnohem rychlejší nahrát fotku a nechat ji zpracovat než
+kreslit od nuly. Funguje 100% v klientovi — žádný server, žádné API.
+
+**Jak by to technicky fungovalo (vše vanilla JS):**
+1. `<input type="file" accept="image/*">` v pixel toolbar → uživatel vybere foto/PNG/JPEG.
+2. `FileReader.readAsDataURL()` → vložit do `new Image()`.
+3. Nakreslit na skrytý `<canvas>` s rozlišením 36×27 (nebo aktuální rozměry levelu).
+   Prohlížeč udělá bilineární scale-down zadarmo (`ctx.drawImage`).
+4. `ctx.getImageData(0,0,36,27)` → pole RGBA hodnot (36×27×4 bajtů).
+5. **Kvantizace na herní paletu** — pro každý pixel najít nejbližší barvu z `BALL_COLORS`
+   (9 barev) pomocí Euklidovské vzdálenosti v RGB prostoru. Volitelně vážit luminance
+   složku víc (lidské oko je citlivější na jas). Jednoduché, bez knihoven, ~20 řádků JS.
+6. Výsledek zapsat do `lvl.image.pixels[][]` a překreslit pixel canvas.
+
+**Volitelná vylepšení:**
+- **Dithering (Floyd–Steinberg)** — rozptýlí kvantizační chybu do sousedních pixelů,
+  fotky pak vypadají přirozeněji (přechody, stíny). ~40 extra řádků, velký vizuální dopad.
+- **Výběr palety z obrázku (K-means)** — místo fixní herní palety extrahovat K barev z fotky
+  a namapovat je na nejbližší herní barvy. Lepší výsledek u fotek s dominantními barvami.
+- **Crop + zoom** náhled před potvrzením — UI preview s tlačítkem „Potvrdit" / „Zrušit".
+
+**Proč je to možné:** Hra používá jen 9 barev, to je extrémně omezená paleta — kvantizace
+funguje dobře i bez sofistikovaných algoritmů. Selfies a jednoduché fotky/ilustrace
+s kontrastem budou vypadat dobře. Realistické fotky se složitými přechody potřebují
+dithering pro uspokojivý výsledek.
+
+**Scope MVP:** tlačítko „📷 Import foto" v pixel toolbaru, bez crop UI, bez ditheringu.
+Jen scale + nearest-color. Pokud výsledek nevyhovuje, hráč doladí ručně.
+**Scope +1:** Floyd–Steinberg dithering jako checkbox vedle tlačítka.
 
 ### Deep dive: Adaptivní obtížnost podle hráčova progressu
 
