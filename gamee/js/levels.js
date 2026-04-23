@@ -14,24 +14,172 @@ window.LEVELS = [
       "source": "frog"
     },
     "blocks": [],
-    "rocketTargets": [
-      0,
-      7
+    "rocketTargets": null,
+    "garage": null,
+    "carrierLayouts": [
+      {
+        "name": "frog-easy-v1",
+        "difficulty": "easy",
+        "grid": [
+          [
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 2,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 2,
+              "hidden": true
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 2,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 2,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 2
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 2
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            }
+          ]
+        ]
+      }
     ],
-    "garage": {
-      "col": 3,
-      "carriers": [
-        {
-          "color": 0
-        },
-        {
-          "color": 7
-        },
-        {
-          "color": 3
-        }
-      ]
-    }
+    "defaultComplexity": "easy"
   },
   {
     "key": "starwars",
@@ -69,17 +217,7 @@ window.LEVELS = [
     "image": {
       "source": "smiley"
     },
-    "blocks": [
-      {
-        "shape": "rect",
-        "x": 14,
-        "y": 24,
-        "w": 8,
-        "h": 3,
-        "color": 4,
-        "hp": 20
-      }
-    ],
+    "blocks": [],
     "rocketTargets": [
       8,
       7
@@ -341,7 +479,7 @@ window.LEVELS = [
   {
     "key": "new-level-7",
     "label": "Nový level",
-    "type": "relaxing",
+    "type": "medium",
     "imageDifficulty": 1,
     "image": {
       "source": "custom",
@@ -1376,14 +1514,7 @@ window.LEVELS = [
     },
     "blocks": [],
     "rocketTargets": null,
-    "garage": {
-      "col": 0,
-      "carriers": [
-        {
-          "color": 0
-        }
-      ]
-    },
+    "garage": null,
     "carrierLayouts": [
       {
         "name": "new-level-7-hard-v1",
@@ -1391,22 +1522,18 @@ window.LEVELS = [
         "grid": [
           [
             {
-              "type": "carrier",
-              "color": 0
+              "type": "wall"
             },
             {
               "type": "carrier",
               "color": 6
             },
             {
-              "type": "wall"
-            },
-            {
-              "type": "wall"
-            },
-            {
               "type": "carrier",
               "color": 2
+            },
+            {
+              "type": "wall"
             },
             {
               "type": "carrier",
@@ -1414,121 +1541,107 @@ window.LEVELS = [
             },
             {
               "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
               "color": 1
             }
           ],
           [
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 2,
+              "hidden": true
+            }
+          ],
+          [
+            null,
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": true
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 1,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
             {
               "type": "carrier",
               "color": 4
             },
             {
               "type": "carrier",
-              "color": 2
-            },
-            {
-              "type": "wall"
-            },
-            null,
-            {
-              "type": "carrier",
-              "color": 8
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 5
-            }
-          ],
-          [
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 3
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 6
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 0
-            },
-            {
-              "type": "carrier",
-              "color": 1
-            }
-          ],
-          [
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 4
-            },
-            {
-              "type": "carrier",
-              "color": 0
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 8
-            },
-            {
-              "type": "carrier",
-              "color": 2
-            },
-            {
-              "type": "wall"
-            }
-          ],
-          [
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 6
-            },
-            {
-              "type": "carrier",
-              "color": 1
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 8
-            },
-            {
-              "type": "carrier",
-              "color": 3
+              "color": 2,
+              "hidden": true
             }
           ],
           [
             {
               "type": "carrier",
-              "color": 0
+              "color": 1,
+              "hidden": true
             },
-            null,
             {
               "type": "carrier",
               "color": 3
@@ -1541,11 +1654,43 @@ window.LEVELS = [
             },
             {
               "type": "carrier",
-              "color": 2
+              "color": 6,
+              "hidden": true
             },
             {
               "type": "carrier",
-              "color": 1
+              "color": 8,
+              "hidden": true
+            },
+            null
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 1,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 2
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 0
             }
           ],
           [
@@ -1554,18 +1699,21 @@ window.LEVELS = [
             },
             {
               "type": "carrier",
-              "color": 2
+              "color": 6,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 2,
+              "hidden": true
             },
             {
               "type": "wall"
             },
             {
               "type": "carrier",
-              "color": 2
-            },
-            {
-              "type": "carrier",
-              "color": 6
+              "color": 2,
+              "hidden": true
             },
             {
               "type": "carrier",
@@ -1584,93 +1732,68 @@ window.LEVELS = [
           [
             {
               "type": "carrier",
-              "color": 1
-            },
-            {
-              "type": "carrier",
-              "color": 3
-            },
-            {
-              "type": "carrier",
-              "color": 6
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 4
-            },
-            {
-              "type": "carrier",
-              "color": 8
+              "color": 2
             },
             {
               "type": "carrier",
               "color": 2
-            }
-          ],
-          [
+            },
             {
               "type": "carrier",
               "color": 8
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 3
-            },
-            {
-              "type": "carrier",
-              "color": 2
             },
             {
               "type": "carrier",
               "color": 0
             },
             {
+              "type": "wall"
+            },
+            {
               "type": "carrier",
               "color": 1
+            },
+            {
+              "type": "carrier",
+              "color": 4
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "carrier",
+              "color": 2
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 8
             },
             {
               "type": "carrier",
               "color": 5
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": true
             }
           ],
           [
             {
               "type": "carrier",
-              "color": 1
-            },
-            {
-              "type": "carrier",
-              "color": 3
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 2
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 6
-            },
-            {
-              "type": "carrier",
-              "color": 0
-            }
-          ],
-          [
-            {
-              "type": "carrier",
-              "color": 2
+              "color": 6,
+              "hidden": true
             },
             {
               "type": "carrier",
@@ -1678,28 +1801,16 @@ window.LEVELS = [
             },
             {
               "type": "carrier",
-              "color": 3
+              "color": 2,
+              "hidden": true
             },
             {
               "type": "carrier",
-              "color": 6
+              "color": 2,
+              "hidden": true
             },
             {
               "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 0
-            },
-            {
-              "type": "carrier",
-              "color": 4
-            }
-          ],
-          [
-            {
-              "type": "carrier",
-              "color": 6
             },
             {
               "type": "carrier",
@@ -1707,7 +1818,215 @@ window.LEVELS = [
             },
             {
               "type": "carrier",
+              "color": 6
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 1,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
               "color": 2
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "carrier",
+              "color": 1
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": true
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 4
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 1
+            },
+            {
+              "type": "carrier",
+              "color": 2,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            }
+          ]
+        ]
+      },
+      {
+        "name": "new-level-7-easy-v1",
+        "difficulty": "easy",
+        "grid": [
+          [
+            {
+              "type": "carrier",
+              "color": 1
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "carrier",
+              "color": 1
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 6
+            },
+            {
+              "type": "carrier",
+              "color": 2
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 2,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 1,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 4
+            },
+            {
+              "type": "carrier",
+              "color": 4
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 2,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 6
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 1
+            },
+            {
+              "type": "carrier",
+              "color": 6
+            },
+            {
+              "type": "carrier",
+              "color": 2
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 6
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
             },
             {
               "type": "wall"
@@ -1719,10 +2038,30 @@ window.LEVELS = [
             {
               "type": "carrier",
               "color": 2
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
             },
             {
               "type": "carrier",
-              "color": 1
+              "color": 2
             }
           ]
         ]

@@ -544,24 +544,41 @@ function updateUI() {
   updateHistoryButtons();
 }
 
-// Vyhodnotí status levelu napříč všemi 3 obtížnostmi. Vrací kind (ok/warn/bad),
-// ikonu a důvod (tooltip). Použito v sidebaru za diff badge.
+// Kontrola zda má level rozumný obrázek. Preset = vždy OK (fixní pixely
+// v game.js). Custom = OK když má aspoň jeden obarvený pixel (cell !== -1).
+function clLevelHasImage(lvl) {
+  if (!lvl || !lvl.image) return false;
+  const src = lvl.image.source;
+  if (!src) return false;
+  if (src !== 'custom') return true;
+  const px = lvl.image.pixels;
+  if (!Array.isArray(px)) return false;
+  for (const row of px) {
+    if (!Array.isArray(row)) continue;
+    for (const v of row) if (v !== -1 && v != null) return true;
+  }
+  return false;
+}
+
+// Vyhodnotí status levelu. Vrací kind (ok/warn/bad), ikonu a důvod (tooltip).
+// Použito v sidebaru za type badge.
 //
-// Logika:
-//   - "bad"  = nějaká obtížnost MÁ layout, ale ten spadl na auto-gen (layout-fallback
-//              postMessage z hry) NEBO má unreachable carriers. Hra se nechová podle designu.
-//   - "warn" = žádný layout pro některou obtížnost (hra použije auto-gen implicitně),
-//              nebo layout pokrývá barvy jen částečně (kapacita nedostačuje podle pxCounts).
-//   - "ok"   = pro každou obtížnost (kde máme pxCounts) existuje layout, BFS projde,
-//              kapacita pokryje všechny potřebné barvy. Nebo: zatím neznáme pxCounts
-//              (preview neběžel), ale layouty syntakticky OK — zobrazíme ? informativně.
+// Logika (v31+):
+//   - "bad"  = reálná chyba v existujícím layoutu: unreachable carriers,
+//              kapacita nedostačuje, nebo layout spadl při runu na auto-gen.
+//   - "warn" = „rozpracováno" — chybí pin pro výchozí complexity NEBO chybí
+//              obrázek (custom je prázdný). Hra funguje, ale level není dotažený.
+//   - "ok"   = pin je nastavený, obrázek je vložený, žádný error. „Done."
+//
+// Chybějící layout pro některou complexity = NENÍ warning — hra auto-gen zvládne
+// a pin si stejně vybere jen existující varianty (je disabled bez nich).
 function clComputeLevelStatus(lvl) {
   if (!lvl) return { kind: 'ok', icon: '·', reason: '' };
   const layouts = Array.isArray(lvl.carrierLayouts) ? lvl.carrierLayouts : [];
   const problems = [];
   const warnings = [];
 
-  // 1) Statické kontroly (nezávislé na pxCounts z preview):
+  // 1) Errors — problémy s existujícími layouty (neaplikují se na chybějící).
   for (const v of layouts) {
     if (!v || !Array.isArray(v.grid) || !v.grid.length) continue;
     const unreach = clCountUnreachable(v);
@@ -569,49 +586,44 @@ function clComputeLevelStatus(lvl) {
       problems.push('"' + (v.name || '?') + '" (' + (v.difficulty || '?') + '): ' + unreach + ' nedostupných nosičů');
     }
   }
-
-  // 2) Kontrola pro každou obtížnost: existuje layout? Spadl při runu na auto-gen?
-  //    Pokrývá požadované barvy?
   const diffs = ['easy', 'medium', 'hard'];
   const statusBag = state.layoutStatusByLevel[lvl.key] || {};
   const pxBag = state.pxCountsByLevel[lvl.key] || {};
   for (const d of diffs) {
-    const hasLayout = layouts.some(v => v && v.difficulty === d);
-    if (!hasLayout) {
-      warnings.push(d + ': žádný layout (hra použije auto-gen)');
-      continue;
-    }
-    // Pokud hra posílala fallback pro tuto obtížnost → bad.
+    const v = layouts.find(vv => vv && vv.difficulty === d);
+    if (!v) continue; // chybějící layout není error — auto-gen to zvládne
     const st = statusBag[d];
     if (st && st.applied === false) {
       problems.push(d + ': layout spadl na auto-gen (' + (st.reason || 'neznámý důvod') + ')');
       continue;
     }
-    // Kontrola kapacity (need slots per color ≤ layout slots per color).
     const px = pxBag[d] || pxBag.easy || pxBag.medium || pxBag.hard;
     if (px) {
-      const v = layouts.find(vv => vv && vv.difficulty === d);
-      if (v) {
-        const slotsByColor = clCountLayoutSlotsByColor(v);
-        for (let c = 0; c < BE_COLORS.length; c++) {
-          const need = px[c] | 0;
-          if (need <= 0) continue;
-          const needSlots = Math.ceil(need / CL_PROJECTILES_PER_CARRIER);
-          if ((slotsByColor[c] || 0) < needSlots) {
-            problems.push(d + ': barva ' + c + ' potřebuje ' + needSlots + ' slot(ů), layout má ' + (slotsByColor[c] || 0));
-          }
+      const slotsByColor = clCountLayoutSlotsByColor(v);
+      for (let c = 0; c < BE_COLORS.length; c++) {
+        const need = px[c] | 0;
+        if (need <= 0) continue;
+        const needSlots = Math.ceil(need / CL_PROJECTILES_PER_CARRIER);
+        if ((slotsByColor[c] || 0) < needSlots) {
+          problems.push(d + ': barva ' + c + ' potřebuje ' + needSlots + ' slot(ů), layout má ' + (slotsByColor[c] || 0));
         }
       }
     }
   }
 
+  // 2) Completeness — pin + obrázek = „done"
+  const hasPin = !!lvl.defaultComplexity;
+  const hasImage = clLevelHasImage(lvl);
+  if (!hasPin) warnings.push('není nastavený pin pro výchozí complexity');
+  if (!hasImage) warnings.push('chybí obrázek (custom je prázdný)');
+
   if (problems.length) {
     return { kind: 'bad', icon: '✗', reason: 'Chyby:\n• ' + problems.join('\n• ') };
   }
   if (warnings.length) {
-    return { kind: 'warn', icon: '⚠', reason: 'Upozornění:\n• ' + warnings.join('\n• ') };
+    return { kind: 'warn', icon: '⚠', reason: 'Rozpracováno — chybí:\n• ' + warnings.join('\n• ') };
   }
-  return { kind: 'ok', icon: '✓', reason: 'Level je v pořádku napříč obtížnostmi.' };
+  return { kind: 'ok', icon: '✓', reason: 'Level je hotový (pin + obrázek, bez chyb).' };
 }
 
 function renderList() {
