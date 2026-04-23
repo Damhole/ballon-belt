@@ -105,35 +105,31 @@ level.activeLayout = "default"  // default při startu levelu
 ```
 
 **Vyřešeno (rozhodnuto s uživatelem 2026-04-23):**
-- ✅ **Zdi** = pasivní `{wall:true}` dlaždice, nic nedělají. Už v hře implementované,
-  žádná nová mechanika.
-- ✅ **Grid** fixní 7×7 max, designer si sám určí, co a kde zaplní (prázdná buňka = null).
-- ✅ **Fallback** — levely bez `carrierLayouts` se auto-generují jako dnes.
+- ✅ **Zdi** = pasivní `{wall:true}` dlaždice, nic nedělají. Už v hře implementované.
+- ✅ **Grid** fixní 7×7 max, prázdná buňka = null.
+- ✅ **Fallback** — bez `carrierLayouts` auto-generace jako dnes.
+- ✅ **Per-difficulty variants** — varianta je taggovaná `{difficulty: 'easy'|'medium'|'hard'}`.
+- ✅ **Random výběr** — když má level víc variant pro aktuální obtížnost, vybere se náhodně.
+  Pokud pro danou obtížnost NENÍ žádná varianta, **auto-generace** vyplní chybějící
+  (stejně jako dnes pro level bez layoutu).
+- ✅ **Garáž queue editor** — sidebar panel, konzistence s block editorem.
+- ✅ **Raketa barva per tile** — `{type:'rocket', color: 3}` přímo v dlaždici.
+  `level.rocketTargets` se pro layout-based levely **ignoruje** (auto-gen levely ho dál
+  používají, žádný breaking change).
+- ✅ **Undo scope** — přepnutí aktivní varianty = view selector, NE undo step.
+  Editace obsahu / přidání / mazání / přejmenování varianty = ano.
+- ✅ **Pojmenování variant** — volný text, unikátnost per level × difficulty.
+  (Default name pattern: `{levelkey}-{difficulty}-v{N}`.)
 
-**Otevřené otázky (k rozhodnutí až začneme):**
-- **Interakce s obtížností** — jeden layout pro všechny 3 obtížnosti (easy/medium/hard),
-  nebo layouts taggované `{difficulty: 'hard'}` a hra vybere podle user-nastavení?
-  _Tip: per-difficulty variants, aby designer mohl mít 3 různé výzvy ze stejného obrazu._
-- **Runtime selekce varianty** — když má level víc variant pro stejnou obtížnost,
-  vybere se náhodně? První? Vždy ta s `activeLayout` flagem? _Tip: random ze stejné
-  obtížnosti, jinak je level stále stejný._
-- **Pojmenování variant** — volný text nebo enum (`easy-v1`, `hard-garage`, …)?
-  _Tip: volný text, unikátnost per level._
-- **Garáž queue editor** — garage tile má queue nosičů (dnes až 10+). Klikneš na tile
-  v gridu → otevře modal s drag-drop editorem queue? Nebo sidebar panel jako u bloků?
-- **Raketa vs. `level.rocketTargets`** — dnes raketa zná svou barvu z `level.rocketTargets[colIdx]`.
-  V layoutu má raketa být na konkrétní pozici, ale barva stále přijde z `rocketTargets`?
-  Nebo rozšířit na `{type:'rocket', color: 3}` přímo v tile?
-  _Tip: barva per tile, `rocketTargets` deprecatnout (rozšíření nikam nevede)._
-- **Undo/Redo scope** — editace grid buněk = undo step. Ale **přepnutí aktivní varianty**?
-  _Tip: ne, je to view selector, ne mutace dat._ Mazání varianty = ano, přejmenování = ano.
-- **Integrace s procgen (budoucnost)** — až přijde level generation, generuje i layout
-  a ukládá ho do `carrierLayouts`? Nebo procgen jen označí „auto-generate at runtime"?
-  _Tip: generuje a ukládá, aby výsledek byl reprodukovatelný._
+**MVP scope** — hned od začátku podpora multi-variant × per-difficulty (nemá smysl to
+stavět v monolitu napůl a později přepisovat data model). Tile types: `carrier`
+(s výběrem barvy), `garage` (s queue v sidebaru), `rocket` (s výběrem barvy), `wall`,
+`null`. Auto-generate fallback per difficulty.
 
-**MVP scope:** layout editor s 4 tile types: carrier / garage / rocket / wall / null.
-Jedna varianta per level pro začátek. Per-difficulty variants a random výběr jako
-follow-up okruh, až vidíme jak se to používá v praxi.
+**Otevřené pro budoucí okruh (ne teď):**
+- Integrace s level generation (až se to začne dělat) — generátor ukládá do
+  `carrierLayouts` nebo jen flag „auto-generate"? _Pragmatický tip později: uložit,
+  aby výsledek byl reprodukovatelný._
 
 ### Deep dive: Adaptivní obtížnost podle hráčova progressu
 
