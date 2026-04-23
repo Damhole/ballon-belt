@@ -177,6 +177,10 @@ function computeTotalDifficulty(imgDiff,carrDiff){
   return{key:'hardcore',label:'Hard-core'};
 }
 let grid,belt,pending,columns,score,loops,running,difficulty='easy',gravityOn=false,rocketsOn=false,garageMode='off',currentLevel='smiley';
+// True když makeColumns postavil grid z `level.carrierLayouts[...]` (layout-based).
+// startLevel podle toho ví, že má PŘESKOČIT rocket + garage injekci (layout už má
+// rakety/garáž embedded jako tiles). False = auto-generovaný grid = injekce jede jako dřív.
+let columnsFromLayout=false;
 // garageMode: 'off' | 'single' (1 náhodný směr) | 'multi' (2-4 náhodné směry)
 const GAR_DIR_VEC={N:[0,-1],S:[0,1],W:[-1,0],E:[1,0]};
 let beltAnim=0,lastBeltTime=null;
@@ -698,7 +702,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v25');
+          gamee.updateScore(score,playTime,'balloon-belt-v26');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -1729,7 +1733,151 @@ function generateCarrierQueue(pxCounts){
   }
   return q;
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// CARRIER LAYOUTS (manuální designer grid) — Okruh XL
+//   level.carrierLayouts = [
+//     { name, difficulty: 'easy'|'medium'|'hard', grid: [[tile,...],...] }
+//   ]
+//   tile = null | {type:'carrier',color:0..8} | {type:'wall'}
+//        | {type:'garage', queue:[{color},...]} | {type:'rocket', color:0..8}
+// Layout přebírá KONTROLU nad topologií gridu včetně garage/rocket — když je
+// layout použit, startLevel PŘESKOČÍ vlastní garage + rocket injekci.
+// ═══════════════════════════════════════════════════════════════════════════
+function pickLayoutVariant(levelDef,diff){
+  const all=levelDef&&Array.isArray(levelDef.carrierLayouts)?levelDef.carrierLayouts:null;
+  if(!all||!all.length)return null;
+  const candidates=all.filter(v=>v&&v.difficulty===diff&&Array.isArray(v.grid)&&v.grid.length);
+  if(!candidates.length)return null;
+  return candidates[Math.floor(Math.random()*candidates.length)];
+}
+function buildColsFromLayout(layout,pxCounts){
+  // 1) Zjistíme kolik carrier slotů layout má PER barvu (fixed-color sloty).
+  const layoutColorDemand=new Array(COLORS.length).fill(0);
+  const rows=layout.grid.length;
+  for(let r=0;r<rows;r++){
+    const row=layout.grid[r]||[];
+    for(let c=0;c<COLS;c++){
+      const t=row[c];
+      if(t&&t.type==='carrier'&&typeof t.color==='number'){
+        layoutColorDemand[t.color]++;
+      }
+    }
+  }
+  // 2) Postavíme per-color fronty projektilů — rozdělíme pxCounts[c] na tolik chunků
+  //    kolik layout nabízí slotů barvy c. Když layout nemá žádný slot dané barvy
+  //    a barva má pxCounts[c]>0, je to chyba levelu — warning a fallback na 1 chunk.
+  const colorChunks={};
+  for(let c=0;c<COLORS.length;c++){
+    const total=pxCounts[c]||0;
+    if(!total)continue;
+    const slots=layoutColorDemand[c];
+    if(!slots){
+      console.warn('[layout] barva '+c+' má '+total+' pixelů, ale layout nemá carrier slot — padne na auto-gen fallback');
+      return null; // celé přepne na auto-gen
+    }
+    // Rovnoměrné rozdělení: base + remainder do prvních slotů.
+    const base=Math.floor(total/slots);
+    const rem=total%slots;
+    const chunks=[];
+    for(let i=0;i<slots;i++)chunks.push(base+(i<rem?1:0));
+    colorChunks[c]=chunks;
+  }
+  // 3) Stavba columns z layoutu — row-major průchod, pop chunk per carrier slot.
+  const cols=[];for(let c=0;c<COLS;c++)cols.push([]);
+  const hr=difficulty==='easy'?0:difficulty==='hard'?0.8:0.45;
+  for(let r=0;r<rows;r++){
+    const row=layout.grid[r]||[];
+    for(let c=0;c<COLS;c++){
+      const t=row[c];
+      if(!t){cols[c].push(null);continue;}
+      if(t.type==='wall'||t.wall){cols[c].push({wall:true});continue;}
+      if(t.type==='rocket'){
+        cols[c].push({type:'rocket',color:(t.color|0)});
+        continue;
+      }
+      if(t.type==='garage'){
+        // Directions spočítáme až v postprocessu (potřebujeme vědět sousedy).
+        const queue=Array.isArray(t.queue)?t.queue.map(x=>({color:(x&&typeof x.color==='number')?x.color:(x|0)})):[];
+        cols[c].push({type:'garage',directions:['N'],queue,_pendingDirs:true});
+        continue;
+      }
+      if(t.type==='carrier'){
+        const col=t.color|0;
+        const chunks=colorChunks[col];
+        if(chunks&&chunks.length){
+          const proj=chunks.shift();
+          const hidden=r>0&&Math.random()<hr;
+          cols[c].push({color:col,hidden,projectiles:proj});
+        } else {
+          // Designer dal slot barvy, která v tomto levelu nic nepotřebuje → wall.
+          cols[c].push({wall:true});
+        }
+        continue;
+      }
+      // Neznámý tile → null (safe default).
+      cols[c].push(null);
+    }
+  }
+  // 4) Kontrola: všechny chunky spotřebovány? Když ne, layout má málo slotů dané barvy
+  //    (editor by to měl chytit, tady jen warn a pokračuj).
+  for(const c in colorChunks){
+    if(colorChunks[c].length){
+      console.warn('[layout] barva '+c+' má ještě '+colorChunks[c].length+' nespotřebovaných chunků — layout poddimenzovaný');
+    }
+  }
+  // 5) Post-process: garáž directions. Single/multi výběr ze validních sousedů.
+  for(let c=0;c<COLS;c++){
+    for(let r=0;r<cols[c].length;r++){
+      const s=cols[c][r];
+      if(!s||s.type!=='garage'||!s._pendingDirs)continue;
+      delete s._pendingDirs;
+      if(garageMode==='off'){
+        // Garage v layoutu, ale mode off → převeď na wall (nebude dispensovat, chová se pasivně).
+        cols[c][r]={wall:true};
+        continue;
+      }
+      const validDirs=[];
+      for(const d of Object.keys(GAR_DIR_VEC)){
+        const [dc,dr]=GAR_DIR_VEC[d];
+        const nc=c+dc,nr=r+dr;
+        if(nc<0||nc>=COLS||nr<0)continue;
+        const ncol=cols[nc];
+        if(!ncol||nr>=ncol.length)continue;
+        const n=ncol[nr];
+        if(n&&(n.wall||n.type==='garage'))continue;
+        validDirs.push(d);
+      }
+      if(!validDirs.length){
+        // Žádný validní směr — garáž nemůže dispensovat. Nech jako garage (queue visí), aby bylo vidět.
+        s.directions=[];
+      } else if(garageMode==='single'){
+        s.directions=[validDirs[Math.floor(Math.random()*validDirs.length)]];
+      } else {
+        const want=2+Math.floor(Math.random()*3);
+        const shuffled=validDirs.slice().sort(()=>Math.random()-0.5);
+        s.directions=shuffled.slice(0,Math.min(want,shuffled.length));
+      }
+    }
+  }
+  return cols;
+}
+
 function makeColumns(pxCounts){
+  columnsFromLayout=false;
+  // 1) Preferuj manuální layout (když existuje pro aktuální obtížnost).
+  const levelDef=getLevelDef(currentLevel);
+  const layout=pickLayoutVariant(levelDef,difficulty);
+  if(layout){
+    const built=buildColsFromLayout(layout,pxCounts);
+    if(built){
+      columnsFromLayout=true;
+      console.log('[layout] using carrier layout "'+(layout.name||'?')+'" ('+layout.difficulty+') for level '+currentLevel);
+      return built;
+    }
+    // buildColsFromLayout vrátil null → spadne na auto-gen pod námi.
+    console.warn('[layout] layout build failed, falling back to auto-gen');
+  }
+  // 2) Auto-gen (původní cesta).
   const depth=colorDepth(grid);
   const avail=getAvailableColors(grid);
   let q=generateCarrierQueue(pxCounts);
@@ -2658,7 +2806,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v25');
+    gamee.updateScore(score,playTime,'balloon-belt-v26');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -2723,7 +2871,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v25');
+  gamee.updateScore(score,playTime,'balloon-belt-v26');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -2762,8 +2910,11 @@ function startLevel(){
     }
   }
   columns=makeColumns(countPixelsAndBlocks(grid));
+  // Když columns postavil layout, rakety + garáž už v gridu jsou → skip injekci.
+  // Jinak pokračuje původní injekce do auto-generovaného gridu.
+  const skipInjects=columnsFromLayout;
   // Injekce raketových nosičů – per level předdefinované 2 pozice
-  const rockets=rocketsOn?levelDef.rocketTargets:null;
+  const rockets=(!skipInjects&&rocketsOn)?levelDef.rocketTargets:null;
   if(rockets){
     const slots=[{col:2,row:1},{col:5,row:1}];
     for(let i=0;i<rockets.length&&i<slots.length;i++){
@@ -2776,7 +2927,7 @@ function startLevel(){
   // ROOT CAUSE fix (v21): předtím `splice` nosičů dělal jagged sloupce → vznikly
   // izolované ostrůvky. Teď nahrazujeme nosiče zdmi (rectangular zůstane) a po
   // injekci validujeme connectivity; pokud selže, regenerujeme makeColumns.
-  if(garageMode!=='off'&&levelDef.garage){
+  if(!skipInjects&&garageMode!=='off'&&levelDef.garage){
     const {col:gcol,carriers:gcarriers}=levelDef.garage;
     let injected=false;
     for(let attempt=0;attempt<10&&!injected;attempt++){
@@ -3235,7 +3386,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v25');
+      gamee.updateScore(score,playTime,'balloon-belt-v26');
       event.detail.callback();
     });
 

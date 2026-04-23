@@ -236,12 +236,19 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 - _(nic aktivního)_
 
+**Follow-up okruhy po carrier layout editoru** (až si ho zkusíme v praxi):
+- Solvability check + warning badge u variant — počet slotů per barvu vs. obraz
+- Auto-generate template pro layout (tlačítko „vyplň auto-gen výsledek do gridu")
+- Drag-drop reorder queue v garage (dnes je jen add/remove)
+- Pipette tool (Alt+klik vezme barvu z buňky) — nice parity s block editorem
+
 ---
 
 ## ✅ Hotovo
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
+| v26: carrier layout editor — data model, grid editor, garage queue | _tento commit_ | 2026-04-23 |
 | v25: editor — block editor, pixel editor, undo/redo | `a71517c` | 2026-04-23 |
 | v23: editor pro správu levelů + live iframe preview | `79190b3` | 2026-04-22 |
 | v22: modulární level systém + dvouosá obtížnost | `4014b5f` | 2026-04-20 |

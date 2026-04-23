@@ -203,6 +203,50 @@
             </div>
           </div>
 
+          <div class="form-section carrier-layout-section">
+            <label>Carrier layout <span class="hint">(manuální grid 7×cols; prázdné = auto-gen)</span></label>
+            <div class="cl-toolbar">
+              <div class="cl-tb-row">
+                <span class="cl-tb-label">obtížnost</span>
+                <div class="cl-diff-tabs">
+                  <button type="button" class="cl-diff-tab active" data-diff="easy">easy</button>
+                  <button type="button" class="cl-diff-tab" data-diff="medium">medium</button>
+                  <button type="button" class="cl-diff-tab" data-diff="hard">hard</button>
+                </div>
+              </div>
+              <div class="cl-tb-row">
+                <span class="cl-tb-label">varianta</span>
+                <select id="cl-variant-select" class="cl-variant-select"></select>
+                <button type="button" id="cl-variant-add" class="btn btn-small">+ nová</button>
+                <button type="button" id="cl-variant-rename" class="btn btn-small" disabled>✎ přejmenovat</button>
+                <button type="button" id="cl-variant-dup" class="btn btn-small" disabled>⎘ duplikovat</button>
+                <button type="button" id="cl-variant-delete" class="btn btn-small btn-danger" disabled>🗑 smazat</button>
+              </div>
+              <div class="cl-tb-row">
+                <span class="cl-tb-label">řádky <span id="cl-rows-val" class="val">4</span></span>
+                <input type="range" id="cl-rows" min="1" max="7" step="1" value="4">
+              </div>
+            </div>
+            <div id="cl-empty" class="cl-empty">
+              Žádná varianta pro tuto obtížnost. Klikni <b>+ nová</b> pro vytvoření.
+              Levely bez varianty pro danou obtížnost se auto-generují jako dnes.
+            </div>
+            <div id="cl-editor" class="cl-editor" hidden>
+              <div class="cl-grid-wrap">
+                <div id="cl-grid" class="cl-grid"></div>
+              </div>
+              <div class="cl-palette-wrap">
+                <div class="cl-section-title">paleta <span class="hint">(klikni, pak maluj v gridu)</span></div>
+                <div id="cl-palette" class="cl-palette"></div>
+                <div class="cl-hint" id="cl-tool-hint">vyber nástroj z palety</div>
+                <div id="cl-inspector" class="cl-inspector" hidden>
+                  <div class="cl-section-title">výběr <span id="cl-inspector-coord" class="hint"></span></div>
+                  <div id="cl-inspector-body"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="summary-bar">
             <span class="summary-label">Total difficulty:</span>
             <span id="summary-badge" class="diff-badge diff-relaxing">Relaxing</span>

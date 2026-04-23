@@ -90,6 +90,7 @@ function histSnapshotLvl(lvl) {
     imageDifficulty: lvl.imageDifficulty,
     image: lvl.image, blocks: lvl.blocks,
     rocketTargets: lvl.rocketTargets, garage: lvl.garage,
+    carrierLayouts: lvl.carrierLayouts,
   }));
 }
 function histApplySnap(lvl, snap) {
@@ -103,6 +104,7 @@ function histApplySnap(lvl, snap) {
   lvl.blocks = snap.blocks;
   lvl.rocketTargets = snap.rocketTargets;
   lvl.garage = snap.garage;
+  lvl.carrierLayouts = snap.carrierLayouts;
 }
 
 // Push snapshotu PŘED mutací. `actionKey` coalescuje rychlé po sobě jdoucí
@@ -636,6 +638,9 @@ function renderEditor() {
   renderBlockCanvas();
   renderSelectedBlockPanel();
 
+  // Carrier layout editor (Okruh XL) — per-difficulty variants.
+  renderCarrierLayout(lvl);
+
   const diff = computeTotalDifficulty(lvl.imageDifficulty || 1);
   const badge = $('summary-badge');
   badge.textContent = diff.label;
@@ -683,6 +688,482 @@ function renderCarrierList(carriers) {
     });
     chip.appendChild(rm);
     wrap.appendChild(chip);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CARRIER LAYOUT EDITOR — grid 7×rows tile painter + per-difficulty variants
+// ═══════════════════════════════════════════════════════════════════════════
+// Data model (v level):
+//   lvl.carrierLayouts = [
+//     { name, difficulty: 'easy'|'medium'|'hard', grid: [[tile,...7],...rows] }
+//   ]
+// tile = null | {type:'carrier',color:0..8} | {type:'wall'}
+//      | {type:'garage', queue:[{color},...]} | {type:'rocket', color:0..8}
+//
+// UI state (session only, ne persistuje):
+//   state.clActiveDiff = 'easy'|'medium'|'hard'
+//   state.clActiveVariantIdx = index v lvl.carrierLayouts (-1 = žádná)
+//   state.clTool = null | {kind:'null'|'wall'|'garage'|'carrier'|'rocket', color?}
+const CL_COLS = 7;
+const CL_MAX_ROWS = 7;
+const CL_DIFFICULTIES = ['easy', 'medium', 'hard'];
+
+function clEnsureState() {
+  if (!state.clActiveDiff) state.clActiveDiff = 'easy';
+  if (state.clActiveVariantIdx == null) state.clActiveVariantIdx = -1;
+  // Default tool = 'select' (klik v gridu otevře inspector pro danou buňku).
+  if (state.clTool === undefined) state.clTool = { kind: 'select' };
+  if (state.clSelCell === undefined) state.clSelCell = null;
+}
+function clVariants(lvl) {
+  if (!lvl || !Array.isArray(lvl.carrierLayouts)) return [];
+  return lvl.carrierLayouts;
+}
+function clVariantsForDiff(lvl, diff) {
+  return clVariants(lvl).filter(v => v && v.difficulty === diff);
+}
+function clActiveVariant(lvl) {
+  clEnsureState();
+  const all = clVariants(lvl);
+  if (state.clActiveVariantIdx < 0 || state.clActiveVariantIdx >= all.length) return null;
+  const v = all[state.clActiveVariantIdx];
+  if (!v || v.difficulty !== state.clActiveDiff) return null;
+  return v;
+}
+function clPickFirstVariantForDiff(lvl, diff) {
+  const all = clVariants(lvl);
+  for (let i = 0; i < all.length; i++) if (all[i] && all[i].difficulty === diff) return i;
+  return -1;
+}
+function clBlankGrid(rows) {
+  const g = [];
+  for (let r = 0; r < rows; r++) {
+    const row = [];
+    for (let c = 0; c < CL_COLS; c++) row.push({ type: 'carrier', color: 0 });
+    g.push(row);
+  }
+  return g;
+}
+function clDefaultVariantName(lvl, diff) {
+  const existing = clVariantsForDiff(lvl, diff).map(v => v.name || '');
+  const base = (lvl.key || 'lvl') + '-' + diff + '-v';
+  for (let n = 1; n < 99; n++) if (!existing.includes(base + n)) return base + n;
+  return base + Date.now();
+}
+function clResizeGrid(variant, newRows) {
+  if (!variant || !Array.isArray(variant.grid)) return;
+  const cur = variant.grid.length;
+  if (newRows === cur) return;
+  if (newRows < cur) {
+    variant.grid = variant.grid.slice(0, newRows);
+  } else {
+    for (let r = cur; r < newRows; r++) {
+      const row = [];
+      for (let c = 0; c < CL_COLS; c++) row.push({ type: 'carrier', color: 0 });
+      variant.grid.push(row);
+    }
+  }
+}
+
+function renderCarrierLayout(lvl) {
+  clEnsureState();
+  // Diff tabs: highlight active.
+  const tabs = document.querySelectorAll('.cl-diff-tab');
+  tabs.forEach(t => {
+    t.classList.toggle('active', t.dataset.diff === state.clActiveDiff);
+  });
+
+  // Variant select
+  const sel = $('cl-variant-select');
+  const variants = clVariants(lvl);
+  const forDiff = variants.map((v, i) => ({ v, i })).filter(x => x.v && x.v.difficulty === state.clActiveDiff);
+  sel.innerHTML = '';
+  if (!forDiff.length) {
+    sel.disabled = true;
+  } else {
+    sel.disabled = false;
+    forDiff.forEach(({ v, i }) => {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = v.name || ('varianta ' + i);
+      if (i === state.clActiveVariantIdx) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  // Ensure activeVariantIdx is valid for current difficulty.
+  const activeV = clActiveVariant(lvl);
+  if (!activeV) {
+    // Pick first variant for current difficulty, if any.
+    const idx = clPickFirstVariantForDiff(lvl, state.clActiveDiff);
+    state.clActiveVariantIdx = idx;
+  }
+  const variant = clActiveVariant(lvl);
+
+  // Action buttons
+  $('cl-variant-rename').disabled = !variant;
+  $('cl-variant-dup').disabled = !variant;
+  $('cl-variant-delete').disabled = !variant;
+
+  // Rows slider
+  const rowsInput = $('cl-rows');
+  const rowsVal = $('cl-rows-val');
+  if (variant) {
+    rowsInput.value = variant.grid.length;
+    rowsVal.textContent = variant.grid.length;
+    rowsInput.disabled = false;
+  } else {
+    rowsVal.textContent = '—';
+    rowsInput.disabled = true;
+  }
+
+  // Empty vs editor
+  const emptyEl = $('cl-empty');
+  const edEl = $('cl-editor');
+  if (!variant) {
+    emptyEl.hidden = false;
+    edEl.hidden = true;
+    return;
+  }
+  emptyEl.hidden = true;
+  edEl.hidden = false;
+
+  clRenderPalette();
+  clRenderGrid(variant);
+}
+
+function clRenderPalette() {
+  const pal = $('cl-palette');
+  if (!pal) return;
+  pal.innerHTML = '';
+  const items = [];
+  items.push({ kind: 'select', label: '◎' });
+  items.push({ kind: 'null', label: '∅' });
+  items.push({ kind: 'wall', label: '▦' });
+  items.push({ kind: 'garage', label: '🏠' });
+  for (let c = 0; c < BE_COLORS.length; c++) items.push({ kind: 'carrier', color: c });
+  for (let c = 0; c < BE_COLORS.length; c++) items.push({ kind: 'rocket', color: c });
+
+  const makeKey = (tool) => tool ? (tool.kind + (tool.color != null ? ':' + tool.color : '')) : '';
+  const activeKey = makeKey(state.clTool);
+
+  items.forEach(it => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cl-palette-item tile-' + it.kind;
+    if (it.color != null) btn.style.background = BE_COLORS[it.color];
+    btn.title = it.kind + (it.color != null ? ' ' + it.color : '');
+    if (it.kind === 'carrier') btn.textContent = String(it.color);
+    if (makeKey(it) === activeKey) btn.classList.add('active');
+    btn.addEventListener('click', () => {
+      state.clTool = (it.kind === 'carrier' || it.kind === 'rocket')
+        ? { kind: it.kind, color: it.color }
+        : { kind: it.kind };
+      clRenderPalette();
+      updateToolHint();
+    });
+    pal.appendChild(btn);
+  });
+  updateToolHint();
+
+  function updateToolHint() {
+    const hint = $('cl-tool-hint');
+    if (!hint) return;
+    if (!state.clTool) { hint.textContent = 'vyber nástroj z palety'; return; }
+    const t = state.clTool;
+    const desc = t.kind === 'select' ? 'select (klik v gridu = výběr + inspector)'
+      : t.kind === 'carrier' ? ('carrier color ' + t.color)
+      : t.kind === 'rocket' ? ('rocket color ' + t.color)
+      : t.kind === 'wall' ? 'wall (pasivní)'
+      : t.kind === 'garage' ? 'garage (vybrat pak editovat queue v panelu)'
+      : 'null (prázdno, hráč může procházet)';
+    hint.textContent = 'nástroj: ' + desc;
+  }
+}
+
+function clRenderGrid(variant) {
+  const g = $('cl-grid');
+  if (!g) return;
+  g.innerHTML = '';
+  const rows = variant.grid.length;
+  g.style.gridTemplateRows = 'repeat(' + rows + ', 48px)';
+  const sel = state.clSelCell;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < CL_COLS; c++) {
+      const t = variant.grid[r] && variant.grid[r][c];
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'cl-cell ' + clTileClass(t);
+      if (sel && sel.r === r && sel.c === c) btn.classList.add('tile-selected');
+      btn.dataset.r = String(r);
+      btn.dataset.c = String(c);
+      if (t && (t.type === 'carrier' || t.type === 'rocket') && typeof t.color === 'number') {
+        btn.style.background = BE_COLORS[t.color];
+      }
+      if (t && t.type === 'carrier') {
+        btn.textContent = String(t.color);
+      }
+      // garage queue count badge
+      if (t && t.type === 'garage' && Array.isArray(t.queue) && t.queue.length) {
+        const badge = document.createElement('span');
+        badge.className = 'cl-cell-badge';
+        badge.textContent = String(t.queue.length);
+        btn.appendChild(badge);
+      }
+      btn.addEventListener('click', () => clOnCellClick(r, c));
+      g.appendChild(btn);
+    }
+  }
+  clRenderInspector(variant);
+}
+
+function clRenderInspector(variant) {
+  const wrap = $('cl-inspector');
+  const body = $('cl-inspector-body');
+  const coord = $('cl-inspector-coord');
+  if (!wrap || !body) return;
+  const sel = state.clSelCell;
+  if (!sel || !variant) { wrap.hidden = true; body.innerHTML = ''; coord.textContent = ''; return; }
+  const t = variant.grid[sel.r] && variant.grid[sel.r][sel.c];
+  coord.textContent = '(row ' + sel.r + ', col ' + sel.c + ')';
+  body.innerHTML = '';
+  wrap.hidden = false;
+
+  if (!t) {
+    body.innerHTML = '<div class="cl-hint">prázdno — hráč může procházet. Použij paletu pro přemalování.</div>';
+    return;
+  }
+  if (t.type === 'wall' || t.wall) {
+    body.innerHTML = '<div class="cl-hint">wall — pasivní překážka. Použij paletu pro přemalování.</div>';
+    return;
+  }
+  if (t.type === 'carrier' || t.type === 'rocket') {
+    const title = document.createElement('div');
+    title.className = 'cl-hint';
+    title.textContent = (t.type === 'carrier' ? 'carrier' : 'rocket') + ' — klik barvu pro změnu';
+    body.appendChild(title);
+    const picker = document.createElement('div');
+    picker.className = 'cl-insp-color-picker';
+    for (let c = 0; c < BE_COLORS.length; c++) {
+      const sw = document.createElement('button');
+      sw.type = 'button';
+      sw.className = 'cl-csw' + (t.color === c ? ' active' : '');
+      sw.style.background = BE_COLORS[c];
+      sw.title = 'color ' + c;
+      sw.addEventListener('click', () => {
+        if (t.color === c) return;
+        const lvl = beCurrentLvl();
+        histPush(lvl, 'cl-insp-color');
+        t.color = c;
+        markDirty();
+        renderCarrierLayout(lvl);
+      });
+      picker.appendChild(sw);
+    }
+    body.appendChild(picker);
+    return;
+  }
+  if (t.type === 'garage') {
+    const title = document.createElement('div');
+    title.className = 'cl-hint';
+    title.textContent = 'garage queue (' + (t.queue || []).length + ' nosič' + ((t.queue || []).length === 1 ? '' : 'ů') + ')';
+    body.appendChild(title);
+    const row = document.createElement('div');
+    row.className = 'cl-insp-queue';
+    (t.queue || []).forEach((q, idx) => {
+      const chip = document.createElement('div');
+      chip.className = 'cl-insp-queue-chip';
+      const num = document.createElement('span');
+      num.className = 'cl-chip-num';
+      num.textContent = String(idx + 1);
+      chip.appendChild(num);
+      const sw = document.createElement('button');
+      sw.type = 'button';
+      sw.className = 'cl-chip-swatch';
+      sw.style.background = BE_COLORS[q.color || 0];
+      sw.title = 'klik pro cyklus barvy';
+      sw.addEventListener('click', () => {
+        const lvl = beCurrentLvl();
+        histPush(lvl, 'cl-queue-color-' + idx);
+        q.color = ((q.color || 0) + 1) % BE_COLORS.length;
+        markDirty();
+        renderCarrierLayout(lvl);
+      });
+      chip.appendChild(sw);
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.textContent = '×';
+      rm.title = 'odebrat';
+      rm.addEventListener('click', () => {
+        const lvl = beCurrentLvl();
+        histPush(lvl, 'cl-queue-del-' + idx);
+        t.queue.splice(idx, 1);
+        markDirty();
+        renderCarrierLayout(lvl);
+      });
+      chip.appendChild(rm);
+      row.appendChild(chip);
+    });
+    body.appendChild(row);
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'btn btn-small';
+    addBtn.textContent = '+ nosič';
+    addBtn.addEventListener('click', () => {
+      const lvl = beCurrentLvl();
+      histPush(lvl, 'cl-queue-add');
+      if (!Array.isArray(t.queue)) t.queue = [];
+      t.queue.push({ color: 0 });
+      markDirty();
+      renderCarrierLayout(lvl);
+    });
+    body.appendChild(addBtn);
+    return;
+  }
+  body.innerHTML = '<div class="cl-hint">neznámý tile</div>';
+}
+
+function clTileClass(t) {
+  if (!t) return 'tile-null';
+  if (t.type === 'carrier') return 'tile-carrier';
+  if (t.type === 'rocket') return 'tile-rocket';
+  if (t.type === 'garage') return 'tile-garage';
+  if (t.type === 'wall' || t.wall) return 'tile-wall';
+  return 'tile-null';
+}
+
+function clOnCellClick(r, c) {
+  const lvl = beCurrentLvl();
+  const v = clActiveVariant(lvl);
+  if (!v || !state.clTool) return;
+  const t = state.clTool;
+  // Select mode → označ buňku a ukaž inspector, NEmalujeme.
+  if (t.kind === 'select') {
+    state.clSelCell = { r, c };
+    clRenderGrid(v);
+    return;
+  }
+  histPush(lvl, 'cl-paint');
+  let tile;
+  if (t.kind === 'null') tile = null;
+  else if (t.kind === 'wall') tile = { type: 'wall' };
+  else if (t.kind === 'garage') {
+    // Zachovej queue, pokud už v dané buňce garage je.
+    const existing = v.grid[r] && v.grid[r][c];
+    const queue = (existing && existing.type === 'garage' && Array.isArray(existing.queue)) ? existing.queue : [];
+    tile = { type: 'garage', queue };
+  }
+  else if (t.kind === 'carrier') tile = { type: 'carrier', color: t.color };
+  else if (t.kind === 'rocket') tile = { type: 'rocket', color: t.color };
+  else return;
+  v.grid[r][c] = tile;
+  // Po paint se vybraná buňka posune na nově malovanou (hráč rovnou vidí inspector).
+  state.clSelCell = { r, c };
+  markDirty();
+  clRenderGrid(v);
+}
+
+function wireCarrierLayout() {
+  // Diff tabs
+  document.querySelectorAll('.cl-diff-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      state.clActiveDiff = tab.dataset.diff;
+      // Přepni na první variantu v této obtížnosti, pokud existuje.
+      const lvl = beCurrentLvl();
+      state.clActiveVariantIdx = lvl ? clPickFirstVariantForDiff(lvl, state.clActiveDiff) : -1;
+      renderCarrierLayout(lvl);
+    });
+  });
+
+  // Variant select
+  $('cl-variant-select').addEventListener('change', (e) => {
+    const idx = parseInt(e.target.value, 10);
+    if (!Number.isNaN(idx)) {
+      state.clActiveVariantIdx = idx;
+      renderCarrierLayout(beCurrentLvl());
+    }
+  });
+
+  // + new variant
+  $('cl-variant-add').addEventListener('click', () => {
+    const lvl = beCurrentLvl();
+    if (!lvl) return;
+    histPush(lvl, 'cl-variant-add');
+    if (!Array.isArray(lvl.carrierLayouts)) lvl.carrierLayouts = [];
+    const v = {
+      name: clDefaultVariantName(lvl, state.clActiveDiff),
+      difficulty: state.clActiveDiff,
+      grid: clBlankGrid(4),
+    };
+    lvl.carrierLayouts.push(v);
+    state.clActiveVariantIdx = lvl.carrierLayouts.length - 1;
+    markDirty();
+    renderCarrierLayout(lvl);
+  });
+
+  // Rename
+  $('cl-variant-rename').addEventListener('click', () => {
+    const lvl = beCurrentLvl();
+    const v = clActiveVariant(lvl);
+    if (!v) return;
+    const name = prompt('Nový název varianty:', v.name || '');
+    if (!name || name === v.name) return;
+    // Unikátnost per level × difficulty
+    const dup = clVariantsForDiff(lvl, v.difficulty).some(o => o !== v && o.name === name);
+    if (dup) { alert('Varianta "' + name + '" už existuje pro ' + v.difficulty + '.'); return; }
+    histPush(lvl, 'cl-variant-rename');
+    v.name = name;
+    markDirty();
+    renderCarrierLayout(lvl);
+  });
+
+  // Duplicate
+  $('cl-variant-dup').addEventListener('click', () => {
+    const lvl = beCurrentLvl();
+    const v = clActiveVariant(lvl);
+    if (!v) return;
+    histPush(lvl, 'cl-variant-dup');
+    const copy = {
+      name: clDefaultVariantName(lvl, v.difficulty),
+      difficulty: v.difficulty,
+      grid: v.grid.map(row => row.map(t => t ? JSON.parse(JSON.stringify(t)) : null)),
+    };
+    lvl.carrierLayouts.push(copy);
+    state.clActiveVariantIdx = lvl.carrierLayouts.length - 1;
+    markDirty();
+    renderCarrierLayout(lvl);
+  });
+
+  // Delete
+  $('cl-variant-delete').addEventListener('click', () => {
+    const lvl = beCurrentLvl();
+    const v = clActiveVariant(lvl);
+    if (!v) return;
+    if (!confirm('Smazat variantu "' + (v.name || '?') + '"?')) return;
+    histPush(lvl, 'cl-variant-delete');
+    const idx = lvl.carrierLayouts.indexOf(v);
+    if (idx >= 0) lvl.carrierLayouts.splice(idx, 1);
+    state.clActiveVariantIdx = clPickFirstVariantForDiff(lvl, state.clActiveDiff);
+    markDirty();
+    renderCarrierLayout(lvl);
+  });
+
+  // Rows slider
+  const rowsInput = $('cl-rows');
+  rowsInput.addEventListener('input', () => {
+    $('cl-rows-val').textContent = rowsInput.value;
+  });
+  rowsInput.addEventListener('change', () => {
+    const lvl = beCurrentLvl();
+    const v = clActiveVariant(lvl);
+    if (!v) return;
+    const newRows = Math.max(1, Math.min(CL_MAX_ROWS, parseInt(rowsInput.value, 10) || 4));
+    if (newRows === v.grid.length) return;
+    histPush(lvl, 'cl-rows');
+    clResizeGrid(v, newRows);
+    markDirty();
+    renderCarrierLayout(lvl);
   });
 }
 
@@ -1548,6 +2029,7 @@ function boot() {
   wirePreview();
   wireBlockEditor();
   wirePixelToolbar();
+  wireCarrierLayout();
   wireHistory();
   renderBlockPalette();
   updateUI();

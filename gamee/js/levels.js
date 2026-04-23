@@ -1223,6 +1223,134 @@ window.LEVELS = [
     },
     "blocks": [],
     "rocketTargets": null,
-    "garage": null
+    "garage": null,
+    "carrierLayouts": [
+      {
+        "name": "new-level-7-easy-v1",
+        "difficulty": "easy",
+        "grid": [
+          [
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            }
+          ]
+        ]
+      }
+    ]
   }
 ];
