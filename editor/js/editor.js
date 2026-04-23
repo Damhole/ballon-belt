@@ -1301,10 +1301,19 @@ function clGenerateLayout(variant, pxCounts, mode) {
     }
   }
 
-  // 7) Zapiš carriers do gridu.
+  // 7) Zapiš carriers do gridu. V hard/medium označ část nosičů jako `hidden:true`
+  //    (= ve hře se zobrazí jako ? dokud nejsou aktivní). Rate odpovídá herní hodnotě
+  //    (game.js:1799 hr: easy=0, medium=0.45, hard=0.8), skip top row. Tím je editor
+  //    deterministický — designer vidí přesně, které buňky budou `?`, a může je
+  //    přepnout ručně v inspectoru.
+  const hiddenRate = diff === 'hard' ? 0.8 : diff === 'medium' ? 0.45 : 0;
   const placedKeys = new Set();
   for (const p of placements) {
-    grid[p.pos.r][p.pos.c] = { type: 'carrier', color: p.color };
+    const carrier = { type: 'carrier', color: p.color };
+    if (hiddenRate > 0 && p.pos.r > 0 && Math.random() < hiddenRate) {
+      carrier.hidden = true;
+    }
+    grid[p.pos.r][p.pos.c] = carrier;
     placedKeys.add(p.pos.r + ',' + p.pos.c);
   }
 

@@ -145,39 +145,192 @@
       {
         "kind": "mystery",
         "shape": "rect",
-        "x": 14,
-        "y": 7,
-        "w": 8,
-        "h": 12,
+        "x": 7,
+        "y": 2,
+        "w": 22,
+        "h": 22,
         "color": 3,
         "hp": 60
-      },
-      {
-        "kind": "solid",
-        "shape": "cross",
-        "x": 3,
-        "y": 4,
-        "w": 11,
-        "h": 11,
-        "color": 1,
-        "hp": 60
-      },
-      {
-        "kind": "solid",
-        "shape": "rect",
-        "x": 22,
-        "y": 7,
-        "w": 4,
-        "h": 4,
-        "color": 4,
-        "hp": 10
       }
     ],
-    "rocketTargets": [
-      1,
-      0
-    ],
-    "garage": null
+    "rocketTargets": null,
+    "garage": null,
+    "carrierLayouts": [
+      {
+        "name": "new-level-6-medium-v1",
+        "difficulty": "medium",
+        "grid": [
+          [
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 5
+            },
+            {
+              "type": "carrier",
+              "color": 5
+            },
+            {
+              "type": "carrier",
+              "color": 1
+            },
+            {
+              "type": "carrier",
+              "color": 4
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "carrier",
+              "color": 7
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 6
+            },
+            {
+              "type": "carrier",
+              "color": 0
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 5
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 7
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 5
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "carrier",
+              "color": 7
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "carrier",
+              "color": 5
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 5
+            },
+            {
+              "type": "carrier",
+              "color": 5
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "carrier",
+              "color": 3
+            },
+            {
+              "type": "wall"
+            }
+          ]
+        ]
+      }
+    ]
   },
   {
     "key": "new-level-7",
