@@ -55,6 +55,13 @@ body {
 .toggle-btn{padding:4px 12px;border-radius:7px;border:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:12px;color:var(--color-text-secondary);transition:background 0.15s,color 0.15s,border-color 0.15s}
 .toggle-btn:hover{background:rgba(255,255,255,0.07)}
 .toggle-btn.active{background:rgba(100,200,100,0.15);color:#7defa0;border-color:#4a9e62;font-weight:600}
+.diff-summary-row{display:flex;justify-content:space-between;align-items:center;padding-top:4px;border-top:0.5px solid var(--color-border-secondary)}
+.diff-summary-label{font-size:10px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.07em;font-weight:500}
+.diff-badge{font-size:11px;font-weight:600;letter-spacing:0.03em;padding:3px 10px;border-radius:6px;border:0.5px solid transparent;transition:background 0.18s,color 0.18s,border-color 0.18s}
+.diff-badge.diff-relaxing{background:rgba(100,200,100,0.15);color:#7defa0;border-color:#4a9e62}
+.diff-badge.diff-medium{background:rgba(240,200,80,0.15);color:#f5d800;border-color:#9e8a1f}
+.diff-badge.diff-hard{background:rgba(240,140,70,0.18);color:#ffaa5e;border-color:#b06a2a}
+.diff-badge.diff-hardcore{background:rgba(230,70,70,0.2);color:#ff7070;border-color:#a03030}
 #pending-wrap{width:360px;position:relative}
 #pending-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:4px;text-align:center}
 #pending-canvas{display:block;margin:0 auto;background:transparent}

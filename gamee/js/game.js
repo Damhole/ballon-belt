@@ -4,19 +4,64 @@ const COLS=7;
 const GW=36,GH=31,IMG_GH=27;
 const UPC=4;
 const PPU=10;
-// Raketové nosiče – per level 2 nosiče, každý má předem danou 1 cílovou barvu (level design).
-const ROCKET_TARGETS={
-  smiley:[8,7],
-  moon:[8,5],
-  starwars:[5,1],
-  frog:[0,7]
-};
-const GARAGE_DEFS={
-  smiley:{col:3,carriers:[{color:3},{color:0},{color:4}]},
-  moon:  {col:4,carriers:[{color:5},{color:2},{color:6}]},
-  starwars:{col:3,carriers:[{color:5},{color:1},{color:8}]},
-  frog:  {col:3,carriers:[{color:0},{color:7},{color:3}]},
-};
+// ═══════════════════════════════════════════════════════════════════════════
+// LEVEL REGISTRY — jednotná definice levelů
+// Každý level = { key, label, type, imageDifficulty, image, blocks, rocketTargets, garage }
+// type:             'relaxing' | 'medium' | 'hard' | 'hardcore'  (urč. kategorie, label)
+// imageDifficulty:  1..5 (hodnotí obraz: pixely + bloky + překážky)
+// blocks:           pole definic blokových překážek (Okruh 2 – zatím []).
+// rocketTargets:    2 color indexy pro raketové nosiče (null = level nepodporuje rakety).
+// garage:           { col, carriers:[{color}] } nebo null (null = level nemá garáž).
+// ═══════════════════════════════════════════════════════════════════════════
+const LEVELS=[
+  {
+    key:'smiley', label:'smajlík', type:'relaxing', imageDifficulty:1,
+    image:{source:'smiley'},
+    blocks:[],
+    rocketTargets:[8,7],
+    garage:{col:3,carriers:[{color:3},{color:0},{color:4}]}
+  },
+  {
+    key:'moon', label:'měsíc', type:'relaxing', imageDifficulty:1,
+    image:{source:'moon'},
+    blocks:[],
+    rocketTargets:[8,5],
+    garage:{col:4,carriers:[{color:5},{color:2},{color:6}]}
+  },
+  {
+    key:'starwars', label:'C-3PO', type:'relaxing', imageDifficulty:1,
+    image:{source:'starwars'},
+    blocks:[],
+    rocketTargets:[5,1],
+    garage:{col:3,carriers:[{color:5},{color:1},{color:8}]}
+  },
+  {
+    key:'frog', label:'žabka', type:'relaxing', imageDifficulty:1,
+    image:{source:'frog'},
+    blocks:[],
+    rocketTargets:[0,7],
+    garage:{col:3,carriers:[{color:0},{color:7},{color:3}]}
+  },
+  {
+    key:'mondrian', label:'Mondrian', type:'relaxing', imageDifficulty:1,
+    image:{source:'mondrian'},
+    blocks:[],
+    rocketTargets:null,
+    garage:null
+  }
+];
+// Helper — najdi plnou definici levelu podle klíče (fallback na první level).
+function getLevelDef(key){return LEVELS.find(l=>l.key===key)||LEVELS[0];}
+// Převod carrier difficulty stringu na 1..5 rank.
+function carrierDifficultyRank(diff){return diff==='easy'?1:diff==='medium'?3:5;}
+// Kombinace dvou os → celková obtížnost (label + key pro CSS třídu).
+function computeTotalDifficulty(imgDiff,carrDiff){
+  const total=imgDiff+carrDiff; // 2..10
+  if(total<=3)return{key:'relaxing',label:'Relaxing'};
+  if(total<=5)return{key:'medium',label:'Medium'};
+  if(total<=7)return{key:'hard',label:'Hard'};
+  return{key:'hardcore',label:'Hard-core'};
+}
 let grid,belt,pending,columns,score,loops,running,difficulty='easy',gravityOn=false,rocketsOn=false,garageMode='off',currentLevel='smiley';
 // garageMode: 'off' | 'single' (1 náhodný směr) | 'multi' (2-4 náhodné směry)
 const GAR_DIR_VEC={N:[0,-1],S:[0,1],W:[-1,0],E:[1,0]};
@@ -411,7 +456,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v21');
+          gamee.updateScore(score,playTime,'balloon-belt-v22');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -2196,7 +2241,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v21');
+    gamee.updateScore(score,playTime,'balloon-belt-v22');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -2261,7 +2306,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v21');
+  gamee.updateScore(score,playTime,'balloon-belt-v22');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -2285,7 +2330,8 @@ function startLevel(){
   particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;
   columns=makeColumns(countPixels(grid));
   // Injekce raketových nosičů – per level předdefinované 2 pozice
-  const rockets=rocketsOn?ROCKET_TARGETS[currentLevel]:null;
+  const levelDef=getLevelDef(currentLevel);
+  const rockets=rocketsOn?levelDef.rocketTargets:null;
   if(rockets){
     const slots=[{col:2,row:1},{col:5,row:1}];
     for(let i=0;i<rockets.length&&i<slots.length;i++){
@@ -2298,8 +2344,8 @@ function startLevel(){
   // ROOT CAUSE fix (v21): předtím `splice` nosičů dělal jagged sloupce → vznikly
   // izolované ostrůvky. Teď nahrazujeme nosiče zdmi (rectangular zůstane) a po
   // injekci validujeme connectivity; pokud selže, regenerujeme makeColumns.
-  if(garageMode!=='off'&&GARAGE_DEFS[currentLevel]){
-    const {col:gcol,carriers:gcarriers}=GARAGE_DEFS[currentLevel];
+  if(garageMode!=='off'&&levelDef.garage){
+    const {col:gcol,carriers:gcarriers}=levelDef.garage;
     let injected=false;
     for(let attempt=0;attempt<10&&!injected;attempt++){
       if(attempt>0)columns=makeColumns(countPixels(grid));
@@ -2563,24 +2609,39 @@ function startLevel(){
   drawGrid();drawBelt();drawPending();drawCarriers();
   setStatus('Klikni na aktivní nosič');
 }
+// ── UI: Difficulty badge ────────────────────────────────────────────────────
+// Kombinace imageDifficulty (z level defu) + carrier difficulty (easy/medium/hard)
+// → Relaxing / Medium / Hard / Hard-core. Zobrazí se jako barevný badge v controls.
+function updateDifficultyBadge(){
+  const el=document.getElementById('difficulty-badge');
+  if(!el)return;
+  const def=getLevelDef(currentLevel);
+  const imgD=def.imageDifficulty||1;
+  const carrD=carrierDifficultyRank(difficulty);
+  const total=computeTotalDifficulty(imgD,carrD);
+  el.textContent=total.label;
+  el.className='diff-badge diff-'+total.key;
+  el.title='obrázek '+imgD+'/5  +  nosiče '+carrD+'/5';
+}
 // ── Event listeners ─────────────────────────────────────────────────────────
 function setupDOM(){
-  const LEVELS=[{key:'smiley',label:'smajlík'},{key:'moon',label:'měsíc'},{key:'starwars',label:'C-3PO'},{key:'frog',label:'žabka'},{key:'mondrian',label:'Mondrian'}];
   let levelIdx=LEVELS.findIndex(l=>l.key===currentLevel);
   if(levelIdx<0)levelIdx=0;
   function stepLevel(dir){
     levelIdx=(levelIdx+dir+LEVELS.length)%LEVELS.length;
     currentLevel=LEVELS[levelIdx].key;
     document.getElementById('level-label').textContent=LEVELS[levelIdx].label;
+    updateDifficultyBadge();
     startLevel();
   }
   document.getElementById('level-label').textContent=LEVELS[levelIdx].label;
+  updateDifficultyBadge();
   document.getElementById('restart-btn').addEventListener('click',startLevel);
   document.getElementById('level-prev').addEventListener('click',()=>stepLevel(-1));
   document.getElementById('level-next').addEventListener('click',()=>stepLevel(1));
   document.querySelectorAll('[data-diff]').forEach(b=>b.addEventListener('click',()=>{
     document.querySelectorAll('[data-diff]').forEach(x=>x.classList.remove('active'));
-    b.classList.add('active');difficulty=b.dataset.diff;startLevel();
+    b.classList.add('active');difficulty=b.dataset.diff;updateDifficultyBadge();startLevel();
   }));
   document.getElementById('specials-toggle').addEventListener('click',()=>{
     document.getElementById('specials-panel').classList.toggle('open');
@@ -2719,7 +2780,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v21');
+      gamee.updateScore(score,playTime,'balloon-belt-v22');
       event.detail.callback();
     });
 
