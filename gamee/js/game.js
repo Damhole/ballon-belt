@@ -4,6 +4,101 @@ const COLS=7;
 const GW=36,GH=31,IMG_GH=27;
 const UPC=4;
 const PPU=10;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BLOCKS (Okruh 2) — puzzle-style HP walls inside the image area
+//   • shape:  'rect' | 'cross' | 'L' | 'T' | 'circle'
+//   • x,y:    top-left in image pixel coords (0..GW-1 × 0..IMG_GH-1)
+//   • w,h:    bounding box in image pixels
+//   • color:  0..8 (index to COLORS)
+//   • hp:     HP measured in PROJECTILES (PPU=10 → hp=80 means 8 balls = 2 carriers)
+//
+// Projectile of matching color → subtracts 1 HP. Wrong color → bounces.
+// Targeting (pickTargetForColor): weighted random between pixels (w=1) and
+// blocks (w=hp), so partially-damaged blocks lose priority vs fresh pixels.
+// ═══════════════════════════════════════════════════════════════════════════
+function blockMask(shape,w,h){
+  const m=[]; for(let y=0;y<h;y++){m.push(new Array(w).fill(false));}
+  if(shape==='rect'){
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++)m[y][x]=true;
+  } else if(shape==='cross'){
+    const cx=Math.floor((w-1)/2), cy=Math.floor((h-1)/2);
+    const armW=Math.max(1,Math.floor(w/3)), armH=Math.max(1,Math.floor(h/3));
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+      if(Math.abs(y-cy)<=Math.floor(armH/2)) m[y][x]=true;
+      if(Math.abs(x-cx)<=Math.floor(armW/2)) m[y][x]=true;
+    }
+  } else if(shape==='L'){
+    const thick=Math.max(1,Math.floor(w/3));
+    for(let y=0;y<h;y++)for(let x=0;x<thick;x++)m[y][x]=true;   // levý sloupec
+    for(let y=h-thick;y<h;y++)for(let x=0;x<w;x++)m[y][x]=true; // spodní řada
+  } else if(shape==='T'){
+    const thick=Math.max(1,Math.floor(h/3));
+    for(let y=0;y<thick;y++)for(let x=0;x<w;x++)m[y][x]=true;   // horní řada
+    const stemW=Math.max(1,Math.floor(w/3));
+    const stemX=Math.floor((w-stemW)/2);
+    for(let y=thick;y<h;y++)for(let x=stemX;x<stemX+stemW;x++)m[y][x]=true; // noha
+  } else if(shape==='circle'){
+    const cx=(w-1)/2, cy=(h-1)/2, rx=w/2, ry=h/2;
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+      const nx=(x-cx)/rx, ny=(y-cy)/ry;
+      m[y][x]=(nx*nx+ny*ny)<=1.0;
+    }
+  }
+  return m;
+}
+
+// Cover test — returns true if image pixel (gx,gy) is blocked by a live block.
+function blockCoversPixel(blk,gx,gy){
+  const lx=gx-blk.x, ly=gy-blk.y;
+  if(lx<0||ly<0||lx>=blk.w||ly>=blk.h)return false;
+  return blk._mask[ly][lx];
+}
+
+// Find the first live block whose mask contains the given image pixel (gx,gy).
+// Returns block or null.
+function findBlockAtPixel(gx,gy){
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    if(blockCoversPixel(b,gx,gy))return b;
+  }
+  return null;
+}
+
+// Smaže pixely pod solid blokem (grid[y][x] = -1 pro každou buňku masky).
+// Volá se při zničení solid bloku — blok byl neprůhledný, takže pixely pod nejsou
+// „odhalené odměnou". Mystery blok tohle nevolá (pod ním zůstávají originální pixely).
+function clearPixelsUnderBlock(blk){
+  for(let ly=0;ly<blk.h;ly++)for(let lx=0;lx<blk.w;lx++){
+    if(!blk._mask[ly][lx])continue;
+    const gx=blk.x+lx, gy=blk.y+ly;
+    if(gy<0||gy>=GH||gx<0||gx>=GW)continue;
+    grid[gy][gx]=-1;
+  }
+}
+
+// Hydrate a level's block definitions into live runtime instances with _mask + HP.
+// kind:
+//   'solid'   – default. Barevný blok, trefí jen shodná barva, projektil pop-ne,
+//               při zničení se pixely pod blokem smažou (blok byl neprůhledný – fér).
+//   'mystery' – šedý "?" blok. Zasáhne libovolná barva, projektil se odrazí (ne pop),
+//               HP -1 za zásah, při zničení se odhalí pixely pod blokem.
+function hydrateBlocks(defs){
+  if(!Array.isArray(defs))return [];
+  return defs.map(d=>({
+    kind:d.kind==='mystery'?'mystery':'solid',
+    shape:d.shape||'rect',
+    x:d.x|0, y:d.y|0,
+    w:Math.max(1,d.w|0), h:Math.max(1,d.h|0),
+    color:d.color|0,
+    hp:Math.max(1,d.hp|0),
+    maxHp:Math.max(1,d.hp|0),
+    _mask:blockMask(d.shape||'rect',Math.max(1,d.w|0),Math.max(1,d.h|0)),
+  }));
+}
+
+let currentBlocks=[];
+
 // ═══════════════════════════════════════════════════════════════════════════
 // LEVEL REGISTRY — PRIORITY CHAIN
 //   1) gamee.getLevels()    ← Gamee platform (pokud v budoucnu nabídne)
@@ -21,7 +116,9 @@ const LEVELS_FALLBACK=[
   {
     key:'smiley', label:'smajlík', type:'relaxing', imageDifficulty:1,
     image:{source:'smiley'},
-    blocks:[],
+    // Testovací blok (Okruh 2): růžový obdélník 8×3 pod bradou smajlíka v modrém
+    // pozadí, HP 20 = 2 koule. Hráč ho musí rozbít; je mimo obraz (nekryje pixely).
+    blocks:[{shape:'rect',x:14,y:24,w:8,h:3,color:4,hp:20}],
     rocketTargets:[8,7],
     garage:{col:3,carriers:[{color:3},{color:0},{color:4}]}
   },
@@ -165,6 +262,37 @@ function spawnPopShards(x,y,color){
     });
   }
 }
+
+// Velký výbuch když se blok zničí: hodně shardů z každé vyplněné buňky masky,
+// rychlejší + většího rozměru než běžný pop. Barva matche bloku.
+function spawnBlockExplosion(blk){
+  const color=COLORS[blk.color]||'#fff';
+  const cells=[];
+  for(let ly=0;ly<blk.h;ly++)for(let lx=0;lx<blk.w;lx++){
+    if(blk._mask[ly][lx])cells.push({lx,ly});
+  }
+  // Shard count podle rozlohy, omezené na rozumný počet
+  const perCell=Math.max(2,Math.floor(18/Math.max(1,cells.length/4)));
+  for(const {lx,ly} of cells){
+    const cx=(blk.x+lx)*SCALE+SCALE/2;
+    const cy=(blk.y+ly)*SCALE+SCALE/2;
+    for(let i=0;i<perCell;i++){
+      const ang=Math.random()*Math.PI*2;
+      const spd=120+Math.random()*180;
+      shards.push({
+        x:cx,y:cy,
+        vx:Math.cos(ang)*spd,
+        vy:Math.sin(ang)*spd-60,
+        size:2.2+Math.random()*2.6,
+        rot:Math.random()*Math.PI,
+        vrot:(Math.random()-0.5)*14,
+        life:0,
+        maxLife:0.55+Math.random()*0.4,
+        color
+      });
+    }
+  }
+}
 const SCALE=10;
 const PSPEED=320;
 const PSPREAD=0.35;
@@ -180,15 +308,79 @@ function initParticleCanvas(){
 }
 
 // Najde nejbližší pixel dané barvy v gridu (display souřadnice)
+// Pozor: ignoruje pixely pod živými bloky (projektil by je nemohl trefit).
 function nearestSameColor(ci,px,py){
   let best=null,bd=Infinity;
   for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
     if(grid[y][x]!==ci)continue;
+    if(findBlockAtPixel(x,y))continue; // skrytý pod blokem
     const tx=x*SCALE+SCALE/2,ty=y*SCALE+SCALE/2;
     const d=(tx-px)**2+(ty-py)**2;
     if(d<bd){bd=d;best={tx,ty};}
   }
   return best;
+}
+
+// Má daná barva nějaký cíl — ať už volný pixel, solid blok stejné barvy, nebo
+// libovolný mystery blok (mystery přijímá libovolnou barvu)? Používá se k detekci
+// "už pro mě není co trefit → pop" ve fyzice.
+function hasAnyTargetForColor(ci){
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    if(b.kind==='mystery')return true;
+    if(b.color===ci)return true;
+  }
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    if(grid[y][x]===ci && !findBlockAtPixel(x,y)) return true;
+  }
+  return false;
+}
+
+// Najde nejbližší cíl (pixel NEBO blok) dané barvy. Používá se po odrazu
+// od zdi pro přesměrování + jako hlavní steering heuristika.
+// Mystery blok se bere jako wildcard (libovolná barva ho může trefit).
+function nearestTargetForColor(ci,px,py){
+  let best=null, bd=Infinity;
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    if(b.kind!=='mystery'&&b.color!==ci)continue;
+    const tx=(b.x+b.w/2)*SCALE, ty=(b.y+b.h/2)*SCALE;
+    const d=(tx-px)**2+(ty-py)**2;
+    if(d<bd){bd=d;best={tx,ty,kind:'block',ref:b};}
+  }
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    if(grid[y][x]!==ci)continue;
+    if(findBlockAtPixel(x,y))continue;
+    const tx=x*SCALE+SCALE/2, ty=y*SCALE+SCALE/2;
+    const d=(tx-px)**2+(ty-py)**2;
+    if(d<bd){bd=d;best={tx,ty,kind:'pixel'};}
+  }
+  return best;
+}
+
+// Weighted-random target selection pro color ci.
+//   • každý pixel dané barvy (a nezakrytý blokem): weight 1
+//   • každý živý solid blok dané barvy: weight = blk.hp
+//   • každý živý mystery blok (libovolná barva ho trefí): weight = blk.hp
+// Vrací {tx,ty,kind:'pixel'|'block',ref?} nebo null.
+function pickTargetForColor(ci){
+  const cands=[];
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    if(b.kind!=='mystery'&&b.color!==ci)continue;
+    const cx=(b.x+b.w/2)*SCALE, cy=(b.y+b.h/2)*SCALE;
+    cands.push({tx:cx,ty:cy,kind:'block',ref:b,w:b.hp});
+  }
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    if(grid[y][x]!==ci)continue;
+    if(findBlockAtPixel(x,y))continue;
+    cands.push({tx:x*SCALE+SCALE/2,ty:y*SCALE+SCALE/2,kind:'pixel',w:1});
+  }
+  if(!cands.length)return null;
+  const total=cands.reduce((s,c)=>s+c.w,0);
+  let r=Math.random()*total;
+  for(const c of cands){ if((r-=c.w)<=0) return c; }
+  return cands[cands.length-1];
 }
 
 // Vybere střelu pro kanon: vrátí {idealX, angle, dist, type} pro nejlepší cíl barvy ci.
@@ -227,11 +419,27 @@ function findShotFromX(idealX,cannonYPos,tx,ty,ci){
 }
 
 function pickCannonShot(ci,cannonXPos,cannonYPos){
+  // Seznam (tx,ty) potenciálních cílů barvy ci: pixely + živé bloky stejné barvy.
+  // Bez toho by modrá koule (ci=3) hledala pouze modré pixely a růžová koule pouze
+  // růžové pixely — blok by nikdy nebyl cíl, přestože kolize na něj zasáhne.
   const exposed=getExposedPixelsOfColor(grid,ci);
-  if(!exposed.length)return null;
+  const targets=exposed.map(({x,y})=>({
+    tx:x*SCALE+SCALE/2, ty:y*SCALE+SCALE/2, kind:'pixel', gx:x, gy:y
+  }));
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    // Mystery blok je cíl pro libovolnou barvu; solid jen pro shodnou.
+    if(b.kind!=='mystery'&&b.color!==ci)continue;
+    // Cílíme na střed bloku (trajektorie tam musí vést).
+    targets.push({
+      tx:(b.x+b.w/2)*SCALE, ty:(b.y+b.h/2)*SCALE,
+      kind:'block', gx:Math.floor(b.x+b.w/2), gy:Math.floor(b.y+b.h/2), blockRef:b
+    });
+  }
+  if(!targets.length)return null;
   const candidates=[];
-  for(const {x,y} of exposed){
-    const tx=x*SCALE+SCALE/2, ty=y*SCALE+SCALE/2;
+  for(const t of targets){
+    const {tx,ty}=t;
     const rawIdeal=cannonXPos+(tx-cannonXPos)*CANNON_LEAD;
     const lerpX=Math.max(CANNON_MIN_X,Math.min(CANNON_MAX_X,rawIdeal));
     const underX=Math.max(CANNON_MIN_X,Math.min(CANNON_MAX_X,tx));
@@ -244,10 +452,10 @@ function pickCannonShot(ci,cannonXPos,cannonYPos){
       if(shot){found={idealX:pos,angle:shot.angle,type:shot.type};break;}
     }
     if(found){
-      candidates.push({idealX:found.idealX,tx,ty,angle:found.angle,type:found.type});
+      candidates.push({idealX:found.idealX,tx,ty,angle:found.angle,type:found.type,kind:t.kind,blockRef:t.blockRef});
     } else {
       // Skutečně žádná cesta – blokovaný fallback (použijeme jen pokud fakt nic lepšího není)
-      candidates.push({idealX:lerpX,tx,ty,angle:Math.atan2(ty-cannonYPos,tx-lerpX),type:'blocked'});
+      candidates.push({idealX:lerpX,tx,ty,angle:Math.atan2(ty-cannonYPos,tx-lerpX),type:'blocked',kind:t.kind,blockRef:t.blockRef});
     }
   }
   const typeWeight={direct:0,'bank-L':1,'bank-R':1,'bank-T':2,blocked:3};
@@ -340,8 +548,9 @@ function randomFreePos(){
 function respawnParticle(p){
   const pos=randomFreePos();
   p.x=pos.x; p.y=pos.y;
-  // Namíř k nejbližšímu cíli (s rozptylem) nebo náhodně
-  const near=nearestSameColor(p.ci,p.x,p.y);
+  // Namíř k náhodně zvolenému (váženému) cíli – pixel nebo blok. Váha bloku
+  // = zbývající HP, takže čerstvý blok má silný "pull", skoro zničený slabší.
+  const near=pickTargetForColor(p.ci)||nearestTargetForColor(p.ci,p.x,p.y);
   if(near){
     const a=Math.atan2(near.ty-p.y,near.tx-p.x)+(Math.random()-0.5)*PSPREAD;
     p.vx=Math.cos(a)*PSPEED; p.vy=Math.sin(a)*PSPEED;
@@ -367,6 +576,14 @@ function simulateShotReaches(sx,sy,angle,targetCi,maxSteps=240){
     else if(ny>YMAX) return false;
     const gx=Math.floor(nx/SCALE), gy=Math.floor(ny/SCALE);
     if(gy>=0&&gy<GH&&gx>=0&&gx<GW){
+      // Blok má přednost před pixelem pod ním (viz updateParticles kolize).
+      const blk=findBlockAtPixel(gx,gy);
+      if(blk){
+        // Mystery blok = cíl pro libovolnou barvu. Solid jen pro shodnou.
+        if(blk.kind==='mystery')return true;
+        if(blk.color===targetCi) return true;
+        return false;
+      }
       const cell=grid[gy][gx];
       if(cell===targetCi) return true;
       if(cell>-1) return false;
@@ -384,6 +601,13 @@ function hasLineOfSight(x1,y1,x2,y2,ownColor){
     const gx=Math.floor((x1+dx*t)/SCALE);
     const gy=Math.floor((y1+dy*t)/SCALE);
     if(gy<0||gy>=IMG_GH||gx<0||gx>=GW)continue;
+    // Blok kryje pixel pod sebou – pro LoS se řídíme barvou bloku.
+    const blk=findBlockAtPixel(gx,gy);
+    if(blk){
+      if(blk.kind==='mystery')continue; // mystery je pro LoS transparentní
+      if(blk.color!==ownColor)return false;
+      continue;
+    }
     const cell=grid[gy][gx];
     if(cell!==-1&&cell!==ownColor)return false;
   }
@@ -391,7 +615,8 @@ function hasLineOfSight(x1,y1,x2,y2,ownColor){
 }
 
 function steerAfterBounce(p){
-  const near=nearestSameColor(p.ci,p.x,p.y);
+  // Po odrazu si vybereme nejbližší platný cíl – ať už pixel nebo blok.
+  const near=nearestTargetForColor(p.ci,p.x,p.y);
   if(!near)return;
   const dx=near.tx-p.x,dy=near.ty-p.y;
   const baseAngle=Math.atan2(dy,dx);
@@ -473,12 +698,12 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v23');
+          gamee.updateScore(score,playTime,'balloon-belt-v25');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
         particles.splice(i,1);
-        if(running&&!anyLeft(grid)){setTimeout(()=>{if(running)endGame(true);},80);}
+        if(running&&!anyTargetLeft()){setTimeout(()=>{if(running)endGame(true);},80);}
         continue;
       }
       p.x+=dx/d*p.speed*dt;
@@ -499,9 +724,8 @@ function updateParticles(dt){
     const spd=Math.sqrt(p.vx*p.vx+p.vy*p.vy)||1;
     p.vx=p.vx/spd*PSPEED; p.vy=p.vy/spd*PSPEED;
 
-    // Pokud žádný pixel vlastní barvy nezbývá → pop
-    const hasTarget=nearestSameColor(p.ci,p.x,p.y);
-    if(!hasTarget){p.phase='pop';p.popX=p.x;p.popY=p.y;p.onPop();continue;}
+    // Pokud pro barvu neexistuje žádný živý cíl (pixel ani blok) → pop
+    if(!hasAnyTargetForColor(p.ci)){p.phase='pop';p.popX=p.x;p.popY=p.y;p.onPop();continue;}
 
     // Navrhovaná nová pozice
     let nx=p.x+p.vx*dt, ny=p.y+p.vy*dt;
@@ -517,17 +741,67 @@ function updateParticles(dt){
     // Kontrola gridu
     const gx=Math.floor(nx/SCALE), gy=Math.floor(ny/SCALE);
     const cell=(gy>=0&&gy<GH&&gx>=0&&gx<GW)?grid[gy][gx]:-1;
+    // Bloky stojí nad pixely – musí se testovat dřív, protože mají přednost.
+    const hitBlock=(gy>=0&&gy<GH&&gx>=0&&gx<GW)?findBlockAtPixel(gx,gy):null;
 
     let anyBounce=wallBounced;
 
-    if(cell===p.ci){
+    if(hitBlock){
+      if(hitBlock.kind==='mystery'){
+        // Mystery blok: libovolná barva -1 HP, projektil se ODRAZÍ (nepop-ne).
+        hitBlock.hp-=1;
+        if(hitBlock.hp<=0){
+          // Odhaleno! Pixely pod blokem zůstávají (blok je jen "sundáme").
+          spawnBlockExplosion(hitBlock);
+          currentBlocks=currentBlocks.filter(b=>b!==hitBlock);
+          drawGrid();
+          // Projektil pokračuje v letu za odhalenou plochu (odraz se neprovede,
+          // když blok zmizel — jen přesměrujeme na nejbližší cíl své barvy).
+          steerAfterBounce(p);
+          p.x=nx; p.y=ny; p.stuckT=0;
+        } else {
+          const prevGx=Math.floor(p.x/SCALE),prevGy=Math.floor(p.y/SCALE);
+          if(prevGx!==gx)p.vx=-p.vx;
+          if(prevGy!==gy)p.vy=-p.vy;
+          if(prevGx===gx&&prevGy===gy){p.vx=-p.vx;p.vy=-p.vy;}
+          anyBounce=true;
+          drawGrid(); // překreslit HP číslo
+        }
+      } else if(hitBlock.color===p.ci){
+        // Solid blok, color match → blok utrpí 1 HP (1 projektil = 1 HP), projektil pop
+        hitBlock.hp-=1;
+        p.phase='pop'; p.popX=nx; p.popY=ny; p.onPop();
+        spawnPopShards(nx,ny,p.color);
+        if(hitBlock.hp<=0){
+          // Blok zničen → exploze + smazat pixely pod + odstranit z aktivních.
+          // Solid blok byl neprůhledný → pixely pod NEZŮSTÁVAJÍ jako odměna.
+          clearPixelsUnderBlock(hitBlock);
+          spawnBlockExplosion(hitBlock);
+          currentBlocks=currentBlocks.filter(b=>b!==hitBlock);
+        }
+        drawGrid();
+        if(running&&!anyTargetLeft()){
+          particles.forEach(q=>{if(q.phase==='fly'){q.phase='pop';q.popX=q.x;q.popY=q.y;}});
+          setTimeout(()=>{if(running)endGame(true);},80);
+        }
+      } else {
+        // Solid blok, nesprávná barva → odraz
+        const prevGx=Math.floor(p.x/SCALE),prevGy=Math.floor(p.y/SCALE);
+        if(prevGx!==gx)p.vx=-p.vx;
+        if(prevGy!==gy)p.vy=-p.vy;
+        if(prevGx===gx&&prevGy===gy){p.vx=-p.vx;p.vy=-p.vy;}
+        anyBounce=true;
+        p.stuckT+=dt;
+        if(p.stuckT>1.2){respawnParticle(p);}
+      }
+    } else if(cell===p.ci){
       // Vlastní barva → znič pixel
       grid[gy][gx]=-1;
       if(gravityOn)applyGravityToCol(grid,gx);
       drawGrid();
       p.phase='pop'; p.popX=nx; p.popY=ny; p.onPop();
       spawnPopShards(nx,ny,p.color);
-      if(running&&!anyLeft(grid)){
+      if(running&&!anyTargetLeft()){
         particles.forEach(q=>{if(q.phase==='fly'){q.phase='pop';q.popX=q.x;q.popY=q.y;}});
         setTimeout(()=>{if(running)endGame(true);},80);
       }
@@ -1112,12 +1386,33 @@ function makeGridMondrian(){
   fill(31,15,33,22,WH);   // bílá vpravo-dole vpravo od V4
   return g;
 }
+// Generuje grid z uživatelských pixel dat (image.source === 'custom').
+// pixels = 2D array rozměru IMG_GH × GW, hodnoty -1..8 (případně null/undefined → -1).
+function makeGridCustom(pixels){
+  const g=[];
+  for(let y=0;y<IMG_GH;y++){
+    const row=new Array(GW).fill(-1);
+    if(Array.isArray(pixels)&&Array.isArray(pixels[y])){
+      for(let x=0;x<GW;x++){
+        const v=pixels[y][x];
+        row[x]=(Number.isInteger(v)&&v>=0&&v<COLORS.length)?v:-1;
+      }
+    }
+    g.push(row);
+  }
+  return g;
+}
 function makeGrid(){
+  // Výběr generátoru: primárně podle image.source z level definition (data-driven),
+  // fallback na currentLevel key (zpětná kompatibilita, když level nemá image.source).
+  const def=(typeof getLevelDef==='function')?getLevelDef(currentLevel):null;
+  const src=(def&&def.image&&def.image.source)||currentLevel;
   let g;
-  if(currentLevel==='moon')g=makeGridMoon();
-  else if(currentLevel==='starwars')g=makeGridC3PO();
-  else if(currentLevel==='frog')g=makeGridFrog();
-  else if(currentLevel==='mondrian')g=makeGridMondrian();
+  if(src==='custom')g=makeGridCustom(def&&def.image&&def.image.pixels);
+  else if(src==='moon')g=makeGridMoon();
+  else if(src==='starwars')g=makeGridC3PO();
+  else if(src==='frog')g=makeGridFrog();
+  else if(src==='mondrian')g=makeGridMondrian();
   else g=makeGridSmiley();
   // 4 prázdné řady dole (buffer zóna)
   for(let i=0;i<4;i++)g.push(new Array(GW).fill(-1));
@@ -1126,6 +1421,33 @@ function makeGrid(){
 function countPixels(g){
   const c=new Array(COLORS.length).fill(0);
   for(let y=0;y<GH;y++)for(let x=0;x<GW;x++)if(g[y][x]>=0)c[g[y][x]]++;
+  return c;
+}
+// Počet projektilů potřebných pro level: pixely v gridu + HP živých bloků.
+// Pixely pod solid blokem už v gridu neexistují (vyčistí se při startu levelu,
+// viz clearSolidBlockFootprints v startLevel), takže countPixels nepřidá jejich
+// barvy do c. Pod mystery blokem pixely zůstávají a jsou správně započítány
+// (mystery se po zničení pouze sundá).
+//
+// HP bloků:
+//   • solid: HP se přičte k barvě bloku (jen ta barva ho může zničit)
+//   • mystery: HP se rozdělí mezi existující barvy pixelů proporcionálně
+//     (mystery přijímá libovolnou barvu)
+function countPixelsAndBlocks(g){
+  const c=countPixels(g);
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    if(b.kind==='mystery'){
+      const totalPx=c.reduce((a,v)=>a+v,0);
+      if(totalPx>0){
+        for(let i=0;i<c.length;i++)if(c[i]>0) c[i]+=Math.ceil(b.hp*(c[i]/totalPx));
+      } else {
+        c[0]=(c[0]||0)+b.hp;
+      }
+    } else {
+      c[b.color]=(c[b.color]||0)+b.hp;
+    }
+  }
   return c;
 }
 function colorDepth(g){
@@ -1209,6 +1531,8 @@ function getExposedPixelsOfColor(g,color){
   const out=[];
   for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
     if(g[y][x]!==color)continue;
+    // Pixel pod živým blokem není dosažitelný — projektil by se odrazil od bloku.
+    if(findBlockAtPixel(x,y))continue;
     let exp=false;
     if(y>0&&open.has((y-1)*GW+x))exp=true;
     else if(y<GH-1&&open.has((y+1)*GW+x))exp=true;
@@ -1231,11 +1555,25 @@ function getAvailableColors(g){
     else if(x<GW-1&&open.has(y*GW+(x+1)))exp=true;
     if(exp)s.add(c);
   }
+  // Bloky jsou externí cíle nad obrazem — barva živého bloku je vždy dostupná.
+  // Mystery blok přijímá libovolnou barvu → přidáme všechny barvy.
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    if(b.kind==='mystery'){for(let k=0;k<COLORS.length;k++)s.add(k);break;}
+    s.add(b.color);
+  }
   return s;
 }
 function anyLeft(g){
   for(let y=0;y<GH;y++)for(let x=0;x<GW;x++)if(g[y][x]!==-1)return true;
   return false;
+}
+// Zbývá nějaký cíl k dokončení obrazu – pixel NEBO živý blok.
+// Používá se pro detekci "hra hotova". Samotný anyLeft(grid) nestačí, protože
+// hráč může mít zničit ještě zbývající bloky i když grid je prázdný.
+function anyTargetLeft(){
+  if(currentBlocks.some(b=>b.hp>0))return true;
+  return anyLeft(grid);
 }
 function applyGravityTo(g){
   for(let x=0;x<GW;x++) applyGravityToCol(g,x);
@@ -1695,7 +2033,67 @@ function drawGrid(){
     if(c===-1)continue;
     ctx.drawImage(getBeadSprite(COLORS[c]), x*SCALE, y*SCALE);
   }
+  drawBlocks(ctx);
 }
+
+// Bloky se kreslí nad pixely – jsou "nad" obrazem, hráč je musí zničit
+// než se dostane k pixelům pod nimi. HP progress = opacity/saturace.
+function drawBlocks(ctx){
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    const isMystery=b.kind==='mystery';
+    const fill=isMystery?'#555a62':(COLORS[b.color]||'#888');
+    // Solid blok – barevný. Mystery – tmavošedý. Oba bez průhlednosti.
+    for(let ly=0;ly<b.h;ly++)for(let lx=0;lx<b.w;lx++){
+      if(!b._mask[ly][lx])continue;
+      const px=(b.x+lx)*SCALE, py=(b.y+ly)*SCALE;
+      ctx.fillStyle=fill;
+      ctx.fillRect(px,py,SCALE,SCALE);
+      // vnitřní lesk (podobně jako bead sprite, ale placatě – bloky jsou "zeď")
+      ctx.fillStyle='rgba(255,255,255,0.25)';
+      ctx.fillRect(px+1,py+1,SCALE-2,2);
+      ctx.fillStyle='rgba(0,0,0,0.25)';
+      ctx.fillRect(px+1,py+SCALE-3,SCALE-2,2);
+    }
+    // HP číslo centrované uvnitř bloku. Mystery má navíc "?" nad HP číslem.
+    const cx=(b.x+b.w/2)*SCALE, cy=(b.y+b.h/2)*SCALE;
+    const fontPx=Math.max(12,Math.min(24,Math.floor(Math.min(b.w,b.h)*SCALE*0.7)));
+    ctx.save();
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.lineWidth=Math.max(2,fontPx/7);
+    ctx.strokeStyle='rgba(0,0,0,0.95)';
+    if(isMystery){
+      // Velký "?" přes celý blok (dominantní) + malý HP nad ním
+      const qFont=Math.max(14,Math.min(28,Math.floor(Math.min(b.w,b.h)*SCALE*0.85)));
+      ctx.font='bold '+qFont+'px system-ui, -apple-system, sans-serif';
+      ctx.strokeText('?',cx,cy);
+      ctx.fillStyle='#ffe07a';
+      ctx.fillText('?',cx,cy);
+    } else {
+      ctx.font='bold '+fontPx+'px system-ui, -apple-system, sans-serif';
+      ctx.strokeText(String(b.hp),cx,cy);
+      ctx.fillStyle='#ffffff';
+      ctx.fillText(String(b.hp),cx,cy);
+    }
+    ctx.restore();
+    // Mystery: malé HP číslo v pravém horním rohu (přes překrytí ? uvnitř)
+    if(isMystery){
+      const hpX=(b.x+b.w)*SCALE-3, hpY=b.y*SCALE+3;
+      ctx.save();
+      ctx.textAlign='right';
+      ctx.textBaseline='top';
+      ctx.font='bold 10px system-ui, -apple-system, sans-serif';
+      ctx.lineWidth=2;
+      ctx.strokeStyle='rgba(0,0,0,0.95)';
+      ctx.strokeText(String(b.hp),hpX,hpY);
+      ctx.fillStyle='#ffffff';
+      ctx.fillText(String(b.hp),hpX,hpY);
+      ctx.restore();
+    }
+  }
+}
+
 function drawBelt(){
   const svg=document.getElementById('belt-svg');
   svg.innerHTML='';
@@ -2183,8 +2581,10 @@ function checkLaunchPoint(prevAnim, curAnim){
       drawBelt();drawPending();
       continue;
     }
+    // Ball má co zasáhnout, pokud zbývají pixely ORdanou barvou, nebo živý blok té barvy.
     const pxNow=countPixels(grid);
-    if((pxNow[color]||0)===0){
+    const hasBlockTarget=currentBlocks.some(b=>b.hp>0&&b.color===color);
+    if((pxNow[color]||0)===0&&!hasBlockTarget){
       belt.splice(i,1);
       drainPending();
       drawBelt();drawPending();
@@ -2258,7 +2658,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v23');
+    gamee.updateScore(score,playTime,'balloon-belt-v25');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -2285,7 +2685,7 @@ function destroyPixels(colors,cm){
   }
 }
 function computeAmmoDeficit(){
-  const pxCounts=countPixels(grid);
+  const pxCounts=countPixelsAndBlocks(grid);
   const deficits=new Array(COLORS.length).fill(0);
   for(let c=0;c<COLORS.length;c++){
     if(!pxCounts[c])continue;
@@ -2323,7 +2723,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v23');
+  gamee.updateScore(score,playTime,'balloon-belt-v25');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -2345,9 +2745,24 @@ function startLevel(){
   if(!beltLoopStarted){beltLoopStarted=true;lastBeltTime=null;requestAnimationFrame(beltLoop);}
   grid=makeGrid();belt=[];pending=[];nudgeTimer=0;funnelWarnTimer=0;score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
   particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;
-  columns=makeColumns(countPixels(grid));
-  // Injekce raketových nosičů – per level předdefinované 2 pozice
+  // Hydrate bloky z definice levelu PŘED makeColumns, aby generátor nosičů
+  // započítal HP bloků do potřebných barev (přes countPixelsAndBlocks).
   const levelDef=getLevelDef(currentLevel);
+  currentBlocks=hydrateBlocks(levelDef.blocks);
+  // Solid blok je neprůhledný — pod ním nemají být žádné pixely, jinak by
+  // generátor vyrobil nosiče, které se stanou nepoužitelnými (pixely se
+  // po zničení bloku stejně smažou). Pod mystery blok pixely ponecháváme
+  // (po zničení se odhalí).
+  for(const b of currentBlocks){
+    if(b.kind!=='solid')continue;
+    for(let ly=0;ly<b.h;ly++)for(let lx=0;lx<b.w;lx++){
+      if(!b._mask[ly][lx])continue;
+      const gx=b.x+lx, gy=b.y+ly;
+      if(gy>=0&&gy<GH&&gx>=0&&gx<GW)grid[gy][gx]=-1;
+    }
+  }
+  columns=makeColumns(countPixelsAndBlocks(grid));
+  // Injekce raketových nosičů – per level předdefinované 2 pozice
   const rockets=rocketsOn?levelDef.rocketTargets:null;
   if(rockets){
     const slots=[{col:2,row:1},{col:5,row:1}];
@@ -2365,7 +2780,7 @@ function startLevel(){
     const {col:gcol,carriers:gcarriers}=levelDef.garage;
     let injected=false;
     for(let attempt=0;attempt<10&&!injected;attempt++){
-      if(attempt>0)columns=makeColumns(countPixels(grid));
+      if(attempt>0)columns=makeColumns(countPixelsAndBlocks(grid));
       const backup=columns.map(c=>c.map(s=>s?{...s}:s));
       // 1) Nahraď N nosičů odpovídající barvy zdmi (zachová rectangular → connectivity base).
       let allReplaced=true;
@@ -2700,6 +3115,10 @@ function beltLoop(ts){
       const item=gunQueue[0];
       if(cannonLock){
         if(cannonLock.ci!==item.ci) cannonLock=null;
+        else if(cannonLock.kind==='block'){
+          // Blok jako cíl platí, dokud žije. Nekoukáme na grid (pod blokem může být cokoliv).
+          if(!cannonLock.blockRef||cannonLock.blockRef.hp<=0) cannonLock=null;
+        }
         else if(grid[cannonLock.gy]&&grid[cannonLock.gy][cannonLock.gx]!==item.ci) cannonLock=null;
       }
       let shot=cannonLock;
@@ -2707,7 +3126,8 @@ function beltLoop(ts){
         const picked=pickCannonShot(item.ci,cannonX,CANNON_Y);
         if(picked){
           cannonLock={ci:item.ci,gx:Math.floor(picked.tx/SCALE),gy:Math.floor(picked.ty/SCALE),
-                      idealX:picked.idealX,angle:picked.angle,type:picked.type};
+                      idealX:picked.idealX,angle:picked.angle,type:picked.type,
+                      kind:picked.kind||'pixel',blockRef:picked.blockRef||null};
           shot=cannonLock;
         }
       }
@@ -2815,7 +3235,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v23');
+      gamee.updateScore(score,playTime,'balloon-belt-v25');
       event.detail.callback();
     });
 

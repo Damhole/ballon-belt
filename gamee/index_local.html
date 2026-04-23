@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <head>
   <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-  <title>Balloon Belt v23</title>
+  <title>Balloon Belt v25</title>
   <script type="text/javascript" src="./lib/gamee-js-stub.js"></script>
   <meta name="viewport" content="viewport-fit=cover">
   <link rel="stylesheet" href="./css/game.css">
@@ -9,7 +9,7 @@
 </head>
 <body onload="initGame()">
 <div id="game">
-  <div id="version-badge">v23</div>
+  <div id="version-badge">v25</div>
   <h1>🎈 Balloon Belt</h1>
   <div id="score-bar">
     <span>Skóre: <b id="score">0</b></span>
@@ -85,7 +85,16 @@
     <div id="carriers-grid"></div>
   </div>
 </div>
-<script type="text/javascript" src="./js/levels.js"></script>
-<script type="text/javascript" src="./js/game.js"></script>
+<script>
+// Dev-only cache-bust: když editor natáhne tuhle stránku s ?t=<timestamp>,
+// propustíme ho i na levels.js / game.js, aby browser nedržel stará data v cache.
+// Produkční index.html tohle nepotřebuje — zip se uploaduje čerstvý.
+(function(){
+  const t = new URLSearchParams(location.search).get('t') || Date.now();
+  const bust = '?t=' + encodeURIComponent(t);
+  document.write('<scr' + 'ipt src="./js/levels.js' + bust + '"><\/scr' + 'ipt>');
+  document.write('<scr' + 'ipt src="./js/game.js'   + bust + '"><\/scr' + 'ipt>');
+})();
+</script>
 </body>
 </html>
