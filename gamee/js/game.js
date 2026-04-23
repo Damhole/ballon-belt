@@ -166,6 +166,20 @@ function resolveLevels(){
 const LEVELS=resolveLevels();
 // Helper — najdi plnou definici levelu podle klíče (fallback na první level).
 function getLevelDef(key){return LEVELS.find(l=>l.key===key)||LEVELS[0];}
+// Default complexity pro level — respektuje designer pin (lvl.defaultComplexity).
+// Fallback chain: pin → první complexity s existující variantou → 'easy'.
+// Volá se při přepnutí levelu, aby hráč dostal to, co designer označil jako
+// výchozí (ne to, co měl nastavené u předchozího levelu).
+function resolveDefaultDifficulty(key){
+  const def=getLevelDef(key);
+  if(!def)return 'easy';
+  const pin=def.defaultComplexity;
+  const variants=Array.isArray(def.carrierLayouts)?def.carrierLayouts:[];
+  const hasVariant=(d)=>variants.some(v=>v&&v.difficulty===d&&Array.isArray(v.grid)&&v.grid.length);
+  if(pin&&['easy','medium','hard'].includes(pin)&&hasVariant(pin))return pin;
+  for(const d of ['easy','medium','hard'])if(hasVariant(d))return d;
+  return 'easy';
+}
 // Převod carrier difficulty stringu na 1..5 rank.
 function carrierDifficultyRank(diff){return diff==='easy'?1:diff==='medium'?3:5;}
 // Kombinace dvou os → celková obtížnost (label + key pro CSS třídu).
@@ -702,7 +716,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v30');
+          gamee.updateScore(score,playTime,'balloon-belt-v31');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -2853,7 +2867,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v30');
+    gamee.updateScore(score,playTime,'balloon-belt-v31');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -2918,7 +2932,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v30');
+  gamee.updateScore(score,playTime,'balloon-belt-v31');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -2933,6 +2947,12 @@ function endGame(win){
 }
 function startLevel(){
   gameStarted=true;
+  // Sync segment picker s aktuálním `difficulty` — saveState/defaultComplexity
+  // mohly difficulty změnit mimo UI event. Bez toho by highlight ukazoval
+  // předchozí complexity.
+  document.querySelectorAll('[data-diff]').forEach(b=>{
+    if(b.dataset.diff===difficulty)b.classList.add('active'); else b.classList.remove('active');
+  });
   if(playTimer)clearInterval(playTimer);
   playTime=0;
   playTimer=setInterval(function(){if(!paused&&running)playTime++;},1000);
@@ -3266,10 +3286,20 @@ function updateDifficultyBadge(){}
 function setupDOM(){
   let levelIdx=LEVELS.findIndex(l=>l.key===currentLevel);
   if(levelIdx<0)levelIdx=0;
+  function syncDiffButtons(){
+    document.querySelectorAll('[data-diff]').forEach(b=>{
+      if(b.dataset.diff===difficulty)b.classList.add('active'); else b.classList.remove('active');
+    });
+  }
   function stepLevel(dir){
     levelIdx=(levelIdx+dir+LEVELS.length)%LEVELS.length;
     currentLevel=LEVELS[levelIdx].key;
     document.getElementById('level-label').textContent=LEVELS[levelIdx].label;
+    // Při přepnutí levelu aplikuj designer pin (defaultComplexity). Hráčova
+    // explicitní volba v segment pickeru platí jen do dalšího přepnutí levelu —
+    // tím se pin designera spolehlivě propaguje. AI override půjde přes totéž.
+    difficulty=resolveDefaultDifficulty(currentLevel);
+    syncDiffButtons();
     startLevel();
   }
   document.getElementById('level-label').textContent=LEVELS[levelIdx].label;
@@ -3277,8 +3307,8 @@ function setupDOM(){
   document.getElementById('level-prev').addEventListener('click',()=>stepLevel(-1));
   document.getElementById('level-next').addEventListener('click',()=>stepLevel(1));
   // Difficulty segment: sync highlight s aktuálním state a přepínání.
+  syncDiffButtons();
   document.querySelectorAll('[data-diff]').forEach(b=>{
-    if(b.dataset.diff===difficulty)b.classList.add('active'); else b.classList.remove('active');
     b.addEventListener('click',()=>{
       document.querySelectorAll('[data-diff]').forEach(x=>x.classList.remove('active'));
       b.classList.add('active');difficulty=b.dataset.diff;startLevel();
@@ -3373,13 +3403,20 @@ function initGame(){
   // Dev override via URL (?level=KEY&diff=easy) — for editor iframe preview.
   // Applied BEFORE setupDOM so levelIdx is correct; re-applied inside gameInit
   // callback so it also wins over any saveState data.
+  // Precedence pro difficulty: URL ?diff > saveState > designer pin
+  // (defaultComplexity) > 'easy'. Flag _diffFromUrl si pamatujeme, ať ho
+  // saveState v callbacku nepřeválcuje.
+  let _diffFromUrl=false;
   try{
     const url=new URL(location.href);
     const p=url.searchParams.get('level');
     if(p&&LEVELS.some(l=>l.key===p))currentLevel=p;
     const d=url.searchParams.get('diff');
-    if(d&&['easy','medium','hard'].includes(d))difficulty=d;
+    if(d&&['easy','medium','hard'].includes(d)){difficulty=d;_diffFromUrl=true;}
   }catch(e){}
+  // Pokud URL neurčila diff, aplikuj designer pin pro aktuální level. Pokud
+  // saveState má vlastní difficulty, tu aplikujeme níže v gameInit callbacku.
+  if(!_diffFromUrl)difficulty=resolveDefaultDifficulty(currentLevel);
   setupDOM();
   initParticleCanvas();
   // beltLoop se spustí až ve startLevel (po inicializaci stavu) – jinak by crashnul na undefined belt/grid
@@ -3393,8 +3430,15 @@ function initGame(){
         const saved=typeof data.saveState==='string'?JSON.parse(data.saveState):data.saveState;
         // Only honor saveState.level if it still exists in LEVELS (editor may
         // have removed/renamed it). Otherwise fall back to LEVELS[0].
-        if(saved.level&&LEVELS.some(l=>l.key===saved.level))currentLevel=saved.level;
-        if(saved.difficulty)difficulty=saved.difficulty;
+        let levelChanged=false;
+        if(saved.level&&LEVELS.some(l=>l.key===saved.level)&&saved.level!==currentLevel){
+          currentLevel=saved.level;levelChanged=true;
+        }
+        // saveState.difficulty platí jen když URL explicitně nepřebíjí.
+        if(saved.difficulty&&!_diffFromUrl)difficulty=saved.difficulty;
+        // Když saveState změnil level a nemáme URL override ani vlastní diff
+        // v saveState, přepni na designer pin nového levelu.
+        else if(levelChanged&&!_diffFromUrl)difficulty=resolveDefaultDifficulty(currentLevel);
       }catch(e){console.warn('saveState parse failed',e);}
     }
 
@@ -3418,7 +3462,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v30');
+      gamee.updateScore(score,playTime,'balloon-belt-v31');
       event.detail.callback();
     });
 

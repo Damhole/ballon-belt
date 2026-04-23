@@ -90,6 +90,7 @@ function histSnapshotLvl(lvl) {
     image: lvl.image, blocks: lvl.blocks,
     rocketTargets: lvl.rocketTargets, garage: lvl.garage,
     carrierLayouts: lvl.carrierLayouts,
+    defaultComplexity: lvl.defaultComplexity,
   }));
 }
 function histApplySnap(lvl, snap) {
@@ -103,6 +104,8 @@ function histApplySnap(lvl, snap) {
   lvl.rocketTargets = snap.rocketTargets;
   lvl.garage = snap.garage;
   lvl.carrierLayouts = snap.carrierLayouts;
+  if (snap.defaultComplexity) lvl.defaultComplexity = snap.defaultComplexity;
+  else delete lvl.defaultComplexity;
 }
 
 // Push snapshotu PŘED mutací. `actionKey` coalescuje rychlé po sobě jdoucí
@@ -858,10 +861,26 @@ function clResizeGrid(variant, newRows) {
 
 function renderCarrierLayout(lvl) {
   clEnsureState();
-  // Diff tabs: highlight active.
+  // Diff tabs: highlight active + vyznačit pin pro default complexity.
   const tabs = document.querySelectorAll('.cl-diff-tab');
+  const defaultDiff = (lvl && lvl.defaultComplexity) || null;
   tabs.forEach(t => {
     t.classList.toggle('active', t.dataset.diff === state.clActiveDiff);
+  });
+  // Pin state: is-default pro aktuálně pinutou complexity;
+  // is-disabled pro complexity bez varianty (nemá smysl defaultovat na prázdno).
+  document.querySelectorAll('.cl-diff-pin').forEach(pin => {
+    const diff = pin.dataset.pin;
+    const hasVariant = lvl && clVariantsForDiff(lvl, diff).length > 0;
+    pin.classList.toggle('is-default', diff === defaultDiff && hasVariant);
+    pin.classList.toggle('is-disabled', !hasVariant);
+    if (diff === defaultDiff && hasVariant) {
+      pin.title = 'výchozí complexity při načtení hry';
+    } else if (!hasVariant) {
+      pin.title = 'nejdřív vytvoř variantu pro tuto complexity';
+    } else {
+      pin.title = 'klik: nastavit jako výchozí při načtení';
+    }
   });
 
   // Variant select
@@ -1733,9 +1752,13 @@ function clOnCellClick(r, c) {
 }
 
 function wireCarrierLayout() {
-  // Diff tabs
+  // Diff tabs — klik na tab přepíná edit view, klik na pin (uvnitř tabu)
+  // nastaví default complexity pro load hry. stopPropagation v pin handleru
+  // zajistí, že pin klik nezmění edit view.
   document.querySelectorAll('.cl-diff-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
+    tab.addEventListener('click', (ev) => {
+      // Pin klik řešíme zvlášť níže.
+      if (ev.target.classList.contains('cl-diff-pin')) return;
       state.clActiveDiff = tab.dataset.diff;
       // Přepni na první variantu v této obtížnosti, pokud existuje.
       const lvl = beCurrentLvl();
@@ -1748,6 +1771,31 @@ function wireCarrierLayout() {
         diffSel.value = state.clActiveDiff;
         reloadPreview();
       }
+    });
+  });
+
+  // Pin click — nastaví defaultComplexity. Toggle: druhý klik na stejný pin
+  // default odpinne (level pak při loadu padne přes fallback chain v game.js).
+  document.querySelectorAll('.cl-diff-pin').forEach(pin => {
+    pin.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const lvl = beCurrentLvl();
+      if (!lvl) return;
+      const diff = pin.dataset.pin;
+      // Pojistka: nelze pinnout complexity bez varianty.
+      if (!clVariantsForDiff(lvl, diff).length) return;
+      histPush(lvl, 'cl-pin-default');
+      if (lvl.defaultComplexity === diff) {
+        delete lvl.defaultComplexity;
+      } else {
+        lvl.defaultComplexity = diff;
+      }
+      markDirty();
+      renderCarrierLayout(lvl);
+      // Reload preview iframe — default complexity se aplikuje při loadu hry,
+      // ale jen když preview nemá explicitní ?diff override. Preview jede přes
+      // URL param, takže pinu ve hře se explicitně nepropaguje — designer vidí
+      // efekt až při reálném gamee loadu. OK.
     });
   });
 
@@ -1819,7 +1867,13 @@ function wireCarrierLayout() {
     histPush(lvl, 'cl-variant-delete');
     const idx = lvl.carrierLayouts.indexOf(v);
     const deletedName = v.name || '?';
+    const deletedDiff = v.difficulty;
     if (idx >= 0) lvl.carrierLayouts.splice(idx, 1);
+    // Pokud jsme smazali poslední variantu pro pinovanou default complexity,
+    // zrušíme pin — jinak by hra padala na fallback a designer by to nevěděl.
+    if (lvl.defaultComplexity === deletedDiff && !clVariantsForDiff(lvl, deletedDiff).length) {
+      delete lvl.defaultComplexity;
+    }
     state.clActiveVariantIdx = clPickFirstVariantForDiff(lvl, state.clActiveDiff);
     markDirty();
     renderCarrierLayout(lvl);

@@ -1727,6 +1727,7 @@ window.LEVELS = [
           ]
         ]
       }
-    ]
+    ],
+    "defaultComplexity": "medium"
   }
 ];
