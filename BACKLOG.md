@@ -31,6 +31,7 @@ Seznam všech nápadů, co chceme vyzkoušet, s prioritou a stavem. Na začátku
 
 | Prio | Stav | Velikost | Nápad |
 |------|------|----------|-------|
+| P1 | 💡 idea | L | **Carrier layout editor** — drag-drop grid nosičů/zdí/speciálů, víc pojmenovaných variant per level, uložit/smazat. Detailní rozpad níže ⬇ |
 | P1 | 💡 idea | S | **Copy/paste bloků** — `Cmd+C` / `Cmd+V` vybraného bloku nebo multi-selection |
 | P1 | 💡 idea | XS | **Duplicate level** — tlačítko v listě, kopíruje s `-copy` suffixem |
 | P1 | 💡 idea | S | **Multi-select bloků** — shift-click, pak šipky/Del/rotace na všech najednou |
@@ -50,6 +51,71 @@ Seznam všech nápadů, co chceme vyzkoušet, s prioritou a stavem. Na začátku
 | P1 | 📋 planned | L | **Honeycomb nosiče** — prokopávání gridu, ortogonální sousedi, zamčená garáž. Plan: `~/.claude/plans/nice-a-ted-bychom-fizzy-mitten.md` |
 | P1 | 💡 idea | XL | **Adaptivní obtížnost podle hráčova progressu** — ukládat historii hráče (čas per level, počet neúspěchů, zbývající nosiče), po každém dokončeném levelu algoritmus/LLM doporučí obtížnost dalšího. Klíčové design otázky níže ⬇ |
 | P2 | 💡 idea | L | **Level generation / procedurální levely** — tři varianty k diskuzi: (a) čistě náhodné, (b) template-based / WaveFunctionCollapse s ručně připravenými „kostrami", (c) LLM-generované pixel arty + layout. Detailní srovnání níže ⬇ |
+
+### Deep dive: Carrier layout editor
+
+**Proč:** Dnes se grid nosičů (7 sloupců × N řad) generuje automaticky v `makeColumns`
+podle `pxCounts` z obrazu + obtížnosti. Ruční level designer ani budoucí procgen nemají
+jak zafixovat konkrétní uspořádání. Zároveň by to otevřelo dveře k **novým typům
+dlaždic** (zdi, bloky, spawner, …), co dnes v herním modelu nejsou.
+
+**Co to umí:**
+1. **Grid editor v editoru** — vedle block editoru další canvas 7×N buněk. Paleta:
+   nosič (s výběrem barvy), garáž (s queue), raketa, zeď, „empty" (null).
+2. **Drag-drop z palety na grid** — stejný UX jako block editor (Phase A). Kliknutím na
+   buňku se otevře sidebar s propertami (barva nosiče, queue garáže, …).
+3. **Více variant per level** — `level.carrierLayouts: [{name, grid}, …]`. Přepínač
+   v editoru (stepper „výchozí" / „sparse-bottom" / …). Tlačítko „+ varianta" duplikuje
+   aktuální, přejmenuje. Tlačítko „🗑" smaže.
+4. **Extensibilní tile type** — každá buňka je diskriminovaný union:
+   `{type: 'carrier', color: 0}`, `{type: 'wall'}`, `{type: 'garage', queue: [...]}`, …
+   Přidání nové jednotky v budoucnu = nový `type` + handler, nic se nelámá.
+
+**Co to znamená pro hru (game.js):**
+- `makeColumns` dostane novou větev: pokud `level.carrierLayouts` existuje a hráč nevybral
+  jinak, použije uložený layout místo auto-generace. Procgen levely bez layoutu poběží
+  jako dnes.
+- **Zdi — nová mechanika, musíme vyřešit:**
+  - Jak se chová pás když narazí na zeď? (Pravděpodobně: vloží nosič na zeď = nosič se
+    „odrazí" a jde zpět, nebo zeď blokuje scroll úplně.)
+  - Má zeď HP (= bloky v canvas image) nebo je nezničitelná?
+  - Navazuje to na honeycomb plán (`planned`) — tam se mluví o zamčené garáži, zeď by
+    mohla fungovat podobně.
+- **Solvability check** — po uložení layoutu ověřit, že `pxCounts` jsou pokryté
+  (dostatek nosičů správných barev). Pokud ne, červený badge „varianta nesolvable".
+
+**Datový model:**
+```js
+level.carrierLayouts = [
+  {
+    name: "default",
+    rows: 5,                // volitelné, jinak z délky gridu
+    grid: [                 // [col][row]
+      [{type:'carrier',color:0}, {type:'carrier',color:1}, null, ...],
+      [{type:'wall'}, {type:'carrier',color:2}, ...],
+      [...], [...], [...], [...], [...]
+    ]
+  },
+  { name: "sparse-bottom", grid: [...] }
+]
+level.activeLayout = "default"  // default při startu levelu
+```
+
+**Otevřené otázky:**
+- **Počet řad** — dnes ~4. Variabilní per layout, nebo fixně 5? Pokud variabilní,
+  potřebujeme clamp (max 8?) a resize handling v UI.
+- **Zdi chování** — blokují pás úplně (scroll stojí) nebo je to „speed bump"?
+- **Runtime selekce** — hráč si sám vybere variantu v menu, nebo je to jen pro level
+  designera (hra vezme `activeLayout`)? Já bych šel pro druhé, jinak se bude dát
+  snadno obejít obtížnost.
+- **Migrace** — existující levely nemají `carrierLayouts`. Fallback je auto-generace
+  (dnešek). Žádný breaking change.
+- **Integrace s procgen** — až přijde level generation, bude generovat i layout, ne jen
+  image + blocks. To by znamenalo, že generátor musí znát pravidla solvability pro grid.
+
+**MVP scope:** layout editor bez zdí, jen carriers + garage + rockets (= dnešní tile
+types zabalené do nového data modelu). Zdi až jako separátní follow-up okruh, aby
+mechanika mohla být designed správně.
 
 ### Deep dive: Adaptivní obtížnost podle hráčova progressu
 
