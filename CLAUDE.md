@@ -2,6 +2,17 @@
 
 Single-screen puzzle hra (canvas + DOM) zabalená pro Gamee platformu. Vše je vanilla JS, žádný build step.
 
+## Backlog
+
+**Na začátku session se vždy podívej do [BACKLOG.md](BACKLOG.md)** (root repa).
+Je tam prioritizovaný seznam nápadů rozdělený do tabulek (Editor / Hra / Polish / Infra),
+inbox pro neotříděné, a sekce „Aktuální okruh" — do té přesuneme to, na čem právě
+pracujeme. Po dokončení přesuň záznam do sekce „Hotovo" s odkazem na commit.
+
+Když uživatel řekne „co bude další okruh" nebo „na čem jsme skončili", **první krok**
+je přečíst BACKLOG.md a navrhnout z něj. Při brainstormu nových nápadů je zapisuj
+do inboxu, ne jen do konverzace — jinak se ztratí mezi session.
+
 ## Struktura
 
 ```
