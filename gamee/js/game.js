@@ -702,7 +702,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v28');
+          gamee.updateScore(score,playTime,'balloon-belt-v29');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -1751,15 +1751,23 @@ function pickLayoutVariant(levelDef,diff){
   return candidates[Math.floor(Math.random()*candidates.length)];
 }
 function buildColsFromLayout(layout,pxCounts){
-  // 1) Zjistíme kolik carrier slotů layout má PER barvu (fixed-color sloty).
+  // 1) Zjistíme kolik carrier slotů layout má PER barvu.
+  //    Počítáme JAK hlavní carrier tiles, TAK carriers v garážní queue — obojí
+  //    reprezentuje "slot", který během hry vystřelí projektily. Dřív se queue
+  //    ignorovala a level končil se zbytkem v garáži (bug pre-v29).
   const layoutColorDemand=new Array(COLORS.length).fill(0);
   const rows=layout.grid.length;
   for(let r=0;r<rows;r++){
     const row=layout.grid[r]||[];
     for(let c=0;c<COLS;c++){
       const t=row[c];
-      if(t&&t.type==='carrier'&&typeof t.color==='number'){
+      if(!t)continue;
+      if(t.type==='carrier'&&typeof t.color==='number'){
         layoutColorDemand[t.color]++;
+      } else if(t.type==='garage'&&Array.isArray(t.queue)){
+        for(const gc of t.queue){
+          if(gc&&typeof gc.color==='number')layoutColorDemand[gc.color]++;
+        }
       }
     }
   }
@@ -1809,7 +1817,15 @@ function buildColsFromLayout(layout,pxCounts){
       }
       if(t.type==='garage'){
         // Directions spočítáme až v postprocessu (potřebujeme vědět sousedy).
-        const queue=Array.isArray(t.queue)?t.queue.map(x=>({color:(x&&typeof x.color==='number')?x.color:(x|0)})):[];
+        // Každý queue item dostane svou porci projektilů z colorChunks — stejné pravidlo
+        // jako hlavní carrier slot. Při prázdných chunkech (designer dal barvu, kterou
+        // level nepotřebuje) fallback na UPC*PPU, aby garáž aspoň něco dispensla.
+        const queue=Array.isArray(t.queue)?t.queue.map(x=>{
+          const col=(x&&typeof x.color==='number')?x.color:(x|0);
+          const chunks=colorChunks[col];
+          const proj=(chunks&&chunks.length)?chunks.shift():UPC*PPU;
+          return {color:col,projectiles:proj};
+        }):[];
         cols[c].push({type:'garage',directions:['N'],queue,_pendingDirs:true});
         continue;
       }
@@ -2537,7 +2553,9 @@ function updateGarages(){
       if(slot.queue.length){
         const next=slot.queue.shift();
         const [nc,nr]=freeNeighbor;
-        columns[nc][nr]={color:next.color,projectiles:UPC*PPU};
+        // Projectiles byly přiděleny už v buildColsFromLayout (porce z pxCounts).
+        // Fallback UPC*PPU pro případ, že garáž vznikla jinou cestou (auto-gen).
+        columns[nc][nr]={color:next.color,projectiles:next.projectiles||UPC*PPU};
       } else {
         columns[c][r]=null;
       }
@@ -2835,7 +2853,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v28');
+    gamee.updateScore(score,playTime,'balloon-belt-v29');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -2869,7 +2887,7 @@ function computeAmmoDeficit(){
     let proj=0;
     for(let col=0;col<COLS;col++)for(const s of columns[col]){
       if(!s)continue;
-      if(s.type==='garage'){for(const gc of s.queue)if(gc.color===c)proj+=UPC*PPU;}
+      if(s.type==='garage'){for(const gc of s.queue)if(gc.color===c)proj+=(gc.projectiles||UPC*PPU);}
       else if(s.color===c)proj+=(s.projectiles||UPC*PPU);
     }
     for(const b of belt)if(b.ci===c)proj+=b.ppu;
@@ -2900,7 +2918,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v28');
+  gamee.updateScore(score,playTime,'balloon-belt-v29');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -3400,7 +3418,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v28');
+      gamee.updateScore(score,playTime,'balloon-belt-v29');
       event.detail.callback();
     });
 
