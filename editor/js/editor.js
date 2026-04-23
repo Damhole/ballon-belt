@@ -210,6 +210,12 @@ const state = {
   selectedIdx: -1,      // which level is currently open in edit panel
   dirty: false,         // has the in-memory state diverged from disk since last save?
   fsaSupported: 'showDirectoryPicker' in window,
+  // Per-level/difficulty pixel counts reported by preview iframe (balloonbelt:level-stats).
+  // Shape: { [levelKey]: { easy: number[9], medium: number[9], hard: number[9] } }.
+  pxCountsByLevel: {},
+  // Per-level/difficulty fallback status reported by game (layout-applied / layout-fallback).
+  // Shape: { [levelKey]: { [diff]: { applied:bool, reason:string|null, layoutName:string|null } } }.
+  layoutStatusByLevel: {},
 };
 
 // IndexedDB for persisting FSA directory handle -------------------------------
@@ -533,6 +539,76 @@ function updateUI() {
   updateHistoryButtons();
 }
 
+// Vyhodnotí status levelu napříč všemi 3 obtížnostmi. Vrací kind (ok/warn/bad),
+// ikonu a důvod (tooltip). Použito v sidebaru za diff badge.
+//
+// Logika:
+//   - "bad"  = nějaká obtížnost MÁ layout, ale ten spadl na auto-gen (layout-fallback
+//              postMessage z hry) NEBO má unreachable carriers. Hra se nechová podle designu.
+//   - "warn" = žádný layout pro některou obtížnost (hra použije auto-gen implicitně),
+//              nebo layout pokrývá barvy jen částečně (kapacita nedostačuje podle pxCounts).
+//   - "ok"   = pro každou obtížnost (kde máme pxCounts) existuje layout, BFS projde,
+//              kapacita pokryje všechny potřebné barvy. Nebo: zatím neznáme pxCounts
+//              (preview neběžel), ale layouty syntakticky OK — zobrazíme ? informativně.
+function clComputeLevelStatus(lvl) {
+  if (!lvl) return { kind: 'ok', icon: '·', reason: '' };
+  const layouts = Array.isArray(lvl.carrierLayouts) ? lvl.carrierLayouts : [];
+  const problems = [];
+  const warnings = [];
+
+  // 1) Statické kontroly (nezávislé na pxCounts z preview):
+  for (const v of layouts) {
+    if (!v || !Array.isArray(v.grid) || !v.grid.length) continue;
+    const unreach = clCountUnreachable(v);
+    if (unreach > 0) {
+      problems.push('"' + (v.name || '?') + '" (' + (v.difficulty || '?') + '): ' + unreach + ' nedostupných nosičů');
+    }
+  }
+
+  // 2) Kontrola pro každou obtížnost: existuje layout? Spadl při runu na auto-gen?
+  //    Pokrývá požadované barvy?
+  const diffs = ['easy', 'medium', 'hard'];
+  const statusBag = state.layoutStatusByLevel[lvl.key] || {};
+  const pxBag = state.pxCountsByLevel[lvl.key] || {};
+  for (const d of diffs) {
+    const hasLayout = layouts.some(v => v && v.difficulty === d);
+    if (!hasLayout) {
+      warnings.push(d + ': žádný layout (hra použije auto-gen)');
+      continue;
+    }
+    // Pokud hra posílala fallback pro tuto obtížnost → bad.
+    const st = statusBag[d];
+    if (st && st.applied === false) {
+      problems.push(d + ': layout spadl na auto-gen (' + (st.reason || 'neznámý důvod') + ')');
+      continue;
+    }
+    // Kontrola kapacity (need slots per color ≤ layout slots per color).
+    const px = pxBag[d] || pxBag.easy || pxBag.medium || pxBag.hard;
+    if (px) {
+      const v = layouts.find(vv => vv && vv.difficulty === d);
+      if (v) {
+        const slotsByColor = clCountLayoutSlotsByColor(v);
+        for (let c = 0; c < BE_COLORS.length; c++) {
+          const need = px[c] | 0;
+          if (need <= 0) continue;
+          const needSlots = Math.ceil(need / CL_PROJECTILES_PER_CARRIER);
+          if ((slotsByColor[c] || 0) < needSlots) {
+            problems.push(d + ': barva ' + c + ' potřebuje ' + needSlots + ' slot(ů), layout má ' + (slotsByColor[c] || 0));
+          }
+        }
+      }
+    }
+  }
+
+  if (problems.length) {
+    return { kind: 'bad', icon: '✗', reason: 'Chyby:\n• ' + problems.join('\n• ') };
+  }
+  if (warnings.length) {
+    return { kind: 'warn', icon: '⚠', reason: 'Upozornění:\n• ' + warnings.join('\n• ') };
+  }
+  return { kind: 'ok', icon: '✓', reason: 'Level je v pořádku napříč obtížnostmi.' };
+}
+
 function renderList() {
   const ul = $('level-list');
   ul.innerHTML = '';
@@ -562,6 +638,14 @@ function renderList() {
     badge.className = 'diff-badge diff-' + diff.key;
     badge.textContent = diff.label;
     li.appendChild(badge);
+
+    // Status badge: ✓ OK / ⚠ warning / ✗ error. Rozhodnutí viz clComputeLevelStatus.
+    const st = clComputeLevelStatus(lvl);
+    const statusEl = document.createElement('span');
+    statusEl.className = 'level-status level-status-' + st.kind;
+    statusEl.textContent = st.icon;
+    statusEl.title = st.reason;
+    li.appendChild(statusEl);
 
     const del = document.createElement('button');
     del.className = 'level-delete';
@@ -619,6 +703,8 @@ function renderEditor() {
   $('f-image-source').value = (lvl.image && lvl.image.source) || 'smiley';
   $('f-img-diff').value = lvl.imageDifficulty || 1;
   $('f-img-diff-val').textContent = lvl.imageDifficulty || 1;
+
+  $('f-gravity-on').checked = !!lvl.gravity;
 
   const rocketsOn = !!lvl.rocketTargets;
   $('f-rockets-on').checked = rocketsOn;
@@ -737,10 +823,14 @@ function clPickFirstVariantForDiff(lvl, diff) {
   return -1;
 }
 function clBlankGrid(rows) {
+  // Default = zed (blokáda). Designer pak pozitivně maluje carriers + případné tunely.
+  // Dříve jsme inicializovali null, ale null = cestička, která aktivuje sousedy →
+  // designer viděl ve hře všechny nosiče aktivní i bez prvního kliku. Zed je sémanticky
+  // správný default pro „nic tady není, aktivace nepropouští".
   const g = [];
   for (let r = 0; r < rows; r++) {
     const row = [];
-    for (let c = 0; c < CL_COLS; c++) row.push({ type: 'carrier', color: 0 });
+    for (let c = 0; c < CL_COLS; c++) row.push({ type: 'wall' });
     g.push(row);
   }
   return g;
@@ -760,7 +850,7 @@ function clResizeGrid(variant, newRows) {
   } else {
     for (let r = cur; r < newRows; r++) {
       const row = [];
-      for (let c = 0; c < CL_COLS; c++) row.push({ type: 'carrier', color: 0 });
+      for (let c = 0; c < CL_COLS; c++) row.push({ type: 'wall' });
       variant.grid.push(row);
     }
   }
@@ -821,16 +911,478 @@ function renderCarrierLayout(lvl) {
   // Empty vs editor
   const emptyEl = $('cl-empty');
   const edEl = $('cl-editor');
+  const capEl = $('cl-capacity');
   if (!variant) {
     emptyEl.hidden = false;
     edEl.hidden = true;
+    if (capEl) capEl.hidden = true;
     return;
   }
   emptyEl.hidden = true;
   edEl.hidden = false;
 
+  // Generator tlačítka — enable jen pokud máme pxCounts pro aktuální level/diff.
+  const pxForGen = clGetStatsForCurrent(lvl);
+  const genFill = $('cl-gen-fill');
+  const genReset = $('cl-gen-reset');
+  if (genFill) genFill.disabled = !pxForGen;
+  if (genReset) genReset.disabled = !pxForGen;
+
   clRenderPalette();
   clRenderGrid(variant);
+  clRenderCapacity(lvl, variant);
+}
+
+// Capacity helper — spočítá "needed vs slots" per barvu pro aktuální layout a
+// statistiky z posledního runu hry (pxCounts per level × difficulty).
+// Hra posílá do editoru `balloonbelt:level-stats` postMessage při startLevel.
+const CL_PROJECTILES_PER_CARRIER = 40; // UPC(4) * PPU(10) — musí odpovídat game.js
+
+function clCountLayoutSlotsByColor(variant) {
+  const slots = new Array(BE_COLORS.length).fill(0);
+  if (!variant || !Array.isArray(variant.grid)) return slots;
+  for (const row of variant.grid) {
+    if (!Array.isArray(row)) continue;
+    for (const t of row) {
+      if (!t) continue;
+      if (t.type === 'carrier' && typeof t.color === 'number' && t.color >= 0 && t.color < BE_COLORS.length) {
+        slots[t.color]++;
+      } else if (t.type === 'garage' && Array.isArray(t.queue)) {
+        // Garáž vyprazdňuje nosiče stejné barvy jako queue items — započítej je jako sloty.
+        for (const q of t.queue) {
+          if (q && typeof q.color === 'number' && q.color >= 0 && q.color < BE_COLORS.length) slots[q.color]++;
+        }
+      }
+      // wall, null, rocket: nečítají jako barevné sloty pro pixely
+    }
+  }
+  return slots;
+}
+
+function clGetStatsForCurrent(lvl) {
+  const bag = state.pxCountsByLevel;
+  if (!bag || !lvl || !lvl.key) return null;
+  const byDiff = bag[lvl.key];
+  if (!byDiff) return null;
+  // Primárně vrať data z aktivní obtížnosti. Fallback: libovolný diff, který je
+  // k dispozici — pxCounts jsou invariantní vůči obtížnosti (určeny gridem a bloky),
+  // takže pro capacity/generator stačí data z jakéhokoliv runu.
+  if (byDiff[state.clActiveDiff]) return byDiff[state.clActiveDiff];
+  for (const d of ['easy', 'medium', 'hard']) {
+    if (byDiff[d]) return byDiff[d];
+  }
+  return null;
+}
+
+// Vrátí ze které obtížnosti data pochází (nebo null). Hodí se pro UI informaci.
+function clGetStatsSourceDiff(lvl) {
+  const bag = state.pxCountsByLevel;
+  if (!bag || !lvl || !lvl.key) return null;
+  const byDiff = bag[lvl.key];
+  if (!byDiff) return null;
+  if (byDiff[state.clActiveDiff]) return state.clActiveDiff;
+  for (const d of ['easy', 'medium', 'hard']) {
+    if (byDiff[d]) return d;
+  }
+  return null;
+}
+
+function clRenderCapacity(lvl, variant) {
+  const wrap = $('cl-capacity');
+  const body = $('cl-capacity-body');
+  const hintEl = $('cl-capacity-hint');
+  const statusEl = $('cl-capacity-status');
+  if (!wrap || !body || !hintEl || !statusEl) return;
+
+  const slots = clCountLayoutSlotsByColor(variant);
+  const pxCounts = clGetStatsForCurrent(lvl);
+  wrap.hidden = false;
+
+  body.innerHTML = '';
+  let worstStatus = 'ok'; // ok < warn < bad
+  const rank = { ok: 0, warn: 1, bad: 2 };
+  const bump = (s) => { if (rank[s] > rank[worstStatus]) worstStatus = s; };
+
+  const problems = [];
+
+  for (let c = 0; c < BE_COLORS.length; c++) {
+    const need = pxCounts ? (pxCounts[c] | 0) : 0;
+    const needSlots = need > 0 ? Math.ceil(need / CL_PROJECTILES_PER_CARRIER) : 0;
+    const has = slots[c] | 0;
+    let status = 'ok';
+    if (pxCounts) {
+      if (need > 0 && has === 0) { status = 'bad'; problems.push('barva ' + c + ': chybí nosiče (' + need + ' px)'); }
+      else if (need > 0 && has < needSlots) { status = 'bad'; problems.push('barva ' + c + ': málo slotů (' + has + '/' + needSlots + ')'); }
+      else if (need === 0 && has > 0) { status = 'warn'; problems.push('barva ' + c + ': přebytečné sloty (' + has + ' bez pixelů)'); }
+      else { status = 'ok'; }
+    } else {
+      // Bez stats jen ukaž sloty — neutral.
+      status = 'idle';
+    }
+    if (status !== 'idle') bump(status);
+
+    // Skryj čipy pro barvy, které jsou bezvýznamné (0 need && 0 slots) když máme stats.
+    if (pxCounts && need === 0 && has === 0) continue;
+
+    const chip = document.createElement('div');
+    chip.className = 'cl-cap-chip chip-' + status;
+    const sw = document.createElement('span');
+    sw.className = 'cl-cap-sw';
+    sw.style.background = BE_COLORS[c];
+    chip.appendChild(sw);
+    const nums = document.createElement('span');
+    nums.className = 'cl-cap-nums';
+    const main = document.createElement('span');
+    main.className = 'cl-cap-need';
+    if (pxCounts) {
+      main.textContent = has + ' / ' + needSlots;
+      chip.title = 'barva ' + c + ': ' + need + ' px → potřeba ' + needSlots + ' nosič(ů), máš ' + has;
+    } else {
+      main.textContent = 'sloty: ' + has;
+      chip.title = 'barva ' + c + ': ' + has + ' slot(ů) v layoutu';
+    }
+    nums.appendChild(main);
+    if (pxCounts && need > 0) {
+      const sub = document.createElement('span');
+      sub.className = 'cl-cap-sub';
+      const perSlot = has > 0 ? Math.ceil(need / has) : 0;
+      sub.textContent = need + ' px' + (has > 0 ? (' · ' + perSlot + '/nos') : '');
+      nums.appendChild(sub);
+    }
+    chip.appendChild(nums);
+    body.appendChild(chip);
+  }
+
+  // Layout applied/fallback banner — co hra doopravdy použila?
+  const bannerEl = $('cl-layout-banner');
+  if (bannerEl) {
+    const stBag = state.layoutStatusByLevel[lvl && lvl.key];
+    const st = stBag ? stBag[state.clActiveDiff] : null;
+    if (st && st.applied === true) {
+      bannerEl.hidden = false;
+      bannerEl.className = 'cl-layout-banner banner-ok';
+      bannerEl.textContent = '✓ Hra používá tento layout (' + (st.layoutName || variant.name || '?') + ').';
+    } else if (st && st.applied === false) {
+      bannerEl.hidden = false;
+      bannerEl.className = 'cl-layout-banner banner-bad';
+      bannerEl.textContent = '⚠ Hra tento layout NEpoužila — spadla na auto-gen. Důvod: ' + (st.reason || 'neznámý') + '.';
+    } else {
+      bannerEl.hidden = true;
+      bannerEl.textContent = '';
+    }
+  }
+
+  // Status pill
+  if (!pxCounts) {
+    statusEl.className = 'cl-capacity-status status-idle';
+    statusEl.textContent = 'čeká na data';
+    hintEl.className = 'cl-capacity-hint';
+    hintEl.textContent = 'Otevři náhled hry (pravý panel) — po startu levelu se načtou reálné počty pixelů a hláška zmizí.';
+  } else if (worstStatus === 'bad') {
+    statusEl.className = 'cl-capacity-status status-bad';
+    statusEl.textContent = 'nehratelné';
+    hintEl.className = 'cl-capacity-hint hint-bad';
+    hintEl.textContent = problems.join(' · ');
+  } else if (worstStatus === 'warn') {
+    statusEl.className = 'cl-capacity-status status-warn';
+    statusEl.textContent = 'přebytek';
+    hintEl.className = 'cl-capacity-hint hint-warn';
+    hintEl.textContent = problems.join(' · ') + ' — layout funguje, ale dodá zbytečné nosiče.';
+  } else {
+    statusEl.className = 'cl-capacity-status status-ok';
+    statusEl.textContent = 'ok';
+    hintEl.className = 'cl-capacity-hint';
+    hintEl.textContent = 'Všechny barvy pokryté. Kliknutí do hry vlevo / přeběh do hard režimu aktualizuje čísla.';
+  }
+
+  // Když používáme data z jiné obtížnosti, přidej poznámku.
+  const srcDiff = clGetStatsSourceDiff(lvl);
+  if (pxCounts && srcDiff && srcDiff !== state.clActiveDiff) {
+    const extra = ' (data z ' + srcDiff + ' — pxCounts jsou stejné pro všechny obtížnosti)';
+    hintEl.textContent = hintEl.textContent + extra;
+  }
+}
+
+// Generator rozložení — napodobuje game.js auto-gen:
+//   easy   → frequent-first, round-robin pro variety, mírné shuffle uvnitř řádků
+//   medium → full shuffle (chaotické rozložení)
+//   hard   → frequent-first v layerech, rare barvy spadnou až do spodních řad
+// Vždy respektuje user-set počet řádků (rows slider). Volné sloty = null (průchody).
+// Mode: 'fill' = doplní jen null tiles (zachová carrier/wall/garage/rocket),
+//       'reset' = vyprázdní grid a naplní znovu.
+function clGenerateLayout(variant, pxCounts, mode) {
+  if (!variant || !pxCounts) return false;
+  const rows = variant.grid.length;
+  const cols = CL_COLS;
+  if (!rows) return false;
+  const diff = state.clActiveDiff;
+
+  // 1) Zachovat existující tiles (fill mode) nebo vyprázdnit (reset).
+  //    V novém modelu: wall = default "prázdno", takže ho generator smí přepsat
+  //    (považujeme ho za dostupný slot). Uživatelská intent = carrier/rocket/garage/null-tunel.
+  const preserve = mode !== 'reset';
+  const grid = variant.grid;
+  const occupied = new Set();
+  const alreadyByColor = new Array(BE_COLORS.length).fill(0);
+  if (preserve) {
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const t = grid[r] && grid[r][c];
+        if (!t) continue;
+        // Wall = default blank → volné pro generator, neblokuj ho
+        if (t.type === 'wall' || t.wall === true) continue;
+        occupied.add(r + ',' + c);
+        if (t.type === 'carrier' && typeof t.color === 'number') alreadyByColor[t.color]++;
+        if (t.type === 'garage' && Array.isArray(t.queue)) {
+          for (const q of t.queue) if (q && typeof q.color === 'number') alreadyByColor[q.color]++;
+        }
+      }
+    }
+  } else {
+    // Reset: vyprázdni do walls (default blank), ne null.
+    for (let r = 0; r < rows; r++) {
+      grid[r] = new Array(cols).fill(null).map(() => ({ type: 'wall' }));
+    }
+  }
+
+  // 2) Kolik carrier slotů per barva ještě potřebujeme (minimum = ceil(px/40) - už_umístěno).
+  const needByColor = new Array(BE_COLORS.length).fill(0);
+  for (let c = 0; c < BE_COLORS.length; c++) {
+    const px = pxCounts[c] | 0;
+    if (px <= 0) continue;
+    const minSlots = Math.ceil(px / CL_PROJECTILES_PER_CARRIER);
+    needByColor[c] = Math.max(0, minSlots - alreadyByColor[c]);
+  }
+  let totalNeeded = needByColor.reduce((a, b) => a + b, 0);
+  const freeSlots = rows * cols - occupied.size;
+  if (totalNeeded === 0) return true;
+
+  // Scale down pokud se nevejde (zachovej min 1 per potřebnou barvu dokud to jde).
+  if (totalNeeded > freeSlots) {
+    while (totalNeeded > freeSlots) {
+      let idx = -1, max = 1;
+      for (let c = 0; c < needByColor.length; c++) {
+        if (needByColor[c] > max) { max = needByColor[c]; idx = c; }
+      }
+      if (idx < 0) break;
+      needByColor[idx]--;
+      totalNeeded--;
+    }
+  }
+
+  // 3) Postav queue barev podle difficulty (diff-aware ordering).
+  let queue = [];
+  for (let c = 0; c < needByColor.length; c++) {
+    for (let i = 0; i < needByColor[c]; i++) queue.push(c);
+  }
+
+  // Helper: round-robin podle frekvence (frequent-first) — zabrání klastrům stejné barvy.
+  const roundRobinByFreq = (arr) => {
+    const byColor = {};
+    for (const c of arr) (byColor[c] = byColor[c] || []).push(c);
+    const keys = Object.keys(byColor).map(Number).sort((a, b) => byColor[b].length - byColor[a].length);
+    const out = [];
+    while (out.length < arr.length) {
+      let progressed = false;
+      for (const k of keys) {
+        if (byColor[k].length) { out.push(byColor[k].shift()); progressed = true; if (out.length === arr.length) break; }
+      }
+      if (!progressed) break;
+    }
+    return out;
+  };
+
+  if (diff === 'easy') {
+    // Easy: časté barvy nahoru (proxy za "avail + shallow depth" z game.js), round-robin
+    // pro variety, pak mírné lokální zamíchání — hráč má krátké cesty, ne repetitivní klastry.
+    queue = roundRobinByFreq(queue);
+    // Mírný jitter: pro každou pozici s 50% pravdepodobnosti swap se sousedem ±1
+    for (let i = queue.length - 1; i > 0; i--) {
+      const j = Math.max(0, Math.min(queue.length - 1, i + Math.floor((Math.random() - 0.5) * 3)));
+      [queue[i], queue[j]] = [queue[j], queue[i]];
+    }
+  } else if (diff === 'hard') {
+    // Hard: layered ordering — frequent-first (layer 0), rare poslední. Row-major fill
+    // položí rare na konec queue → skončí ve spodních řadách (deep-layer, víc "kopání").
+    queue = roundRobinByFreq(queue);
+    // Žádný jitter — striktní progression dává hráči signal "rare je dole".
+  } else {
+    // Medium: plný Fisher-Yates shuffle — chaotický mix.
+    for (let i = queue.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [queue[i], queue[j]] = [queue[j], queue[i]];
+    }
+  }
+
+  // 4) Volné pozice, seskupené podle řádku. Pořadí určuje, kam pozice v queue přistane.
+  const byRow = {};
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (!occupied.has(r + ',' + c)) (byRow[r] = byRow[r] || []).push({ r, c });
+    }
+  }
+  const rowKeys = Object.keys(byRow).map(Number).sort((a, b) => a - b);
+  const shuffleArr = (arr) => {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+  };
+  // Uvnitř každé řady zamíchej sloupce (aby výběr buněk v řadě byl náhodný).
+  rowKeys.forEach(r => shuffleArr(byRow[r]));
+
+  // 5) Alokuj kolik carrierů jde do každé řady (stratifikace).
+  //    - medium: rovnoměrně + mírná jitter (kvazi-náhodné rozložení, ale pokryje celý grid)
+  //    - easy: top-biased (weights klesající lineárně) — frekventované barvy nahoru,
+  //            ale spodní řády taky dostanou něco (aktivní plocha, cestičky)
+  //    - hard: rovnoměrně stratifikováno — queue má frekvent→rare, a každá řada dostane
+  //            svůj chunk, takže rare (konec queue) skončí ve spodních řádcích
+  const perRow = new Array(rowKeys.length).fill(0);
+  const cap = rowKeys.map(r => byRow[r].length); // max kapacita per řada
+
+  const allocateByWeights = (weights) => {
+    const totalW = weights.reduce((a, b) => a + b, 0) || 1;
+    let remaining = queue.length;
+    for (let i = 0; i < rowKeys.length; i++) {
+      perRow[i] = Math.min(cap[i], Math.round(queue.length * weights[i] / totalW));
+      remaining -= perRow[i];
+    }
+    // Korekce zaokrouhlení — nalij/odeber postupně od řádku s nejvyšší weight dolů.
+    const order = rowKeys.map((_, i) => i).sort((a, b) => weights[b] - weights[a]);
+    let guard = 0;
+    while (remaining !== 0 && guard++ < 1000) {
+      let changed = false;
+      for (const i of order) {
+        if (remaining > 0 && perRow[i] < cap[i]) { perRow[i]++; remaining--; changed = true; }
+        else if (remaining < 0 && perRow[i] > 0) { perRow[i]--; remaining++; changed = true; }
+        if (remaining === 0) break;
+      }
+      if (!changed) break;
+    }
+  };
+
+  if (diff === 'easy') {
+    // Weights: linear 1..N, top nejvyšší (např. 7 rows → [7,6,5,4,3,2,1])
+    allocateByWeights(rowKeys.map((_, i) => rowKeys.length - i));
+  } else if (diff === 'hard') {
+    // Rovnoměrně = stejná weight per řada. Rare barvy (konec queue) přistanou dole.
+    allocateByWeights(rowKeys.map(() => 1));
+  } else {
+    // medium: rovnoměrně + jitter (každá řada dostane +-1 náhodně)
+    allocateByWeights(rowKeys.map(() => 1 + Math.random() * 0.4));
+  }
+
+  // 6) Medium potřebuje náhodné pořadí queue → pozice v rámci každé řady i přes řady.
+  //    Pro easy/hard zachováváme queue ordering: queue[0..perRow[0]-1] → řada 0 (top),
+  //    queue[next chunk] → řada 1, ...  takže frekvent nahoru, rare dolů.
+  const placements = [];
+  if (diff === 'medium') {
+    // Shuffle queue + shuffle všechny vybrané pozice → plný chaos.
+    const allSelected = [];
+    for (let i = 0; i < rowKeys.length; i++) {
+      const cells = byRow[rowKeys[i]];
+      for (let k = 0; k < perRow[i]; k++) allSelected.push(cells[k]);
+    }
+    shuffleArr(allSelected);
+    const qShuffled = queue.slice();
+    shuffleArr(qShuffled);
+    for (let i = 0; i < qShuffled.length && i < allSelected.length; i++) {
+      placements.push({ color: qShuffled[i], pos: allSelected[i] });
+    }
+  } else {
+    // easy/hard: mapuj queue chunks → řádky v pořadí.
+    let qIdx = 0;
+    for (let i = 0; i < rowKeys.length; i++) {
+      const cells = byRow[rowKeys[i]];
+      for (let k = 0; k < perRow[i] && qIdx < queue.length; k++) {
+        placements.push({ color: queue[qIdx], pos: cells[k] });
+        qIdx++;
+      }
+    }
+  }
+
+  // 7) Zapiš carriers do gridu.
+  const placedKeys = new Set();
+  for (const p of placements) {
+    grid[p.pos.r][p.pos.c] = { type: 'carrier', color: p.color };
+    placedKeys.add(p.pos.r + ',' + p.pos.c);
+  }
+
+  // 8) Leftover volné buňky → VŠECHNY na wall. Default chování = aktivní jen horní řada
+  //    a progresivní prokopávání sloupců dolů (klasický dig-down model). Pokud designer
+  //    chce honeycomb / cestičky, maluje je manuálně paletou „∅" po vygenerování.
+  if (!preserve) {
+    for (let i = 0; i < rowKeys.length; i++) {
+      for (const cell of byRow[rowKeys[i]]) {
+        if (!placedKeys.has(cell.r + ',' + cell.c)) {
+          grid[cell.r][cell.c] = { type: 'wall' };
+        }
+      }
+    }
+  }
+
+  // 9) Solvability repair: hráč musí mít cestu ke KAŽDÉMU carrierovi. Pokud generátor
+  //    uzavřel některé do ostrova z walls, otevřeme minimální tunel (převedeme walls
+  //    na null po nejkratší cestě k reachable regionu). Null přidáme JEN tam, kde je
+  //    to nevyhnutelné — designer uvidí jasně, kde byl grid „špatný".
+  clRepairUnreachable(variant);
+  return true;
+}
+
+function clRepairUnreachable(variant) {
+  const rows = variant.grid.length;
+  const cols = CL_COLS;
+  const DIRS = [[-1,0],[1,0],[0,-1],[0,1]];
+  for (let iter = 0; iter < 50; iter++) {
+    const reach = clReachability(variant);
+    // Najdi první unreachable carrier/rocket/garage.
+    let target = null;
+    for (let r = 0; r < rows && !target; r++) {
+      for (let c = 0; c < cols; c++) {
+        const t = variant.grid[r][c];
+        if (!t) continue;
+        if ((t.type === 'carrier' || t.type === 'rocket' || t.type === 'garage') && !reach[r][c]) {
+          target = { r, c }; break;
+        }
+      }
+    }
+    if (!target) return;
+
+    // BFS z targetu ven skrz JAKOUKOLIV buňku (včetně walls) — najdeme parent tree
+    // až narazíme na reachable cell. Pak otočíme a otevřeme walls na cestě.
+    const parent = new Map();
+    const seen = new Set();
+    const startKey = target.r + ',' + target.c;
+    seen.add(startKey);
+    const q = [target];
+    let found = null;
+    while (q.length) {
+      const cur = q.shift();
+      if (reach[cur.r][cur.c] && (cur.r !== target.r || cur.c !== target.c)) { found = cur; break; }
+      for (const [dr, dc] of DIRS) {
+        const nr = cur.r + dr, nc = cur.c + dc;
+        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+        const k = nr + ',' + nc;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        parent.set(k, cur.r + ',' + cur.c);
+        q.push({ r: nr, c: nc });
+      }
+    }
+    if (!found) return; // celý grid unreachable (row 0 is all walls) — nic neopravíme
+
+    // Zpětná cesta: wall na cestě → null (otevři tunel). Carriery/rockety necháme.
+    let cur = found.r + ',' + found.c;
+    const targetKey = target.r + ',' + target.c;
+    while (cur && cur !== targetKey) {
+      const [pr, pc] = cur.split(',').map(Number);
+      const t = variant.grid[pr][pc];
+      if (t && (t.type === 'wall' || t.wall === true)) {
+        variant.grid[pr][pc] = null;
+      }
+      cur = parent.get(cur);
+    }
+  }
 }
 
 function clRenderPalette() {
@@ -839,9 +1391,10 @@ function clRenderPalette() {
   pal.innerHTML = '';
   const items = [];
   items.push({ kind: 'select', label: '◎' });
-  items.push({ kind: 'null', label: '∅' });
-  items.push({ kind: 'wall', label: '▦' });
+  items.push({ kind: 'wall', label: '▦' });     // zeď = default blank, blokuje aktivaci
+  items.push({ kind: 'null', label: '∅' });      // tunel = propouští aktivaci (honeycomb)
   items.push({ kind: 'garage', label: '🏠' });
+  items.push({ kind: 'hidden', label: '?' });
   for (let c = 0; c < BE_COLORS.length; c++) items.push({ kind: 'carrier', color: c });
   for (let c = 0; c < BE_COLORS.length; c++) items.push({ kind: 'rocket', color: c });
 
@@ -853,8 +1406,19 @@ function clRenderPalette() {
     btn.type = 'button';
     btn.className = 'cl-palette-item tile-' + it.kind;
     if (it.color != null) btn.style.background = BE_COLORS[it.color];
-    btn.title = it.kind + (it.color != null ? ' ' + it.color : '');
+    // Čitelné tooltipy — vysvětlují sémantiku null vs wall.
+    const titles = {
+      select: 'select — klik na buňku = výběr + inspector, NEmaluje',
+      wall: 'zeď — default prázdná plocha. Blokuje aktivaci nosičů v okolí.',
+      null: 'tunel (∅) — propouští aktivaci. Nosič se sousedním tunelem je aktivní.',
+      garage: 'garáž — zamčený zdroj, vydává nosiče až když má volný přístup',
+      hidden: '? — toggle "skrytá barva" (klik na existující carrier přepne hidden flag)',
+      carrier: 'carrier barva ' + (it.color != null ? it.color : ''),
+      rocket: 'rocket barva ' + (it.color != null ? it.color : ''),
+    };
+    btn.title = titles[it.kind] || (it.kind + (it.color != null ? ' ' + it.color : ''));
     if (it.kind === 'carrier') btn.textContent = String(it.color);
+    if (it.kind === 'hidden') btn.textContent = '?';
     if (makeKey(it) === activeKey) btn.classList.add('active');
     btn.addEventListener('click', () => {
       state.clTool = (it.kind === 'carrier' || it.kind === 'rocket')
@@ -873,13 +1437,62 @@ function clRenderPalette() {
     if (!state.clTool) { hint.textContent = 'vyber nástroj z palety'; return; }
     const t = state.clTool;
     const desc = t.kind === 'select' ? 'select (klik v gridu = výběr + inspector)'
-      : t.kind === 'carrier' ? ('carrier color ' + t.color)
-      : t.kind === 'rocket' ? ('rocket color ' + t.color)
-      : t.kind === 'wall' ? 'wall (pasivní)'
-      : t.kind === 'garage' ? 'garage (vybrat pak editovat queue v panelu)'
-      : 'null (prázdno, hráč může procházet)';
+      : t.kind === 'carrier' ? ('carrier barva ' + t.color)
+      : t.kind === 'rocket' ? ('rocket barva ' + t.color)
+      : t.kind === 'wall' ? 'zeď (default prázdno — blokuje aktivaci)'
+      : t.kind === 'garage' ? 'garáž (klik = vybrat, pak edituj queue v panelu)'
+      : t.kind === 'hidden' ? 'hidden toggle (klik na carrier = přepne ? skrytou barvu)'
+      : 'tunel ∅ (propouští aktivaci — pro honeycomb cestičky)';
     hint.textContent = 'nástroj: ' + desc;
   }
+}
+
+// BFS reachability: najde carriers/rockets, které nemají žádnou cestu (přes jiné
+// non-wall buňky) do horní řady. Hra aktivuje carrier, když má null souseda nebo je
+// v row 0; player postupně odkopává a odhaluje další. Walls jsou permanentní blokáda,
+// takže buňka v regionu obklopeném samými walls je unreachable.
+function clReachability(variant) {
+  const rows = variant.grid.length;
+  const cols = CL_COLS;
+  const reach = [];
+  for (let r = 0; r < rows; r++) reach.push(new Array(cols).fill(false));
+  const isBlock = (r, c) => {
+    const t = variant.grid[r][c];
+    return !!(t && (t.type === 'wall' || t.wall === true));
+  };
+  const q = [];
+  // Start: všechny non-wall buňky v row 0 (top-edge je „otevřený" per honeycomb pravidla).
+  for (let c = 0; c < cols; c++) {
+    if (!isBlock(0, c)) { reach[0][c] = true; q.push([0, c]); }
+  }
+  const DIRS = [[-1,0],[1,0],[0,-1],[0,1]];
+  while (q.length) {
+    const [r, c] = q.shift();
+    for (const [dr, dc] of DIRS) {
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+      if (reach[nr][nc]) continue;
+      if (isBlock(nr, nc)) continue;
+      reach[nr][nc] = true;
+      q.push([nr, nc]);
+    }
+  }
+  return reach;
+}
+
+// Spočítá unreachable carriers/rockets ve variantě. 0 = vše OK.
+function clCountUnreachable(variant) {
+  if (!variant || !variant.grid || !variant.grid.length) return 0;
+  const reach = clReachability(variant);
+  let count = 0;
+  for (let r = 0; r < variant.grid.length; r++) {
+    for (let c = 0; c < CL_COLS; c++) {
+      const t = variant.grid[r][c];
+      if (!t) continue;
+      if ((t.type === 'carrier' || t.type === 'rocket' || t.type === 'garage') && !reach[r][c]) count++;
+    }
+  }
+  return count;
 }
 
 function clRenderGrid(variant) {
@@ -889,6 +1502,7 @@ function clRenderGrid(variant) {
   const rows = variant.grid.length;
   g.style.gridTemplateRows = 'repeat(' + rows + ', 48px)';
   const sel = state.clSelCell;
+  const reach = clReachability(variant);
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < CL_COLS; c++) {
       const t = variant.grid[r] && variant.grid[r][c];
@@ -903,6 +1517,18 @@ function clRenderGrid(variant) {
       }
       if (t && t.type === 'carrier') {
         btn.textContent = String(t.color);
+      }
+      if (t && (t.type === 'carrier' || t.type === 'rocket') && t.hidden === true) {
+        btn.classList.add('tile-hidden');
+        const q = document.createElement('span');
+        q.className = 'cl-cell-hidden';
+        q.textContent = '?';
+        btn.appendChild(q);
+      }
+      // Unreachable marker: carrier/rocket/garage bez cesty k top row.
+      if (t && (t.type === 'carrier' || t.type === 'rocket' || t.type === 'garage') && !reach[r][c]) {
+        btn.classList.add('tile-unreachable');
+        btn.title = (btn.title || '') + ' ⚠ nedostupný (obklopený zdmi)';
       }
       // garage queue count badge
       if (t && t.type === 'garage' && Array.isArray(t.queue) && t.queue.length) {
@@ -962,6 +1588,25 @@ function clRenderInspector(variant) {
       picker.appendChild(sw);
     }
     body.appendChild(picker);
+    // Hidden toggle — carrier/rocket s `hidden:true` se ve hře zobrazí jako "?" dokud
+    // se nestane aktivním (propagace přes prokopání).
+    const hiddenRow = document.createElement('label');
+    hiddenRow.className = 'cl-insp-hidden';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = t.hidden === true;
+    cb.addEventListener('change', () => {
+      const lvl = beCurrentLvl();
+      histPush(lvl, 'cl-insp-hidden');
+      t.hidden = cb.checked;
+      markDirty();
+      renderCarrierLayout(lvl);
+    });
+    hiddenRow.appendChild(cb);
+    const lbl = document.createElement('span');
+    lbl.textContent = 'skrytá barva (? dokud se neprokopává)';
+    hiddenRow.appendChild(lbl);
+    body.appendChild(hiddenRow);
     return;
   }
   if (t.type === 'garage') {
@@ -1044,6 +1689,20 @@ function clOnCellClick(r, c) {
     clRenderGrid(v);
     return;
   }
+  // Hidden-toggle → přepne t.hidden na existujícím carrier/rocket. Nepřepisuje.
+  if (t.kind === 'hidden') {
+    const existing = v.grid[r] && v.grid[r][c];
+    if (!existing || (existing.type !== 'carrier' && existing.type !== 'rocket')) {
+      setLastAction('? tool: klikni na carrier/rocket pro přepnutí "skryté" barvy');
+      return;
+    }
+    histPush(lvl, 'cl-hidden-toggle');
+    existing.hidden = !existing.hidden;
+    state.clSelCell = { r, c };
+    markDirty();
+    clRenderGrid(v);
+    return;
+  }
   histPush(lvl, 'cl-paint');
   let tile;
   if (t.kind === 'null') tile = null;
@@ -1073,6 +1732,13 @@ function wireCarrierLayout() {
       const lvl = beCurrentLvl();
       state.clActiveVariantIdx = lvl ? clPickFirstVariantForDiff(lvl, state.clActiveDiff) : -1;
       renderCarrierLayout(lvl);
+      // Sync preview: když upravuju medium/hard, preview má zůstat na stejné obtížnosti
+      // (a po případném startLevel restartu se nevracet na easy).
+      const diffSel = $('preview-diff');
+      if (diffSel && diffSel.value !== state.clActiveDiff) {
+        diffSel.value = state.clActiveDiff;
+        reloadPreview();
+      }
     });
   });
 
@@ -1140,13 +1806,42 @@ function wireCarrierLayout() {
     const lvl = beCurrentLvl();
     const v = clActiveVariant(lvl);
     if (!v) return;
-    if (!confirm('Smazat variantu "' + (v.name || '?') + '"?')) return;
+    // Bez confirm() — dialog byl v embedded/modal kontextu blokován. Undo přes Ctrl+Z.
     histPush(lvl, 'cl-variant-delete');
     const idx = lvl.carrierLayouts.indexOf(v);
+    const deletedName = v.name || '?';
     if (idx >= 0) lvl.carrierLayouts.splice(idx, 1);
     state.clActiveVariantIdx = clPickFirstVariantForDiff(lvl, state.clActiveDiff);
     markDirty();
     renderCarrierLayout(lvl);
+    setLastAction('🗑 Varianta "' + deletedName + '" smazána (Ctrl+Z pro undo)');
+  });
+
+  // Generator: fill empty tiles
+  $('cl-gen-fill').addEventListener('click', () => {
+    const lvl = beCurrentLvl();
+    const v = clActiveVariant(lvl);
+    const px = clGetStatsForCurrent(lvl);
+    if (!v || !px) { alert('Spusť preview hry vpravo — generator potřebuje reálné pxCounts.'); return; }
+    histPush(lvl, 'cl-gen-fill');
+    const ok = clGenerateLayout(v, px, 'fill');
+    if (!ok) { alert('Generator nemohl doplnit — zkontroluj velikost gridu.'); return; }
+    markDirty();
+    renderCarrierLayout(lvl);
+  });
+
+  // Generator: regenerate (wipe + refill). Žádný confirm — undo přes histPush.
+  $('cl-gen-reset').addEventListener('click', () => {
+    const lvl = beCurrentLvl();
+    const v = clActiveVariant(lvl);
+    const px = clGetStatsForCurrent(lvl);
+    if (!v || !px) { alert('Spusť preview hry vpravo — generator potřebuje reálné pxCounts.'); return; }
+    histPush(lvl, 'cl-gen-reset');
+    const ok = clGenerateLayout(v, px, 'reset');
+    if (!ok) { alert('Generator selhal.'); return; }
+    markDirty();
+    renderCarrierLayout(lvl);
+    setLastAction('♻ Grid přegenerován (Ctrl+Z pro undo)');
   });
 
   // Rows slider
@@ -1904,6 +2599,14 @@ function wireForm() {
     renderList();
   });
 
+  $('f-gravity-on').addEventListener('change', (e) => {
+    const L = lvl(); if (!L) return;
+    histPush(L, 'f-gravity-on');
+    if (e.target.checked) L.gravity = true;
+    else delete L.gravity;
+    markDirty();
+  });
+
   $('f-rockets-on').addEventListener('change', (e) => {
     const L = lvl(); if (!L) return;
     histPush(L, 'f-rockets-on');
@@ -2018,6 +2721,49 @@ function wireHistory() {
 }
 
 // Boot ----------------------------------------------------------------------
+// postMessage listener — preview iframe (gamee) posílá pxCounts per level×diff
+// každý startLevel. Ukládáme pro capacity helper + re-render layoutu, pokud
+// jsme zrovna na dotčeném levelu/diffu.
+function wireLevelStats() {
+  window.addEventListener('message', (ev) => {
+    const m = ev && ev.data;
+    if (!m || typeof m.type !== 'string') return;
+
+    if (m.type === 'balloonbelt:level-stats' && m.levelKey && Array.isArray(m.pxCounts)) {
+      const diff = m.difficulty || 'easy';
+      if (!state.pxCountsByLevel[m.levelKey]) state.pxCountsByLevel[m.levelKey] = {};
+      state.pxCountsByLevel[m.levelKey][diff] = m.pxCounts.slice(0, BE_COLORS.length);
+      // Status neresetujeme — applied/fallback message chodí v rámci stejného startLevel
+      // a může přijít *před* level-stats (v game.js: buildColsFromLayout posílá applied
+      // uvnitř makeColumns, level-stats až potom). Reset by jen smazal čerstvý výsledek.
+      _maybeRerenderCapacity(m.levelKey, diff);
+      return;
+    }
+
+    if ((m.type === 'balloonbelt:layout-applied' || m.type === 'balloonbelt:layout-fallback') && m.levelKey) {
+      const diff = m.difficulty || 'easy';
+      if (!state.layoutStatusByLevel[m.levelKey]) state.layoutStatusByLevel[m.levelKey] = {};
+      state.layoutStatusByLevel[m.levelKey][diff] = {
+        applied: m.type === 'balloonbelt:layout-applied',
+        reason: m.reason || null,
+        layoutName: m.layoutName || null,
+      };
+      _maybeRerenderCapacity(m.levelKey, diff);
+      return;
+    }
+  });
+}
+
+function _maybeRerenderCapacity(levelKey, diff) {
+  const lvl = beCurrentLvl();
+  if (lvl && lvl.key === levelKey && state.clActiveDiff === diff) {
+    // Full render — pxCounts/status ovlivňují i enable stav generator buttons.
+    renderCarrierLayout(lvl);
+  }
+  // Sidebar status badge se mění podle nových pxCounts/layoutStatus — překresli list.
+  renderList();
+}
+
 function boot() {
   if (!state.fsaSupported) {
     $('btn-connect').textContent = '❌ FSA not supported';
@@ -2030,6 +2776,7 @@ function boot() {
   wireBlockEditor();
   wirePixelToolbar();
   wireCarrierLayout();
+  wireLevelStats();
   wireHistory();
   renderBlockPalette();
   updateUI();

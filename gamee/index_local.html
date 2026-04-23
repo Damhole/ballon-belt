@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <head>
   <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-  <title>Balloon Belt v26</title>
+  <title>Balloon Belt v28</title>
   <script type="text/javascript" src="./lib/gamee-js-stub.js"></script>
   <meta name="viewport" content="viewport-fit=cover">
   <link rel="stylesheet" href="./css/game.css">
@@ -9,12 +9,13 @@
 </head>
 <body onload="initGame()">
 <div id="game">
-  <div id="version-badge">v26</div>
-  <h1>🎈 Balloon Belt</h1>
-  <div id="score-bar">
-    <span>Skóre: <b id="score">0</b></span>
-    <span>Belt: <b id="belt-count">0</b>/14</span>
-    <span>Nosiče: <b id="carriers-left">0</b></span>
+  <div id="version-badge">v28</div>
+  <!-- Top UI (h1 + score bar) bylo odstraněno v28 — v Gamee tyto informace
+       zobrazuje platform wrapper, a editor preview je kompaktnější bez nich.
+       Legacy ID score / belt-count / carriers-left jsou zachovány jako skryté
+       elementy, aby kód, který do nich píše, neházel. -->
+  <div style="display:none">
+    <span id="score">0</span><span id="belt-count">0</span><span id="carriers-left">0</span>
   </div>
   <div class="controls">
     <div class="ctrl-row-top">
@@ -32,30 +33,6 @@
           <button class="btn active" data-diff="easy">snadná</button>
           <button class="btn" data-diff="medium">střední</button>
           <button class="btn" data-diff="hard">těžká</button>
-        </div>
-      </div>
-    </div>
-    <div class="diff-summary-row">
-      <span class="diff-summary-label">celková obtížnost</span>
-      <span id="difficulty-badge" class="diff-badge diff-relaxing">Relaxing</span>
-    </div>
-    <div class="specials-wrap">
-      <button class="specials-header" id="specials-toggle">
-        <span class="ctrl-label" style="padding-left:0">speciality</span>
-        <span class="specials-chevron" id="specials-chevron">›</span>
-      </button>
-      <div class="specials-panel" id="specials-panel">
-        <div class="special-chip">
-          <span class="special-chip-label">gravitace</span>
-          <button class="toggle-btn" id="gravity-btn">vypnuto</button>
-        </div>
-        <div class="special-chip">
-          <span class="special-chip-label">rakety</span>
-          <button class="toggle-btn" id="rockets-btn">vypnuto</button>
-        </div>
-        <div class="special-chip">
-          <span class="special-chip-label">garáž</span>
-          <button class="toggle-btn" id="garage-btn">vypnuto</button>
         </div>
       </div>
     </div>

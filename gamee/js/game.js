@@ -702,7 +702,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v26');
+          gamee.updateScore(score,playTime,'balloon-belt-v28');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -1772,7 +1772,19 @@ function buildColsFromLayout(layout,pxCounts){
     if(!total)continue;
     const slots=layoutColorDemand[c];
     if(!slots){
-      console.warn('[layout] barva '+c+' má '+total+' pixelů, ale layout nemá carrier slot — padne na auto-gen fallback');
+      const reason='barva '+c+' má '+total+' px, ale layout nemá žádný carrier slot té barvy';
+      console.warn('[layout] '+reason+' — padne na auto-gen fallback');
+      try{
+        if(window.parent&&window.parent!==window){
+          window.parent.postMessage({
+            type:'balloonbelt:layout-fallback',
+            levelKey:currentLevel,
+            difficulty:difficulty,
+            layoutName:(layout&&layout.name)||null,
+            reason:reason,
+          },'*');
+        }
+      }catch(e){}
       return null; // celé přepne na auto-gen
     }
     // Rovnoměrné rozdělení: base + remainder do prvních slotů.
@@ -1806,7 +1818,9 @@ function buildColsFromLayout(layout,pxCounts){
         const chunks=colorChunks[col];
         if(chunks&&chunks.length){
           const proj=chunks.shift();
-          const hidden=r>0&&Math.random()<hr;
+          // Explicitní editor override: t.hidden === true/false vyhraje nad random.
+          // Když editor nic nenastavil (undefined), fallback na difficulty-based random.
+          const hidden=(t.hidden===true)?true:(t.hidden===false)?false:(r>0&&Math.random()<hr);
           cols[c].push({color:col,hidden,projectiles:proj});
         } else {
           // Designer dal slot barvy, která v tomto levelu nic nepotřebuje → wall.
@@ -1872,6 +1886,16 @@ function makeColumns(pxCounts){
     if(built){
       columnsFromLayout=true;
       console.log('[layout] using carrier layout "'+(layout.name||'?')+'" ('+layout.difficulty+') for level '+currentLevel);
+      try{
+        if(window.parent&&window.parent!==window){
+          window.parent.postMessage({
+            type:'balloonbelt:layout-applied',
+            levelKey:currentLevel,
+            difficulty:difficulty,
+            layoutName:layout.name||null,
+          },'*');
+        }
+      }catch(e){}
       return built;
     }
     // buildColsFromLayout vrátil null → spadne na auto-gen pod námi.
@@ -2347,15 +2371,20 @@ function drawCarriers(){
     col.className='carrier-col';
     for(let r=0;r<columns[c].length;r++){
       const slot=columns[c][r];
-      const empty=slot===null||(slot&&slot.wall===true);
+      const isWall=!!(slot&&slot.wall===true);
+      const isNullEmpty=slot===null;
+      const empty=isNullEmpty||isWall;
       const active=!empty&&isCarrierActive(c,r);
       const hidden=!empty&&!active&&slot.hidden===true;
       const isGarage=!empty&&slot&&slot.type==='garage';
       const garageLocked=isGarage&&!active;
       const div=document.createElement('div');
-      div.className='carrier '+(empty?'empty':isGarage?('garage'+(garageLocked?' locked':'')):active?'active':hidden?'hiddenq':'inactive');
+      // Rozlišíme wall vs null — wall dostane svůj „blok" vzhled (top-down zeď),
+      // null zůstane čistě prázdné (hráč vidí jen tmavý slot).
+      const emptyClass=isWall?'empty wall':'empty';
+      div.className='carrier '+(empty?emptyClass:isGarage?('garage'+(garageLocked?' locked':'')):active?'active':hidden?'hiddenq':'inactive');
       if(empty){
-        div.innerHTML='';
+        div.innerHTML=isWall?'<div class="wall-block"></div>':'';
       } else if(hidden){
         div.innerHTML='<div class="cbox-hid">?</div>';
       } else if(isGarage){
@@ -2806,7 +2835,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v26');
+    gamee.updateScore(score,playTime,'balloon-belt-v28');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -2871,7 +2900,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v26');
+  gamee.updateScore(score,playTime,'balloon-belt-v28');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -2896,6 +2925,11 @@ function startLevel(){
   // Hydrate bloky z definice levelu PŘED makeColumns, aby generátor nosičů
   // započítal HP bloků do potřebných barev (přes countPixelsAndBlocks).
   const levelDef=getLevelDef(currentLevel);
+  // Per-level speciality z definice levelu (editor tyto flagy spravuje).
+  // Dříve byly globální toggly v UI hry — ty jsou v28 pryč, zdroj pravdy je levelDef.
+  gravityOn=!!levelDef.gravity;
+  rocketsOn=!!levelDef.rocketTargets;
+  garageMode=levelDef.garage?'single':'off';
   currentBlocks=hydrateBlocks(levelDef.blocks);
   // Solid blok je neprůhledný — pod ním nemají být žádné pixely, jinak by
   // generátor vyrobil nosiče, které se stanou nepoužitelnými (pixely se
@@ -2909,7 +2943,20 @@ function startLevel(){
       if(gy>=0&&gy<GH&&gx>=0&&gx<GW)grid[gy][gx]=-1;
     }
   }
-  columns=makeColumns(countPixelsAndBlocks(grid));
+  const _pxCountsForLevel=countPixelsAndBlocks(grid);
+  columns=makeColumns(_pxCountsForLevel);
+  // Editor hook: když běžíme v iframu (editor preview), pošleme nadřazenému oknu
+  // statistiky aktuálního levelu → editor vykresluje "needed vs slots" pro carrier layout.
+  try{
+    if(window.parent&&window.parent!==window){
+      window.parent.postMessage({
+        type:'balloonbelt:level-stats',
+        levelKey:currentLevel,
+        difficulty:difficulty,
+        pxCounts:Array.from(_pxCountsForLevel),
+      },'*');
+    }
+  }catch(e){/* same-origin check failed, ignore */}
   // Když columns postavil layout, rakety + garáž už v gridu jsou → skip injekci.
   // Jinak pokračuje původní injekce do auto-generovaného gridu.
   const skipInjects=columnsFromLayout;
@@ -3193,19 +3240,10 @@ function startLevel(){
   setStatus('Klikni na aktivní nosič');
 }
 // ── UI: Difficulty badge ────────────────────────────────────────────────────
-// Kombinace imageDifficulty (z level defu) + carrier difficulty (easy/medium/hard)
-// → Relaxing / Medium / Hard / Hard-core. Zobrazí se jako barevný badge v controls.
-function updateDifficultyBadge(){
-  const el=document.getElementById('difficulty-badge');
-  if(!el)return;
-  const def=getLevelDef(currentLevel);
-  const imgD=def.imageDifficulty||1;
-  const carrD=carrierDifficultyRank(difficulty);
-  const total=computeTotalDifficulty(imgD,carrD);
-  el.textContent=total.label;
-  el.className='diff-badge diff-'+total.key;
-  el.title='obrázek '+imgD+'/5  +  nosiče '+carrD+'/5';
-}
+// Badge byl odstraněn (UI cleanup v28) — funkce zůstává jen jako no-op pro
+// případné volání ze staršího kódu; celý výpočet imageDifficulty se dělá
+// v editoru přes clComputeLevelStatus.
+function updateDifficultyBadge(){}
 // ── Event listeners ─────────────────────────────────────────────────────────
 function setupDOM(){
   let levelIdx=LEVELS.findIndex(l=>l.key===currentLevel);
@@ -3214,43 +3252,19 @@ function setupDOM(){
     levelIdx=(levelIdx+dir+LEVELS.length)%LEVELS.length;
     currentLevel=LEVELS[levelIdx].key;
     document.getElementById('level-label').textContent=LEVELS[levelIdx].label;
-    updateDifficultyBadge();
     startLevel();
   }
   document.getElementById('level-label').textContent=LEVELS[levelIdx].label;
-  updateDifficultyBadge();
   document.getElementById('restart-btn').addEventListener('click',startLevel);
   document.getElementById('level-prev').addEventListener('click',()=>stepLevel(-1));
   document.getElementById('level-next').addEventListener('click',()=>stepLevel(1));
-  document.querySelectorAll('[data-diff]').forEach(b=>b.addEventListener('click',()=>{
-    document.querySelectorAll('[data-diff]').forEach(x=>x.classList.remove('active'));
-    b.classList.add('active');difficulty=b.dataset.diff;updateDifficultyBadge();startLevel();
-  }));
-  document.getElementById('specials-toggle').addEventListener('click',()=>{
-    document.getElementById('specials-panel').classList.toggle('open');
-    document.getElementById('specials-chevron').classList.toggle('open');
-  });
-  document.getElementById('gravity-btn').addEventListener('click',()=>{
-    gravityOn=!gravityOn;
-    const btn=document.getElementById('gravity-btn');
-    btn.textContent=gravityOn?'zapnuto':'vypnuto';
-    btn.classList.toggle('active',gravityOn);
-    startLevel();
-  });
-  document.getElementById('rockets-btn').addEventListener('click',()=>{
-    rocketsOn=!rocketsOn;
-    const btn=document.getElementById('rockets-btn');
-    btn.textContent=rocketsOn?'zapnuto':'vypnuto';
-    btn.classList.toggle('active',rocketsOn);
-    startLevel();
-  });
-  document.getElementById('garage-btn').addEventListener('click',()=>{
-    garageMode=garageMode==='off'?'single':garageMode==='single'?'multi':'off';
-    const btn=document.getElementById('garage-btn');
-    const labels={off:'vypnuto',single:'1 směr',multi:'více směrů'};
-    btn.textContent=labels[garageMode];
-    btn.classList.toggle('active',garageMode!=='off');
-    startLevel();
+  // Difficulty segment: sync highlight s aktuálním state a přepínání.
+  document.querySelectorAll('[data-diff]').forEach(b=>{
+    if(b.dataset.diff===difficulty)b.classList.add('active'); else b.classList.remove('active');
+    b.addEventListener('click',()=>{
+      document.querySelectorAll('[data-diff]').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');difficulty=b.dataset.diff;startLevel();
+    });
   });
 }
 
@@ -3386,7 +3400,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v26');
+      gamee.updateScore(score,playTime,'balloon-belt-v28');
       event.detail.callback();
     });
 

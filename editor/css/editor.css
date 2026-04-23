@@ -249,6 +249,23 @@ body {
 .diff-badge.diff-hard     { background: rgba(240,140,70,0.18); color: #ffaa5e; border-color: #b06a2a; }
 .diff-badge.diff-hardcore { background: rgba(230,70,70,0.2);   color: #ff7070; border-color: #a03030; }
 
+.level-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  margin-left: 4px;
+  cursor: help;
+  flex-shrink: 0;
+}
+.level-status-ok   { background: rgba(80,200,120,0.2);  color: #6ee79c; border: 1px solid #3c8a54; }
+.level-status-warn { background: rgba(240,180,60,0.22); color: #f5c84e; border: 1px solid #9a7a1f; }
+.level-status-bad  { background: rgba(230,80,80,0.22);  color: #ff7a7a; border: 1px solid #a03030; }
+
 .level-delete {
   background: none;
   border: none;
@@ -687,13 +704,25 @@ body {
   transition: transform 0.08s;
 }
 .cl-cell:hover { transform: scale(1.06); border-color: var(--accent); z-index: 1; }
-.cl-cell.tile-null { background: var(--bg-3); }
-.cl-cell.tile-null::after { content: ''; width: 6px; height: 6px; background: var(--text-3); border-radius: 50%; opacity: 0.4; }
-.cl-cell.tile-wall {
-  background: repeating-linear-gradient(45deg, #3a3a42 0 4px, #2a2a30 4px 8px);
-  border-color: #4a4a52;
+/* Tunel (null) — vizuálně „otevřená" buňka, výrazný zelenkavý dot indikuje průchod */
+.cl-cell.tile-null {
+  background: radial-gradient(circle at center, rgba(120,220,160,0.15) 0%, var(--bg-3) 70%);
+  border-color: #3a6d4a;
 }
-.cl-cell.tile-wall::after { content: '▦'; font-size: 14px; color: var(--text-3); }
+.cl-cell.tile-null::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: #5ec786;
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(94,199,134,0.7);
+}
+/* Zeď (wall) — default prázdná plocha, plochá, stejná jako pozadí s jemným outline */
+.cl-cell.tile-wall {
+  background: repeating-linear-gradient(45deg, #2e2e34 0 3px, #27272d 3px 6px);
+  border-color: #40404a;
+}
+.cl-cell.tile-wall::after { content: ''; }
 .cl-cell.tile-carrier { /* barva přijde inline */ box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), inset 0 -2px 2px rgba(0,0,0,0.3); }
 .cl-cell.tile-rocket { /* barva inline, obsah = 🚀 */ box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), inset 0 -2px 2px rgba(0,0,0,0.4); }
 .cl-cell.tile-rocket::after { content: '🚀'; font-size: 18px; }
@@ -755,10 +784,13 @@ body {
 }
 .cl-palette-item:hover { transform: scale(1.06); border-color: var(--accent); z-index: 1; }
 .cl-palette-item.active { border: 2px solid var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.cl-palette-item.tile-null { background: var(--bg-3); }
-.cl-palette-item.tile-null::after { content: '∅'; font-size: 16px; color: var(--text-3); }
+.cl-palette-item.tile-null {
+  background: radial-gradient(circle at center, rgba(120,220,160,0.18) 0%, var(--bg-3) 80%);
+  border-color: #3a6d4a;
+}
+.cl-palette-item.tile-null::after { content: '∅'; font-size: 16px; color: #5ec786; }
 .cl-palette-item.tile-wall {
-  background: repeating-linear-gradient(45deg, #3a3a42 0 4px, #2a2a30 4px 8px);
+  background: repeating-linear-gradient(45deg, #2e2e34 0 3px, #27272d 3px 6px);
 }
 .cl-palette-item.tile-wall::after { content: '▦'; font-size: 14px; color: var(--text-3); }
 .cl-palette-item.tile-carrier { /* inline color */ }
@@ -780,8 +812,98 @@ body {
 
 .cl-hint { font-size: 11px; color: var(--text-3); line-height: 1.5; }
 
+.cl-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 4px 2px;
+  border-top: 0.5px dashed var(--border);
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--text-3);
+  line-height: 1.4;
+}
+.cl-legend-row { display: flex; align-items: center; gap: 6px; }
+.cl-legend-row b { color: var(--text-2); font-weight: 600; }
+.cl-legend-sw {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  display: inline-block;
+  flex-shrink: 0;
+  position: relative;
+}
+.cl-legend-sw.tile-wall {
+  background: repeating-linear-gradient(45deg, #2e2e34 0 3px, #27272d 3px 6px);
+}
+.cl-legend-sw.tile-null {
+  background: radial-gradient(circle at center, rgba(120,220,160,0.25) 0%, var(--bg-3) 70%);
+  border-color: #3a6d4a;
+}
+.cl-legend-sw.tile-null::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 4px;
+  background: #5ec786;
+  border-radius: 50%;
+}
+
 .cl-palette-item.tile-select { background: var(--bg-2); }
 .cl-palette-item.tile-select::after { content: '◎'; font-size: 18px; color: var(--text-2); }
+
+.cl-palette-item.tile-hidden {
+  background: var(--bg-2);
+  color: #e0a63e;
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.cl-cell.tile-hidden {
+  box-shadow: inset 0 0 0 2px rgba(224, 166, 62, 0.6);
+}
+
+.cl-cell.tile-unreachable {
+  /* červené čárkované překřížení — designer vidí „tenhle carrier se nikdy neodemkne" */
+  outline: 2px dashed #e74c3c;
+  outline-offset: -2px;
+}
+.cl-cell.tile-unreachable::before {
+  content: '⚠';
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  font-size: 10px;
+  color: #ff6868;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+  pointer-events: none;
+  z-index: 2;
+}
+.cl-cell .cl-cell-hidden {
+  position: absolute;
+  top: 1px;
+  left: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8), 0 0 3px rgba(224,166,62,0.9);
+  pointer-events: none;
+}
+
+.cl-insp-hidden {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-2);
+  padding: 4px 0;
+  cursor: pointer;
+}
+.cl-insp-hidden input[type="checkbox"] { margin: 0; cursor: pointer; }
 
 .cl-cell.tile-selected { outline: 2px solid var(--accent); outline-offset: 1px; z-index: 2; }
 
@@ -835,3 +957,94 @@ body {
   border: 1px solid rgba(255,255,255,0.15);
 }
 .cl-insp-color-picker .cl-csw.active { box-shadow: 0 0 0 2px var(--accent); }
+
+/* Capacity summary — needed vs slots per color */
+.cl-capacity {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+.cl-capacity-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.cl-capacity-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.cl-capacity-status.status-ok { background: rgba(80,200,100,0.18); color: #6ee28a; }
+.cl-capacity-status.status-warn { background: rgba(255,180,30,0.18); color: #ffc95c; }
+.cl-capacity-status.status-bad { background: rgba(255,90,90,0.2); color: #ff8a8a; }
+.cl-capacity-status.status-idle { background: rgba(255,255,255,0.06); color: var(--text-3); }
+
+.cl-capacity-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  gap: 6px;
+}
+.cl-cap-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid transparent;
+  font-size: 12px;
+  line-height: 1.2;
+}
+.cl-cap-chip.chip-ok { border-color: rgba(80,200,100,0.35); }
+.cl-cap-chip.chip-warn { border-color: rgba(255,180,30,0.45); }
+.cl-cap-chip.chip-bad { border-color: rgba(255,90,90,0.5); background: rgba(255,90,90,0.06); }
+.cl-cap-chip.chip-idle { opacity: 0.45; }
+.cl-cap-chip .cl-cap-sw {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,0.15);
+}
+.cl-cap-chip .cl-cap-nums {
+  display: flex;
+  flex-direction: column;
+}
+.cl-cap-chip .cl-cap-need { font-weight: 600; color: var(--text-1); }
+.cl-cap-chip .cl-cap-sub { font-size: 10px; color: var(--text-3); }
+.cl-cap-chip.chip-bad .cl-cap-need { color: #ffb5b5; }
+.cl-cap-chip.chip-warn .cl-cap-need { color: #ffd78a; }
+
+.cl-capacity-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.cl-capacity-hint.hint-bad { color: #ff8a8a; }
+.cl-capacity-hint.hint-warn { color: #ffc95c; }
+
+.cl-layout-banner {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.cl-layout-banner.banner-ok {
+  background: rgba(80,200,100,0.12);
+  border: 1px solid rgba(80,200,100,0.35);
+  color: #b8eec5;
+}
+.cl-layout-banner.banner-bad {
+  background: rgba(255,90,90,0.12);
+  border: 1px solid rgba(255,90,90,0.45);
+  color: #ffb5b5;
+}
