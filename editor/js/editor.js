@@ -2912,22 +2912,44 @@ function genPixelsChecker(palette) {
 function genPixelsMandala(palette) {
   const pal = _shuffled(palette);
   const n = pal.length;
-  const sectors = _rChoice([4, 5, 6, 8, 10, 12]);
-  const rw = 1.5 + Math.random() * 3.5;
-  const cx = BE_GW * (0.35 + Math.random() * 0.3);
-  const cy = BE_IMG_GH * (0.35 + Math.random() * 0.3);
+  const sectors = _rChoice([4, 5, 6, 8, 10, 12, 16]);
+  const rw = 1.2 + Math.random() * 4;
+  const cx = BE_GW * (0.3 + Math.random() * 0.4);
+  const cy = BE_IMG_GH * (0.3 + Math.random() * 0.4);
   const aspect = BE_GW / BE_IMG_GH;
   const sectorAngle = (Math.PI * 2) / sectors;
-  const aWeight = _rInt(1, 4);
+  const subtype = _rChoice(['ring', 'star', 'flower', 'wave', 'spiral']);
+  const aWeight = _rInt(1, 6);
+  const freq = 1 + Math.random() * 3;
+  const petalN = _rChoice([3, 4, 5, 6, 8]);
+  const phase = Math.random() * Math.PI * 2;
+  const twist = 0.1 + Math.random() * 0.4;
   return Array.from({length: BE_IMG_GH}, (_, y) =>
     Array.from({length: BE_GW}, (_, x) => {
       const dx = x - cx, dy = (y - cy) * aspect;
       const r = Math.sqrt(dx * dx + dy * dy);
-      let a = ((Math.atan2(dy, dx) + Math.PI * 2) % (Math.PI * 2)) % sectorAngle;
+      const theta = Math.atan2(dy, dx);
+      let a = ((theta + Math.PI * 2) % (Math.PI * 2)) % sectorAngle;
       if (a > sectorAngle / 2) a = sectorAngle - a;
-      const rBand = Math.floor(r / rw) % n;
-      const aBand = Math.floor(a / (sectorAngle / 2) * aWeight) % n;
-      return pal[(rBand + aBand) % n];
+      const rBand = Math.floor(r / rw);
+      const aBand = Math.floor(a / (sectorAngle / 2) * aWeight);
+      let idx;
+      if (subtype === 'ring') {
+        idx = rBand + aBand;
+      } else if (subtype === 'star') {
+        const starR = r + Math.cos(theta * sectors + phase) * rw;
+        idx = Math.floor(starR / rw) + aBand;
+      } else if (subtype === 'flower') {
+        const petalR = r * (1 + 0.4 * Math.cos(theta * petalN + phase));
+        idx = Math.floor(petalR / rw) + aBand;
+      } else if (subtype === 'wave') {
+        const wavy = Math.floor((r + Math.sin(theta * freq + phase) * rw) / rw);
+        idx = wavy ^ aBand;
+      } else {
+        const spiral = Math.floor((r + theta * rw * twist * sectors / (Math.PI * 2)) / rw);
+        idx = spiral + aBand;
+      }
+      return pal[((idx % n) + n) % n];
     })
   );
 }
@@ -3017,6 +3039,153 @@ function _dominantColorUnder(pixels, px, py, mask, w, h, fallback) {
   let best = fallback, bestN = 0;
   for (const [c, n] of counts) if (n > bestN) { best = c; bestN = n; }
   return best;
+}
+
+// Flood-fill: najde všechny souvislé regiony stejné barvy v pixel obraze.
+// Vrací pole { color, cells: [{x,y}], bbox: {x0,y0,x1,y1} } seřazené od největšího.
+function _findColorRegions(pixels) {
+  if (!pixels) return [];
+  const H = pixels.length, W = pixels[0].length;
+  const visited = Array.from({ length: H }, () => new Array(W).fill(false));
+  const regions = [];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (visited[y][x]) continue;
+    const color = pixels[y][x];
+    if (color == null || color < 0) { visited[y][x] = true; continue; }
+    const cells = [];
+    const stack = [[x, y]];
+    let x0 = x, y0 = y, x1 = x, y1 = y;
+    while (stack.length) {
+      const [cx, cy] = stack.pop();
+      if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue;
+      if (visited[cy][cx]) continue;
+      if (pixels[cy][cx] !== color) continue;
+      visited[cy][cx] = true;
+      cells.push({ x: cx, y: cy });
+      if (cx < x0) x0 = cx; if (cx > x1) x1 = cx;
+      if (cy < y0) y0 = cy; if (cy > y1) y1 = cy;
+      stack.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]);
+    }
+    regions.push({ color, cells, bbox: { x0, y0, x1, y1 } });
+  }
+  regions.sort((a, b) => b.cells.length - a.cells.length);
+  return regions;
+}
+
+// Pro region a paletu tvarů najde nejlépe fitující preset — maximalizuje pokrytí
+// buněk regionu, minimalizuje přesah mimo region. Vrací {preset, px, py, coverage}.
+function _bestBlockFitForRegion(region, presets) {
+  const cellSet = new Set();
+  for (const c of region.cells) cellSet.add(c.y * 1000 + c.x);
+  const { x0, y0, x1, y1 } = region.bbox;
+  let best = null;
+  for (const preset of presets) {
+    if (preset.w > (x1 - x0 + 1) + 1 || preset.h > (y1 - y0 + 1) + 1) continue;
+    const mask = beBlockMask(preset.shape, preset.w, preset.h);
+    for (let py = Math.max(0, y0 - 1); py <= Math.min(BE_IMG_GH - preset.h, y1); py++) {
+      for (let px = Math.max(0, x0 - 1); px <= Math.min(BE_GW - preset.w, x1); px++) {
+        let inside = 0, outside = 0;
+        for (let ly = 0; ly < preset.h; ly++) for (let lx = 0; lx < preset.w; lx++) {
+          if (!mask[ly][lx]) continue;
+          if (cellSet.has((py + ly) * 1000 + (px + lx))) inside++;
+          else outside++;
+        }
+        const total = inside + outside;
+        if (total === 0) continue;
+        const score = inside - outside * 2;
+        if (score > 0 && (!best || score > best.score)) {
+          best = { preset, px, py, inside, outside, score, mask };
+        }
+      }
+    }
+  }
+  return best;
+}
+
+// Region-based generátor: projde pixelové regiony od největšího; pro každý
+// zkusí najít nejlépe sedící tvar z palety. Bloky mají barvu svého regionu →
+// vypadají jako "vylitá barva" přes pixely, celek drží estetiku obrazu.
+function genBlocksFromRegions(pixels, density, corridorPath, hw) {
+  const regions = _findColorRegions(pixels);
+  const occupied = Array.from({ length: BE_IMG_GH }, () => new Array(BE_GW).fill(false));
+  if (corridorPath) {
+    const buf = (hw || 3) + 1;
+    for (let x = 0; x < BE_GW; x++) {
+      const cy = corridorPath[x];
+      for (let y = Math.max(0, cy - buf); y <= Math.min(BE_IMG_GH - 1, cy + buf); y++) {
+        occupied[y][x] = true;
+      }
+    }
+  }
+  const blocks = [];
+  const presets = BE_GEN_BLOCK_PRESETS;
+
+  for (const region of regions) {
+    if (region.cells.length < 4) continue;
+    if (Math.random() > density + 0.35) continue;
+    const available = region.cells.filter(c => !occupied[c.y][c.x]);
+    if (available.length < 4) continue;
+    const virtualRegion = {
+      ...region,
+      cells: available,
+      bbox: (() => {
+        let x0 = BE_GW, y0 = BE_IMG_GH, x1 = 0, y1 = 0;
+        for (const c of available) {
+          if (c.x < x0) x0 = c.x; if (c.x > x1) x1 = c.x;
+          if (c.y < y0) y0 = c.y; if (c.y > y1) y1 = c.y;
+        }
+        return { x0, y0, x1, y1 };
+      })(),
+    };
+    const fit = _bestBlockFitForRegion(virtualRegion, presets);
+    if (!fit) continue;
+    let collides = false;
+    for (let ly = 0; ly < fit.preset.h && !collides; ly++) {
+      for (let lx = 0; lx < fit.preset.w && !collides; lx++) {
+        if (!fit.mask[ly][lx]) continue;
+        if (occupied[fit.py + ly][fit.px + lx]) collides = true;
+      }
+    }
+    if (collides) continue;
+    for (let ly = 0; ly < fit.preset.h; ly++) for (let lx = 0; lx < fit.preset.w; lx++) {
+      if (fit.mask[ly][lx]) occupied[fit.py + ly][fit.px + lx] = true;
+    }
+    blocks.push({
+      x: fit.px, y: fit.py, w: fit.preset.w, h: fit.preset.h,
+      shape: fit.preset.shape, kind: 'solid',
+      color: region.color, hp: 6 + _rInt(0, 6), rotation: 0,
+    });
+    if (region.cells.length >= 30 && Math.random() < 0.4) {
+      const rest = region.cells.filter(c => !occupied[c.y][c.x]);
+      if (rest.length >= 6) {
+        const virt2 = { ...virtualRegion, cells: rest };
+        let x0 = BE_GW, y0 = BE_IMG_GH, x1 = 0, y1 = 0;
+        for (const c of rest) {
+          if (c.x < x0) x0 = c.x; if (c.x > x1) x1 = c.x;
+          if (c.y < y0) y0 = c.y; if (c.y > y1) y1 = c.y;
+        }
+        virt2.bbox = { x0, y0, x1, y1 };
+        const fit2 = _bestBlockFitForRegion(virt2, presets);
+        if (fit2) {
+          let c2 = false;
+          for (let ly = 0; ly < fit2.preset.h && !c2; ly++) for (let lx = 0; lx < fit2.preset.w && !c2; lx++) {
+            if (fit2.mask[ly][lx] && occupied[fit2.py + ly][fit2.px + lx]) c2 = true;
+          }
+          if (!c2) {
+            for (let ly = 0; ly < fit2.preset.h; ly++) for (let lx = 0; lx < fit2.preset.w; lx++) {
+              if (fit2.mask[ly][lx]) occupied[fit2.py + ly][fit2.px + lx] = true;
+            }
+            blocks.push({
+              x: fit2.px, y: fit2.py, w: fit2.preset.w, h: fit2.preset.h,
+              shape: fit2.preset.shape, kind: 'solid',
+              color: region.color, hp: 6 + _rInt(0, 6), rotation: 0,
+            });
+          }
+        }
+      }
+    }
+  }
+  return blocks;
 }
 
 // Packing generátor: seshora dolů prochází mřížku, snaží se umístit co největší
@@ -3121,7 +3290,13 @@ function doGenerate() {
   if (includeBlocks) {
     const density = parseInt($('gen-density').value || 20) / 100;
     const pxForColor = (lvl.image && lvl.image.source === 'custom') ? lvl.image.pixels : null;
-    lvl.blocks = genBlocksPack(density, corridorPath, corridorHw, palette, pxForColor);
+    // Když je pixel gen zapnutý → převést regiony obrazu na bloky stejné barvy.
+    // Když generujeme jen bloky (bez pixelů) → scatter packing přes celou plochu.
+    if (includePixels && pxForColor) {
+      lvl.blocks = genBlocksFromRegions(pxForColor, density, corridorPath, corridorHw);
+    } else {
+      lvl.blocks = genBlocksPack(density, corridorPath, corridorHw, palette, pxForColor);
+    }
   } else {
     lvl.blocks = [];
   }
