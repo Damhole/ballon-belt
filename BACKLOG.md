@@ -384,6 +384,8 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
+| v39: generátor levelů — 7 pixel stylů (Pruhy/Kruhy/Šum/Šachy/Mandala/Kaleido/Koridor), bloky, checkboxy | `af45bd8` | 2026-04-24 |
+| v38: preset Pop art (primárky + cyan + magenta) | `0c44c8a` | 2026-04-24 |
 | v37: foto import — fix layout (modal nepřetéká), slider max = reálný počet barev v obrazu | `50a75e3` | 2026-04-24 |
 | v36: foto import Auto profil — nejlepší barvy z 64, při potvrzení zapíše activePalette, slider max dle profilu | `3de5954` | 2026-04-24 |
 | v35: 64-barevná master paleta + per-level activePalette — 12 presetů, sekce Paleta v editoru, pixel editor zobrazuje jen aktivní paletu, foto import respektuje profil | `bceec76` | 2026-04-24 |
