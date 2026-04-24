@@ -171,6 +171,13 @@ function histPush(lvl, actionKey) {
   _histUndo.set(lvl, stack);
   _histRedo.set(lvl, []); // každá nová mutace invalidates redo větev
   updateHistoryButtons();
+  // Edit carrier layoutu invalidates předchozí layout-applied/fallback status —
+  // banner by jinak visel s outdated důvodem dokud iframe neukončí nový startLevel
+  // a nepošle novou postMessage (~800ms gap). Vyčistit = status „čeká na hru".
+  if (actionKey && typeof actionKey === 'string' && actionKey.startsWith('cl-') && lvl.key) {
+    const bag = state.layoutStatusByLevel[lvl.key];
+    if (bag) delete bag[state.clActiveDiff];
+  }
 }
 
 function histCanUndo(lvl) { return !!(lvl && (_histUndo.get(lvl) || []).length); }
