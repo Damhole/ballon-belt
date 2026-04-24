@@ -2835,6 +2835,7 @@ function wirePhotoImport() {
 // ─────────────────────────────────────────────────────────────────
 
 let _genStyle = 'stripes';
+let _genBlockStyle = 'tetris';
 
 function _genPalette(lvl) {
   return (lvl && lvl.activePalette && lvl.activePalette.length > 0)
@@ -3020,6 +3021,202 @@ const BE_GEN_BLOCK_PRESETS = [
   { shape: 'circle', w: 5, h: 5 },
   { shape: 'circle', w: 3, h: 3 },
 ];
+
+// Tetris-like tvary — obdélníky a L/T tvary co do sebe zapadají. Tetris režim
+// preferuje obdélníkové tvary s celočíselnými rozměry aby „seděly na sobě".
+const BE_GEN_TETRIS_PRESETS = [
+  { shape: 'rect', w: 4, h: 2 },
+  { shape: 'rect', w: 3, h: 2 },
+  { shape: 'rect', w: 2, h: 2 },
+  { shape: 'rect', w: 5, h: 2 },
+  { shape: 'rect', w: 4, h: 3 },
+  { shape: 'rect', w: 2, h: 3 },
+  { shape: 'L',    w: 3, h: 3 },
+  { shape: 'L',    w: 4, h: 4 },
+  { shape: 'T',    w: 3, h: 3 },
+  { shape: 'T',    w: 5, h: 3 },
+];
+
+// Vrať mřížkové buňky ze sloupců × řádků s mezerou (gap). Vrací array bbox objektů.
+function _gridCells(cols, rows, gap) {
+  const cw = Math.floor((BE_GW - gap * (cols + 1)) / cols);
+  const ch = Math.floor((BE_IMG_GH - gap * (rows + 1)) / rows);
+  const cells = [];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const x0 = gap + c * (cw + gap);
+    const y0 = gap + r * (ch + gap);
+    cells.push({ x0, y0, w: cw, h: ch, col: c, row: r });
+  }
+  return { cells, cw, ch };
+}
+
+// Umístí blok do bbox — zvolí tvar a polohu aby byl centrovaný.
+function _placeBlockInCell(cell, presets, activePalette, colorPick) {
+  const pal = activePalette && activePalette.length ? activePalette : [4];
+  const fits = presets.filter(p => p.w <= cell.w && p.h <= cell.h);
+  if (!fits.length) return null;
+  const p = _rChoice(fits);
+  const px = cell.x0 + Math.floor((cell.w - p.w) / 2);
+  const py = cell.y0 + Math.floor((cell.h - p.h) / 2);
+  const color = colorPick != null ? colorPick : pal[_rInt(0, pal.length - 1)];
+  return { x: px, y: py, w: p.w, h: p.h, shape: p.shape, kind: 'solid',
+           color, hp: 6 + _rInt(0, 6), rotation: 0 };
+}
+
+function _collides(block, occupied) {
+  const mask = beBlockMask(block.shape, block.w, block.h);
+  for (let ly = 0; ly < block.h; ly++) for (let lx = 0; lx < block.w; lx++) {
+    if (!mask[ly][lx]) continue;
+    const py = block.y + ly, px = block.x + lx;
+    if (py < 0 || py >= BE_IMG_GH || px < 0 || px >= BE_GW) return true;
+    if (occupied[py][px]) return true;
+  }
+  return false;
+}
+function _markOccupied(block, occupied) {
+  const mask = beBlockMask(block.shape, block.w, block.h);
+  for (let ly = 0; ly < block.h; ly++) for (let lx = 0; lx < block.w; lx++) {
+    if (mask[ly][lx]) occupied[block.y + ly][block.x + lx] = true;
+  }
+}
+
+// GRID — symetrická mřížka velkých bloků s mezerami, viz inspirace 1 z brief-u.
+// Random cols/rows, random tvary v každé buňce, volitelně šachovnice (prokládané).
+function genBlocksGrid(density, activePalette) {
+  const cols = _rChoice([3, 4, 5, 6]);
+  const rows = _rChoice([3, 4, 5, 6, 7]);
+  const gap = _rChoice([1, 2]);
+  const { cells, cw, ch } = _gridCells(cols, rows, gap);
+  const checker = Math.random() < 0.5;
+  const fillProb = Math.max(0.35, Math.min(1.0, density + 0.2));
+  const presets = BE_GEN_TETRIS_PRESETS;
+  const blocks = [];
+  const occupied = Array.from({ length: BE_IMG_GH }, () => new Array(BE_GW).fill(false));
+  // Barvy: zafixuj random rotaci palety aby sousední buňky neměly stejnou barvu.
+  const pal = _shuffled(activePalette && activePalette.length ? activePalette : [4]);
+  for (const cell of cells) {
+    if (checker && ((cell.col + cell.row) % 2 === 1)) continue;
+    if (!checker && Math.random() > fillProb) continue;
+    const colorIdx = pal[(cell.row * cols + cell.col) % pal.length];
+    // Pokud buňka pojme i větší přesah (cw>=4, ch>=3), povol větší tvar.
+    const bigger = [...presets, { shape: 'rect', w: Math.min(cw, 5), h: Math.min(ch, 4) }];
+    const blk = _placeBlockInCell({ ...cell, w: cw, h: ch }, bigger, activePalette, colorIdx);
+    if (blk && !_collides(blk, occupied)) {
+      _markOccupied(blk, occupied);
+      blocks.push(blk);
+    }
+  }
+  return blocks;
+}
+
+// MIRROR — vygeneruje bloky v levé polovině, zrcadlí do pravé (horizontální osa).
+// Volitelně ještě i vertikální zrcadlení pro 4-fold symetrii.
+function genBlocksMirror(density, activePalette) {
+  const halfW = Math.floor(BE_GW / 2);
+  const fourFold = Math.random() < 0.4;
+  const halfH = fourFold ? Math.floor(BE_IMG_GH / 2) : BE_IMG_GH;
+  const occupied = Array.from({ length: BE_IMG_GH }, () => new Array(BE_GW).fill(false));
+  const blocks = [];
+  const pal = _shuffled(activePalette && activePalette.length ? activePalette : [4]);
+  const target = Math.floor(density * halfW * halfH);
+  let placed = 0, attempts = 0, maxAttempts = 400;
+  const presets = _shuffled(BE_GEN_TETRIS_PRESETS.filter(p => p.w * p.h >= 4));
+  while (placed < target && attempts < maxAttempts) {
+    attempts++;
+    const p = _rChoice(presets);
+    const px = _rInt(0, halfW - p.w);
+    const py = _rInt(0, halfH - p.h);
+    if (px < 0 || py < 0) continue;
+    const color = pal[blocks.length % pal.length];
+    const blk = { x: px, y: py, w: p.w, h: p.h, shape: p.shape, kind: 'solid',
+                  color, hp: 6 + _rInt(0, 6), rotation: 0 };
+    if (_collides(blk, occupied)) continue;
+    // Také ověř že zrcadlená verze se vejde
+    const mirrorX = BE_GW - px - p.w;
+    const mirror = { ...blk, x: mirrorX };
+    if (_collides(mirror, occupied)) continue;
+    _markOccupied(blk, occupied);
+    _markOccupied(mirror, occupied);
+    blocks.push(blk);
+    // Mirror musí mít unikátní x (jinak duplicitní při x=halfW-w)
+    if (mirrorX !== px) blocks.push(mirror);
+    let cellCount = p.w * p.h;
+    if (fourFold) {
+      const vy = BE_IMG_GH - py - p.h;
+      const v1 = { ...blk, y: vy };
+      const v2 = { ...mirror, y: vy };
+      if (!_collides(v1, occupied) && !_collides(v2, occupied)) {
+        _markOccupied(v1, occupied); _markOccupied(v2, occupied);
+        if (vy !== py) blocks.push(v1);
+        if (vy !== py && mirrorX !== px) blocks.push(v2);
+        cellCount *= 4;
+      } else {
+        cellCount *= 2;
+      }
+    } else {
+      cellCount *= 2;
+    }
+    placed += cellCount;
+  }
+  return blocks;
+}
+
+// TETRIS — začne nahoře, skládá tvary tak aby seděly těsně (seshora, levý okraj
+// nejprve). Výsledek: horní část plochy je „tetris wall", dole zůstává prostor
+// pro pixely. Density = kolik řádků shora pokrýt (density=0.5 → půl plochy).
+function genBlocksTetris(density, activePalette) {
+  const pal = _shuffled(activePalette && activePalette.length ? activePalette : [4]);
+  const targetRows = Math.min(BE_IMG_GH - 2, Math.max(3, Math.floor(density * BE_IMG_GH * 1.5)));
+  const occupied = Array.from({ length: BE_IMG_GH }, () => new Array(BE_GW).fill(false));
+  const blocks = [];
+  // Heights — pro každý sloupec aktuální „výška zaplnění" (kam až zhora dolů sahají bloky)
+  const heights = new Array(BE_GW).fill(0);
+  const presets = BE_GEN_TETRIS_PRESETS;
+  let attempts = 0, maxAttempts = 500;
+  let colorIdx = 0;
+  while (attempts < maxAttempts) {
+    attempts++;
+    // Najdi sloupec s nejnižší výškou (největší prostor shora)
+    let minH = Infinity, minX = 0;
+    for (let x = 0; x < BE_GW; x++) {
+      if (heights[x] < minH) { minH = heights[x]; minX = x; }
+    }
+    if (minH >= targetRows) break;
+    // Vyber tvar co sedí
+    const fits = presets.filter(p => p.w + minX <= BE_GW && p.h + minH <= targetRows);
+    if (!fits.length) {
+      // Zkus posunout minX jinam — blok s nižší výškou nemusí být vlevo
+      heights[minX] = targetRows; // mark as "plný"
+      continue;
+    }
+    const p = _rChoice(_shuffled(fits));
+    // Najdi y — ten blok musí sedět na nejvyšší existující výšce pod ním
+    let baseY = minH;
+    for (let dx = 0; dx < p.w; dx++) {
+      if (heights[minX + dx] > baseY) baseY = heights[minX + dx];
+    }
+    if (baseY + p.h > targetRows) {
+      heights[minX] = targetRows;
+      continue;
+    }
+    const blk = { x: minX, y: baseY, w: p.w, h: p.h, shape: p.shape, kind: 'solid',
+                  color: pal[colorIdx % pal.length], hp: 6 + _rInt(0, 6), rotation: 0 };
+    if (_collides(blk, occupied)) {
+      heights[minX]++;
+      continue;
+    }
+    _markOccupied(blk, occupied);
+    blocks.push(blk);
+    colorIdx++;
+    // Update heights
+    for (let dx = 0; dx < p.w; dx++) {
+      // Pro L/T tvary heights ne sedí přesně — ale pro rect ano. Pro jednoduchost
+      // aktualizujeme pouze rect; u L/T nastavíme max úplné výšky.
+      heights[minX + dx] = baseY + p.h;
+    }
+  }
+  return blocks;
+}
 
 // Najde „dominantní" barvu pixel-obrazu pod daným tvarem — blok pak barevně
 // navazuje na podklad místo aby rušil náhodnou barvou.
@@ -3288,11 +3485,20 @@ function doGenerate() {
   }
 
   if (includeBlocks) {
-    const density = parseInt($('gen-density').value || 20) / 100;
+    const density = parseInt($('gen-density').value || 30) / 100;
     const pxForColor = (lvl.image && lvl.image.source === 'custom') ? lvl.image.pixels : null;
-    // Když je pixel gen zapnutý → převést regiony obrazu na bloky stejné barvy.
-    // Když generujeme jen bloky (bez pixelů) → scatter packing přes celou plochu.
-    if (includePixels && pxForColor) {
+    // Block style je nezávislý na pixel stylu. Dedikované režimy:
+    //   tetris  — skládání odshora, bloky do sebe zapadají
+    //   grid    — symetrická mřížka s mezerami
+    //   mirror  — zrcadlová symetrie (2- nebo 4-fold)
+    //   scatter — region-aware (když jsou pixely) nebo packing (bez pixelů)
+    if (_genBlockStyle === 'tetris') {
+      lvl.blocks = genBlocksTetris(density, palette);
+    } else if (_genBlockStyle === 'grid') {
+      lvl.blocks = genBlocksGrid(density, palette);
+    } else if (_genBlockStyle === 'mirror') {
+      lvl.blocks = genBlocksMirror(density, palette);
+    } else if (includePixels && pxForColor) {
       lvl.blocks = genBlocksFromRegions(pxForColor, density, corridorPath, corridorHw);
     } else {
       lvl.blocks = genBlocksPack(density, corridorPath, corridorHw, palette, pxForColor);
@@ -3323,13 +3529,22 @@ function wireGenerator() {
     });
   });
 
+  document.querySelectorAll('.gen-block-style').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _genBlockStyle = btn.dataset.blockStyle;
+      document.querySelectorAll('.gen-block-style').forEach(b => b.classList.toggle('active', b === btn));
+    });
+  });
+
   const genPixelsCk = $('gen-pixels');
   const genBlocksCk = $('gen-blocks');
   const styleRow = $('gen-style-row');
+  const blockStyleRow = $('gen-block-style-row');
   const densityRow = $('gen-density-row');
 
   function updateRows() {
     if (styleRow) styleRow.hidden = !(genPixelsCk && genPixelsCk.checked);
+    if (blockStyleRow) blockStyleRow.hidden = !(genBlocksCk && genBlocksCk.checked);
     if (densityRow) densityRow.hidden = !(genBlocksCk && genBlocksCk.checked);
   }
   if (genPixelsCk) genPixelsCk.addEventListener('change', updateRows);

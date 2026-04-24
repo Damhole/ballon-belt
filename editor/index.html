@@ -168,10 +168,19 @@
                     <button type="button" class="gen-style" data-style="koridor">Koridor</button>
                   </div>
                 </div>
+                <div class="gen-row" id="gen-block-style-row" hidden>
+                  <span class="gen-label">bloky</span>
+                  <div class="gen-styles">
+                    <button type="button" class="gen-block-style active" data-block-style="tetris">Tetris</button>
+                    <button type="button" class="gen-block-style" data-block-style="grid">Mřížka</button>
+                    <button type="button" class="gen-block-style" data-block-style="mirror">Zrcadlo</button>
+                    <button type="button" class="gen-block-style" data-block-style="scatter">Scatter</button>
+                  </div>
+                </div>
                 <div class="gen-row" id="gen-density-row" hidden>
                   <span class="gen-label">hustota</span>
-                  <input type="range" id="gen-density" min="5" max="40" value="20" step="5">
-                  <span id="gen-density-val">20 %</span>
+                  <input type="range" id="gen-density" min="5" max="60" value="30" step="5">
+                  <span id="gen-density-val">30 %</span>
                 </div>
                 <div class="gen-row">
                   <button type="button" id="gen-go" class="btn btn-small btn-accent">🎲 Generovat</button>

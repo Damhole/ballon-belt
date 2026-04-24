@@ -384,6 +384,7 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
+| v43: block styly Tetris/Mřížka/Zrcadlo/Scatter — oddělený výběr od pixel stylu; tetris packing seshora, grid symetrická mřížka, mirror 2/4-fold | `` | 2026-04-24 |
 | v42: bloky z pixelových regionů (flood-fill + best-fit tvar), mandala 5 sub-stylů (ring/star/flower/wave/spiral) | `3df628f` | 2026-04-24 |
 | v41: generátor bloků — packing z palety tvarů (rect/L/T/cross/circle), barva z pixelu pod blokem, fix mazání při off | `74cc0f9` | 2026-04-24 |
 | v40: generátor — plná randomizace všech 7 stylů (typy pruhů, střed kruhů, velikost buněk, sektory, šířka koridoru…) | `9cb7af1` | 2026-04-24 |
