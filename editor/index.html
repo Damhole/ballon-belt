@@ -151,10 +151,9 @@
               </div>
               <div id="gen-panel" class="gen-panel" hidden>
                 <div class="gen-row">
-                  <span class="gen-label">zahrnout</span>
-                  <label class="gen-check"><input type="checkbox" id="gen-pixels" checked> Pixely</label>
-                  <label class="gen-check"><input type="checkbox" id="gen-blocks"> Bloky</label>
-                  <label class="gen-check gen-disabled"><input type="checkbox" disabled> Speciální <span class="gen-soon">brzy</span></label>
+                  <span class="gen-label">režim</span>
+                  <label class="gen-check"><input type="radio" name="gen-mode" value="pixels" checked> Pixely</label>
+                  <label class="gen-check"><input type="radio" name="gen-mode" value="blocks"> Bloky + pixely</label>
                 </div>
                 <div class="gen-row" id="gen-style-row">
                   <span class="gen-label">styl</span>
@@ -168,19 +167,10 @@
                     <button type="button" class="gen-style" data-style="koridor">Koridor</button>
                   </div>
                 </div>
-                <div class="gen-row" id="gen-block-style-row" hidden>
-                  <span class="gen-label">bloky</span>
-                  <div class="gen-styles">
-                    <button type="button" class="gen-block-style active" data-block-style="tetris">Tetris</button>
-                    <button type="button" class="gen-block-style" data-block-style="grid">Mřížka</button>
-                    <button type="button" class="gen-block-style" data-block-style="mirror">Zrcadlo</button>
-                    <button type="button" class="gen-block-style" data-block-style="scatter">Scatter</button>
-                  </div>
-                </div>
-                <div class="gen-row" id="gen-density-row" hidden>
-                  <span class="gen-label">hustota</span>
-                  <input type="range" id="gen-density" min="5" max="60" value="30" step="5">
-                  <span id="gen-density-val">30 %</span>
+                <div class="gen-row" id="gen-block-ratio-row" hidden>
+                  <span class="gen-label">% bloků</span>
+                  <input type="range" id="gen-block-ratio" min="10" max="90" value="50" step="10">
+                  <span id="gen-block-ratio-val">50 %</span>
                 </div>
                 <div class="gen-row">
                   <button type="button" id="gen-go" class="btn btn-small btn-accent">🎲 Generovat</button>

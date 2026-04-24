@@ -678,16 +678,8 @@ body {
 }
 .gen-style:hover { background: var(--bg-3); color: var(--text); }
 .gen-style.active { background: var(--accent); color: #0a1020; border-color: var(--accent); font-weight: 600; }
-.gen-block-style {
-  background: var(--bg-2); color: var(--text-2);
-  border: 0.5px solid var(--border); border-radius: 5px;
-  padding: 3px 9px; font-size: 11px; cursor: pointer; font-family: inherit;
-  transition: background 0.1s, color 0.1s;
-}
-.gen-block-style:hover { background: var(--bg-3); color: var(--text); }
-.gen-block-style.active { background: var(--accent); color: #0a1020; border-color: var(--accent); font-weight: 600; }
-#gen-density { accent-color: var(--accent); width: 110px; }
-#gen-density-val { font-size: 12px; color: var(--accent); min-width: 32px; }
+#gen-block-ratio { accent-color: var(--accent); width: 110px; }
+#gen-block-ratio-val { font-size: 12px; color: var(--accent); min-width: 36px; }
 .btn-accent { background: var(--accent); color: #0a1020; border-color: var(--accent); font-weight: 600; }
 
 /* ═══════════════════════════════════════════════════════════════════════════

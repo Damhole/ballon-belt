@@ -384,6 +384,7 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
+| v44: generátor XOR režim Pixely/Bloky — bloky z rect sekcí (flood-fill + bbox check), slider % bloků, HP 40+, rozloučení s Tetris/Grid/Mirror/Pack | _pending_ | 2026-04-24 |
 | v43: block styly Tetris/Mřížka/Zrcadlo/Scatter — oddělený výběr od pixel stylu; tetris packing seshora, grid symetrická mřížka, mirror 2/4-fold | `ee30af2` | 2026-04-24 |
 | v42: bloky z pixelových regionů (flood-fill + best-fit tvar), mandala 5 sub-stylů (ring/star/flower/wave/spiral) | `3df628f` | 2026-04-24 |
 | v41: generátor bloků — packing z palety tvarů (rect/L/T/cross/circle), barva z pixelu pod blokem, fix mazání při off | `74cc0f9` | 2026-04-24 |
