@@ -13,6 +13,12 @@ Když uživatel řekne „co bude další okruh" nebo „na čem jsme skončili"
 je přečíst BACKLOG.md a navrhnout z něj. Při brainstormu nových nápadů je zapisuj
 do inboxu, ne jen do konverzace — jinak se ztratí mezi session.
 
+**⚠ Po každém commitu `vXX: ...` zapiš řádek do sekce „Hotovo" v BACKLOG.md.**
+Dělá se to zapomínat — patří to k post-commit checklistu (viz níže) stejně
+jako bump verze. Pokud dotyčný okruh byl v hlavní tabulce označený jako
+`💡 idea` nebo `📋 planned`, přepiš ho tam rovnou na `✅ done` s odkazem na
+commit. Uživatel se pak nemusí ptát „udělal jsi záznamy do backlogu?".
+
 ## Struktura
 
 ```
@@ -45,13 +51,19 @@ balloon-belt-gamee.zip   prod bundle (git-ignored, regeneruje se)
 
 Pokud Claude upraví soubor, **musí hned poté spustit sync krok (2)**, jinak prohlížeč uvidí starou verzi.
 
-## Post-commit checklist (VŽDY po commitu bumpnout verzi)
+## Post-commit checklist (VŽDY po commitu bumpnout verzi + zápis do backlogu)
 
-Po každém commitu `vXX: ...` **okamžitě** zvýšit `XX` na další číslo v těchto místech:
+Po každém commitu `vXX: ...` **okamžitě**:
 
-1. `gamee/index.html` — `<title>Balloon Belt vYY</title>`
-2. `gamee/index_local.html` — `<title>Balloon Belt vYY</title>`
-3. `gamee/js/game.js` — checksum string `'balloon-belt-vYY'` (hledej `gamee.updateScore` + případně `balloon-belt-v`)
+**A) Bump verze na `vYY` v těchto místech:**
+1. `gamee/index.html` — `<title>Balloon Belt vYY</title>` + `<div id="version-badge">vYY</div>`
+2. `gamee/index_local.html` — totéž
+3. `gamee/js/game.js` — checksum string `'balloon-belt-vYY'` (4 výskyty, hledej `gamee.updateScore`)
+
+**B) Zápis do [BACKLOG.md](BACKLOG.md):**
+- Přidej řádek do tabulky `## ✅ Hotovo` s commit hashem + datem
+- Pokud okruh byl v hlavní tabulce jako `💡 idea` / `📋 planned`, přepiš ho tam na `✅ done` s odkazem na commit
+- Neskončí v konverzaci zapomenuté — backlog je zdroj pravdy o tom, co je hotové
 
 Další akce podle typu změny:
 - **Změna herní logiky nebo UI** → rebuild prod zip (viz níže)
