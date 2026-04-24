@@ -2981,15 +2981,112 @@ function genPixelsKoridor(palette) {
   return { pixels, path, hw };
 }
 
-function genBlocksScatter(density, corridorPath) {
-  const blocks = [];
-  for (let gy = 0; gy < BE_IMG_GH; gy++) {
+// Tvary pro generátor — podmnožina block palety, několik velikostí aby packing
+// měl z čeho skládat (velké tvary pro hrubý fill, menší pro dovyplnění mezer).
+const BE_GEN_BLOCK_PRESETS = [
+  { shape: 'rect',   w: 5, h: 4 },
+  { shape: 'rect',   w: 4, h: 3 },
+  { shape: 'rect',   w: 3, h: 3 },
+  { shape: 'rect',   w: 3, h: 2 },
+  { shape: 'rect',   w: 2, h: 2 },
+  { shape: 'L',      w: 4, h: 4 },
+  { shape: 'L',      w: 3, h: 3 },
+  { shape: 'T',      w: 5, h: 4 },
+  { shape: 'T',      w: 3, h: 3 },
+  { shape: 'cross',  w: 5, h: 5 },
+  { shape: 'cross',  w: 3, h: 3 },
+  { shape: 'circle', w: 5, h: 5 },
+  { shape: 'circle', w: 3, h: 3 },
+];
+
+// Najde „dominantní" barvu pixel-obrazu pod daným tvarem — blok pak barevně
+// navazuje na podklad místo aby rušil náhodnou barvou.
+function _dominantColorUnder(pixels, px, py, mask, w, h, fallback) {
+  if (!pixels) return fallback;
+  const counts = new Map();
+  for (let ly = 0; ly < h; ly++) for (let lx = 0; lx < w; lx++) {
+    if (!mask[ly][lx]) continue;
+    const py2 = py + ly, px2 = px + lx;
+    if (py2 < 0 || py2 >= pixels.length) continue;
+    const row = pixels[py2];
+    if (!row || px2 < 0 || px2 >= row.length) continue;
+    const c = row[px2];
+    if (c == null || c < 0) continue;
+    counts.set(c, (counts.get(c) || 0) + 1);
+  }
+  let best = fallback, bestN = 0;
+  for (const [c, n] of counts) if (n > bestN) { best = c; bestN = n; }
+  return best;
+}
+
+// Packing generátor: seshora dolů prochází mřížku, snaží se umístit co největší
+// tvar z palety. Respektuje koridor (buffer = hw+1) a existující obsazenost.
+// Barva bloku se odvozuje z pixelu pod ním (dominantní barva přes masku).
+function genBlocksPack(density, corridorPath, hw, activePalette, pixels) {
+  const occupied = Array.from({ length: BE_IMG_GH }, () => new Array(BE_GW).fill(false));
+  if (corridorPath) {
+    const buf = (hw || 3) + 1;
     for (let x = 0; x < BE_GW; x++) {
-      if (Math.random() > density) continue;
-      if (corridorPath && Math.abs(gy - corridorPath[x]) <= 5) continue;
-      blocks.push({ x, y: gy, shape: 0, rotation: 0 });
+      const cy = corridorPath[x];
+      for (let y = Math.max(0, cy - buf); y <= Math.min(BE_IMG_GH - 1, cy + buf); y++) {
+        occupied[y][x] = true;
+      }
     }
   }
+
+  const targetCells = Math.floor(density * BE_IMG_GH * BE_GW);
+  const fallback = (activePalette && activePalette.length) ? activePalette[0] : 4;
+  const blocks = [];
+  let placed = 0;
+
+  function tryPlace(preset, px, py) {
+    const mask = beBlockMask(preset.shape, preset.w, preset.h);
+    if (px < 0 || py < 0 || px + preset.w > BE_GW || py + preset.h > BE_IMG_GH) return 0;
+    for (let ly = 0; ly < preset.h; ly++) for (let lx = 0; lx < preset.w; lx++) {
+      if (mask[ly][lx] && occupied[py + ly][px + lx]) return 0;
+    }
+    let cells = 0;
+    for (let ly = 0; ly < preset.h; ly++) for (let lx = 0; lx < preset.w; lx++) {
+      if (mask[ly][lx]) { occupied[py + ly][px + lx] = true; cells++; }
+    }
+    const color = _dominantColorUnder(pixels, px, py, mask, preset.w, preset.h, fallback);
+    blocks.push({
+      x: px, y: py, w: preset.w, h: preset.h,
+      shape: preset.shape, kind: 'solid',
+      color, hp: 6 + _rInt(0, 6), rotation: 0,
+    });
+    return cells;
+  }
+
+  // Fáze 1 — seed: několik velkých tvarů na náhodné pozice
+  const bigPresets = BE_GEN_BLOCK_PRESETS.filter(p => p.w * p.h >= 9);
+  const seedTries = Math.floor(targetCells / 12);
+  for (let i = 0; i < seedTries && placed < targetCells; i++) {
+    const p = _rChoice(bigPresets);
+    placed += tryPlace(p, _rInt(0, BE_GW - p.w), _rInt(0, BE_IMG_GH - p.h));
+  }
+
+  // Fáze 2 — fill: scan seshora, pro každou volnou buňku zkus od největšího
+  const sortedPresets = BE_GEN_BLOCK_PRESETS.slice().sort((a, b) => b.w * b.h - a.w * a.h);
+  for (let y = 0; y < BE_IMG_GH && placed < targetCells; y++) {
+    for (let x = 0; x < BE_GW && placed < targetCells; x++) {
+      if (occupied[y][x]) continue;
+      if (Math.random() > density + 0.25) continue;
+      for (const p of sortedPresets) {
+        const got = tryPlace(p, x, y);
+        if (got > 0) { placed += got; break; }
+      }
+    }
+  }
+
+  // Fáze 3 — dovyplnění malými 2x2/3x2 kdekoli zbývá mezera
+  const tinyPresets = BE_GEN_BLOCK_PRESETS.filter(p => p.w * p.h <= 6);
+  let tries = 400;
+  while (placed < targetCells && tries-- > 0) {
+    const p = _rChoice(tinyPresets);
+    placed += tryPlace(p, _rInt(0, BE_GW - p.w), _rInt(0, BE_IMG_GH - p.h));
+  }
+
   return blocks;
 }
 
@@ -3004,6 +3101,7 @@ function doGenerate() {
   histPush(lvl, 'generate-' + _genStyle);
 
   let corridorPath = null;
+  let corridorHw = null;
 
   if (includePixels) {
     let pixels;
@@ -3012,7 +3110,7 @@ function doGenerate() {
     else if (_genStyle === 'checker')  pixels = genPixelsChecker(palette);
     else if (_genStyle === 'mandala')  pixels = genPixelsMandala(palette);
     else if (_genStyle === 'kaleido')  pixels = genPixelsKaleido(palette);
-    else if (_genStyle === 'koridor')  { const r = genPixelsKoridor(palette); pixels = r.pixels; corridorPath = r.path; }
+    else if (_genStyle === 'koridor')  { const r = genPixelsKoridor(palette); pixels = r.pixels; corridorPath = r.path; corridorHw = r.hw; }
     else                               pixels = genPixelsStripes(palette);
 
     lvl.image = { source: 'custom', pixels };
@@ -3022,7 +3120,10 @@ function doGenerate() {
 
   if (includeBlocks) {
     const density = parseInt($('gen-density').value || 20) / 100;
-    lvl.blocks = genBlocksScatter(density, corridorPath);
+    const pxForColor = (lvl.image && lvl.image.source === 'custom') ? lvl.image.pixels : null;
+    lvl.blocks = genBlocksPack(density, corridorPath, corridorHw, palette, pxForColor);
+  } else {
+    lvl.blocks = [];
   }
 
   beUpdatePixelToolbarVisibility();
