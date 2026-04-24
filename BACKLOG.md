@@ -31,7 +31,7 @@ Seznam všech nápadů, co chceme vyzkoušet, s prioritou a stavem. Na začátku
 
 | Prio | Stav | Velikost | Nápad |
 |------|------|----------|-------|
-| P1 | 💡 idea | L | **Carrier layout editor** — drag-drop grid nosičů/zdí/speciálů, víc pojmenovaných variant per level, uložit/smazat. Detailní rozpad níže ⬇ |
+| P1 | ✅ done | L | **Carrier layout editor** — drag-drop grid nosičů/zdí/speciálů, multi-variant × per-difficulty, pin na default complexity, status ikona. Commits `a1f9e0a` → `abf5603` (v26–v32). |
 | P1 | 💡 idea | S | **Copy/paste bloků** — `Cmd+C` / `Cmd+V` vybraného bloku nebo multi-selection |
 | P1 | 💡 idea | XS | **Duplicate level** — tlačítko v listě, kopíruje s `-copy` suffixem |
 | P1 | 💡 idea | S | **Multi-select bloků** — shift-click, pak šipky/Del/rotace na všech najednou |
@@ -49,7 +49,7 @@ Seznam všech nápadů, co chceme vyzkoušet, s prioritou a stavem. Na začátku
 
 | Prio | Stav | Velikost | Nápad |
 |------|------|----------|-------|
-| P1 | 📋 planned | L | **Honeycomb nosiče** — prokopávání gridu, ortogonální sousedi, zamčená garáž. Plan: `~/.claude/plans/nice-a-ted-bychom-fizzy-mitten.md` |
+| P1 | ✅ done | L | **Honeycomb nosiče** — prokopávání gridu, ortogonální sousedi, zamčená garáž. Commit `a33ca23` (v21). Plan: `~/.claude/plans/nice-a-ted-bychom-fizzy-mitten.md` |
 | P1 | 💡 idea | XL | **Adaptivní obtížnost podle hráčova progressu** — ukládat historii hráče (čas per level, počet neúspěchů, zbývající nosiče), po každém dokončeném levelu algoritmus/LLM doporučí obtížnost dalšího. Klíčové design otázky níže ⬇ |
 | P2 | 💡 idea | L | **Level generation / procedurální levely** — tři varianty k diskuzi: (a) čistě náhodné, (b) template-based / WaveFunctionCollapse s ručně připravenými „kostrami", (c) LLM-generované pixel arty + layout. Detailní srovnání níže ⬇ |
 
@@ -282,10 +282,17 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
-| v26: carrier layout editor — data model, grid editor, garage queue | _tento commit_ | 2026-04-23 |
+| v32: level status ikona — ✓ done = pin + obrázek, ⚠ = chybí, ✗ = error | `abf5603` | 2026-04-23 |
+| v31: default complexity pin — designer ozbačí výchozí při načtení (📍 v tabu) | `6c41fd9` | 2026-04-23 |
+| v30: přejmenování na Complexity — Type badge čte `lvl.type` napřímo, img-diff pryč | `5259628` | 2026-04-23 |
+| v29: fix garáž — queue carriers teď přispívají do plánovaného počtu projektilů | `c97c466` | 2026-04-23 |
+| editor: generátor označí hidden carriers v hard/medium deterministicky | `f795e44` | 2026-04-23 |
+| backlog: foto → pixel art import nápad + deep dive | `214fd6d` | 2026-04-23 |
+| v28: UI cleanup + honeycomb editor vylepšení (walls flat, gravity v editoru) | `e580c2d` | 2026-04-23 |
+| v26: carrier layout editor (fáze 1–3) — data model, grid editor, garage queue | `a1f9e0a` | 2026-04-23 |
 | v25: editor — block editor, pixel editor, undo/redo | `a71517c` | 2026-04-23 |
-| v23: editor pro správu levelů + live iframe preview | `79190b3` | 2026-04-22 |
-| v22: modulární level systém + dvouosá obtížnost | `4014b5f` | 2026-04-20 |
-| v21: honeycomb aktivace nosičů v1, progression hard levely | `a33ca23` | 2026-04-19 |
+| v23: editor pro správu levelů + live iframe preview | `79190b3` | 2026-04-23 |
+| v22: modulární level systém + dvouosá obtížnost | `4014b5f` | 2026-04-23 |
+| v21: honeycomb aktivace nosičů v1, progression hard levely, hard-block trychtýře | `a33ca23` | 2026-04-23 |
 
 _(starší v git logu — `git log --oneline`)_
