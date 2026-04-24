@@ -730,23 +730,35 @@ function simulateShotReaches(sx,sy,angle,targetCi,maxSteps=240){
   return false;
 }
 function hasLineOfSight(x1,y1,x2,y2,ownColor){
-  // Paprsek z (x1,y1) do (x2,y2) – vrátí false pokud kříží špatnou barvu
+  // Paprsek z (x1,y1) do (x2,y2) – vrátí false pokud kříží špatnou barvu.
+  // Tah 7c: při diagonálním přechodu mezi buňkami kontroluje OBA sousední
+  // rohy – pokud jsou oba blokované, paprsek tudy neprojde (žádná „corner-cut"
+  // štěrbina). Tím se zabrání detekci cíle za zdivem, které má jen diagonální
+  // kontakt mezi rohy bloků.
   const dx=x2-x1,dy=y2-y1;
   const steps=Math.max(4,Math.ceil(Math.sqrt(dx*dx+dy*dy)/(SCALE*0.5)));
+  let lastGx=Math.floor(x1/SCALE), lastGy=Math.floor(y1/SCALE);
+  const cellBlocks=(gx,gy)=>{
+    if(gy<0||gy>=IMG_GH||gx<0||gx>=GW)return false;
+    const blk=findBlockAtPixel(gx,gy);
+    if(blk){
+      if(blk.kind==='mystery')return false;
+      return blk.color!==ownColor;
+    }
+    const cell=grid[gy][gx];
+    return cell!==-1 && cell!==ownColor;
+  };
   for(let s=1;s<steps;s++){
     const t=s/steps;
     const gx=Math.floor((x1+dx*t)/SCALE);
     const gy=Math.floor((y1+dy*t)/SCALE);
-    if(gy<0||gy>=IMG_GH||gx<0||gx>=GW)continue;
-    // Blok kryje pixel pod sebou – pro LoS se řídíme barvou bloku.
-    const blk=findBlockAtPixel(gx,gy);
-    if(blk){
-      if(blk.kind==='mystery')continue; // mystery je pro LoS transparentní
-      if(blk.color!==ownColor)return false;
-      continue;
+    if(gx===lastGx && gy===lastGy) continue;
+    if(gx!==lastGx && gy!==lastGy){
+      // Diagonální přechod — obě buňky u rohu musí být volné.
+      if(cellBlocks(gx,lastGy) && cellBlocks(lastGx,gy)) return false;
     }
-    const cell=grid[gy][gx];
-    if(cell!==-1&&cell!==ownColor)return false;
+    if(cellBlocks(gx,gy)) return false;
+    lastGx=gx; lastGy=gy;
   }
   return true;
 }
