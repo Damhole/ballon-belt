@@ -509,7 +509,11 @@ function pickCannonShot(ci,cannonXPos,cannonYPos){
   // zároveň nezanedbá druhou stranu, když tam zbývá víc kuliček.
   const midX=(CANNON_MIN_X+CANNON_MAX_X)/2;
   const pool=candidates.filter(c=>c.type!=='blocked');
-  const active=pool.length?pool:candidates;
+  // Tah 5 (centrální fix): pokud nemáme ani jednoho non-blocked kandidáta,
+  // nestřílíme vůbec (null). Kanon tak přestane pálit do slepých uliček;
+  // caller pak přeskočí queue item. Rescue-nosiče mechanismus hráče pojistí.
+  if(!pool.length) return null;
+  const active=pool;
   if(cannonSidePref===0||cannonSideShots>=CANNON_SIDE_COMMIT){
     let leftC=0,rightC=0;
     for(const c of active){
@@ -591,19 +595,107 @@ function randomFreePos(){
 }
 
 function respawnParticle(p){
-  const pos=randomFreePos();
-  p.x=pos.x; p.y=pos.y;
-  // Namíř k náhodně zvolenému (váženému) cíli – pixel nebo blok. Váha bloku
-  // = zbývající HP, takže čerstvý blok má silný "pull", skoro zničený slabší.
+  // Tah 5f: „chytrý escape". Když je projektil zaseknutý (lepí se na hranu
+  // nepřátelského bloku / pixelu), prohledej okolí ve 24 směrech a najdi
+  // nejbližší bod, odkud je volná viditelnost (LoS) na cíl. Tam otoč vektor
+  // rychlosti. Projektil se prostřelí přes několik cel prázdného/vlastního
+  // prostoru na pozici s čistou střelou a pak trefí cíl. Žádný teleport,
+  // žádný ping-pong, žádné ničení projektilu.
+  if(!hasAnyTargetForColor(p.ci)){ p.phase='pop'; p.popX=p.x; p.popY=p.y; p.onPop(); return; }
+  // Tah 7: když je barva uzamčená (žádná LoS-dostupná cíl), nedělej smart
+  // escape – jen rozhoď do největšího otevřeného směru, ať se odlepí.
+  const losNear=losReachableTargetForColor(p.ci,p.x,p.y);
+  if(!losNear){
+    const DIRS=24;
+    let openA=null, openLen=0;
+    for(let i=0;i<DIRS;i++){
+      const a=(i/DIRS)*Math.PI*2 + Math.random()*0.1;
+      const dx=Math.cos(a), dy=Math.sin(a);
+      let len=0;
+      for(let step=1;step<=8;step++){
+        const gx=Math.floor((p.x+dx*step*SCALE)/SCALE);
+        const gy=Math.floor((p.y+dy*step*SCALE)/SCALE);
+        if(gy<0||gy>=GH||gx<0||gx>=GW) break;
+        const blk=findBlockAtPixel(gx,gy);
+        if(blk&&blk.kind!=='mystery'&&blk.color!==p.ci) break;
+        const cell=grid[gy]&&grid[gy][gx];
+        if(cell!==undefined&&cell!==-1&&cell!==p.ci) break;
+        len++;
+      }
+      if(len>openLen){ openLen=len; openA=a; }
+    }
+    if(openA!==null){
+      p.vx=Math.cos(openA)*PSPEED;
+      p.vy=Math.sin(openA)*PSPEED;
+    }
+    p.stuckT=0; p.bounceStreak=0;
+    return;
+  }
   const near=pickTargetForColor(p.ci)||nearestTargetForColor(p.ci,p.x,p.y);
-  if(near){
+  if(!near){ p.phase='pop'; p.popX=p.x; p.popY=p.y; p.onPop(); return; }
+  // 1) Pokud z aktuální pozice vidíme cíl, namiř přímo.
+  if(hasLineOfSight(p.x,p.y,near.tx,near.ty,p.ci)){
     const a=Math.atan2(near.ty-p.y,near.tx-p.x)+(Math.random()-0.5)*PSPREAD;
     p.vx=Math.cos(a)*PSPEED; p.vy=Math.sin(a)*PSPEED;
-  } else {
-    const a=Math.random()*Math.PI*2;
-    p.vx=Math.cos(a)*PSPEED; p.vy=Math.sin(a)*PSPEED;
+    p.stuckT=0; p.bounceStreak=0;
+    return;
   }
-  p.stuckT=0; p.bounceStreak=0; p.totalT=0;
+  // 2) Prohledej 24 směrů × několik vzdáleností – najdi nejbližší bod, ze
+  // kterého je LoS na cíl a cesta k němu vede přes prázdno/vlastní barvu.
+  const DIRS=24;
+  let bestA=null, bestDist=Infinity;
+  for(let i=0;i<DIRS;i++){
+    const a=(i/DIRS)*Math.PI*2;
+    const dx=Math.cos(a), dy=Math.sin(a);
+    for(let step=2;step<=16;step++){
+      const rx=p.x+dx*step*SCALE*0.5;
+      const ry=p.y+dy*step*SCALE*0.5;
+      if(rx<5||rx>355||ry<5||ry>GH*SCALE-5) break;
+      const gx=Math.floor(rx/SCALE), gy=Math.floor(ry/SCALE);
+      if(gy<0||gy>=GH||gx<0||gx>=GW) break;
+      const blk=findBlockAtPixel(gx,gy);
+      if(blk&&blk.kind!=='mystery'&&blk.color!==p.ci) break;
+      const cell=grid[gy]&&grid[gy][gx];
+      if(cell!==undefined&&cell!==-1&&cell!==p.ci) break;
+      if(hasLineOfSight(rx,ry,near.tx,near.ty,p.ci)){
+        if(step<bestDist){ bestDist=step; bestA=a; }
+        break;
+      }
+    }
+  }
+  if(bestA!==null){
+    p.vx=Math.cos(bestA)*PSPEED;
+    p.vy=Math.sin(bestA)*PSPEED;
+    p.stuckT=0; p.bounceStreak=0;
+    return;
+  }
+  // 3) Žádná escape pozice v okolí → přesměruj aspoň do největšího
+  // otevřeného směru (greedy) aby se projektil pohnul. Stuck counter
+  // neresetujeme – pokud to nepomůže, další respawn zkusí znovu.
+  let openA=null, openLen=0;
+  for(let i=0;i<DIRS;i++){
+    const a=(i/DIRS)*Math.PI*2;
+    const dx=Math.cos(a), dy=Math.sin(a);
+    let len=0;
+    for(let step=1;step<=12;step++){
+      const gx=Math.floor((p.x+dx*step*SCALE)/SCALE);
+      const gy=Math.floor((p.y+dy*step*SCALE)/SCALE);
+      if(gy<0||gy>=GH||gx<0||gx>=GW) break;
+      const blk=findBlockAtPixel(gx,gy);
+      if(blk&&blk.kind!=='mystery'&&blk.color!==p.ci) break;
+      const cell=grid[gy]&&grid[gy][gx];
+      if(cell!==undefined&&cell!==-1&&cell!==p.ci) break;
+      len++;
+    }
+    if(len>openLen){ openLen=len; openA=a; }
+  }
+  if(openA!==null){
+    p.vx=Math.cos(openA)*PSPEED;
+    p.vy=Math.sin(openA)*PSPEED;
+    p.stuckT=0;
+    // bounceStreak neresetujeme – pokud se zasekne znova, postupně
+    // doroste a zkusíme další escape.
+  }
 }
 
 // Odsimuluje let projektilu stejnou fyzikou jako updateParticles (odraz od stěn, pohyb dt=1/60).
@@ -659,29 +751,92 @@ function hasLineOfSight(x1,y1,x2,y2,ownColor){
   return true;
 }
 
-function steerAfterBounce(p){
-  // Po odrazu si vybereme nejbližší platný cíl – ať už pixel nebo blok.
-  const near=nearestTargetForColor(p.ci,p.x,p.y);
-  if(!near)return;
-  const dx=near.tx-p.x,dy=near.ty-p.y;
-  const baseAngle=Math.atan2(dy,dx);
-  if(hasLineOfSight(p.x,p.y,near.tx,near.ty,p.ci)){
-    // Volná cesta → namíř k cíli s mírným rozptylem
-    const angle=baseAngle+(Math.random()-0.5)*PSPREAD;
-    p.vx=Math.cos(angle)*PSPEED;
-    p.vy=Math.sin(angle)*PSPEED;
-  } else if(p.y>=(IMG_GH-2)*SCALE){
-    // V buffer zóně pod obrazcem a cesta blokována → vždy zamíř nahoru
-    // s náhodným horizontálním rozptylem aby zkoušela různé vstupní sloupce
-    const angle=-Math.PI/2+(Math.random()-0.5)*Math.PI*0.85;
-    p.vx=Math.cos(angle)*PSPEED;
-    p.vy=Math.sin(angle)*PSPEED;
-  } else {
-    // Uvnitř obrazce, cesta blokována → prohledej kolem překážky ±120°
-    const angle=baseAngle+(Math.random()-0.5)*Math.PI*1.3;
-    p.vx=Math.cos(angle)*PSPEED;
-    p.vy=Math.sin(angle)*PSPEED;
+// Vrátí nejbližší cíl barvy ci, ke kterému je z (px,py) volná LoS.
+// Pokud žádný → null = „barva uzamčena", projektil má jen poletovat.
+function losReachableTargetForColor(ci,px,py){
+  let best=null, bd=Infinity;
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    if(b.kind!=='mystery'&&b.color!==ci)continue;
+    const tx=(b.x+b.w/2)*SCALE, ty=(b.y+b.h/2)*SCALE;
+    const d=(tx-px)**2+(ty-py)**2;
+    if(d<bd && hasLineOfSight(px,py,tx,ty,ci)){bd=d;best={tx,ty,kind:'block',ref:b};}
   }
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    if(grid[y][x]!==ci)continue;
+    if(findBlockAtPixel(x,y))continue;
+    const tx=x*SCALE+SCALE/2, ty=y*SCALE+SCALE/2;
+    const d=(tx-px)**2+(ty-py)**2;
+    if(d<bd && hasLineOfSight(px,py,tx,ty,ci)){bd=d;best={tx,ty,kind:'pixel'};}
+  }
+  return best;
+}
+
+function steerAfterBounce(p){
+  // Tah 7: po odrazu přepočítej směr JEN když má projektil z aktuální pozice
+  // volnou LoS na nějaký cíl své barvy. Pokud je barva uzamčená (všechny
+  // cíle schované za překážkami), nesnaž se prokopat — nech přirozenou
+  // fyziku odrazu. Jakmile hráč barvu uvolní, další odraz automaticky
+  // přepne do steering módu.
+  const near=losReachableTargetForColor(p.ci,p.x,p.y);
+  if(!near){
+    // Tah 7b: barva uzamčená – jemně rozptyl aktuální vektor (±~16°),
+    // aby projektil nezacyklil v perfektním ping-pong loopu mezi dvěma
+    // stěnami. Směr zůstává volný (nemíří k cíli), jen se rozbije rezonance.
+    const cur=Math.atan2(p.vy,p.vx);
+    const a=cur+(Math.random()-0.5)*Math.PI*0.18;
+    p.vx=Math.cos(a)*PSPEED;
+    p.vy=Math.sin(a)*PSPEED;
+    return;
+  }
+  const dx=near.tx-p.x, dy=near.ty-p.y;
+  const angle=Math.atan2(dy,dx)+(Math.random()-0.5)*PSPREAD;
+  p.vx=Math.cos(angle)*PSPEED;
+  p.vy=Math.sin(angle)*PSPEED;
+}
+
+// Tah 6: swept collision. Vrátí první buňku na cestě (x1,y1)->(x2,y2),
+// která má blok nebo nenulovou barvu. Při diagonálním přechodu buněk
+// zkontroluje oba sousední rohy → žádný „corner-cut" tunelem mezi bloky.
+function firstCollisionOnPath(x1,y1,x2,y2,ci){
+  const dx=x2-x1, dy=y2-y1;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  if(dist<0.5) return null;
+  const steps=Math.max(4, Math.ceil(dist*2));
+  let lastGx=Math.floor(x1/SCALE), lastGy=Math.floor(y1/SCALE);
+  for(let s=1;s<=steps;s++){
+    const t=s/steps;
+    const cx=x1+dx*t, cy=y1+dy*t;
+    const gx=Math.floor(cx/SCALE), gy=Math.floor(cy/SCALE);
+    if(gx===lastGx && gy===lastGy) continue;
+    // Diagonální přechod: corner-cut JEN když jsou OBA sousední rohy
+    // blokované (jinak projektil legitimně prošel volným sousedem do cílové
+    // buňky a umělé odrazení by ho vrhlo zpět do blokovaného souseda).
+    if(gx!==lastGx && gy!==lastGy){
+      const aX=gx, aY=lastGy, bX=lastGx, bY=gy;
+      const aIn=(aY>=0&&aY<GH&&aX>=0&&aX<GW);
+      const bIn=(bY>=0&&bY<GH&&bX>=0&&bX<GW);
+      const blkA=aIn?findBlockAtPixel(aX,aY):null;
+      const blkB=bIn?findBlockAtPixel(bX,bY):null;
+      const celA=aIn?grid[aY][aX]:-1;
+      const celB=bIn?grid[bY][bX]:-1;
+      const blockedA=!!blkA || (celA>-1 && celA!==ci);
+      const blockedB=!!blkB || (celB>-1 && celB!==ci);
+      if(blockedA && blockedB){
+        if(blkA) return {gx:aX, gy:aY, cx, cy, blk:blkA, cell:-1};
+        if(blkB) return {gx:bX, gy:bY, cx, cy, blk:blkB, cell:-1};
+        return {gx:aX, gy:aY, cx, cy, blk:null, cell:celA};
+      }
+    }
+    if(gy>=0&&gy<GH&&gx>=0&&gx<GW){
+      const blk=findBlockAtPixel(gx,gy);
+      if(blk) return {gx, gy, cx, cy, blk, cell:-1};
+      const cell=grid[gy][gx];
+      if(cell>-1) return {gx, gy, cx, cy, blk:null, cell};
+    }
+    lastGx=gx; lastGy=gy;
+  }
+  return null;
 }
 
 function updateParticles(dt){
@@ -743,7 +898,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v45');
+          gamee.updateScore(score,playTime,'balloon-belt-v46');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -761,9 +916,11 @@ function updateParticles(dt){
       continue;
     }
 
-    // Celkový čas letu – absolutní pojistka proti nekonečným smyčkám
+    // Tah 5e: žádný totalT cap. Projektil žije dokud netrefí vlastní cíl
+    // nebo dokud barva nemá žádný živý cíl (řeší check níže na
+    // hasAnyTargetForColor). Hráč jinak ztratí projektily naprázdno a
+    // nedohraje level.
     p.totalT=(p.totalT||0)+dt;
-    if(p.totalT>6.0){respawnParticle(p);}
 
     // Udržuj konstantní rychlost (billiard – bez wobble, přímý let)
     const spd=Math.sqrt(p.vx*p.vx+p.vy*p.vy)||1;
@@ -783,11 +940,21 @@ function updateParticles(dt){
     if(ny<2){ny=2;p.vy=Math.abs(p.vy);wallBounced=true;}
     if(ny>YMAX){ny=YMAX;p.vy=-Math.abs(p.vy);wallBounced=true;}
 
-    // Kontrola gridu
-    const gx=Math.floor(nx/SCALE), gy=Math.floor(ny/SCALE);
-    const cell=(gy>=0&&gy<GH&&gx>=0&&gx<GW)?grid[gy][gx]:-1;
-    // Bloky stojí nad pixely – musí se testovat dřív, protože mají přednost.
-    const hitBlock=(gy>=0&&gy<GH&&gx>=0&&gx<GW)?findBlockAtPixel(gx,gy):null;
+    // Kontrola gridu – swept collision (Tah 6) zabrání corner-cut tunelům
+    let gx, gy, cell, hitBlock;
+    const hit=firstCollisionOnPath(p.x,p.y,nx,ny,p.ci);
+    if(hit){
+      gx=hit.gx; gy=hit.gy;
+      hitBlock=hit.blk||null;
+      cell=hit.cell;
+      // Posuň projektil na bod kolize (nx/ny), aby odrazové směrování
+      // vycházelo ze správné polohy a nespadlo do dříve přeskočené buňky.
+      nx=hit.cx; ny=hit.cy;
+    } else {
+      gx=Math.floor(nx/SCALE); gy=Math.floor(ny/SCALE);
+      cell=(gy>=0&&gy<GH&&gx>=0&&gx<GW)?grid[gy][gx]:-1;
+      hitBlock=(gy>=0&&gy<GH&&gx>=0&&gx<GW)?findBlockAtPixel(gx,gy):null;
+    }
 
     let anyBounce=wallBounced;
 
@@ -814,6 +981,18 @@ function updateParticles(dt){
         }
       } else if(hitBlock.color===p.ci){
         // Solid blok, color match → blok utrpí 1 HP (1 projektil = 1 HP), projektil pop
+        {
+          const oldGx=Math.floor(p.x/SCALE), oldGy=Math.floor(p.y/SCALE);
+          const steps=Math.max(1,Math.abs(gx-oldGx)+Math.abs(gy-oldGy));
+          const crossed=[];
+          for(let s=1;s<=steps;s++){
+            const fx=p.x+(nx-p.x)*(s/steps), fy=p.y+(ny-p.y)*(s/steps);
+            const cx=Math.floor(fx/SCALE), cy=Math.floor(fy/SCALE);
+            const blk=findBlockAtPixel(cx,cy);
+            if(blk&&blk!==hitBlock)crossed.push({cx,cy,col:blk.color,hp:blk.hp});
+          }
+          if(crossed.length) console.log('[BB-DEBUG] block hit CROSSED OTHER BLOCK', {ci:p.ci, from:[oldGx,oldGy], to:[gx,gy], hitCol:hitBlock.color, hitHP:hitBlock.hp, crossed});
+        }
         hitBlock.hp-=1;
         p.phase='pop'; p.popX=nx; p.popY=ny; p.onPop();
         spawnPopShards(nx,ny,p.color);
@@ -835,12 +1014,37 @@ function updateParticles(dt){
         if(prevGx!==gx)p.vx=-p.vx;
         if(prevGy!==gy)p.vy=-p.vy;
         if(prevGx===gx&&prevGy===gy){p.vx=-p.vx;p.vy=-p.vy;}
+        // Tah 5g + 6c: bezpečný nudge – posuň jen pokud by cesta
+        // nevrazila do dalšího bloku/pixelu (jinak zůstaň, další frame
+        // to zkusí znovu s flipnutou rychlostí).
+        {
+          const _nx=p.x+p.vx*dt, _ny=p.y+p.vy*dt;
+          if(!firstCollisionOnPath(p.x,p.y,_nx,_ny,p.ci)){ p.x=_nx; p.y=_ny; }
+        }
         anyBounce=true;
         p.stuckT+=dt;
-        if(p.stuckT>1.2){respawnParticle(p);}
+        if(p.stuckT>1.2){
+          console.log('[BB-DEBUG] respawn (stuck)', {ci:p.ci, atX:p.x|0, atY:p.y|0, blockColor:hitBlock.color, blockHP:hitBlock.hp});
+          respawnParticle(p);
+        }
       }
     } else if(cell===p.ci){
       // Vlastní barva → znič pixel
+      {
+        // Diagnostika: jestli se mezi starou a novou buňkou nějaký blok
+        // „přeskočil" (corner-cut / tunnel), vypíšeme to. Pokud byla jakákoli
+        // buňka na cestě pokryta blokem, projektil by se měl odrazit → log.
+        const oldGx=Math.floor(p.x/SCALE), oldGy=Math.floor(p.y/SCALE);
+        const steps=Math.max(1,Math.abs(gx-oldGx)+Math.abs(gy-oldGy));
+        const crossed=[];
+        for(let s=1;s<=steps;s++){
+          const fx=p.x+(nx-p.x)*(s/steps), fy=p.y+(ny-p.y)*(s/steps);
+          const cx=Math.floor(fx/SCALE), cy=Math.floor(fy/SCALE);
+          const blk=findBlockAtPixel(cx,cy);
+          if(blk)crossed.push({cx,cy,col:blk.color,hp:blk.hp});
+        }
+        if(crossed.length) console.log('[BB-DEBUG] pixel destroy CROSSED BLOCK', {ci:p.ci, from:[oldGx,oldGy], to:[gx,gy], crossed});
+      }
       grid[gy][gx]=-1;
       if(gravityOn)applyGravityToCol(grid,gx);
       drawGrid();
@@ -856,6 +1060,11 @@ function updateParticles(dt){
       if(prevGx!==gx)p.vx=-p.vx;
       if(prevGy!==gy)p.vy=-p.vy;
       if(prevGx===gx&&prevGy===gy){p.vx=-p.vx;p.vy=-p.vy;}
+      // Tah 5g + 6c: bezpečný nudge (viz výše).
+      {
+        const _nx=p.x+p.vx*dt, _ny=p.y+p.vy*dt;
+        if(!firstCollisionOnPath(p.x,p.y,_nx,_ny,p.ci)){ p.x=_nx; p.y=_ny; }
+      }
       anyBounce=true;
       p.stuckT+=dt;
       if(p.stuckT>1.2){respawnParticle(p);}
@@ -2838,7 +3047,16 @@ function checkLaunchPoint(prevAnim, curAnim){
       continue;
     }
     const avail=getAvailableColors(grid);
-    if(!avail.has(color)){
+    // Blok té barvy je taky validní cíl (nezapočítává se do getAvailableColors, ta
+    // čte jen odkryté pixely). Bez téhle větve by koule na pásu projela dál, i když
+    // je vedle ní živý blok shodné barvy → cannon nikdy nedostane item té barvy.
+    const hasLiveBlockOfColor=currentBlocks.some(b=>b.hp>0&&(b.kind==='mystery'||b.color===color));
+    // Tah 5c: proveditelnost kanonu ověřujeme VŽDY (i když jsou cílem
+    // pixely – „exposed" neznamená „reachable", pixel může být schovaný
+    // za jinými pixely). Když kanon nemá žádnou čistou trajektorii, ball
+    // projede pásem místo aby se spotřebovala naprázdno.
+    const cannonHasShot=!!pickCannonShot(color,cannonX,CANNON_Y);
+    if((!avail.has(color)&&!hasLiveBlockOfColor)||!cannonHasShot){
       // Špatná barva – projede dál
       noMatchPasses++;
       // Okamžitá kontrola: pokud žádná barva na pásu nesedí → nemusíme čekat na kolečko
@@ -2856,7 +3074,13 @@ function checkLaunchPoint(prevAnim, curAnim){
       continue;
     }
 
-    const exposedCount=getReachableCountOfColor(grid,color);
+    // Exposed pixely + HP živých bloků té barvy (1 HP = 1 projektil). Bez bloků
+    // v tomhle součtu by ball projela přes launch point bez firingu, když cílové
+    // pixely jsou celé pod blokem — cannon pak nemá co spotřebovat.
+    const blockHpOfColor=currentBlocks
+      .filter(b=>b.hp>0&&(b.kind==='mystery'||b.color===color))
+      .reduce((s,b)=>s+b.hp,0);
+    const exposedCount=getReachableCountOfColor(grid,color)+blockHpOfColor;
     const alreadyFlying=particles.filter(p=>p.phase==='fly'&&p.ci===color).length;
     const inQueue=gunQueue.filter(q=>q.ci===color).length;
     const totalActive=alreadyFlying+inQueue;
@@ -2894,7 +3118,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v45');
+    gamee.updateScore(score,playTime,'balloon-belt-v46');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -2959,7 +3183,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v45');
+  gamee.updateScore(score,playTime,'balloon-belt-v46');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -3372,6 +3596,7 @@ function beltLoop(ts){
         }
       }
       if(!shot){
+        console.log('[BB-DEBUG] cannon SKIP (no target)', {ci:item.ci});
         gunQueue.shift();
         gunFireTimer=0;
       } else {
@@ -3390,6 +3615,7 @@ function beltLoop(ts){
             const a=cannonAngle+(Math.random()-0.5)*0.06;
             const muzzleX=cannonX+Math.cos(cannonAngle)*14;
             const muzzleY=CANNON_Y+Math.sin(cannonAngle)*14;
+            console.log('[BB-DEBUG] cannon FIRE', {ci:item.ci, targetKind:shot.kind, tBlockColor: shot.blockRef?shot.blockRef.color:null, tBlockHP: shot.blockRef?shot.blockRef.hp:null, type:shot.type});
             particles.push({
               x:muzzleX,y:muzzleY,
               vx:Math.cos(a)*PSPEED,vy:Math.sin(a)*PSPEED,
@@ -3489,7 +3715,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v45');
+      gamee.updateScore(score,playTime,'balloon-belt-v46');
       event.detail.callback();
     });
 
