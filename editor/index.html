@@ -138,6 +138,8 @@
               </div>
               <div class="pt-row">
                 <button type="button" id="pt-clear-all" class="btn btn-small btn-danger">vyčistit celé plátno</button>
+                <button type="button" id="pt-import-foto" class="btn btn-small">📷 Import foto</button>
+                <input type="file" id="pt-foto-file" accept="image/*" hidden>
               </div>
             </div>
             <div class="block-editor">
@@ -305,6 +307,32 @@
       <span id="last-action" class="hint"></span>
     </footer>
   </div>
+  <!-- Photo import modal (musí být PŘED script tagem, jinak boot() nenajde prvky) -->
+  <div id="foto-import-modal" class="fi-overlay" hidden>
+    <div class="fi-modal">
+      <div class="fi-header">
+        <h3 class="fi-title">Import fotky do levelu</h3>
+        <p class="fi-subtitle">přetaž pro posun · kolečko = zoom</p>
+      </div>
+      <div class="fi-body">
+        <div class="fi-crop-wrap">
+          <canvas id="fi-crop-canvas" width="360" height="270"></canvas>
+        </div>
+        <div class="fi-quant-wrap">
+          <canvas id="fi-quant-canvas" width="180" height="135"></canvas>
+          <div class="fi-quant-label">náhled 36×27</div>
+          <label class="fi-dither-label">
+            <input type="checkbox" id="fi-dither"> dithering
+          </label>
+        </div>
+      </div>
+      <div class="fi-footer">
+        <button type="button" id="fi-cancel" class="btn">Zrušit</button>
+        <button type="button" id="fi-confirm" class="btn btn-primary">Potvrdit import</button>
+      </div>
+    </div>
+  </div>
+
   <script src="./js/editor.js"></script>
 </body>
 </html>

@@ -607,6 +607,86 @@ body {
 .pt-colors .be-color-dot { width: 22px; height: 22px; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   PHOTO IMPORT MODAL
+   ═══════════════════════════════════════════════════════════════════════════ */
+.fi-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.fi-overlay[hidden] { display: none; }
+
+.fi-modal {
+  background: var(--bg-1);
+  border: 0.5px solid var(--border-light);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 600px;
+  width: calc(100vw - 40px);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+}
+
+.fi-header { display: flex; flex-direction: column; gap: 2px; }
+.fi-title { margin: 0; font-size: 15px; font-weight: 600; }
+.fi-subtitle { margin: 0; font-size: 11px; color: var(--text-3); }
+
+.fi-body {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.fi-crop-wrap canvas {
+  display: block;
+  border-radius: 6px;
+  border: 0.5px solid var(--border);
+  cursor: grab;
+  user-select: none;
+  /* scale down if viewport is narrow */
+  max-width: calc(100vw - 250px);
+}
+
+.fi-quant-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.fi-quant-wrap canvas {
+  display: block;
+  border-radius: 4px;
+  border: 0.5px solid var(--border);
+  image-rendering: pixelated;
+}
+.fi-quant-label {
+  font-size: 10px;
+  color: var(--text-3);
+  text-align: center;
+}
+.fi-dither-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.fi-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    CARRIER LAYOUT EDITOR — grid 7×rows + paleta tile types
    ═══════════════════════════════════════════════════════════════════════════ */
 .carrier-layout-section > label { font-weight: 500; }

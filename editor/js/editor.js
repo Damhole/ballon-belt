@@ -2417,6 +2417,239 @@ function wirePixelToolbar() {
   // Clear all
   const clr = $('pt-clear-all');
   if (clr) clr.addEventListener('click', beClearAllPixels);
+
+  wirePhotoImport();
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Photo import — crop + quantize fotky do herní palety (36×27)
+// ─────────────────────────────────────────────────────────────────
+
+const FI_PAL_RGB = BE_COLORS.map(hex => [
+  parseInt(hex.slice(1, 3), 16),
+  parseInt(hex.slice(3, 5), 16),
+  parseInt(hex.slice(5, 7), 16),
+]);
+
+const fiState = {
+  img: null,
+  zoom: 1,       // canvas px per original image px
+  panX: 0,       // original-image px at crop left edge
+  panY: 0,       // original-image px at crop top edge
+  dragging: false,
+  lastX: 0,
+  lastY: 0,
+};
+
+function fiNearest(r, g, b) {
+  let best = 0, bestD = Infinity;
+  for (let i = 0; i < FI_PAL_RGB.length; i++) {
+    const [pr, pg, pb] = FI_PAL_RGB[i];
+    const d = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2;
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+}
+
+function fiQuantize(imgData, w, h, dither) {
+  const buf = new Float32Array(imgData.data);
+  const result = [];
+  for (let y = 0; y < h; y++) {
+    result.push(new Array(w));
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const r = Math.max(0, Math.min(255, buf[i]));
+      const g = Math.max(0, Math.min(255, buf[i + 1]));
+      const b = Math.max(0, Math.min(255, buf[i + 2]));
+      const ci = fiNearest(r, g, b);
+      result[y][x] = ci;
+      if (dither) {
+        const [pr, pg, pb] = FI_PAL_RGB[ci];
+        const er = r - pr, eg = g - pg, eb = b - pb;
+        for (const [dx, dy, f] of [[1, 0, 7 / 16], [-1, 1, 3 / 16], [0, 1, 5 / 16], [1, 1, 1 / 16]]) {
+          const nx = x + dx, ny = y + dy;
+          if (nx >= 0 && nx < w && ny < h) {
+            const ni = (ny * w + nx) * 4;
+            buf[ni] += er * f;
+            buf[ni + 1] += eg * f;
+            buf[ni + 2] += eb * f;
+          }
+        }
+      }
+    }
+  }
+  return result;
+}
+
+function fiClampPan() {
+  const cv = $('fi-crop-canvas');
+  if (!fiState.img || !cv) return;
+  const srcW = cv.width / fiState.zoom;
+  const srcH = cv.height / fiState.zoom;
+  const iW = fiState.img.naturalWidth, iH = fiState.img.naturalHeight;
+  fiState.panX = Math.max(0, Math.min(Math.max(0, iW - srcW), fiState.panX));
+  fiState.panY = Math.max(0, Math.min(Math.max(0, iH - srcH), fiState.panY));
+}
+
+function fiRenderCrop() {
+  const cv = $('fi-crop-canvas');
+  if (!cv || !fiState.img) return;
+  const ctx = cv.getContext('2d');
+  const cW = cv.width, cH = cv.height;
+  const srcW = cW / fiState.zoom, srcH = cH / fiState.zoom;
+  ctx.clearRect(0, 0, cW, cH);
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0, 0, cW, cH);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'low';
+  ctx.drawImage(fiState.img, fiState.panX, fiState.panY, srcW, srcH, 0, 0, cW, cH);
+  // světlá mřížka 36×27
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 0.5;
+  const cw = cW / BE_GW, ch = cH / BE_IMG_GH;
+  for (let x = 0; x <= BE_GW; x++) { ctx.beginPath(); ctx.moveTo(x * cw, 0); ctx.lineTo(x * cw, cH); ctx.stroke(); }
+  for (let y = 0; y <= BE_IMG_GH; y++) { ctx.beginPath(); ctx.moveTo(0, y * ch); ctx.lineTo(cW, y * ch); ctx.stroke(); }
+}
+
+function fiRenderQuant() {
+  const cropCv = $('fi-crop-canvas');
+  const quantCv = $('fi-quant-canvas');
+  if (!cropCv || !quantCv) return;
+  const tmp = document.createElement('canvas');
+  tmp.width = BE_GW; tmp.height = BE_IMG_GH;
+  const ctxTmp = tmp.getContext('2d');
+  ctxTmp.imageSmoothingEnabled = true;
+  ctxTmp.imageSmoothingQuality = 'high';
+  ctxTmp.drawImage(cropCv, 0, 0, BE_GW, BE_IMG_GH);
+  const imgData = ctxTmp.getImageData(0, 0, BE_GW, BE_IMG_GH);
+  const dither = $('fi-dither') && $('fi-dither').checked;
+  const pixels = fiQuantize(imgData, BE_GW, BE_IMG_GH, dither);
+  const ctx = quantCv.getContext('2d');
+  const sw = quantCv.width / BE_GW, sh = quantCv.height / BE_IMG_GH;
+  for (let y = 0; y < BE_IMG_GH; y++) {
+    for (let x = 0; x < BE_GW; x++) {
+      const ci = pixels[y][x];
+      ctx.fillStyle = ci >= 0 ? BE_COLORS[ci] : '#1a1a1c';
+      ctx.fillRect(x * sw, y * sh, sw, sh);
+    }
+  }
+}
+
+function fiRender() {
+  fiRenderCrop();
+  fiRenderQuant();
+}
+
+function fiOpen(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      fiState.img = img;
+      const cv = $('fi-crop-canvas');
+      if (!cv) return;
+      // fill-mode: obraz vyplní celý crop (center crop)
+      const fillZoom = Math.max(cv.width / img.naturalWidth, cv.height / img.naturalHeight);
+      fiState.zoom = fillZoom;
+      const srcW = cv.width / fillZoom, srcH = cv.height / fillZoom;
+      fiState.panX = (img.naturalWidth - srcW) / 2;
+      fiState.panY = (img.naturalHeight - srcH) / 2;
+      $('foto-import-modal').hidden = false;
+      fiRender();
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function fiConfirm() {
+  const cropCv = $('fi-crop-canvas');
+  if (!cropCv) return;
+  const tmp = document.createElement('canvas');
+  tmp.width = BE_GW; tmp.height = BE_IMG_GH;
+  const ctxTmp = tmp.getContext('2d');
+  ctxTmp.imageSmoothingEnabled = true;
+  ctxTmp.imageSmoothingQuality = 'high';
+  ctxTmp.drawImage(cropCv, 0, 0, BE_GW, BE_IMG_GH);
+  const imgData = ctxTmp.getImageData(0, 0, BE_GW, BE_IMG_GH);
+  const dither = $('fi-dither') && $('fi-dither').checked;
+  const pixels = fiQuantize(imgData, BE_GW, BE_IMG_GH, dither);
+
+  const L = beCurrentLvl();
+  if (!L) return;
+  histPush(L, 'photo-import');
+  L.image = { source: 'custom', pixels };
+
+  $('foto-import-modal').hidden = true;
+  const srcSel = $('f-image-source');
+  if (srcSel) srcSel.value = 'custom';
+  beUpdatePixelToolbarVisibility();
+  renderBlockCanvas();
+  markDirty();
+}
+
+function wirePhotoImport() {
+  const fileInput = $('pt-foto-file');
+  const importBtn = $('pt-import-foto');
+  if (!importBtn || !fileInput) return;
+
+  importBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    if (f) { fileInput.value = ''; fiOpen(f); }
+  });
+
+  const cancelBtn = $('fi-cancel');
+  const confirmBtn = $('fi-confirm');
+  const ditherChk = $('fi-dither');
+  if (cancelBtn) cancelBtn.addEventListener('click', () => { $('foto-import-modal').hidden = true; });
+  if (confirmBtn) confirmBtn.addEventListener('click', fiConfirm);
+  if (ditherChk) ditherChk.addEventListener('change', fiRenderQuant);
+
+  const cv = $('fi-crop-canvas');
+  if (!cv) return;
+  cv.style.cursor = 'grab';
+
+  cv.addEventListener('mousedown', (e) => {
+    fiState.dragging = true;
+    fiState.lastX = e.clientX;
+    fiState.lastY = e.clientY;
+    cv.style.cursor = 'grabbing';
+  });
+  window.addEventListener('mouseup', () => {
+    if (!fiState.dragging) return;
+    fiState.dragging = false;
+    if (cv) cv.style.cursor = 'grab';
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!fiState.dragging) return;
+    const dx = e.clientX - fiState.lastX;
+    const dy = e.clientY - fiState.lastY;
+    fiState.lastX = e.clientX;
+    fiState.lastY = e.clientY;
+    fiState.panX -= dx / fiState.zoom;
+    fiState.panY -= dy / fiState.zoom;
+    fiClampPan();
+    fiRenderCrop();
+    fiRenderQuant();
+  });
+
+  cv.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    const oldZoom = fiState.zoom;
+    const minZoom = fiState.img
+      ? Math.max(cv.width / fiState.img.naturalWidth, cv.height / fiState.img.naturalHeight)
+      : 0.1;
+    const newZoom = Math.max(minZoom, Math.min(50, oldZoom * factor));
+    const rect = cv.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    fiState.panX += mx / oldZoom - mx / newZoom;
+    fiState.panY += my / oldZoom - my / newZoom;
+    fiState.zoom = newZoom;
+    fiClampPan();
+    fiRender();
+  }, { passive: false });
 }
 
 // Wire up editor DOM (volá se jednou v boot()).
