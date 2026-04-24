@@ -56,6 +56,7 @@ const BE_PALETTE_PRESETS = [
   { key: 'night',   label: 'Noc',            colors: [7,47,48,35,37,3,6,39,40,2,36,11] },
   { key: 'retro',   label: 'Retro',          colors: [13,1,5,0,3,6,55,11,7,8,21,41] },
   { key: 'mono',    label: 'Mono',           colors: [7,47,48,49,50,11,51,52,8,3,0,9] },
+  { key: 'popart',  label: 'Pop art',        colors: [12,18,5,22,26,30,3,39,43,14,7,8] },
 ];
 
 // Port blockMask z game.js (1:1 identický, aby editor renderoval tvary stejně jako hra).
