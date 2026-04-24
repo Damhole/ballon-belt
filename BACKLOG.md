@@ -384,7 +384,7 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
-| v35: 64-barevná master paleta + per-level activePalette — 12 presetů, sekce Paleta v editoru, pixel editor zobrazuje jen aktivní paletu, foto import respektuje profil | _(v35)_ | 2026-04-24 |
+| v35: 64-barevná master paleta + per-level activePalette — 12 presetů, sekce Paleta v editoru, pixel editor zobrazuje jen aktivní paletu, foto import respektuje profil | `bceec76` | 2026-04-24 |
 | v34: rozšíření palety na 12 barev + slider počtu barev v importu fotky | `4e60131` | 2026-04-24 |
 | v33: editor — 📷 Import foto do pixel editoru (crop+zoom modal, kvantizace, dithering) | `8104f41` | 2026-04-24 |
 | v32: level status ikona — ✓ done = pin + obrázek, ⚠ = chybí, ✗ = error | `abf5603` | 2026-04-23 |
