@@ -1,4 +1,4 @@
-const COLORS=['#3dd64a','#ff7a1a','#5bc8f5','#1b9aff','#ff4fa3','#f5d800','#8b4dff','#141414','#ffffff'];
+const COLORS=['#3dd64a','#ff7a1a','#5bc8f5','#1b9aff','#ff4fa3','#f5d800','#8b4dff','#141414','#ffffff','#e63946','#00c8a0','#8c8c8c'];
 const BELT_CAP=14;
 const COLS=7;
 const GW=36,GH=31,IMG_GH=27;

@@ -679,6 +679,19 @@ body {
   cursor: pointer;
   white-space: nowrap;
 }
+.fi-ncolors-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+.fi-ncolors-label {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.fi-ncolors-label strong { color: var(--accent); }
+#fi-ncolors { width: 100%; accent-color: var(--accent); }
 
 .fi-footer {
   display: flex;

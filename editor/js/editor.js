@@ -12,7 +12,7 @@ const LEVEL_TYPES = ['relaxing', 'medium', 'hard', 'hardcore'];
 const BE_GW = 36;
 const BE_IMG_GH = 27;
 const BE_SCALE = 10; // 360×270 canvas → přesně 36×27 buněk po 10 px
-const BE_COLORS = ['#3dd64a','#ff7a1a','#5bc8f5','#1b9aff','#ff4fa3','#f5d800','#8b4dff','#141414','#ffffff'];
+const BE_COLORS = ['#3dd64a','#ff7a1a','#5bc8f5','#1b9aff','#ff4fa3','#f5d800','#8b4dff','#141414','#ffffff','#e63946','#00c8a0','#8c8c8c'];
 const BE_SHAPES = ['rect','cross','L','T','circle'];
 
 // Port blockMask z game.js (1:1 identický, aby editor renderoval tvary stejně jako hra).
@@ -2441,17 +2441,34 @@ const fiState = {
   lastY: 0,
 };
 
-function fiNearest(r, g, b) {
-  let best = 0, bestD = Infinity;
-  for (let i = 0; i < FI_PAL_RGB.length; i++) {
-    const [pr, pg, pb] = FI_PAL_RGB[i];
+// subset = pole indexů do FI_PAL_RGB; null = použij vše
+function fiNearest(r, g, b, subset) {
+  const indices = subset || FI_PAL_RGB.map((_, i) => i);
+  let best = indices[0], bestD = Infinity;
+  for (const ci of indices) {
+    const [pr, pg, pb] = FI_PAL_RGB[ci];
     const d = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2;
-    if (d < bestD) { bestD = d; best = i; }
+    if (d < bestD) { bestD = d; best = ci; }
   }
   return best;
 }
 
-function fiQuantize(imgData, w, h, dither) {
+// Vrátí n nejpoužívanějších indexů palety pro daný snímek (rychlý 1. pass bez dither).
+function fiGetColorSubset(imgData, w, h, n) {
+  if (n >= BE_COLORS.length) return null;
+  const counts = new Array(BE_COLORS.length).fill(0);
+  const { data } = imgData;
+  for (let i = 0; i < w * h; i++) {
+    counts[fiNearest(data[i * 4], data[i * 4 + 1], data[i * 4 + 2])]++;
+  }
+  return counts
+    .map((c, i) => ({ i, c }))
+    .sort((a, b) => b.c - a.c)
+    .slice(0, n)
+    .map(x => x.i);
+}
+
+function fiQuantize(imgData, w, h, dither, subset) {
   const buf = new Float32Array(imgData.data);
   const result = [];
   for (let y = 0; y < h; y++) {
@@ -2461,7 +2478,7 @@ function fiQuantize(imgData, w, h, dither) {
       const r = Math.max(0, Math.min(255, buf[i]));
       const g = Math.max(0, Math.min(255, buf[i + 1]));
       const b = Math.max(0, Math.min(255, buf[i + 2]));
-      const ci = fiNearest(r, g, b);
+      const ci = fiNearest(r, g, b, subset);
       result[y][x] = ci;
       if (dither) {
         const [pr, pg, pb] = FI_PAL_RGB[ci];
@@ -2511,19 +2528,32 @@ function fiRenderCrop() {
   for (let y = 0; y <= BE_IMG_GH; y++) { ctx.beginPath(); ctx.moveTo(0, y * ch); ctx.lineTo(cW, y * ch); ctx.stroke(); }
 }
 
-function fiRenderQuant() {
+function fiGetImgData() {
   const cropCv = $('fi-crop-canvas');
-  const quantCv = $('fi-quant-canvas');
-  if (!cropCv || !quantCv) return;
+  if (!cropCv) return null;
   const tmp = document.createElement('canvas');
   tmp.width = BE_GW; tmp.height = BE_IMG_GH;
-  const ctxTmp = tmp.getContext('2d');
-  ctxTmp.imageSmoothingEnabled = true;
-  ctxTmp.imageSmoothingQuality = 'high';
-  ctxTmp.drawImage(cropCv, 0, 0, BE_GW, BE_IMG_GH);
-  const imgData = ctxTmp.getImageData(0, 0, BE_GW, BE_IMG_GH);
+  const ctx = tmp.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(cropCv, 0, 0, BE_GW, BE_IMG_GH);
+  return ctx.getImageData(0, 0, BE_GW, BE_IMG_GH);
+}
+
+function fiCurrentN() {
+  const el = $('fi-ncolors');
+  return el ? parseInt(el.value) : BE_COLORS.length;
+}
+
+function fiRenderQuant() {
+  const quantCv = $('fi-quant-canvas');
+  if (!quantCv) return;
+  const imgData = fiGetImgData();
+  if (!imgData) return;
+  const n = fiCurrentN();
+  const subset = fiGetColorSubset(imgData, BE_GW, BE_IMG_GH, n);
   const dither = $('fi-dither') && $('fi-dither').checked;
-  const pixels = fiQuantize(imgData, BE_GW, BE_IMG_GH, dither);
+  const pixels = fiQuantize(imgData, BE_GW, BE_IMG_GH, dither, subset);
   const ctx = quantCv.getContext('2d');
   const sw = quantCv.width / BE_GW, sh = quantCv.height / BE_IMG_GH;
   for (let y = 0; y < BE_IMG_GH; y++) {
@@ -2563,17 +2593,12 @@ function fiOpen(file) {
 }
 
 function fiConfirm() {
-  const cropCv = $('fi-crop-canvas');
-  if (!cropCv) return;
-  const tmp = document.createElement('canvas');
-  tmp.width = BE_GW; tmp.height = BE_IMG_GH;
-  const ctxTmp = tmp.getContext('2d');
-  ctxTmp.imageSmoothingEnabled = true;
-  ctxTmp.imageSmoothingQuality = 'high';
-  ctxTmp.drawImage(cropCv, 0, 0, BE_GW, BE_IMG_GH);
-  const imgData = ctxTmp.getImageData(0, 0, BE_GW, BE_IMG_GH);
+  const imgData = fiGetImgData();
+  if (!imgData) return;
+  const n = fiCurrentN();
+  const subset = fiGetColorSubset(imgData, BE_GW, BE_IMG_GH, n);
   const dither = $('fi-dither') && $('fi-dither').checked;
-  const pixels = fiQuantize(imgData, BE_GW, BE_IMG_GH, dither);
+  const pixels = fiQuantize(imgData, BE_GW, BE_IMG_GH, dither, subset);
 
   const L = beCurrentLvl();
   if (!L) return;
@@ -2602,9 +2627,20 @@ function wirePhotoImport() {
   const cancelBtn = $('fi-cancel');
   const confirmBtn = $('fi-confirm');
   const ditherChk = $('fi-dither');
+  const nSlider = $('fi-ncolors');
+  const nVal = $('fi-ncolors-val');
   if (cancelBtn) cancelBtn.addEventListener('click', () => { $('foto-import-modal').hidden = true; });
   if (confirmBtn) confirmBtn.addEventListener('click', fiConfirm);
   if (ditherChk) ditherChk.addEventListener('change', fiRenderQuant);
+  if (nSlider) {
+    nSlider.max = BE_COLORS.length;
+    nSlider.value = BE_COLORS.length;
+    if (nVal) nVal.textContent = BE_COLORS.length;
+    nSlider.addEventListener('input', () => {
+      if (nVal) nVal.textContent = nSlider.value;
+      fiRenderQuant();
+    });
+  }
 
   const cv = $('fi-crop-canvas');
   if (!cv) return;
