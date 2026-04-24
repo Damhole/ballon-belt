@@ -41,7 +41,8 @@ Seznam všech nápadů, co chceme vyzkoušet, s prioritou a stavem. Na začátku
 | P2 | 💡 idea | M | **Vizuální garage editor** — drag garáže na canvas místo čísla sloupce |
 | P2 | 💡 idea | S | **Vizuální rocket-targets picker** — místo dvou čísel klikni na sloupec |
 | P2 | 💡 idea | S | **Grid/snap helpery** — volitelný snap bloku na 3×3, pravítka na okrajích |
-| P2 | 💡 idea | M | **Foto → pixel art import** — uživatel uploadne fotku, editor ji zmenší na 36×27, kvantizuje barvy na herní paletu (0–8) pomocí nearest-neighbor v RGB prostoru a vyplní pixel editor. Celé vanilla JS přes `<input type=file>` + OffscreenCanvas + `getImageData`. Detailní popis níže ⬇ |
+| P2 | ✅ done | M | **Foto → pixel art import** — tlačítko v pixel toolbaru, crop+pan+zoom modal, kvantizace na herní paletu + Floyd–Steinberg dithering. Commit `8104f41` (v33). |
+| P2 | 💡 idea | XL | **AI level tester** — simuluje průchod levelem (optimal/greedy/random/worst-case), vypočítá metriky (dead-end rate, decision richness, bottleneck color, garage/rocket utilization, difficulty score 0–100), volitelně přes Claude API doporučí konkrétní úpravy. Detailní popis níže ⬇ |
 | P3 | 💡 idea | M | **Export/Import JSON** jednoho levelu — sdílení mezi větvemi/lidmi mimo FSA |
 | P3 | 💡 idea | S | **Pattern stamps** v pixel editoru — uložené „stamp" pixel arty (koule, srdce, hvězda) |
 
@@ -165,6 +166,107 @@ dithering pro uspokojivý výsledek.
 Jen scale + nearest-color. Pokud výsledek nevyhovuje, hráč doladí ručně.
 **Scope +1:** Floyd–Steinberg dithering jako checkbox vedle tlačítka.
 
+### Deep dive: AI level tester
+
+**Proč:** Designér dnes musí ručně hrát každý level × každou obtížnost, aby odhadl, jestli
+je správně těžký, zábavný a průchodný. S AI testerem dostane okamžitou zpětnou vazbu přímo
+v editoru — bez spuštění hry, bez opakovaného hraní.
+
+#### Co tester simuluje
+
+Čtyři typy hráčů se spustí na aktuální layout/difficulty kombinaci:
+
+| Hráč | Strategie | Co odhalí |
+|------|-----------|-----------|
+| **Optimal** | BFS/A* — nejkratší sekvence kliků | Absolutní minimum kliků k dokončení |
+| **Greedy** | Vždy dostupný nosič nejpotřebnější barvy | Průměrný „rozumný" průchod |
+| **Random** | Náhodný výběr z dostupných, 100× opakování | Úspěšnost bez strategie (% dokončení) |
+| **Worst-case** | Vždy nejméně potřebná dostupná barva | Resilience — lze se i záměrně zaseknout? |
+
+#### Metriky výstupu
+
+- **Minimální kliknutí** (optimal solver)
+- **Průměrná kliknutí** (greedy průchod)
+- **Dead-end rate** — jak % náhodných průchodů skončí v unsolvable stavu (čím vyšší, tím
+  „tricky" / riskantnější pro začátečníky)
+- **Decision richness** — počet kol kde má hráč ≥2 smysluplné volby (= záživnost,
+  více = zajímavější; příliš málo = level je „railroaded")
+- **Bottleneck color** — barva s nejdelší honeycomb cestou (= ta která hráče zdržuje nejvíc)
+- **Garage utilization** — % potřebných míčků pokrytých garáží (0 % = garáž je zbytečná
+  dekorace; >60 % = hráč na garáži závisí)
+- **Rocket impact** — o kolik kliků zkrátí optimal path použití raket (0 = rakety
+  k ničemu; záporné = rakety jsou nutné)
+- **Difficulty score 0–100** — složená metrika kalibrovaná na existující levely; cíl:
+  easy ≈ 20–35, medium ≈ 45–60, hard ≈ 70–90
+
+#### LLM vrstva — doporučení v přirozené češtině
+
+JSON levelu + metriky se pošlou do Claude API. Odpověď = konkrétní, akční rady:
+
+- *„Barva 3 je dostupná až po 5 odebraných nosičích — pro medium je příliš zakopána.
+  Posuň jeden nosič barvy 3 do horní řady."*
+- *„Garáž přispívá 0 % míčků — hráč ji celý level ignoruje. Přidej rare barvu do queue
+  nebo garáž z levelu odstraň."*
+- *„Dead-end rate 38 % na easy je vysoký — hráč se snadno zasekne. Posuň barvu 5
+  z řady 4 do řady 1."*
+- *„Tento level je o 2σ lehčí než ostatní hard levely (skóre 21, průměr hard = 74).
+  Přidej vrstvu hidden nosičů nebo zeď kolem bottleneck barvy."*
+- *„Decision richness = 2 (velmi nízká) — level je lineární, hráč nemá co řešit.
+  Zkus přidat druhý přístupový koridor nebo zamíchej barvy v horní řadě."*
+
+#### Vizualizace v editoru
+
+- **Heat-mapa přes carrier grid** — overlay barevnosti: červená = nosič přístupný
+  až po N+ odebraných, zelená = přístupný hned. Ukazuje „kritickou cestu" a sleepy uličky.
+- **Spider chart** v panelu — srovnání aktuálního levelu s ostatními stejné obtížnosti:
+  osy = difficulty score × dead-end risk × decision richness × délka × garage utilization.
+  Outlier pozice = vizuální signál „tenhle level sem nepatří".
+
+#### Automatické návrhy (opt-in)
+
+Tlačítka v editor sidebaru (nikdy neprovádí změnu bez potvrzení):
+- **„Vyváž obtížnost"** — tester navrhne swap 2–3 nosičů tak, aby difficulty score
+  odpovídalo zvolenému pásmu. Designér vidí diff (před/po) a potvrdí.
+- **„Udělej zajímavější"** — zvýší decision richness: navrhne přidání zdi nebo přeskupení
+  vzácných barev tak, aby vznikly 2 alternativní cesty.
+- **„Najdi dead-ends"** — zvýrazní v gridu nosič/y jejichž odebrání nejčastěji vede
+  k zaseknutí (worst-case analýza).
+
+#### Technická realizace
+
+Dvě oddělené fáze, fáze 1 dává hodnotu i bez API:
+
+**Fáze 1 — Algoritmus (vanilla JS, bez backendu):**
+- BFS optimal solver (rozšíření existujícího solvability checku v `makeColumns`)
+- Greedy + random simulace (stav = klon `columns[][]`, iterativní)
+- Výpočet všech metrik lokálně v editoru
+- Zobrazení v info panelu vedle carrier grid editoru
+- Scope: **M, ~3 h**
+
+**Fáze 2 — LLM doporučení (Claude API, potřebuje backend/proxy):**
+- Metriky z fáze 1 + level JSON → HTTP POST na proxy → Claude API → JSON doporučení
+- Proxy = jednoduchý Python server nebo Cloudflare Worker (API klíč nesmí do klient JS)
+- Zobrazení jako „Zpráva testera" panel v editoru s konkrétními radami
+- Scope: **L, ~4 h** (+ infrastruktura backendu)
+
+**Fáze 3 — Vizualizace (navazuje na fázi 1):**
+- Heat-mapa = canvas overlay přes carrier grid, počítá se z BFS vzdáleností
+- Spider chart = SVG/canvas v sidebaru, normalizovaný na existující levely
+- Scope: **M, ~2 h**
+
+**Otevřené otázky:**
+- Backend na fázi 2: server.py rozšíření (lokálně), nebo Cloudflare Worker (sdílené)?
+- Kalibrační set pro difficulty score: použít existující levely jako ground truth
+  (easy=1–5, medium=6–10, hard=11–14)?
+- Má tester běžet automaticky po každé editaci (live), nebo jen na tlačítko „Analyzovat"?
+  Live = příjemné, ale BFS na 7×7 je O(N!) v worst case; tlačítko = explicitní.
+- Má tester vidět i pixel art (obraz) a navrhovat úpravy konzistence barev v obraze
+  vs. počtu nosičů? (Pokud obraz má 40 % modré ale nosičů modré je jen 5 % → disproperce.)
+
+**MVP scope:** Fáze 1 (algoritmus) — tlačítko „Analyzovat" v carrier editoru, výstup:
+minimální kliknutí, difficulty score, dead-end rate, bottleneck color, garage/rocket utilization.
+Žádný LLM, žádná heat-mapa. Jen čísla v panelu.
+
 ### Deep dive: Adaptivní obtížnost podle hráčova progressu
 
 **Proč je to zajímavé:** Balloon Belt má momentálně fixní 14 levelů × 3 obtížnosti. Hráč, co
@@ -282,6 +384,9 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
+| v35: 64-barevná master paleta + per-level activePalette — 12 presetů, sekce Paleta v editoru, pixel editor zobrazuje jen aktivní paletu, foto import respektuje profil | _(v35)_ | 2026-04-24 |
+| v34: rozšíření palety na 12 barev + slider počtu barev v importu fotky | `4e60131` | 2026-04-24 |
+| v33: editor — 📷 Import foto do pixel editoru (crop+zoom modal, kvantizace, dithering) | `8104f41` | 2026-04-24 |
 | v32: level status ikona — ✓ done = pin + obrázek, ⚠ = chybí, ✗ = error | `abf5603` | 2026-04-23 |
 | v31: default complexity pin — designer ozbačí výchozí při načtení (📍 v tabu) | `6c41fd9` | 2026-04-23 |
 | v30: přejmenování na Complexity — Type badge čte `lvl.type` napřímo, img-diff pryč | `5259628` | 2026-04-23 |

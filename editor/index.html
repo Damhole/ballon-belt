@@ -76,6 +76,13 @@
             </div>
           </div>
 
+          <!-- Paleta levelu -->
+          <div class="form-section palette-section">
+            <label>Paleta levelu <span class="hint">(barvy dostupné v tomto levelu)</span></label>
+            <div class="palette-presets" id="palette-presets"></div>
+            <div class="palette-swatches" id="palette-swatches"></div>
+          </div>
+
           <div class="form-section">
             <label class="checkbox-row">
               <input type="checkbox" id="f-gravity-on">
@@ -321,6 +328,24 @@
         <div class="fi-quant-wrap">
           <canvas id="fi-quant-canvas" width="180" height="135"></canvas>
           <div class="fi-quant-label">náhled 36×27</div>
+          <div class="fi-profile-row">
+            <label class="fi-ctrl-label">Profil</label>
+            <select id="fi-profile" class="fi-select">
+              <option value="active">Aktivní paleta levelu</option>
+              <option value="default">Výchozí</option>
+              <option value="neon">Neon</option>
+              <option value="pastel">Pastel</option>
+              <option value="earthy">Zemité</option>
+              <option value="ocean">Oceán</option>
+              <option value="sunset">Západ slunce</option>
+              <option value="forest">Lesní</option>
+              <option value="fire">Oheň</option>
+              <option value="spring">Jaro</option>
+              <option value="night">Noc</option>
+              <option value="retro">Retro</option>
+              <option value="mono">Mono</option>
+            </select>
+          </div>
           <div class="fi-ncolors-row">
             <span class="fi-ncolors-label">barev: <strong id="fi-ncolors-val">12</strong></span>
             <input type="range" id="fi-ncolors" min="2" max="12" value="12" step="1">

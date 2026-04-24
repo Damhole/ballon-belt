@@ -12,8 +12,51 @@ const LEVEL_TYPES = ['relaxing', 'medium', 'hard', 'hardcore'];
 const BE_GW = 36;
 const BE_IMG_GH = 27;
 const BE_SCALE = 10; // 360×270 canvas → přesně 36×27 buněk po 10 px
-const BE_COLORS = ['#3dd64a','#ff7a1a','#5bc8f5','#1b9aff','#ff4fa3','#f5d800','#8b4dff','#141414','#ffffff','#e63946','#00c8a0','#8c8c8c'];
+const BE_COLORS = [
+  // 0–11  výchozí
+  '#3dd64a','#ff7a1a','#5bc8f5','#1b9aff','#ff4fa3','#f5d800','#8b4dff','#141414','#ffffff','#e63946','#00c8a0','#8c8c8c',
+  // 12–17  červené
+  '#ff3b30','#c0392b','#ff6b6b','#b71c1c','#ff8a65','#bf360c',
+  // 18–21  oranžové
+  '#ff9800','#e65100','#ffb300','#f57c00',
+  // 22–25  žluté / limetky
+  '#c6e617','#76d400','#ffd600','#aeea00',
+  // 26–29  zelené
+  '#00c853','#1b5e20','#69f0ae','#33691e',
+  // 30–33  tyrkysové / cyan
+  '#00bcd4','#006064','#b2ebf2','#00e5ff',
+  // 34–38  modré
+  '#42a5f5','#0d47a1','#82b1ff','#1565c0','#7986cb',
+  // 39–42  fialové
+  '#7c4dff','#6a1b9a','#ab47bc','#ce93d8',
+  // 43–46  růžové / magenta
+  '#e91e63','#f48fb1','#ad1457','#ff80ab',
+  // 47–50  tmavé neutrály
+  '#212121','#424242','#616161','#757575',
+  // 51–54  světlé neutrály
+  '#bdbdbd','#e0e0e0','#fff9c4','#fce4ec',
+  // 55–60  hnědé / teplé
+  '#795548','#5d4037','#a1887f','#d7ccc8','#bf8040','#ffcc80',
+  // 61–63  speciální
+  '#ff6e40','#40c4ff','#b9f6ca',
+];
 const BE_SHAPES = ['rect','cross','L','T','circle'];
+
+// Předdefinované palety — každá je pole indexů do BE_COLORS.
+const BE_PALETTE_PRESETS = [
+  { key: 'default', label: 'Výchozí',       colors: [0,1,2,3,4,5,6,7,8,9,10,11] },
+  { key: 'neon',    label: 'Neon',           colors: [0,9,12,1,5,33,3,39,43,25,31,8] },
+  { key: 'pastel',  label: 'Pastel',         colors: [28,44,42,32,53,54,63,46,51,4,8,11] },
+  { key: 'earthy',  label: 'Zemité',         colors: [55,56,57,58,29,27,19,21,59,60,7,11] },
+  { key: 'ocean',   label: 'Oceán',          colors: [3,35,34,30,33,10,2,32,37,36,7,8] },
+  { key: 'sunset',  label: 'Západ slunce',   colors: [9,12,16,1,18,20,5,43,45,61,7,8] },
+  { key: 'forest',  label: 'Lesní',          colors: [0,26,27,29,24,23,55,56,57,5,7,11] },
+  { key: 'fire',    label: 'Oheň',           colors: [9,12,13,15,16,1,17,18,19,5,20,7] },
+  { key: 'spring',  label: 'Jaro',           colors: [0,26,28,63,44,46,4,43,5,53,8,51] },
+  { key: 'night',   label: 'Noc',            colors: [7,47,48,35,37,3,6,39,40,2,36,11] },
+  { key: 'retro',   label: 'Retro',          colors: [13,1,5,0,3,6,55,11,7,8,21,41] },
+  { key: 'mono',    label: 'Mono',           colors: [7,47,48,49,50,11,51,52,8,3,0,9] },
+];
 
 // Port blockMask z game.js (1:1 identický, aby editor renderoval tvary stejně jako hra).
 function beBlockMask(shape, w, h) {
@@ -476,6 +519,7 @@ function newLevel() {
     label: 'Nový level',
     type: 'relaxing',
     image: { source: 'smiley' },
+    activePalette: BE_PALETTE_PRESETS[0].colors.slice(),
     blocks: [],
     rocketTargets: null,
     garage: null,
@@ -735,6 +779,7 @@ function renderEditor() {
 
   // Block editor render (canvas + palette + selected-block panel).
   if (!Array.isArray(lvl.blocks)) lvl.blocks = [];
+  renderPaletteSection(lvl);
   beUpdatePixelToolbarVisibility();
   renderBlockCanvas();
   renderSelectedBlockPanel();
@@ -753,6 +798,39 @@ function renderEditor() {
     _lastPreviewKey = lvl.key;
     schedulePreviewReload();
   }
+}
+
+function renderPaletteSection(lvl) {
+  if (!lvl.activePalette) lvl.activePalette = BE_PALETTE_PRESETS[0].colors.slice();
+  const presetsWrap = $('palette-presets');
+  const swatchesWrap = $('palette-swatches');
+  if (!presetsWrap || !swatchesWrap) return;
+
+  presetsWrap.innerHTML = '';
+  BE_PALETTE_PRESETS.forEach(preset => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'palette-preset-btn';
+    btn.textContent = preset.label;
+    if (JSON.stringify(lvl.activePalette) === JSON.stringify(preset.colors)) btn.classList.add('active');
+    btn.addEventListener('click', () => {
+      histPush(lvl, 'palette-preset-' + preset.key);
+      lvl.activePalette = preset.colors.slice();
+      markDirty();
+      renderPaletteSection(lvl);
+      beUpdatePixelPalette(lvl);
+    });
+    presetsWrap.appendChild(btn);
+  });
+
+  swatchesWrap.innerHTML = '';
+  lvl.activePalette.forEach(ci => {
+    const d = document.createElement('div');
+    d.className = 'palette-swatch';
+    d.style.background = BE_COLORS[ci];
+    d.title = 'Barva ' + ci;
+    swatchesWrap.appendChild(d);
+  });
 }
 
 function renderCarrierList(carriers) {
@@ -2374,8 +2452,24 @@ function beSetPxTool(tool) {
 }
 function beSetPxColor(ci) {
   beState.pxColor = ci;
-  document.querySelectorAll('#pt-colors .be-color-dot').forEach((d, i) => {
-    d.classList.toggle('selected', i === ci);
+  document.querySelectorAll('#pt-colors .be-color-dot').forEach(d => {
+    d.classList.toggle('selected', parseInt(d.dataset.ci) === ci);
+  });
+}
+
+function beUpdatePixelPalette(lvl) {
+  const wrap = $('pt-colors');
+  if (!wrap) return;
+  const palette = (lvl && lvl.activePalette) ? lvl.activePalette : BE_COLORS.map((_, i) => i);
+  wrap.innerHTML = '';
+  palette.forEach(ci => {
+    const d = document.createElement('div');
+    d.className = 'be-color-dot' + (ci === beState.pxColor ? ' selected' : '');
+    d.style.background = BE_COLORS[ci];
+    d.dataset.ci = ci;
+    d.title = 'color ' + ci;
+    d.addEventListener('click', () => beSetPxColor(ci));
+    wrap.appendChild(d);
   });
 }
 
@@ -2388,6 +2482,7 @@ function beUpdatePixelToolbarVisibility() {
   tb.hidden = !show;
   if (show) {
     beEnsurePixels(lvl);
+    beUpdatePixelPalette(lvl);
     const wrap = document.querySelector('.be-canvas-wrap');
     if (wrap) wrap.setAttribute('data-tool', beState.pxTool);
   } else {
@@ -2401,19 +2496,7 @@ function wirePixelToolbar() {
   document.querySelectorAll('#pixel-toolbar .pt-tool').forEach(btn => {
     btn.addEventListener('click', () => beSetPxTool(btn.dataset.tool));
   });
-  // Color dots (9 barev)
-  const wrap = $('pt-colors');
-  if (wrap) {
-    wrap.innerHTML = '';
-    for (let i = 0; i < BE_COLORS.length; i++) {
-      const d = document.createElement('div');
-      d.className = 'be-color-dot' + (i === beState.pxColor ? ' selected' : '');
-      d.style.background = BE_COLORS[i];
-      d.title = 'color ' + i;
-      d.addEventListener('click', () => beSetPxColor(i));
-      wrap.appendChild(d);
-    }
-  }
+  beUpdatePixelPalette(beCurrentLvl());
   // Clear all
   const clr = $('pt-clear-all');
   if (clr) clr.addEventListener('click', beClearAllPixels);
@@ -2454,15 +2537,16 @@ function fiNearest(r, g, b, subset) {
 }
 
 // Vrátí n nejpoužívanějších indexů palety pro daný snímek (rychlý 1. pass bez dither).
-function fiGetColorSubset(imgData, w, h, n) {
-  if (n >= BE_COLORS.length) return null;
+function fiGetColorSubset(imgData, w, h, n, pool) {
+  const universe = pool || BE_COLORS.map((_, i) => i);
+  if (n >= universe.length) return pool || null;
   const counts = new Array(BE_COLORS.length).fill(0);
   const { data } = imgData;
   for (let i = 0; i < w * h; i++) {
-    counts[fiNearest(data[i * 4], data[i * 4 + 1], data[i * 4 + 2])]++;
+    counts[fiNearest(data[i * 4], data[i * 4 + 1], data[i * 4 + 2], pool || null)]++;
   }
-  return counts
-    .map((c, i) => ({ i, c }))
+  return universe
+    .map(i => ({ i, c: counts[i] }))
     .sort((a, b) => b.c - a.c)
     .slice(0, n)
     .map(x => x.i);
@@ -2540,6 +2624,17 @@ function fiGetImgData() {
   return ctx.getImageData(0, 0, BE_GW, BE_IMG_GH);
 }
 
+function fiGetProfilePool() {
+  const profileEl = $('fi-profile');
+  const key = profileEl ? profileEl.value : 'active';
+  if (key === 'active') {
+    const lvl = beCurrentLvl();
+    return (lvl && lvl.activePalette) ? lvl.activePalette : null;
+  }
+  const preset = BE_PALETTE_PRESETS.find(p => p.key === key);
+  return preset ? preset.colors : null;
+}
+
 function fiCurrentN() {
   const el = $('fi-ncolors');
   return el ? parseInt(el.value) : BE_COLORS.length;
@@ -2551,7 +2646,8 @@ function fiRenderQuant() {
   const imgData = fiGetImgData();
   if (!imgData) return;
   const n = fiCurrentN();
-  const subset = fiGetColorSubset(imgData, BE_GW, BE_IMG_GH, n);
+  const pool = fiGetProfilePool();
+  const subset = fiGetColorSubset(imgData, BE_GW, BE_IMG_GH, n, pool);
   const dither = $('fi-dither') && $('fi-dither').checked;
   const pixels = fiQuantize(imgData, BE_GW, BE_IMG_GH, dither, subset);
   const ctx = quantCv.getContext('2d');
@@ -2596,7 +2692,8 @@ function fiConfirm() {
   const imgData = fiGetImgData();
   if (!imgData) return;
   const n = fiCurrentN();
-  const subset = fiGetColorSubset(imgData, BE_GW, BE_IMG_GH, n);
+  const pool = fiGetProfilePool();
+  const subset = fiGetColorSubset(imgData, BE_GW, BE_IMG_GH, n, pool);
   const dither = $('fi-dither') && $('fi-dither').checked;
   const pixels = fiQuantize(imgData, BE_GW, BE_IMG_GH, dither, subset);
 
@@ -2632,6 +2729,8 @@ function wirePhotoImport() {
   if (cancelBtn) cancelBtn.addEventListener('click', () => { $('foto-import-modal').hidden = true; });
   if (confirmBtn) confirmBtn.addEventListener('click', fiConfirm);
   if (ditherChk) ditherChk.addEventListener('change', fiRenderQuant);
+  const profileSel = $('fi-profile');
+  if (profileSel) profileSel.addEventListener('change', fiRenderQuant);
   if (nSlider) {
     nSlider.max = BE_COLORS.length;
     nSlider.value = BE_COLORS.length;

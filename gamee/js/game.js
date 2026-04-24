@@ -1,4 +1,31 @@
-const COLORS=['#3dd64a','#ff7a1a','#5bc8f5','#1b9aff','#ff4fa3','#f5d800','#8b4dff','#141414','#ffffff','#e63946','#00c8a0','#8c8c8c'];
+const COLORS=[
+  // 0–11  výchozí (původní)
+  '#3dd64a','#ff7a1a','#5bc8f5','#1b9aff','#ff4fa3','#f5d800','#8b4dff','#141414','#ffffff','#e63946','#00c8a0','#8c8c8c',
+  // 12–17  červené
+  '#ff3b30','#c0392b','#ff6b6b','#b71c1c','#ff8a65','#bf360c',
+  // 18–21  oranžové
+  '#ff9800','#e65100','#ffb300','#f57c00',
+  // 22–25  žluté / limetky
+  '#c6e617','#76d400','#ffd600','#aeea00',
+  // 26–29  zelené
+  '#00c853','#1b5e20','#69f0ae','#33691e',
+  // 30–33  tyrkysové / cyan
+  '#00bcd4','#006064','#b2ebf2','#00e5ff',
+  // 34–38  modré
+  '#42a5f5','#0d47a1','#82b1ff','#1565c0','#7986cb',
+  // 39–42  fialové
+  '#7c4dff','#6a1b9a','#ab47bc','#ce93d8',
+  // 43–46  růžové / magenta
+  '#e91e63','#f48fb1','#ad1457','#ff80ab',
+  // 47–50  tmavé neutrály
+  '#212121','#424242','#616161','#757575',
+  // 51–54  světlé neutrály
+  '#bdbdbd','#e0e0e0','#fff9c4','#fce4ec',
+  // 55–60  hnědé / teplé
+  '#795548','#5d4037','#a1887f','#d7ccc8','#bf8040','#ffcc80',
+  // 61–63  speciální
+  '#ff6e40','#40c4ff','#b9f6ca',
+];
 const BELT_CAP=14;
 const COLS=7;
 const GW=36,GH=31,IMG_GH=27;
@@ -716,7 +743,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v33');
+          gamee.updateScore(score,playTime,'balloon-belt-v35');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -2867,7 +2894,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v33');
+    gamee.updateScore(score,playTime,'balloon-belt-v35');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -2932,7 +2959,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v33');
+  gamee.updateScore(score,playTime,'balloon-belt-v35');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -3462,7 +3489,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v33');
+      gamee.updateScore(score,playTime,'balloon-belt-v35');
       event.detail.callback();
     });
 

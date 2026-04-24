@@ -360,6 +360,43 @@ body {
   gap: 10px;
 }
 
+/* ─── Palette section ─── */
+.palette-section label { font-size: 13px; font-weight: 500; }
+.palette-section .hint { font-size: 11px; color: var(--text-3); font-weight: 400; margin-left: 4px; }
+.palette-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.palette-preset-btn {
+  background: var(--bg-2);
+  color: var(--text-2);
+  border: 0.5px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+.palette-preset-btn:hover { background: var(--bg-3); color: var(--text); }
+.palette-preset-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.palette-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.palette-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 0.5px solid rgba(255,255,255,0.15);
+  flex-shrink: 0;
+}
+
 .carrier-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .carrier-chip {
   display: flex;
@@ -697,6 +734,25 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+.fi-profile-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fi-ctrl-label {
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.fi-select {
+  flex: 1;
+  background: var(--bg-0);
+  color: var(--text);
+  border: 0.5px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 6px;
+  font-size: 12px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
