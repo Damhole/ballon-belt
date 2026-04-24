@@ -2626,13 +2626,37 @@ function fiGetImgData() {
 
 function fiGetProfilePool() {
   const profileEl = $('fi-profile');
-  const key = profileEl ? profileEl.value : 'active';
+  const key = profileEl ? profileEl.value : 'auto';
+  if (key === 'auto') return null;
   if (key === 'active') {
     const lvl = beCurrentLvl();
     return (lvl && lvl.activePalette) ? lvl.activePalette : null;
   }
   const preset = BE_PALETTE_PRESETS.find(p => p.key === key);
   return preset ? preset.colors : null;
+}
+
+function fiUpdateSliderBounds() {
+  const nSlider = $('fi-ncolors');
+  const nVal = $('fi-ncolors-val');
+  if (!nSlider) return;
+  const profileEl = $('fi-profile');
+  const key = profileEl ? profileEl.value : 'auto';
+  let maxN;
+  if (key === 'auto') {
+    maxN = BE_COLORS.length;
+  } else if (key === 'active') {
+    const lvl = beCurrentLvl();
+    maxN = (lvl && lvl.activePalette) ? lvl.activePalette.length : BE_COLORS.length;
+  } else {
+    const preset = BE_PALETTE_PRESETS.find(p => p.key === key);
+    maxN = preset ? preset.colors.length : BE_COLORS.length;
+  }
+  nSlider.max = maxN;
+  if (parseInt(nSlider.value) > maxN) {
+    nSlider.value = maxN;
+    if (nVal) nVal.textContent = maxN;
+  }
 }
 
 function fiCurrentN() {
@@ -2680,6 +2704,9 @@ function fiOpen(file) {
       const srcW = cv.width / fillZoom, srcH = cv.height / fillZoom;
       fiState.panX = (img.naturalWidth - srcW) / 2;
       fiState.panY = (img.naturalHeight - srcH) / 2;
+      const profileSel = $('fi-profile');
+      if (profileSel) profileSel.value = 'auto';
+      fiUpdateSliderBounds();
       $('foto-import-modal').hidden = false;
       fiRender();
     };
@@ -2702,9 +2729,16 @@ function fiConfirm() {
   histPush(L, 'photo-import');
   L.image = { source: 'custom', pixels };
 
+  const profileEl = $('fi-profile');
+  if (profileEl && profileEl.value === 'auto') {
+    const usedColors = [...new Set(pixels.flat().filter(ci => ci >= 0))].sort((a, b) => a - b);
+    if (usedColors.length > 0) L.activePalette = usedColors;
+  }
+
   $('foto-import-modal').hidden = true;
   const srcSel = $('f-image-source');
   if (srcSel) srcSel.value = 'custom';
+  renderPaletteSection(L);
   beUpdatePixelToolbarVisibility();
   renderBlockCanvas();
   markDirty();
@@ -2730,11 +2764,10 @@ function wirePhotoImport() {
   if (confirmBtn) confirmBtn.addEventListener('click', fiConfirm);
   if (ditherChk) ditherChk.addEventListener('change', fiRenderQuant);
   const profileSel = $('fi-profile');
-  if (profileSel) profileSel.addEventListener('change', fiRenderQuant);
+  if (profileSel) profileSel.addEventListener('change', () => { fiUpdateSliderBounds(); fiRenderQuant(); });
   if (nSlider) {
-    nSlider.max = BE_COLORS.length;
-    nSlider.value = BE_COLORS.length;
-    if (nVal) nVal.textContent = BE_COLORS.length;
+    nSlider.value = 12;
+    if (nVal) nVal.textContent = 12;
     nSlider.addEventListener('input', () => {
       if (nVal) nVal.textContent = nSlider.value;
       fiRenderQuant();

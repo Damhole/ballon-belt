@@ -331,6 +331,7 @@
           <div class="fi-profile-row">
             <label class="fi-ctrl-label">Profil</label>
             <select id="fi-profile" class="fi-select">
+              <option value="auto">Automaticky (nejlepší z 64)</option>
               <option value="active">Aktivní paleta levelu</option>
               <option value="default">Výchozí</option>
               <option value="neon">Neon</option>
@@ -348,7 +349,7 @@
           </div>
           <div class="fi-ncolors-row">
             <span class="fi-ncolors-label">barev: <strong id="fi-ncolors-val">12</strong></span>
-            <input type="range" id="fi-ncolors" min="2" max="12" value="12" step="1">
+            <input type="range" id="fi-ncolors" min="2" max="64" value="12" step="1">
           </div>
           <label class="fi-dither-label">
             <input type="checkbox" id="fi-dither"> dithering
