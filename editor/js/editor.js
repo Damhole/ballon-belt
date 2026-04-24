@@ -2841,69 +2841,111 @@ function _genPalette(lvl) {
     ? lvl.activePalette
     : BE_PALETTE_PRESETS[0].colors;
 }
+function _rInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+function _rChoice(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function _shuffled(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = _rInt(0, i);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
 
 function genPixelsStripes(palette) {
-  const n = palette.length;
-  return Array.from({length: BE_IMG_GH}, () =>
-    Array.from({length: BE_GW}, (_, x) => palette[Math.floor(x / BE_GW * n)])
+  const pal = _shuffled(palette);
+  const n = pal.length;
+  const type = _rChoice(['h', 'v', 'diag+', 'diag-', 'radial']);
+  const w = _rInt(Math.max(1, Math.floor(BE_GW / n / 2)), Math.max(2, Math.floor(BE_GW / n)));
+  return Array.from({length: BE_IMG_GH}, (_, y) =>
+    Array.from({length: BE_GW}, (_, x) => {
+      let idx;
+      if      (type === 'h')     idx = Math.floor(y / w);
+      else if (type === 'v')     idx = Math.floor(x / w);
+      else if (type === 'diag+') idx = Math.floor((x + y) / w);
+      else if (type === 'diag-') idx = Math.floor((x + BE_IMG_GH - y) / w);
+      else                       idx = Math.floor(Math.sqrt((x - BE_GW/2)**2 + (y - BE_IMG_GH/2)**2) / w);
+      return pal[Math.abs(idx) % n];
+    })
   );
 }
 
 function genPixelsCircles(palette) {
-  const cx = BE_GW / 2, cy = BE_IMG_GH / 2;
-  const maxR = Math.sqrt(cx * cx + cy * cy);
-  const n = palette.length;
+  const pal = _shuffled(palette);
+  const cx = BE_GW * (0.25 + Math.random() * 0.5);
+  const cy = BE_IMG_GH * (0.25 + Math.random() * 0.5);
+  const rw = 1.5 + Math.random() * 4;
+  const n = pal.length;
   return Array.from({length: BE_IMG_GH}, (_, y) =>
     Array.from({length: BE_GW}, (_, x) => {
       const r = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
-      return palette[Math.floor(r / maxR * n) % n];
+      return pal[Math.floor(r / rw) % n];
     })
   );
 }
 
 function genPixelsNoise(palette) {
-  return Array.from({length: BE_IMG_GH}, () =>
-    Array.from({length: BE_GW}, () => palette[Math.floor(Math.random() * palette.length)])
+  const pal = _shuffled(palette);
+  const blockSize = _rInt(1, 3);
+  return Array.from({length: BE_IMG_GH}, (_, y) =>
+    Array.from({length: BE_GW}, (_, x) => {
+      if (blockSize === 1) return pal[_rInt(0, pal.length - 1)];
+      // Blocked noise — same random value per NxN cell
+      const key = Math.floor(y / blockSize) * 1000 + Math.floor(x / blockSize);
+      // deterministic per cell using seeded-like hash
+      return pal[((key * 2654435761) >>> 0) % pal.length];
+    })
   );
 }
 
 function genPixelsChecker(palette) {
-  const size = 3;
+  const pal = _shuffled(palette);
+  const size = _rInt(2, 5);
+  const offX = _rInt(0, size - 1), offY = _rInt(0, size - 1);
   return Array.from({length: BE_IMG_GH}, (_, y) =>
     Array.from({length: BE_GW}, (_, x) =>
-      palette[(Math.floor(x / size) + Math.floor(y / size)) % palette.length]
+      pal[(Math.floor((x + offX) / size) + Math.floor((y + offY) / size)) % pal.length]
     )
   );
 }
 
 function genPixelsMandala(palette) {
-  const cx = BE_GW / 2, cy = BE_IMG_GH / 2;
-  const sectors = 8;
-  const n = palette.length;
+  const pal = _shuffled(palette);
+  const n = pal.length;
+  const sectors = _rChoice([4, 5, 6, 8, 10, 12]);
+  const rw = 1.5 + Math.random() * 3.5;
+  const cx = BE_GW * (0.35 + Math.random() * 0.3);
+  const cy = BE_IMG_GH * (0.35 + Math.random() * 0.3);
   const aspect = BE_GW / BE_IMG_GH;
   const sectorAngle = (Math.PI * 2) / sectors;
+  const aWeight = _rInt(1, 4);
   return Array.from({length: BE_IMG_GH}, (_, y) =>
     Array.from({length: BE_GW}, (_, x) => {
       const dx = x - cx, dy = (y - cy) * aspect;
       const r = Math.sqrt(dx * dx + dy * dy);
       let a = ((Math.atan2(dy, dx) + Math.PI * 2) % (Math.PI * 2)) % sectorAngle;
       if (a > sectorAngle / 2) a = sectorAngle - a;
-      const rBand = Math.floor(r / 3.5) % n;
-      const aBand = Math.floor(a / (sectorAngle / 2) * 3) % n;
-      return palette[(rBand + aBand) % n];
+      const rBand = Math.floor(r / rw) % n;
+      const aBand = Math.floor(a / (sectorAngle / 2) * aWeight) % n;
+      return pal[(rBand + aBand) % n];
     })
   );
 }
 
 function genPixelsKaleido(palette) {
+  const pal = _shuffled(palette);
   const hw = Math.ceil(BE_GW / 2), hh = Math.ceil(BE_IMG_GH / 2);
-  const n = palette.length;
-  const norm = hh / hw;
+  const n = pal.length;
+  // Random coarse grid in the quadrant
+  const gw = _rInt(3, 7), gh = _rInt(2, 5);
+  const grid = Array.from({length: gh}, () =>
+    Array.from({length: gw}, () => pal[_rInt(0, n - 1)])
+  );
   const quad = Array.from({length: hh}, (_, y) =>
     Array.from({length: hw}, (_, x) => {
-      const r = Math.sqrt(x * x + (y * norm) ** 2);
-      const a = Math.atan2(y * norm, x + 0.001);
-      return palette[(Math.floor(r / 3) + Math.floor(a / (Math.PI / 4))) % n];
+      const gx = Math.min(Math.floor(x / hw * gw), gw - 1);
+      const gy = Math.min(Math.floor(y / hh * gh), gh - 1);
+      return grid[gy][gx];
     })
   );
   return Array.from({length: BE_IMG_GH}, (_, y) =>
@@ -2916,17 +2958,19 @@ function genPixelsKaleido(palette) {
 }
 
 function genPixelsKoridor(palette) {
-  const hw = 4;
+  const pal = _shuffled(palette);
+  const hw = _rInt(3, 5);
+  const startY = _rInt(hw + 1, BE_IMG_GH - hw - 2);
   const path = [];
-  let y = Math.floor(BE_IMG_GH / 2);
+  let y = startY;
   for (let x = 0; x < BE_GW; x++) {
     path.push(y);
     const r = Math.random();
-    const dy = r < 0.25 ? -1 : r < 0.5 ? 1 : 0;
+    const dy = r < 0.3 ? -1 : r < 0.6 ? 1 : 0;
     y = Math.max(hw + 1, Math.min(BE_IMG_GH - 2 - hw, y + dy));
   }
-  const floor = palette[0];
-  const walls = palette.length > 1 ? palette.slice(1) : palette;
+  const floor = pal[0];
+  const walls = pal.length > 1 ? pal.slice(1) : pal;
   const pixels = Array.from({length: BE_IMG_GH}, (_, gy) =>
     Array.from({length: BE_GW}, (_, x) =>
       Math.abs(gy - path[x]) <= hw
@@ -2934,7 +2978,7 @@ function genPixelsKoridor(palette) {
         : walls[Math.floor(gy / BE_IMG_GH * walls.length) % walls.length]
     )
   );
-  return { pixels, path };
+  return { pixels, path, hw };
 }
 
 function genBlocksScatter(density, corridorPath) {
