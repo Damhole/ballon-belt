@@ -2522,6 +2522,7 @@ const fiState = {
   dragging: false,
   lastX: 0,
   lastY: 0,
+  maxColors: BE_COLORS.length,
 };
 
 // subset = pole indexů do FI_PAL_RGB; null = použij vše
@@ -2610,6 +2611,7 @@ function fiRenderCrop() {
   const cw = cW / BE_GW, ch = cH / BE_IMG_GH;
   for (let x = 0; x <= BE_GW; x++) { ctx.beginPath(); ctx.moveTo(x * cw, 0); ctx.lineTo(x * cw, cH); ctx.stroke(); }
   for (let y = 0; y <= BE_IMG_GH; y++) { ctx.beginPath(); ctx.moveTo(0, y * ch); ctx.lineTo(cW, y * ch); ctx.stroke(); }
+  fiComputeMaxColors();
 }
 
 function fiGetImgData() {
@@ -2622,6 +2624,14 @@ function fiGetImgData() {
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(cropCv, 0, 0, BE_GW, BE_IMG_GH);
   return ctx.getImageData(0, 0, BE_GW, BE_IMG_GH);
+}
+
+function fiComputeMaxColors() {
+  const imgData = fiGetImgData();
+  if (!imgData) return;
+  const pixels = fiQuantize(imgData, BE_GW, BE_IMG_GH, false, null);
+  fiState.maxColors = new Set(pixels.flat().filter(ci => ci >= 0)).size;
+  fiUpdateSliderBounds();
 }
 
 function fiGetProfilePool() {
@@ -2644,7 +2654,7 @@ function fiUpdateSliderBounds() {
   const key = profileEl ? profileEl.value : 'auto';
   let maxN;
   if (key === 'auto') {
-    maxN = BE_COLORS.length;
+    maxN = fiState.maxColors;
   } else if (key === 'active') {
     const lvl = beCurrentLvl();
     maxN = (lvl && lvl.activePalette) ? lvl.activePalette.length : BE_COLORS.length;
@@ -2653,10 +2663,8 @@ function fiUpdateSliderBounds() {
     maxN = preset ? preset.colors.length : BE_COLORS.length;
   }
   nSlider.max = maxN;
-  if (parseInt(nSlider.value) > maxN) {
-    nSlider.value = maxN;
-    if (nVal) nVal.textContent = maxN;
-  }
+  if (parseInt(nSlider.value) > maxN) nSlider.value = maxN;
+  if (nVal) nVal.textContent = nSlider.value;
 }
 
 function fiCurrentN() {
