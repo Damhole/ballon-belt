@@ -643,6 +643,45 @@ body {
 .pt-colors { display: flex; gap: 4px; flex-wrap: wrap; }
 .pt-colors .be-color-dot { width: 22px; height: 22px; }
 
+/* ─── Generator panel ─── */
+.gen-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-0);
+  border: 0.5px solid var(--border);
+  border-radius: 7px;
+  margin-top: 2px;
+}
+.gen-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gen-label {
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  min-width: 60px;
+}
+.gen-check {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 12px; color: var(--text-2); cursor: pointer;
+}
+.gen-check input { accent-color: var(--accent); }
+.gen-check.gen-disabled { opacity: 0.38; cursor: default; }
+.gen-soon { font-size: 10px; color: var(--text-3); font-style: italic; }
+.gen-styles { display: flex; gap: 4px; flex-wrap: wrap; }
+.gen-style {
+  background: var(--bg-2); color: var(--text-2);
+  border: 0.5px solid var(--border); border-radius: 5px;
+  padding: 3px 9px; font-size: 11px; cursor: pointer; font-family: inherit;
+  transition: background 0.1s, color 0.1s;
+}
+.gen-style:hover { background: var(--bg-3); color: var(--text); }
+.gen-style.active { background: var(--accent); color: #0a1020; border-color: var(--accent); font-weight: 600; }
+#gen-density { accent-color: var(--accent); width: 110px; }
+#gen-density-val { font-size: 12px; color: var(--accent); min-width: 32px; }
+.btn-accent { background: var(--accent); color: #0a1020; border-color: var(--accent); font-weight: 600; }
+
 /* ═══════════════════════════════════════════════════════════════════════════
    PHOTO IMPORT MODAL
    ═══════════════════════════════════════════════════════════════════════════ */

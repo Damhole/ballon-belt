@@ -146,7 +146,36 @@
               <div class="pt-row">
                 <button type="button" id="pt-clear-all" class="btn btn-small btn-danger">vyčistit celé plátno</button>
                 <button type="button" id="pt-import-foto" class="btn btn-small">📷 Import foto</button>
+                <button type="button" id="pt-generate" class="btn btn-small">🎲 Generovat</button>
                 <input type="file" id="pt-foto-file" accept="image/*" hidden>
+              </div>
+              <div id="gen-panel" class="gen-panel" hidden>
+                <div class="gen-row">
+                  <span class="gen-label">zahrnout</span>
+                  <label class="gen-check"><input type="checkbox" id="gen-pixels" checked> Pixely</label>
+                  <label class="gen-check"><input type="checkbox" id="gen-blocks"> Bloky</label>
+                  <label class="gen-check gen-disabled"><input type="checkbox" disabled> Speciální <span class="gen-soon">brzy</span></label>
+                </div>
+                <div class="gen-row" id="gen-style-row">
+                  <span class="gen-label">styl</span>
+                  <div class="gen-styles">
+                    <button type="button" class="gen-style active" data-style="stripes">Pruhy</button>
+                    <button type="button" class="gen-style" data-style="circles">Kruhy</button>
+                    <button type="button" class="gen-style" data-style="noise">Šum</button>
+                    <button type="button" class="gen-style" data-style="checker">Šachy</button>
+                    <button type="button" class="gen-style" data-style="mandala">Mandala</button>
+                    <button type="button" class="gen-style" data-style="kaleido">Kaleido</button>
+                    <button type="button" class="gen-style" data-style="koridor">Koridor</button>
+                  </div>
+                </div>
+                <div class="gen-row" id="gen-density-row" hidden>
+                  <span class="gen-label">hustota</span>
+                  <input type="range" id="gen-density" min="5" max="40" value="20" step="5">
+                  <span id="gen-density-val">20 %</span>
+                </div>
+                <div class="gen-row">
+                  <button type="button" id="gen-go" class="btn btn-small btn-accent">🎲 Generovat</button>
+                </div>
               </div>
             </div>
             <div class="block-editor">

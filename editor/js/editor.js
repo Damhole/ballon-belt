@@ -2503,6 +2503,7 @@ function wirePixelToolbar() {
   if (clr) clr.addEventListener('click', beClearAllPixels);
 
   wirePhotoImport();
+  wireGenerator();
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -2827,6 +2828,201 @@ function wirePhotoImport() {
     fiClampPan();
     fiRender();
   }, { passive: false });
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Level Generator — pixel patterns + block scatter
+// ─────────────────────────────────────────────────────────────────
+
+let _genStyle = 'stripes';
+
+function _genPalette(lvl) {
+  return (lvl && lvl.activePalette && lvl.activePalette.length > 0)
+    ? lvl.activePalette
+    : BE_PALETTE_PRESETS[0].colors;
+}
+
+function genPixelsStripes(palette) {
+  const n = palette.length;
+  return Array.from({length: BE_IMG_GH}, () =>
+    Array.from({length: BE_GW}, (_, x) => palette[Math.floor(x / BE_GW * n)])
+  );
+}
+
+function genPixelsCircles(palette) {
+  const cx = BE_GW / 2, cy = BE_IMG_GH / 2;
+  const maxR = Math.sqrt(cx * cx + cy * cy);
+  const n = palette.length;
+  return Array.from({length: BE_IMG_GH}, (_, y) =>
+    Array.from({length: BE_GW}, (_, x) => {
+      const r = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
+      return palette[Math.floor(r / maxR * n) % n];
+    })
+  );
+}
+
+function genPixelsNoise(palette) {
+  return Array.from({length: BE_IMG_GH}, () =>
+    Array.from({length: BE_GW}, () => palette[Math.floor(Math.random() * palette.length)])
+  );
+}
+
+function genPixelsChecker(palette) {
+  const size = 3;
+  return Array.from({length: BE_IMG_GH}, (_, y) =>
+    Array.from({length: BE_GW}, (_, x) =>
+      palette[(Math.floor(x / size) + Math.floor(y / size)) % palette.length]
+    )
+  );
+}
+
+function genPixelsMandala(palette) {
+  const cx = BE_GW / 2, cy = BE_IMG_GH / 2;
+  const sectors = 8;
+  const n = palette.length;
+  const aspect = BE_GW / BE_IMG_GH;
+  const sectorAngle = (Math.PI * 2) / sectors;
+  return Array.from({length: BE_IMG_GH}, (_, y) =>
+    Array.from({length: BE_GW}, (_, x) => {
+      const dx = x - cx, dy = (y - cy) * aspect;
+      const r = Math.sqrt(dx * dx + dy * dy);
+      let a = ((Math.atan2(dy, dx) + Math.PI * 2) % (Math.PI * 2)) % sectorAngle;
+      if (a > sectorAngle / 2) a = sectorAngle - a;
+      const rBand = Math.floor(r / 3.5) % n;
+      const aBand = Math.floor(a / (sectorAngle / 2) * 3) % n;
+      return palette[(rBand + aBand) % n];
+    })
+  );
+}
+
+function genPixelsKaleido(palette) {
+  const hw = Math.ceil(BE_GW / 2), hh = Math.ceil(BE_IMG_GH / 2);
+  const n = palette.length;
+  const norm = hh / hw;
+  const quad = Array.from({length: hh}, (_, y) =>
+    Array.from({length: hw}, (_, x) => {
+      const r = Math.sqrt(x * x + (y * norm) ** 2);
+      const a = Math.atan2(y * norm, x + 0.001);
+      return palette[(Math.floor(r / 3) + Math.floor(a / (Math.PI / 4))) % n];
+    })
+  );
+  return Array.from({length: BE_IMG_GH}, (_, y) =>
+    Array.from({length: BE_GW}, (_, x) => {
+      const qx = Math.min(x < hw ? x : BE_GW - 1 - x, hw - 1);
+      const qy = Math.min(y < hh ? y : BE_IMG_GH - 1 - y, hh - 1);
+      return quad[qy][qx];
+    })
+  );
+}
+
+function genPixelsKoridor(palette) {
+  const hw = 4;
+  const path = [];
+  let y = Math.floor(BE_IMG_GH / 2);
+  for (let x = 0; x < BE_GW; x++) {
+    path.push(y);
+    const r = Math.random();
+    const dy = r < 0.25 ? -1 : r < 0.5 ? 1 : 0;
+    y = Math.max(hw + 1, Math.min(BE_IMG_GH - 2 - hw, y + dy));
+  }
+  const floor = palette[0];
+  const walls = palette.length > 1 ? palette.slice(1) : palette;
+  const pixels = Array.from({length: BE_IMG_GH}, (_, gy) =>
+    Array.from({length: BE_GW}, (_, x) =>
+      Math.abs(gy - path[x]) <= hw
+        ? floor
+        : walls[Math.floor(gy / BE_IMG_GH * walls.length) % walls.length]
+    )
+  );
+  return { pixels, path };
+}
+
+function genBlocksScatter(density, corridorPath) {
+  const blocks = [];
+  for (let gy = 0; gy < BE_IMG_GH; gy++) {
+    for (let x = 0; x < BE_GW; x++) {
+      if (Math.random() > density) continue;
+      if (corridorPath && Math.abs(gy - corridorPath[x]) <= 5) continue;
+      blocks.push({ x, y: gy, shape: 0, rotation: 0 });
+    }
+  }
+  return blocks;
+}
+
+function doGenerate() {
+  const lvl = beCurrentLvl();
+  if (!lvl) return;
+  const includePixels = !!($('gen-pixels') && $('gen-pixels').checked);
+  const includeBlocks = !!($('gen-blocks') && $('gen-blocks').checked);
+  if (!includePixels && !includeBlocks) return;
+
+  const palette = _genPalette(lvl);
+  histPush(lvl, 'generate-' + _genStyle);
+
+  let corridorPath = null;
+
+  if (includePixels) {
+    let pixels;
+    if (_genStyle === 'circles')       pixels = genPixelsCircles(palette);
+    else if (_genStyle === 'noise')    pixels = genPixelsNoise(palette);
+    else if (_genStyle === 'checker')  pixels = genPixelsChecker(palette);
+    else if (_genStyle === 'mandala')  pixels = genPixelsMandala(palette);
+    else if (_genStyle === 'kaleido')  pixels = genPixelsKaleido(palette);
+    else if (_genStyle === 'koridor')  { const r = genPixelsKoridor(palette); pixels = r.pixels; corridorPath = r.path; }
+    else                               pixels = genPixelsStripes(palette);
+
+    lvl.image = { source: 'custom', pixels };
+    const srcSel = $('f-image-source');
+    if (srcSel) srcSel.value = 'custom';
+  }
+
+  if (includeBlocks) {
+    const density = parseInt($('gen-density').value || 20) / 100;
+    lvl.blocks = genBlocksScatter(density, corridorPath);
+  }
+
+  beUpdatePixelToolbarVisibility();
+  renderBlockCanvas();
+  markDirty();
+  $('gen-panel').hidden = true;
+}
+
+function wireGenerator() {
+  const toggleBtn = $('pt-generate');
+  const panel = $('gen-panel');
+  if (!toggleBtn || !panel) return;
+
+  toggleBtn.addEventListener('click', () => { panel.hidden = !panel.hidden; });
+
+  document.querySelectorAll('.gen-style').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _genStyle = btn.dataset.style;
+      document.querySelectorAll('.gen-style').forEach(b => b.classList.toggle('active', b === btn));
+      const styleRow = $('gen-style-row');
+      if (styleRow) styleRow.hidden = !($('gen-pixels') && $('gen-pixels').checked);
+    });
+  });
+
+  const genPixelsCk = $('gen-pixels');
+  const genBlocksCk = $('gen-blocks');
+  const styleRow = $('gen-style-row');
+  const densityRow = $('gen-density-row');
+
+  function updateRows() {
+    if (styleRow) styleRow.hidden = !(genPixelsCk && genPixelsCk.checked);
+    if (densityRow) densityRow.hidden = !(genBlocksCk && genBlocksCk.checked);
+  }
+  if (genPixelsCk) genPixelsCk.addEventListener('change', updateRows);
+  if (genBlocksCk) genBlocksCk.addEventListener('change', updateRows);
+
+  const densitySlider = $('gen-density');
+  const densityVal = $('gen-density-val');
+  if (densitySlider) densitySlider.addEventListener('input', () => {
+    if (densityVal) densityVal.textContent = densitySlider.value + ' %';
+  });
+
+  const goBtn = $('gen-go');
+  if (goBtn) goBtn.addEventListener('click', doGenerate);
 }
 
 // Wire up editor DOM (volá se jednou v boot()).
