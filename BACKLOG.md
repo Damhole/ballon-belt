@@ -384,7 +384,7 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
-| v41: generátor bloků — packing z palety tvarů (rect/L/T/cross/circle), barva z pixelu pod blokem, fix mazání při off | `` | 2026-04-24 |
+| v41: generátor bloků — packing z palety tvarů (rect/L/T/cross/circle), barva z pixelu pod blokem, fix mazání při off | `74cc0f9` | 2026-04-24 |
 | v40: generátor — plná randomizace všech 7 stylů (typy pruhů, střed kruhů, velikost buněk, sektory, šířka koridoru…) | `9cb7af1` | 2026-04-24 |
 | v39: generátor levelů — 7 pixel stylů (Pruhy/Kruhy/Šum/Šachy/Mandala/Kaleido/Koridor), bloky, checkboxy | `af45bd8` | 2026-04-24 |
 | v38: preset Pop art (primárky + cyan + magenta) | `0c44c8a` | 2026-04-24 |
