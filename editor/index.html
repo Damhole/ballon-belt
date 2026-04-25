@@ -139,7 +139,7 @@
                 </div>
                 <div class="gen-row" id="gen-block-ratio-row" hidden>
                   <span class="gen-label">% bloků</span>
-                  <input type="range" id="gen-block-ratio" min="10" max="90" value="50" step="10">
+                  <input type="range" id="gen-block-ratio" min="10" max="100" value="50" step="10">
                   <span id="gen-block-ratio-val">50 %</span>
                 </div>
                 <div class="gen-row">
@@ -249,6 +249,8 @@
                 <button type="button" id="cl-gen-reset" class="btn btn-small btn-danger" title="Vyprázdni grid a vygeneruj nový rozložení od nuly.">♻ regenerovat</button>
               </div>
             </div>
+            <!-- Banner přesunut sem (těsně pod complexity tabs), aby byl patrný kontext: která complexity je výchozí. -->
+            <div id="cl-layout-banner" class="cl-layout-banner" hidden></div>
             <div id="cl-empty" class="cl-empty">
               Žádná varianta pro tuto complexity. Klikni <b>+ nová</b> pro vytvoření.
               Levely bez varianty pro danou complexity se auto-generují jako dnes.
@@ -260,7 +262,6 @@
               </div>
               <div id="cl-capacity-body" class="cl-capacity-body"></div>
               <div id="cl-capacity-hint" class="cl-capacity-hint"></div>
-              <div id="cl-layout-banner" class="cl-layout-banner" hidden></div>
             </div>
             <div id="cl-editor" class="cl-editor" hidden>
               <div class="cl-grid-wrap">

@@ -2650,8 +2650,9 @@ function drawBlocks(ctx){
       ctx.fillRect(px,py,SCALE,SCALE);
     }
     // HP číslo centrované uvnitř bloku. Mystery má navíc "?" nad HP číslem.
+    // Jednotná velikost čísla napříč bloky (úzké bloky měly dřív mrňavá čísla).
     const cx=(b.x+b.w/2)*SCALE, cy=(b.y+b.h/2)*SCALE;
-    const fontPx=Math.max(12,Math.min(24,Math.floor(Math.min(b.w,b.h)*SCALE*0.7)));
+    const fontPx=24;
     ctx.save();
     ctx.textAlign='center';
     ctx.textBaseline='middle';
@@ -2659,7 +2660,7 @@ function drawBlocks(ctx){
     ctx.strokeStyle='rgba(0,0,0,0.95)';
     if(isMystery){
       // Velký "?" přes celý blok (dominantní) + malý HP nad ním
-      const qFont=Math.max(14,Math.min(28,Math.floor(Math.min(b.w,b.h)*SCALE*0.85)));
+      const qFont=28;
       ctx.font='bold '+qFont+'px system-ui, -apple-system, sans-serif';
       ctx.strokeText('?',cx,cy);
       ctx.fillStyle='#ffe07a';

@@ -780,6 +780,8 @@ body {
 }
 .gen-style:hover { background: var(--bg-3); color: var(--text); }
 .gen-style.active { background: var(--accent); color: #0a1020; border-color: var(--accent); font-weight: 600; }
+.gen-style:disabled { opacity: 0.35; cursor: not-allowed; }
+.gen-style:disabled:hover { background: var(--bg-2); color: var(--text-2); }
 #gen-block-ratio { accent-color: var(--accent); width: 110px; }
 #gen-block-ratio-val { font-size: 12px; color: var(--accent); min-width: 36px; }
 .btn-accent { background: var(--accent); color: #0a1020; border-color: var(--accent); font-weight: 600; }
@@ -1376,4 +1378,14 @@ body {
   background: rgba(255,90,90,0.12);
   border: 1px solid rgba(255,90,90,0.45);
   color: #ffb5b5;
+}
+.cl-layout-banner.banner-warn {
+  background: rgba(255,200,80,0.10);
+  border: 1px solid rgba(255,200,80,0.35);
+  color: #ffd78a;
+}
+.cl-layout-banner.banner-orange {
+  background: rgba(255,140,40,0.12);
+  border: 1px solid rgba(255,140,40,0.45);
+  color: #ffb86b;
 }

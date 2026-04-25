@@ -1250,22 +1250,91 @@ function clRenderCapacity(lvl, variant) {
     body.appendChild(totalChip);
   }
 
-  // Layout applied/fallback banner — co hra doopravdy použila?
+  // Banner: kombinuje PIN status (co hra zvolí jako výchozí při startu)
+  // a APPLIED status (jestli hra layout přijala v preview iframe).
+  // Závažnost se odvíjí od toho, jestli koukáme na pinnutou complexity.
+  // — pinnutý + applied=true → zelený („live")
+  // — pinnutý + applied=false → ČERVENÝ (kritická chyba — hra by spadla na auto-gen)
+  // — nepinnutý + applied=true → modro-žlutý info („alternativa pro switch")
+  // — nepinnutý + applied=false → žlutý warning (alternativa s problémem,
+  //   ale nezasahuje startup hry)
+  // — žádný pin → oranžový (designer musí vybrat default)
   const bannerEl = $('cl-layout-banner');
   if (bannerEl) {
+    const pinnedDiff = lvl && lvl.defaultComplexity;
+    const currentDiff = state.clActiveDiff;
     const stBag = state.layoutStatusByLevel[lvl && lvl.key];
-    const st = stBag ? stBag[state.clActiveDiff] : null;
-    if (st && st.applied === true) {
+    const st = stBag ? stBag[currentDiff] : null;
+    const isPinnedTab = pinnedDiff === currentDiff;
+    // Spočítáme PRO TENTO konkrétní variant: kolik má carrier/rocket/garage
+    // slotů. Prázdná varianta (žádné dlaždice, jen walls) je nepoužitelná.
+    const selectedVariantName = variant && variant.name;
+    let selectedSlotCount = 0;
+    if (variant && Array.isArray(variant.grid)) {
+      for (const row of variant.grid) {
+        if (!Array.isArray(row)) continue;
+        for (const t of row) {
+          if (!t) continue;
+          if (t.type === 'carrier' || t.type === 'rocket') selectedSlotCount++;
+          else if (t.type === 'garage' && Array.isArray(t.queue)) selectedSlotCount += t.queue.length;
+        }
+      }
+    }
+    // Varianty pro CURRENT diff a pro PINNED diff — data-driven check, ne
+    // závislé na runtime statusu (ten může být stale po smazání variant).
+    const layoutsAll = Array.isArray(lvl && lvl.carrierLayouts) ? lvl.carrierLayouts : [];
+    const sameDiffVariants = layoutsAll.filter(v => v && v.difficulty === currentDiff);
+    const pinnedDiffVariants = pinnedDiff ? layoutsAll.filter(v => v && v.difficulty === pinnedDiff) : [];
+    const altCount = Math.max(0, sameDiffVariants.length - 1);
+    const altNote = altCount > 0
+      ? ' Pozor: pro tuto complexity je celkem ' + sameDiffVariants.length + ' variant — hra si mezi nimi při startu náhodně vybírá.'
+      : '';
+
+    if (!pinnedDiff) {
       bannerEl.hidden = false;
-      bannerEl.className = 'cl-layout-banner banner-ok';
-      bannerEl.textContent = '✓ Hra používá tento layout (' + (st.layoutName || variant.name || '?') + ').';
-    } else if (st && st.applied === false) {
+      bannerEl.className = 'cl-layout-banner banner-orange';
+      bannerEl.textContent = '⚠ Žádná výchozí complexity není nastavená. Klikni na 📍 u jedné z complexity karet, ať hra ví, kterou má použít při startu.';
+    } else if (isPinnedTab && pinnedDiffVariants.length === 0) {
+      // Pin je na této complexity, ale neexistuje pro ni žádná varianta.
       bannerEl.hidden = false;
       bannerEl.className = 'cl-layout-banner banner-bad';
-      bannerEl.textContent = '⚠ Hra tento layout NEpoužila — spadla na auto-gen. Důvod: ' + (st.reason || 'neznámý') + '.';
+      bannerEl.textContent = '⚠ Pin je na této complexity, ale neexistuje pro ni žádná varianta. Hra spadne na auto-gen. Vytvoř variantu (+ nová) nebo přepni pin jinam.';
+    } else if (variant && selectedSlotCount === 0) {
+      // Aktuálně vybraná varianta je prázdná.
+      bannerEl.hidden = false;
+      bannerEl.className = 'cl-layout-banner banner-bad';
+      bannerEl.textContent = '⚠ Vybraná varianta „' + selectedVariantName + '" je PRÁZDNÁ (žádné carrier/rocket/garage sloty). Hra ji odmítne a spadne na auto-gen.' + altNote;
+    } else if (!isPinnedTab && pinnedDiffVariants.length === 0) {
+      // Pin míří na jinou complexity, ale ta nemá variantu → hra stejně spadne.
+      bannerEl.hidden = false;
+      bannerEl.className = 'cl-layout-banner banner-bad';
+      bannerEl.textContent = '⚠ Pin je na complexity „' + pinnedDiff + '", ale ta nemá žádnou variantu. Hra při startu spadne na auto-gen. Vytvoř variantu pro „' + pinnedDiff + '" nebo přepni pin sem.';
+    } else if (isPinnedTab && st && st.applied === false) {
+      bannerEl.hidden = false;
+      bannerEl.className = 'cl-layout-banner banner-bad';
+      bannerEl.textContent = '⚠ Pin je na této complexity, ale hra layout NEpoužila — spadla na auto-gen. Důvod: ' + (st.reason || 'neznámý') + '.' + altNote;
+    } else if (isPinnedTab && st && st.applied === true) {
+      bannerEl.hidden = false;
+      bannerEl.className = 'cl-layout-banner banner-ok';
+      const usedName = st.layoutName || selectedVariantName || '?';
+      const sameAsSelected = !selectedVariantName || usedName === selectedVariantName;
+      bannerEl.textContent = '✓ Tato complexity je výchozí (pin). Hra při startu '
+        + (sameAsSelected
+          ? 'použije tento layout (' + usedName + ').'
+          : 'právě teď zvolila layout „' + usedName + '" (vybraná v editoru je „' + selectedVariantName + '").')
+        + altNote;
+    } else if (isPinnedTab) {
+      bannerEl.hidden = false;
+      bannerEl.className = 'cl-layout-banner banner-ok';
+      bannerEl.textContent = '✓ Tato complexity je výchozí (pin). (Otevři preview pro ověření, že hra layout přijala.)' + altNote;
+    } else if (st && st.applied === false) {
+      bannerEl.hidden = false;
+      bannerEl.className = 'cl-layout-banner banner-warn';
+      bannerEl.textContent = 'ℹ️ Alternativa pro complexity „' + currentDiff + '" — hra startuje na pinu „' + pinnedDiff + '". Tahle varianta má ale chybu (' + (st.reason || 'neznámý') + '), po přepnutí by ji hra odmítla.' + altNote;
     } else {
-      bannerEl.hidden = true;
-      bannerEl.textContent = '';
+      bannerEl.hidden = false;
+      bannerEl.className = 'cl-layout-banner banner-warn';
+      bannerEl.textContent = 'ℹ️ Alternativa pro complexity „' + currentDiff + '". Hra startuje na pinu „' + pinnedDiff + '" — tato varianta se použije, jen když hráč přepne complexity.' + altNote;
     }
   }
 
@@ -2355,7 +2424,9 @@ function beDrawOneBlock(ctx, b, isSelected, isGhost) {
   // HP text / ?
   const cx = (b.x + b.w / 2) * BE_SCALE;
   const cy = (b.y + b.h / 2) * BE_SCALE;
-  const fontPx = Math.max(10, Math.min(22, Math.floor(Math.min(b.w, b.h) * BE_SCALE * 0.6)));
+  // Jednotná velikost čísla — sjednocena s herním rendererem (24px), aby
+  // editor + hra ukazovaly identický vzhled.
+  const fontPx = 24;
   ctx.save();
   ctx.globalAlpha = isGhost ? 0.6 : 1;
   ctx.textAlign = 'center';
@@ -2386,9 +2457,57 @@ function beDrawOneBlock(ctx, b, isSelected, isGhost) {
       b.w * BE_SCALE + 2,
       b.h * BE_SCALE + 2
     );
+    ctx.setLineDash([]);
+    // Resize handle squares — středy hran + 4 rohy. Designer chytne handle
+    // a táhne pro resize. 8 bodů jako u běžného shape editoru.
+    const hs = 6; // velikost handle čtverce v px
+    const hx = b.x * BE_SCALE - 1, hy = b.y * BE_SCALE - 1;
+    const hw = b.w * BE_SCALE + 2, hh = b.h * BE_SCALE + 2;
+    const handles = [
+      [hx, hy], [hx + hw / 2, hy], [hx + hw, hy],            // NW, N, NE
+      [hx, hy + hh / 2],          [hx + hw, hy + hh / 2],    // W, E
+      [hx, hy + hh], [hx + hw / 2, hy + hh], [hx + hw, hy + hh] // SW, S, SE
+    ];
+    ctx.fillStyle = '#ffe07a';
+    ctx.strokeStyle = '#1a1818';
+    ctx.lineWidth = 1;
+    for (const [hx0, hy0] of handles) {
+      ctx.fillRect(hx0 - hs / 2, hy0 - hs / 2, hs, hs);
+      ctx.strokeRect(hx0 - hs / 2, hy0 - hs / 2, hs, hs);
+    }
     ctx.restore();
   }
 }
+
+// Detekuje, jestli je bod (gx, gy) v image-pixel souřadnicích nad jednou
+// z edge zón daného (selected) bloku. Vrací 'n'|'s'|'e'|'w'|'ne'|'nw'|'se'|'sw'
+// nebo null. Tolerance je v image-pixelech (~0.4 = 4 reálné pixely při SCALE=10).
+function beHitEdge(b, gx, gy) {
+  const tol = 0.4;
+  const inX = gx > b.x - tol && gx < b.x + b.w + tol;
+  const inY = gy > b.y - tol && gy < b.y + b.h + tol;
+  if (!inX || !inY) return null;
+  const nearN = Math.abs(gy - b.y) < tol;
+  const nearS = Math.abs(gy - (b.y + b.h)) < tol;
+  const nearW = Math.abs(gx - b.x) < tol;
+  const nearE = Math.abs(gx - (b.x + b.w)) < tol;
+  if (nearN && nearW) return 'nw';
+  if (nearN && nearE) return 'ne';
+  if (nearS && nearW) return 'sw';
+  if (nearS && nearE) return 'se';
+  if (nearN) return 'n';
+  if (nearS) return 's';
+  if (nearW) return 'w';
+  if (nearE) return 'e';
+  return null;
+}
+
+const BE_EDGE_CURSORS = {
+  n: 'ns-resize', s: 'ns-resize',
+  e: 'ew-resize', w: 'ew-resize',
+  ne: 'nesw-resize', sw: 'nesw-resize',
+  nw: 'nwse-resize', se: 'nwse-resize',
+};
 
 // Najde index bloku pod pozicí (v image-pixel souřadnicích).
 function beHitTest(gx, gy) {
@@ -3173,12 +3292,27 @@ function genPixelsMandala(palette) {
   );
 }
 
-function genPixelsKaleido(palette) {
+function genPixelsKaleido(palette, blockRatio) {
   const pal = _shuffled(palette);
   const hw = Math.ceil(BE_GW / 2), hh = Math.ceil(BE_IMG_GH / 2);
   const n = pal.length;
-  // Random coarse grid in the quadrant
-  const gw = _rInt(3, 7), gh = _rInt(2, 5);
+  // Velikost coarse grid se škáluje podle blockRatio (0..1):
+  //   ratio=1.0 → gw=2 gh=2 (cell 9×7, max plochy = max bloků)
+  //   ratio=0.5 → gw=3 gh=2 (cell 6×7)
+  //   ratio=0.1 → gw=4 gh=3 (cell 4-5×4-5, min plocha pro 4×6 filtr)
+  // Bez blockRatio (pixel-only mód) → původní 3-7 / 2-5 (víc detail).
+  let gwMin, gwMax, ghMin, ghMax;
+  if (typeof blockRatio === 'number') {
+    const r = Math.max(0, Math.min(1, blockRatio));
+    // Lineární mapování: čím nižší ratio, tím víc/menších cell.
+    const gwTarget = Math.round(2 + (1 - r) * 2); // 2..4
+    const ghTarget = Math.round(2 + (1 - r) * 1); // 2..3
+    gwMin = gwMax = gwTarget;
+    ghMin = ghMax = ghTarget;
+  } else {
+    gwMin = 3; gwMax = 7; ghMin = 2; ghMax = 5;
+  }
+  const gw = _rInt(gwMin, gwMax), gh = _rInt(ghMin, ghMax);
   const grid = Array.from({length: gh}, () =>
     Array.from({length: gw}, () => pal[_rInt(0, n - 1)])
   );
@@ -3258,27 +3392,147 @@ function _findColorRegions(pixels) {
 // zamíchá je a vezme ratio × count. Každá vybraná sekce → 1 rect blok přes
 // celou svou plochu, stejná barva, HP 40+. Bloky přesně překryjí pixely, zbytek
 // sekcí zůstane jako pixely.
-function genBlocksFromSections(pixels, ratio) {
-  const regions = _findColorRegions(pixels);
-  const candidates = [];
-  for (const r of regions) {
-    const { bbox } = r;
-    const bw = bbox.x1 - bbox.x0 + 1;
-    const bh = bbox.y1 - bbox.y0 + 1;
-    if (bw < 2 && bh < 2) continue;
-    if (bw * bh !== r.cells.length) continue;
-    candidates.push({ x: bbox.x0, y: bbox.y0, w: bw, h: bh, color: r.color, area: r.cells.length });
+// Najdi největší obdélník v binární masce (true = volná buňka). Histogramová
+// metoda — pro každý řádek udržuje výšky sloupců a počítá max obdélník
+// stack-based v O(W). Vrátí {x,y,w,h,area} nebo null.
+function _largestRectInMask(mask) {
+  const H = mask.length;
+  const W = mask[0] ? mask[0].length : 0;
+  if (!H || !W) return null;
+  const heights = new Array(W).fill(0);
+  let bestArea = 0, bestRect = null;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) heights[x] = mask[y][x] ? heights[x] + 1 : 0;
+    const stack = [];
+    for (let x = 0; x <= W; x++) {
+      const curH = x < W ? heights[x] : 0;
+      while (stack.length && heights[stack[stack.length - 1]] >= curH) {
+        const top = stack.pop();
+        const left = stack.length ? stack[stack.length - 1] : -1;
+        const w = x - left - 1;
+        const h = heights[top];
+        const area = w * h;
+        if (area > bestArea) {
+          bestArea = area;
+          bestRect = { x: left + 1, y: y - h + 1, w, h, area };
+        }
+      }
+      stack.push(x);
+    }
   }
-  const shuffled = _shuffled(candidates);
-  const takeN = Math.max(1, Math.round(shuffled.length * ratio));
-  const chosen = shuffled.slice(0, Math.min(takeN, shuffled.length));
-  return chosen.map(c => ({
-    x: c.x, y: c.y, w: c.w, h: c.h,
-    shape: 'rect', kind: 'solid',
-    color: c.color,
-    hp: 40 + _rInt(0, 30),
-    rotation: 0,
-  }));
+  return bestRect;
+}
+
+function genBlocksFromSections(pixels, ratio) {
+  const H = pixels.length;
+  const W = (pixels && pixels[0] && pixels[0].length) || 0;
+  // Filtr: minimální rozměry kandidáta. Mirror-pair chceme aby vyšly i pro
+  // sub-rectangly, takže držíme stejně volné minimum.
+  const MIN_W = 4;
+  const MIN_H = 6;
+
+  // Per-barva 2D maska: true = pixel té barvy a JEŠTĚ neuzavřený do bloku.
+  // Pak greedy extrahujeme největší obdélník, smažeme buňky z masky a opakujeme,
+  // dokud zbývá obdélník splňující min rozměry. Tím ze stejnobarevné neobdélníkové
+  // plochy získáme více ploch (ne jen perfect rect celé plochy).
+  const colorMasks = {};
+  let totalPixels = 0;
+  for (let y = 0; y < H; y++) {
+    const row = pixels[y];
+    if (!Array.isArray(row)) continue;
+    for (let x = 0; x < W; x++) {
+      const c = row[x];
+      if (c == null || c < 0) continue;
+      totalPixels++;
+      if (!colorMasks[c]) {
+        colorMasks[c] = Array.from({ length: H }, () => new Array(W).fill(false));
+      }
+      colorMasks[c][y][x] = true;
+    }
+  }
+
+  const candidates = [];
+  for (const [colorStr, mask] of Object.entries(colorMasks)) {
+    const color = parseInt(colorStr, 10);
+    while (true) {
+      const r = _largestRectInMask(mask);
+      if (!r) break;
+      if (r.w < MIN_W || r.h < MIN_H) break;
+      candidates.push({ x: r.x, y: r.y, w: r.w, h: r.h, color, area: r.area });
+      // Smaž buňky obdélníku z masky pro další iteraci.
+      for (let yy = r.y; yy < r.y + r.h; yy++) {
+        for (let xx = r.x; xx < r.x + r.w; xx++) mask[yy][xx] = false;
+      }
+    }
+  }
+  // Mirror páry: pro každého kandidáta najdi odpovídající zrcadlový (stejná
+  // barva, stejné rozměry, x = W - x - w). Self-mirror = kandidát sám sedí
+  // na zrcadlové ose. Lone = bez páru.
+  // Skládáme do struktur { primary, mirror? } a řadíme PÁRY PRVNÍ podle area
+  // (zrcadlově symetrické rozložení = vizuální priorita > přesné %).
+  const taken = new Set();
+  const pairs = []; // { primary, mirror|null, area, lone }
+  for (let i = 0; i < candidates.length; i++) {
+    if (taken.has(i)) continue;
+    const a = candidates[i];
+    const mirrorX = W - a.x - a.w;
+    if (a.x === mirrorX) {
+      // Self-mirror (sedí na ose) — okamžitě brát, počítá jako 1 blok
+      taken.add(i);
+      pairs.push({ primary: a, mirror: null, area: a.area, lone: false, self: true });
+      continue;
+    }
+    let mIdx = -1;
+    for (let j = i + 1; j < candidates.length; j++) {
+      if (taken.has(j)) continue;
+      const b = candidates[j];
+      if (b.x === mirrorX && b.y === a.y && b.w === a.w && b.h === a.h && b.color === a.color) {
+        mIdx = j; break;
+      }
+    }
+    if (mIdx >= 0) {
+      taken.add(i); taken.add(mIdx);
+      pairs.push({ primary: a, mirror: candidates[mIdx], area: a.area * 2, lone: false, self: false });
+    } else {
+      taken.add(i);
+      pairs.push({ primary: a, mirror: null, area: a.area, lone: true, self: false });
+    }
+  }
+  // Páry / self-mirror první (lone naposled), uvnitř každé skupiny dle area DESC.
+  pairs.sort((p, q) => {
+    if (p.lone !== q.lone) return p.lone ? 1 : -1;
+    return q.area - p.area;
+  });
+
+  // Target: ratio × celkové plochy pixelů. Bereme páry/bloky podle area DESC,
+  // dokud jejich kumulativní plocha nedosáhne targetArea. Mirror pair = vizuální
+  // priorita, takže pár se vždy vezme celý (může lehce přesáhnout target).
+  const targetArea = Math.max(1, Math.round(totalPixels * ratio));
+  let coveredArea = 0;
+  const result = [];
+  // HP tiers podle plochy bloku — diskrétní {40, 80, 120} hodnoty.
+  const hpForArea = (area) => {
+    if (area < 20) return 40;
+    if (area < 40) return 80;
+    return 120;
+  };
+  for (const p of pairs) {
+    if (coveredArea >= targetArea) break;
+    const hp = hpForArea(p.primary.w * p.primary.h);
+    result.push({
+      x: p.primary.x, y: p.primary.y, w: p.primary.w, h: p.primary.h,
+      shape: 'rect', kind: 'solid', color: p.primary.color, hp, rotation: 0,
+    });
+    coveredArea += p.primary.w * p.primary.h;
+    if (p.mirror) {
+      result.push({
+        x: p.mirror.x, y: p.mirror.y, w: p.mirror.w, h: p.mirror.h,
+        shape: 'rect', kind: 'solid', color: p.mirror.color, hp, rotation: 0,
+      });
+      coveredArea += p.mirror.w * p.mirror.h;
+    }
+  }
+  return result;
 }
 
 function doGenerate() {
@@ -3289,13 +3543,18 @@ function doGenerate() {
 
   const palette = _genPalette(lvl);
   histPush(lvl, 'generate-' + _genStyle);
+  // Když je mode 'blocks', použij ratio i k řízení velikosti pixel-cells
+  // v kaleido (víc % bloků = větší jednobarevné plochy = víc kandidátů).
+  const blockRatio = (mode === 'blocks')
+    ? parseInt($('gen-block-ratio').value || 50) / 100
+    : null;
 
   let pixels;
   if (_genStyle === 'circles')       pixels = genPixelsCircles(palette);
   else if (_genStyle === 'noise')    pixels = genPixelsNoise(palette);
   else if (_genStyle === 'checker')  pixels = genPixelsChecker(palette);
   else if (_genStyle === 'mandala')  pixels = genPixelsMandala(palette);
-  else if (_genStyle === 'kaleido')  pixels = genPixelsKaleido(palette);
+  else if (_genStyle === 'kaleido')  pixels = genPixelsKaleido(palette, blockRatio);
   else if (_genStyle === 'koridor')  { const r = genPixelsKoridor(palette); pixels = r.pixels; }
   else                               pixels = genPixelsStripes(palette);
 
@@ -3304,8 +3563,7 @@ function doGenerate() {
   if (srcSel) srcSel.value = 'custom';
 
   if (mode === 'blocks') {
-    const ratio = parseInt($('gen-block-ratio').value || 50) / 100;
-    lvl.blocks = genBlocksFromSections(pixels, ratio);
+    lvl.blocks = genBlocksFromSections(pixels, blockRatio);
   } else {
     lvl.blocks = [];
   }
@@ -3325,6 +3583,7 @@ function wireGenerator() {
 
   document.querySelectorAll('.gen-style').forEach(btn => {
     btn.addEventListener('click', () => {
+      if (btn.disabled) return;
       _genStyle = btn.dataset.style;
       document.querySelectorAll('.gen-style').forEach(b => b.classList.toggle('active', b === btn));
     });
@@ -3335,8 +3594,26 @@ function wireGenerator() {
     const modeEl = document.querySelector('input[name="gen-mode"]:checked');
     const mode = modeEl ? modeEl.value : 'pixels';
     if (ratioRow) ratioRow.hidden = (mode !== 'blocks');
+    // V režimu „Bloky + pixely" má smysl jen kaleido styl (stejnobarevné
+    // souvislé plochy, do kterých dobře sednou velké obdélníkové bloky).
+    // Ostatní styly (Pruhy, Kruhy, Šum, Šachy, Mandala, Koridor) generují
+    // fragmentovanou nebo úzkou geometrii bez dostatečně velkých rect oblastí.
+    document.querySelectorAll('.gen-style').forEach(b => {
+      if (mode === 'blocks') {
+        const isKaleido = b.dataset.style === 'kaleido';
+        b.disabled = !isKaleido;
+        if (isKaleido) {
+          _genStyle = 'kaleido';
+          document.querySelectorAll('.gen-style').forEach(bb => bb.classList.toggle('active', bb === b));
+        }
+      } else {
+        b.disabled = false;
+      }
+    });
   }
   document.querySelectorAll('input[name="gen-mode"]').forEach(r => r.addEventListener('change', updateRows));
+  // Inicializace na startu (pro případ, že je pre-selected mode 'blocks').
+  updateRows();
 
   const ratioSlider = $('gen-block-ratio');
   const ratioVal = $('gen-block-ratio-val');
@@ -3375,12 +3652,79 @@ function wireBlockEditor() {
     beState.mousePx = null;
   });
 
+  // Hover cursor pro edge handles — sleduje pohyb a mění cursor.
+  cvs.addEventListener('mousemove', (e) => {
+    if (beState.pxDragging || beState.pxRectStart || beState.drag || beState.beResizing) return;
+    const lvl = beCurrentLvl();
+    const sel = lvl && lvl.blocks && lvl.blocks[beState.selectedBlockIdx];
+    if (!sel) { cvs.style.cursor = ''; return; }
+    const p = bePxFromEvent(e);
+    const edge = beHitEdge(sel, p.x, p.y);
+    if (edge) {
+      cvs.style.cursor = BE_EDGE_CURSORS[edge] || 'pointer';
+    } else {
+      const hit = beHitTest(Math.floor(p.x), Math.floor(p.y));
+      cvs.style.cursor = (hit >= 0) ? 'move' : '';
+    }
+  });
+
   // Klik na plátno → hit-test; existující blok = select, jinak deselect.
   cvs.addEventListener('mousedown', (e) => {
     cvs.focus();
     const p = bePxFromEvent(e);
     const lvl = beCurrentLvl();
     const isCustom = lvl && lvl.image && lvl.image.source === 'custom';
+
+    // Pokud máme selected block a klik je na jeho EDGE → resize-drag (priorita
+    // před vším ostatním, aby šly chytnout i hrany ležící uvnitř pixel layeru).
+    const sel = lvl && lvl.blocks && lvl.blocks[beState.selectedBlockIdx];
+    if (sel) {
+      const edge = beHitEdge(sel, p.x, p.y);
+      if (edge) {
+        e.preventDefault();
+        const startX = sel.x, startY = sel.y, startW = sel.w, startH = sel.h;
+        let resized = false;
+        beState.beResizing = true;
+        const onMove = (ev) => {
+          const pp = bePxFromEvent(ev);
+          let nx = startX, ny = startY, nw = startW, nh = startH;
+          if (edge.includes('e')) {
+            nw = Math.max(1, Math.min(BE_GW - startX, Math.round(pp.x - startX)));
+          }
+          if (edge.includes('w')) {
+            const right = startX + startW;
+            const newX = Math.max(0, Math.min(right - 1, Math.round(pp.x)));
+            nx = newX;
+            nw = right - newX;
+          }
+          if (edge.includes('s')) {
+            nh = Math.max(1, Math.min(BE_IMG_GH - startY, Math.round(pp.y - startY)));
+          }
+          if (edge.includes('n')) {
+            const bot = startY + startH;
+            const newY = Math.max(0, Math.min(bot - 1, Math.round(pp.y)));
+            ny = newY;
+            nh = bot - newY;
+          }
+          if (nx !== sel.x || ny !== sel.y || nw !== sel.w || nh !== sel.h) {
+            if (!resized) histPush(lvl, 'block-resize-drag-' + Date.now());
+            sel.x = nx; sel.y = ny; sel.w = nw; sel.h = nh;
+            resized = true;
+            renderBlockCanvas();
+            renderSelectedBlockPanel();
+          }
+        };
+        const onUp = () => {
+          beState.beResizing = false;
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+          if (resized) markDirty();
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        return;
+      }
+    }
 
     // Pixel-editor režim má přednost u custom levelů a KDYŽ nebyl trefen blok.
     // (Blok drag-move má přednost — intuitivnější: klik na blok vždy = manipulace s blokem.)
