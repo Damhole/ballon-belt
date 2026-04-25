@@ -25,13 +25,17 @@ body {
   color: var(--text);
   font-size: 14px;
   line-height: 1.4;
-  min-height: 100vh;
+  /* Viewport-lock: žádný body scroll. Tři panely (Levels/Edit/Preview) každý
+     scrolluje samostatně, preview je vždy v zorném poli i když user roluje
+     v Edit panelu na grid sekci. Standard pro IDE/editor UI. */
+  height: 100vh;
+  overflow: hidden;
 }
 
 #app {
   max-width: 1600px;
   margin: 0 auto;
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
 }
@@ -179,7 +183,9 @@ body {
 #preview-frame {
   flex: 1;
   width: 100%;
-  min-height: 640px;
+  /* Bez min-height v viewport-lock módu — iframe vyplní zbylý prostor
+     v preview-panelu. min-height vrátíme jen v mobile stack módu níže. */
+  min-height: 0;
   border: 0.5px solid var(--border);
   border-radius: 8px;
   background: var(--bg-1);
@@ -187,10 +193,14 @@ body {
 
 /* Below ~1100px: stack preview below edit panel; resizery skryté */
 @media (max-width: 1100px) {
+  /* Mobile stack: body znova allowuje scroll (preview pod edit panelem). */
+  body { height: auto; overflow: auto; }
+  #app { height: auto; min-height: 100vh; }
   #app-main {
     grid-template-columns: 280px 1fr;
     grid-template-rows: auto auto;
   }
+  #preview-frame { min-height: 640px; }
   .col-resizer { display: none; }
   #preview-panel {
     grid-column: 1 / -1;
