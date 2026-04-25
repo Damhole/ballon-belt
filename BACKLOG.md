@@ -388,6 +388,7 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
+| v52: editor capacity chip — color index 0–11 ve swatch (match s cl-cell), designer hned vidí která barva je která | `3b7096f` | 2026-04-26 |
 | v51: editor UI cleanup — 3 collapsible sekce (Informace/Obraz/Grid), Rockets+Garage toggles odstraněny (drag tile do gridu), paleta unifikována s pixel painterem, drag-resize panely Levels/Edit/Preview s localStorage perzistencí | `4479840` | 2026-04-26 |
 | v50: bouncing-aware `simulateShotReaches` — odraz od wrong-color pixelů/bloků/non-target mystery (cap 4 odrazy), cannon detekuje cíle dosažitelné přes bounce | `25e1823` | 2026-04-26 |
 | v49: cannon dispatch refactor (Option D) — strict belt-feed, ball atomic consume, force-fire fallback, pop u hlavně při zero-target, pickCannonShot aim na edge cells bloku (vyčuhující pixel detekován) | `d69bf60` | 2026-04-25 |
