@@ -9,7 +9,7 @@
 </head>
 <body onload="initGame()">
 <div id="game">
-  <div id="version-badge">v32</div>
+  <div id="version-badge">v48</div>
   <!-- Top UI (h1 + score bar) bylo odstraněno v29 — v Gamee tyto informace
        zobrazuje platform wrapper, a editor preview je kompaktnější bez nich.
        Legacy ID score / belt-count / carriers-left jsou zachovány jako skryté
@@ -38,6 +38,7 @@
     </div>
   </div>
   <div id="status">Klikni na aktivní nosič</div>
+  <div id="ammo-audit" hidden></div>
   <div id="image-area">
     <canvas id="pixel-canvas" width="360" height="310"></canvas>
     <div id="overlay">
