@@ -225,6 +225,20 @@ let columnsFromLayout=false;
 // garageMode: 'off' | 'single' (1 náhodný směr) | 'multi' (2-4 náhodné směry)
 const GAR_DIR_VEC={N:[0,-1],S:[0,1],W:[-1,0],E:[1,0]};
 let beltAnim=0,lastBeltTime=null;
+// FPS counter (dev/preview overlay v rohu canvasu) — kruhový buffer posledních
+// 30 frame timestampů, update text + barva každých 250 ms.
+const _fpsFrames=[];
+let _fpsLastUpdate=0;
+// Per-frame profiler — kumuluje čas v jednotlivých sekcích beltLoop. Reset
+// při každém FPS updatu (250 ms okno). Když FPS spadne pod práh, log do konzole.
+// gap = čas mezi 2 rAF callbacky (signal browser throttle / freeze).
+// totalLoop = celkový čas v beltLoop callbacku (game work + ammo audit + drift).
+// ammoAudit = computeAmmoAudit() vol. každý frame v drift detectoru
+// dispatch = cannon dispatch (queue scan + pickCannonShot + force-fire) — drahé při velkém queue
+const _profAccum={drawBelt:0,drawParticles:0,drawPending:0,updateParticles:0,updatePending:0,
+  ammoAudit:0, dispatch:0, totalLoop:0, gap:0, gapMax:0, frames:0};
+let _profLastWarn=0;
+let _profLastTs=0;
 // Limit: max 4 nosiče (= 16 koulí) v trychtýři současně. Hard block:
 // pokud pending > 12, klik na nosič se ignoruje a zobrazí se varování.
 const PENDING_DISPENSE_THRESHOLD=12; // > 12 → klik je odmítnut
@@ -371,7 +385,16 @@ function nearestSameColor(ci,px,py){
 // Má daná barva nějaký cíl — ať už volný pixel, solid blok stejné barvy, nebo
 // libovolný mystery blok (mystery přijímá libovolnou barvu)? Používá se k detekci
 // "už pro mě není co trefit → pop" ve fyzice.
+// Cache: per-frame memo (viz _hasTargetCache nahoře). Volá se pro každý queue
+// item v dispatch loopu, takže s velkou queue mnoho redundantních volání.
 function hasAnyTargetForColor(ci){
+  if(typeof _hasTargetCache!=='undefined' && _hasTargetCache.has(ci))
+    return _hasTargetCache.get(ci);
+  const result=_hasAnyTargetForColorImpl(ci);
+  if(typeof _hasTargetCache!=='undefined') _hasTargetCache.set(ci,result);
+  return result;
+}
+function _hasAnyTargetForColorImpl(ci){
   for(const b of currentBlocks){
     if(b.hp<=0)continue;
     if(b.kind==='mystery')return true;
@@ -477,10 +500,28 @@ function findShotFromX(idealX,cannonYPos,tx,ty,ci,targetBlock){
   return null;
 }
 
+// Per-frame cache pro pickCannonShot a hasAnyTargetForColor — dispatch loop
+// volá tyto funkce pro každý queue item, ale výsledek je stejný pro všechny
+// items stejné barvy v rámci 1 framu (grid se mezi nimi nemění). Cache se
+// invaliduje na začátku každého beltLoop callbacku.
+let _frameCacheTick=0;
+const _pickShotCache=new Map();
+const _hasTargetCache=new Map();
+function _invalidateFrameCache(){
+  _frameCacheTick++;
+  _pickShotCache.clear();
+  _hasTargetCache.clear();
+}
 function pickCannonShot(ci,cannonXPos,cannonYPos){
-  // Seznam (tx,ty) potenciálních cílů barvy ci: pixely + živé bloky stejné barvy.
-  // Bez toho by modrá koule (ci=3) hledala pouze modré pixely a růžová koule pouze
-  // růžové pixely — blok by nikdy nebyl cíl, přestože kolize na něj zasáhne.
+  // Cache key — barva + cannonX (cannonY je konstanta CANNON_Y). cannonX se
+  // mezi framy mění (cannon se posouvá), ale uvnitř 1 framu je stabilní.
+  const ckey=ci+':'+(cannonXPos|0);
+  if(_pickShotCache.has(ckey)) return _pickShotCache.get(ckey);
+  const result=_pickCannonShotImpl(ci,cannonXPos,cannonYPos);
+  _pickShotCache.set(ckey,result);
+  return result;
+}
+function _pickCannonShotImpl(ci,cannonXPos,cannonYPos){
   const exposed=getExposedPixelsOfColor(grid,ci);
   const targets=exposed.map(({x,y})=>({
     tx:x*SCALE+SCALE/2, ty:y*SCALE+SCALE/2, kind:'pixel', gx:x, gy:y
@@ -3781,6 +3822,18 @@ function setupDOM(){
 
 // ── Animation loop ───────────────────────────────────────────────────────────
 function beltLoop(ts){
+  // Profiler frame gap — vzdálenost mezi rAF callbacky. ~16.7 = 60fps; > 30 = throttle.
+  const _loopStart=performance.now();
+  if(_profLastTs){
+    const gap=ts-_profLastTs;
+    _profAccum.gap+=gap;
+    if(gap>_profAccum.gapMax) _profAccum.gapMax=gap;
+  }
+  _profLastTs=ts;
+  // Invalidate per-frame cache (pickCannonShot / hasAnyTargetForColor) —
+  // dispatch loop volá tyto funkce pro každý queue item, ale grid se mezi
+  // items nemění, takže se to dá memoizovat per (color, cannonX|0).
+  _invalidateFrameCache();
   if(lastBeltTime!==null&&!paused){
     const dt=(ts-lastBeltTime)/1000;
     const prevAnim=beltAnim;
@@ -3804,7 +3857,9 @@ function beltLoop(ts){
     // Drift detector: každý frame změříme totalHave/totalNeed; když HAVE
     // klesne víc než NEED (= projektil zmizel, aniž by zničil pixel/HP), je to leak.
     if(running){
+      const _ta0=performance.now();
       const cur=computeAmmoAudit();
+      _profAccum.ammoAudit+=performance.now()-_ta0;
       const prev=window._driftPrev;
       if(prev){
         const dHave=cur.totalHave-prev.totalHave;
@@ -3820,6 +3875,7 @@ function beltLoop(ts){
     }
     checkLaunchPoint(prevAnim,beltAnim);
 
+    const _td0=performance.now();
     if(gunQueue.length>0){
       // Cannon logika (immediate dispatch):
       //  1. Drop barvy co už nemají cíl (shift) — vyčistit queue na začátku.
@@ -3950,15 +4006,98 @@ function beltLoop(ts){
       gunFireTimer=0;
       cannonSidePref=0;cannonSideShots=0;
     }
+    _profAccum.dispatch+=performance.now()-_td0;
 
+    const _tu0=performance.now();
     updateParticles(dt);
+    const _tu1=performance.now();
     updatePending(dt);
+    const _tu2=performance.now();
+    _profAccum.updateParticles+=_tu1-_tu0;
+    _profAccum.updatePending+=_tu2-_tu1;
   }
   lastBeltTime=ts;
-  drawBelt();
-  drawParticles();
-  drawPending();
+  // Per-frame profiler: měříme drawBelt/drawParticles/drawPending na konci.
+  // Update fází jsou wrappnuté výše uvnitř !paused bloku.
+  const _t0=performance.now();
+  drawBelt(); const _t1=performance.now();
+  drawParticles(); const _t2=performance.now();
+  drawPending(); const _t3=performance.now();
+  _profAccum.drawBelt+=_t1-_t0;
+  _profAccum.drawParticles+=_t2-_t1;
+  _profAccum.drawPending+=_t3-_t2;
+  _profAccum.totalLoop+=performance.now()-_loopStart;
+  _profAccum.frames++;
+  _updateFpsCounter(ts);
   requestAnimationFrame(beltLoop);
+}
+
+// FPS overlay v pravém dolním rohu image-area. Šedá ≥ 55, žlutá 30-54, červená
+// < 30. Counter se vytvoří při prvním volání (lazy), aby nezatěžoval init.
+function _updateFpsCounter(ts){
+  _fpsFrames.push(ts);
+  if(_fpsFrames.length>60) _fpsFrames.shift();
+  if(ts-_fpsLastUpdate < 250) return;
+  _fpsLastUpdate=ts;
+  let el=document.getElementById('bb-fps');
+  if(!el){
+    el=document.createElement('div');
+    el.id='bb-fps';
+    el.style.cssText='position:absolute;right:6px;bottom:6px;font:600 10px/1.2 system-ui,sans-serif;'
+      +'padding:2px 6px;border-radius:4px;background:rgba(0,0,0,0.55);pointer-events:none;'
+      +'letter-spacing:0.04em;text-shadow:0 1px 1px rgba(0,0,0,0.8);z-index:20';
+    const host=document.getElementById('image-area');
+    if(host) host.appendChild(el); else return;
+  }
+  if(_fpsFrames.length<2){ el.textContent='— fps'; el.style.color='#888'; return; }
+  const span=_fpsFrames[_fpsFrames.length-1]-_fpsFrames[0];
+  const fps=Math.round((_fpsFrames.length-1)*1000/span);
+  el.textContent=fps+' fps';
+  if(fps>=55) el.style.color='#bdbdbd';        // šedá — OK
+  else if(fps>=30) el.style.color='#f5d800';   // žlutá — pomalejší
+  else el.style.color='#ff7a7a';               // červená — kritické
+
+  // Když fps < 50, log diagnostic snapshot do konzole (max 1× za 2 s).
+  // Vidíme rozpočet ms/frame v jednotlivých sekcích + entity counts. Tím
+  // odhalíme, jestli žere updateParticles (moc fly), drawParticles (render),
+  // nebo něco jiného. Tooltip element ukáže breakdown taky.
+  const frames=_profAccum.frames;
+  const breakdown=frames>0 ? {
+    ammo_audit: +(_profAccum.ammoAudit/frames).toFixed(2),
+    dispatch: +(_profAccum.dispatch/frames).toFixed(2),
+    upd_part: +(_profAccum.updateParticles/frames).toFixed(2),
+    upd_pend: +(_profAccum.updatePending/frames).toFixed(2),
+    drw_belt: +(_profAccum.drawBelt/frames).toFixed(2),
+    drw_part: +(_profAccum.drawParticles/frames).toFixed(2),
+    drw_pend: +(_profAccum.drawPending/frames).toFixed(2),
+    total_loop: +(_profAccum.totalLoop/frames).toFixed(2),
+    avg_gap: +(_profAccum.gap/Math.max(1,frames-1)).toFixed(1),
+    max_gap: +(_profAccum.gapMax).toFixed(0),
+  } : null;
+  const counts={
+    particles: typeof particles!=='undefined' ? particles.length : 0,
+    flying: typeof particles!=='undefined' ? particles.filter(p=>p.phase==='fly').length : 0,
+    pending: typeof pending!=='undefined' ? pending.length : 0,
+    belt: typeof belt!=='undefined' ? belt.length : 0,
+    blocks: typeof currentBlocks!=='undefined' ? currentBlocks.filter(b=>b.hp>0).length : 0,
+    gunQueue: typeof gunQueue!=='undefined' ? gunQueue.length : 0,
+  };
+  if(breakdown){
+    el.title=fps+' fps · ms/frame: upd_part '+breakdown.upd_part+', upd_pend '+breakdown.upd_pend
+      +', drw_belt '+breakdown.drw_belt+', drw_part '+breakdown.drw_part+', drw_pend '+breakdown.drw_pend
+      +' · counts: particles '+counts.particles+' (fly '+counts.flying+'), pending '+counts.pending
+      +', belt '+counts.belt+', blocks '+counts.blocks+', queue '+counts.gunQueue;
+  }
+  if(fps<50 && ts-_profLastWarn>2000){
+    _profLastWarn=ts;
+    console.warn('[BB-FPS] '+fps+' fps · ms/frame:', breakdown, '· counts:', counts);
+  }
+  // Reset accumulator pro další 250ms okno.
+  _profAccum.drawBelt=_profAccum.drawParticles=_profAccum.drawPending=0;
+  _profAccum.updateParticles=_profAccum.updatePending=0;
+  _profAccum.ammoAudit=_profAccum.dispatch=0;
+  _profAccum.totalLoop=_profAccum.gap=_profAccum.gapMax=0;
+  _profAccum.frames=0;
 }
 
 // ── Gamee SDK entry point (called by body onload) ────────────────────────────
