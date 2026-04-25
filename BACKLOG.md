@@ -362,7 +362,11 @@ v tuning hyperparametrů.
 
 _Sem házej všechno, co tě napadne. Při příští session to společně roztřídíme do tabulek výše._
 
-- **Bouncing-aware `simulateShotReaches`** — cannon dnes detekuje jen přímé LoS (direct/bank-L/bank-R/bank-T). Když je cíl dosažitelný přes odraz od wrong-color pixelu nebo bloku, simulate to rejectne a belt-feed ball nepustí (hráč pak vidí „Žádná shoda" i když je bounce cesta fyzikálně možná). Chce přesný port particle physics do simulate (bounce flip + bounceCap proti ping-pongu), ale pozor na false positives — minule (v49 dev) to způsobilo, že cannon bral barvy co ve skutečnosti nedosáhl. Dělat opatrně: matchovat `updateParticles` cell-by-cell, testovat proti reálným particles.
+- _(prázdné — přidej cokoliv hnedka)_
+
+### 👀 Sleduj v provozu
+
+- **Bouncing-aware `simulateShotReaches` (v50 dev)** — simulate teď modeluje odraz od wrong-color pixelů, wrong-color bloků a non-target mystery (`BOUNCE_CAP=4`). Cannon detekuje cesty přes 1-4 odrazy. Riziko: false positives (simulate.true ale particle nedoletí) kvůli numerické divergenci vůči `±0.06 rad` spread na fire angle. **Když uvidíš, že cannon vystřelí a koule nedorazí na cíl** (zamrzne, popne se naprázdno) → snížit cap na 2-3 nebo doladit physics. Nezatím necommitováno do verze.
 
 ---
 
@@ -384,6 +388,7 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
+| v50: bouncing-aware `simulateShotReaches` — odraz od wrong-color pixelů/bloků/non-target mystery (cap 4 odrazy), cannon detekuje cíle dosažitelné přes bounce | `25e1823` | 2026-04-26 |
 | v49: cannon dispatch refactor (Option D) — strict belt-feed, ball atomic consume, force-fire fallback, pop u hlavně při zero-target, pickCannonShot aim na edge cells bloku (vyčuhující pixel detekován) | `d69bf60` | 2026-04-25 |
 | v48: cannon LoS robustness + solid bloky se stínem — mystery opaque v simulate, cannonLock s LoS revalidací, partial ball consume (ppu decrement), drawBlocks bez proužků + shadow pod spodní hranu | `3fda598` | 2026-04-25 |
 | v47: hasLineOfSight corner-cut — diagonální paprsek neprojde mezi dvěma blokovanými rohy, projektily už nemíří na cíle schované za štěrbinou | `0104bf3` | 2026-04-24 |
