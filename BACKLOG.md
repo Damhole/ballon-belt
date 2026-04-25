@@ -384,6 +384,7 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
+| v49: cannon dispatch refactor (Option D) — strict belt-feed, ball atomic consume, force-fire fallback, pop u hlavně při zero-target, pickCannonShot aim na edge cells bloku (vyčuhující pixel detekován) | `d69bf60` | 2026-04-25 |
 | v48: cannon LoS robustness + solid bloky se stínem — mystery opaque v simulate, cannonLock s LoS revalidací, partial ball consume (ppu decrement), drawBlocks bez proužků + shadow pod spodní hranu | `3fda598` | 2026-04-25 |
 | v47: hasLineOfSight corner-cut — diagonální paprsek neprojde mezi dvěma blokovanými rohy, projektily už nemíří na cíle schované za štěrbinou | `0104bf3` | 2026-04-24 |
 | v46: projektily — swept collision (corner-cut jen při obou blokovaných rozích) + bezpečný nudge + steerAfterBounce řídí jen když je LoS na barvu, jinak volné poletování s ±16° rozptylem | `996865a` | 2026-04-24 |
