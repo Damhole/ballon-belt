@@ -388,6 +388,7 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
+| v54: editor revize — sync hardening (auto-rename dup keys, orphan stats cleanup, sync health check), state cleanup (transient beState reset on level switch, _lastPreviewKey on rename), URL ?level priority over saveState v gamee (_levelFromUrl flag), drop indikátor při drag-reorder, overall health badge v hlavičce, section collapse persistence | `cc799bc` | 2026-04-26 |
 | v53: editor — block resize handles (8 corners/edges, drag), generator overhaul (kaleido-only blocks, max-rect-extraction, mirror pairing, HP tiers 40/80/120, area-based ratio, min 4×6), banner data-driven (detekce pin bez varianty, multi-variant note, prázdná varianta) | `3ad89e3` | 2026-04-26 |
 | v52: editor capacity chip — color index 0–11 ve swatch (match s cl-cell), designer hned vidí která barva je která | `3b7096f` | 2026-04-26 |
 | v51: editor UI cleanup — 3 collapsible sekce (Informace/Obraz/Grid), Rockets+Garage toggles odstraněny (drag tile do gridu), paleta unifikována s pixel painterem, drag-resize panely Levels/Edit/Preview s localStorage perzistencí | `4479840` | 2026-04-26 |
