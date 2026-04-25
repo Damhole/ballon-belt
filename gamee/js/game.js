@@ -239,6 +239,10 @@ const _profAccum={drawBelt:0,drawParticles:0,drawPending:0,updateParticles:0,upd
   ammoAudit:0, dispatch:0, totalLoop:0, gap:0, gapMax:0, frames:0};
 let _profLastWarn=0;
 let _profLastTs=0;
+// Toggle pro [BB-FPS] console logy. Default OFF (nezahlcuje konzoli při běžné
+// hře). Shift+P v okně hry zapne/vypne. Persistuje v localStorage.
+let _profLogEnabled=false;
+try { _profLogEnabled = localStorage.getItem('bb-prof-log') === '1'; } catch(e) {}
 // Limit: max 4 nosiče (= 16 koulí) v trychtýři současně. Hard block:
 // pokud pending > 12, klik na nosič se ignoruje a zobrazí se varování.
 const PENDING_DISPENSE_THRESHOLD=12; // > 12 → klik je odmítnut
@@ -3788,6 +3792,24 @@ function startLevel(){
 function updateDifficultyBadge(){}
 // ── Event listeners ─────────────────────────────────────────────────────────
 function setupDOM(){
+  // Shift+P toggle pro [BB-FPS] console logy. Default OFF (nezahlcuje konzoli).
+  // Stav persistuje v localStorage. Zobrazí toast po toggle.
+  if(!window._profKeyWired){
+    window._profKeyWired=true;
+    window.addEventListener('keydown', (e)=>{
+      if(e.shiftKey && (e.key==='P' || e.key==='p')){
+        _profLogEnabled = !_profLogEnabled;
+        try { localStorage.setItem('bb-prof-log', _profLogEnabled ? '1' : '0'); } catch(err){}
+        console.info('[BB-FPS] profiler logging ' + (_profLogEnabled ? 'ON' : 'OFF'));
+        const fpsEl = document.getElementById('bb-fps');
+        if(fpsEl){
+          const oldTitle = fpsEl.title;
+          fpsEl.title = 'profiler logs ' + (_profLogEnabled ? 'ON' : 'OFF');
+          setTimeout(()=>{ if(fpsEl) fpsEl.title = oldTitle; }, 1500);
+        }
+      }
+    });
+  }
   let levelIdx=LEVELS.findIndex(l=>l.key===currentLevel);
   if(levelIdx<0)levelIdx=0;
   function syncDiffButtons(){
@@ -4034,6 +4056,8 @@ function beltLoop(ts){
 
 // FPS overlay v pravém dolním rohu image-area. Šedá ≥ 55, žlutá 30-54, červená
 // < 30. Counter se vytvoří při prvním volání (lazy), aby nezatěžoval init.
+// Klik na counter = toggle profiler logging do konzole (alternativa k Shift+P,
+// která v DevTools console nefunguje kvůli autocomplete).
 function _updateFpsCounter(ts){
   _fpsFrames.push(ts);
   if(_fpsFrames.length>60) _fpsFrames.shift();
@@ -4044,8 +4068,17 @@ function _updateFpsCounter(ts){
     el=document.createElement('div');
     el.id='bb-fps';
     el.style.cssText='position:absolute;right:6px;bottom:6px;font:600 10px/1.2 system-ui,sans-serif;'
-      +'padding:2px 6px;border-radius:4px;background:rgba(0,0,0,0.55);pointer-events:none;'
-      +'letter-spacing:0.04em;text-shadow:0 1px 1px rgba(0,0,0,0.8);z-index:20';
+      +'padding:2px 6px;border-radius:4px;background:rgba(0,0,0,0.55);'
+      +'letter-spacing:0.04em;text-shadow:0 1px 1px rgba(0,0,0,0.8);z-index:20;'
+      +'cursor:pointer;user-select:none';
+    el.addEventListener('click', ()=>{
+      _profLogEnabled = !_profLogEnabled;
+      try { localStorage.setItem('bb-prof-log', _profLogEnabled ? '1' : '0'); } catch(err){}
+      console.info('[BB-FPS] profiler logging ' + (_profLogEnabled ? 'ON — uvidíš [BB-FPS] logy v konzoli při fps<50' : 'OFF'));
+      // Vizuální feedback: krátký border puls
+      el.style.boxShadow = _profLogEnabled ? '0 0 0 2px #5ec786' : '0 0 0 2px #ff7a7a';
+      setTimeout(()=>{ el.style.boxShadow=''; }, 800);
+    });
     const host=document.getElementById('image-area');
     if(host) host.appendChild(el); else return;
   }
@@ -4086,9 +4119,10 @@ function _updateFpsCounter(ts){
     el.title=fps+' fps · ms/frame: upd_part '+breakdown.upd_part+', upd_pend '+breakdown.upd_pend
       +', drw_belt '+breakdown.drw_belt+', drw_part '+breakdown.drw_part+', drw_pend '+breakdown.drw_pend
       +' · counts: particles '+counts.particles+' (fly '+counts.flying+'), pending '+counts.pending
-      +', belt '+counts.belt+', blocks '+counts.blocks+', queue '+counts.gunQueue;
+      +', belt '+counts.belt+', blocks '+counts.blocks+', queue '+counts.gunQueue
+      +' · KLIK pro toggle [BB-FPS] console logů (' + (_profLogEnabled ? 'ON' : 'OFF') + ')';
   }
-  if(fps<50 && ts-_profLastWarn>2000){
+  if(_profLogEnabled && fps<50 && ts-_profLastWarn>2000){
     _profLastWarn=ts;
     console.warn('[BB-FPS] '+fps+' fps · ms/frame:', breakdown, '· counts:', counts);
   }
