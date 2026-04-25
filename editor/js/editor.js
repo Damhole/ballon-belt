@@ -400,10 +400,21 @@ async function reloadFromDisk() {
     return;
   }
   try {
+    // Zapamatuj si KEY aktuálně vybraného levelu, ať se po reloadu vrátíme
+    // na ten samý level (i když změnil pořadí). Bez toho by se selectedIdx
+    // resetoval na -1 a designer ztratil kontext.
+    const prevKey = (state.selectedIdx >= 0 && state.levels[state.selectedIdx])
+      ? state.levels[state.selectedIdx].key : null;
     state.levels = await readLevelsJson();
-    state.selectedIdx = -1;
+    let newIdx = -1;
+    if (prevKey) {
+      newIdx = state.levels.findIndex(l => l && l.key === prevKey);
+    }
+    state.selectedIdx = newIdx;
     state.dirty = false;
-    setLastAction('Loaded ' + state.levels.length + ' levels from editor/levels.json');
+    setLastAction('Loaded ' + state.levels.length + ' levels from editor/levels.json'
+      + (newIdx >= 0 ? ' · vrácen na „' + prevKey + '"' : ''));
+    updateUI();
   } catch (e) {
     console.error(e);
     alert('Failed to load editor/levels.json:\n' + e.message);
@@ -421,46 +432,122 @@ function scheduleAutosave() {
 }
 async function doAutosave() {
   if (!state.rootHandle) return;
-  const dupes = findDuplicateKeys(state.levels);
+  // Auto-rename duplikátů PŘED zápisem — místo silentního skip writeGameLevelsJs.
+  // Po renameu je `findDuplicateKeys` prázdné a oba soubory se zapíšou konzistentně.
+  // Side effect: state maps (pxCountsByLevel/...) se nepřemigrují automaticky pro
+  // renamované klíče — orphan stats se vyčistí až při dalším delete/manuální rename.
+  const renamed = _resolveDuplicateKeys(state.levels);
+  // Když auto-rename přejmenoval aktuálně vybraný level, sync UI form (jinak
+  // f-key input drží starý klíč).
+  if (renamed.length) {
+    const sel = state.levels[state.selectedIdx];
+    if (sel && $('f-key').value !== sel.key) $('f-key').value = sel.key;
+  }
   try {
     await writeLevelsJson(state.levels);
-    if (!dupes.length) {
-      await writeGameLevelsJs(state.levels);
-      setLastAction('💾 Autosaved (' + state.levels.length + ' levels) → editor/levels.json + gamee/js/levels.js');
-      // Preview reload AŽ po dokončení zápisu. Jinak by iframe reload proběhl
-      // s 150ms debouncem ještě PŘED tím, než autosave (300ms debounce) stihne
-      // zapsat soubor → iframe by si natahoval starou verzi levels.js.
-      // Navíc: server servíruje z /tmp/ballon-belt (TCC blokuje ~/Documents),
-      // kam běží rsync daemon /tmp/balloon-sync.sh s 150ms pollingem. FSA
-      // write proběhne do ~/Documents instantně, ale do /tmp se mirror dostane
-      // při příštím polling tiku (max ~200ms). 400ms forku dává bezpečnou
-      // rezervu, aby reload iframe chytil aktuální verzi.
-      setTimeout(() => reloadPreview(), 400);
+    await writeGameLevelsJs(state.levels);
+    if (renamed.length) {
+      const summary = renamed.map(r => r.oldKey + ' → ' + r.newKey).join(', ');
+      setLastAction('🔧 Auto-rename duplicate keys: ' + summary + ' · 💾 Autosaved');
+      // Update header chip a list (klíče se mohly změnit).
+      updateUI();
     } else {
-      setLastAction('⚠ editor/levels.json saved, but gamee/js/levels.js skipped — duplicate keys: ' + dupes.join(', '));
+      setLastAction('💾 Autosaved (' + state.levels.length + ' levels) → editor/levels.json + gamee/js/levels.js');
     }
+    // Preview reload AŽ po dokončení zápisu. Jinak by iframe reload proběhl
+    // s 150ms debouncem ještě PŘED tím, než autosave (300ms debounce) stihne
+    // zapsat soubor → iframe by si natahoval starou verzi levels.js.
+    // Server servíruje z /tmp/ballon-belt (TCC blokuje ~/Documents), kam běží
+    // rsync daemon /tmp/balloon-sync.sh s 150ms pollingem. FSA write proběhne
+    // do ~/Documents instantně, ale do /tmp se mirror dostane při příštím
+    // polling tiku (max ~200ms). 400ms forku dává bezpečnou rezervu, aby
+    // reload iframe chytil aktuální verzi.
+    setTimeout(() => reloadPreview(), 400);
     state.dirty = false;
     $('dirty-status').hidden = true;
+    // Sync health check — verify že rsync daemon /tmp/balloon-sync.sh skutečně
+    // dostal naše zápisy do /tmp/ballon-belt/, odkud httpd serveruje.
+    // Bez toho daemon můžou být stuck a preview pak ukazuje stará data.
+    _scheduleSyncHealthCheck();
   } catch (e) {
     console.error(e);
     setLastAction('❌ Autosave failed: ' + e.message);
   }
 }
 
+// Sync health check: porovná velikost právě zapsaného gamee/js/levels.js
+// (přes FSA do ~/Documents/) s velikostí, kterou serveruje httpd (z /tmp/ballon-belt/).
+// Když se liší o víc než 100 bytů (jiný JSON whitespace tolerance) → daemon
+// pravděpodobně stuck, ukážeme red chip s návodem na restart.
+let _syncCheckTimer = null;
+function _scheduleSyncHealthCheck() {
+  if (_syncCheckTimer) clearTimeout(_syncCheckTimer);
+  // 600ms = 400ms reload safety + 200ms rsync polling rezerva. Po této době
+  // by /tmp/ballon-belt/ mělo mít stejný obsah jako ~/Documents/.
+  _syncCheckTimer = setTimeout(() => {
+    _syncCheckTimer = null;
+    _runSyncHealthCheck().catch(e => console.warn('[sync-check] failed:', e));
+  }, 600);
+}
+async function _runSyncHealthCheck() {
+  if (!state.rootHandle) return;
+  // 1. Read expected size from FSA (what editor wrote to ~/Documents/)
+  let expected = -1;
+  try {
+    const gameeDir = await state.rootHandle.getDirectoryHandle('gamee');
+    const jsDir = await gameeDir.getDirectoryHandle('js');
+    const fileHandle = await jsDir.getFileHandle('levels.js');
+    const file = await fileHandle.getFile();
+    expected = file.size;
+  } catch (e) { return; /* no permission, skip */ }
+
+  // 2. Fetch served version (from /tmp/ballon-belt/ via Ruby httpd, with cache-bust)
+  let served = -1;
+  try {
+    const r = await fetch('../gamee/js/levels.js?syncprobe=' + Date.now(), { cache: 'no-store' });
+    const text = await r.text();
+    // Use byte length proxy: TextEncoder gives close-enough size for ASCII/UTF-8 JSON.
+    served = new TextEncoder().encode(text).length;
+  } catch (e) { return; /* fetch failed, skip */ }
+
+  const chip = $('sync-status');
+  if (!chip) return;
+  const diff = Math.abs(expected - served);
+  // Tolerance 100 bytů — line endings / trailing newline rozdíly. Při skutečné
+  // staleness jsou rozdíly v kB až desítkách kB.
+  if (expected > 0 && diff > 100) {
+    chip.hidden = false;
+    chip.textContent = '⚠ Sync stuck: ' + expected + 'B → ' + served + 'B (' + (expected - served) + 'B diff)';
+    console.warn('[sync-check] /tmp/ballon-belt out of sync — daemon stuck. Expected', expected, 'served', served);
+  } else {
+    chip.hidden = true;
+  }
+  _updateHealthBadge();
+}
+
 // Manual "Publish" = force immediate save (same as autosave, but synchronous to the click).
 async function publishToGame() {
   if (!state.rootHandle) return;
   if (!state.levels.length) { alert('No levels to publish.'); return; }
-  const dupes = findDuplicateKeys(state.levels);
-  if (dupes.length) { alert('Cannot publish — duplicate keys: ' + dupes.join(', ')); return; }
   if (_autosaveTimer) { clearTimeout(_autosaveTimer); _autosaveTimer = null; }
+  // Konzistentní s autosave — nikdy neblokujeme zápis kvůli duplikátům, místo
+  // toho je auto-renamujeme. Designer dostane toast s mapováním přejmenování.
+  const renamed = _resolveDuplicateKeys(state.levels);
+  if (renamed.length) {
+    const sel = state.levels[state.selectedIdx];
+    if (sel && $('f-key').value !== sel.key) $('f-key').value = sel.key;
+  }
   try {
     await writeLevelsJson(state.levels);
     await writeGameLevelsJs(state.levels);
     state.dirty = false;
-    setLastAction('🚀 Published ' + state.levels.length + ' levels to gamee/js/levels.js');
+    const renamedNote = renamed.length
+      ? ' (auto-rename: ' + renamed.map(r => r.oldKey + ' → ' + r.newKey).join(', ') + ')'
+      : '';
+    setLastAction('🚀 Published ' + state.levels.length + ' levels to gamee/js/levels.js' + renamedNote);
     schedulePreviewReload();
     updateUI();
+    _scheduleSyncHealthCheck();
   } catch (e) {
     console.error(e);
     alert('Publish failed: ' + e.message);
@@ -510,6 +597,27 @@ function findDuplicateKeys(levels) {
   }
   return [...dupes];
 }
+// Auto-rename duplikátů: projde levely zleva, druhý a další výskyt téhož klíče
+// přejmenuje připojením suffixu -2, -3, ... dokud není unikátní. Mutuje level
+// objekty in-place. Vrací pole {oldKey, newKey} pro toast/log.
+// Volá se v doAutosave PŘED zápisem, aby writeGameLevelsJs nemusel být skipnut
+// a preview iframe vždy dostal čerstvá data.
+function _resolveDuplicateKeys(levels) {
+  const seen = new Set();
+  const renamed = [];
+  for (const lvl of levels) {
+    if (!lvl || !lvl.key) continue;
+    if (!seen.has(lvl.key)) { seen.add(lvl.key); continue; }
+    const oldKey = lvl.key;
+    let n = 2;
+    let candidate = oldKey + '-' + n;
+    while (seen.has(candidate)) { n++; candidate = oldKey + '-' + n; }
+    lvl.key = candidate;
+    seen.add(candidate);
+    renamed.push({ oldKey, newKey: candidate });
+  }
+  return renamed;
+}
 // Type badge — designer-set dropdown na úrovni levelu. Dřív se mixoval s img
 // difficulty a carrier complexity, ale to vedlo k bug (badge nikdy neukazoval
 // Relaxing, protože rank byl hardcoded 3). Teď čteme lvl.type napřímo.
@@ -525,9 +633,19 @@ function typeBadge(lvl) {
 }
 
 // Model mutations -----------------------------------------------------------
+function _nextAvailableKey() {
+  // Najdi nejnižší číslo N takové, že 'new-level-N' nekoliduje s existujícími
+  // klíči. Předtím se počítalo prostě state.levels.length + 1, což po smazání
+  // / přejmenování vedlo k duplikátům (autosave pak skipoval zápis do
+  // gamee/js/levels.js a preview ukazoval staré verze).
+  const taken = new Set((state.levels || []).map(l => l && l.key));
+  let n = state.levels.length + 1;
+  while (taken.has('new-level-' + n)) n++;
+  return 'new-level-' + n;
+}
 function newLevel() {
   return {
-    key: 'new-level-' + (state.levels.length + 1),
+    key: _nextAvailableKey(),
     label: 'Nový level',
     type: 'relaxing',
     image: { source: 'smiley' },
@@ -555,10 +673,38 @@ function addLevel() {
 
 function deleteLevel(idx) {
   if (!confirm('Delete level "' + state.levels[idx].label + '"?')) return;
+  // Před splicem si zapamatuj klíč, ať můžeme vyčistit orphan stats. Bez toho
+  // by `state.pxCountsByLevel[oldKey]` / `layoutStatusByLevel[oldKey]` zůstaly
+  // navždy a nový level se stejným klíčem (po _nextAvailableKey) by zdědil
+  // staré statistiky → matoucí banner / capacity.
+  const removedKey = state.levels[idx] && state.levels[idx].key;
   state.levels.splice(idx, 1);
+  if (removedKey) _purgeStatsForKey(removedKey);
   if (state.selectedIdx === idx) state.selectedIdx = -1;
   else if (state.selectedIdx > idx) state.selectedIdx -= 1;
   markDirty();
+}
+
+// Vyčistí state mapy pro konkrétní level key (delete / rename).
+function _purgeStatsForKey(key) {
+  if (!key) return;
+  if (state.pxCountsByLevel) delete state.pxCountsByLevel[key];
+  if (state.projCountsByLevel) delete state.projCountsByLevel[key];
+  if (state.layoutStatusByLevel) delete state.layoutStatusByLevel[key];
+}
+// Migrace state map při key rename (oldKey → newKey). Stats z preview iframe
+// jsou key-aware, takže po renameu by se musely znovu načíst při dalším runu;
+// zatím prostě smažeme oldKey, aby nenastal collision/orphan.
+function _migrateStatsKey(oldKey, newKey) {
+  if (!oldKey || !newKey || oldKey === newKey) return;
+  // Přesun pod nový klíč (zachová poslední známé hodnoty pro UI).
+  ['pxCountsByLevel', 'projCountsByLevel', 'layoutStatusByLevel'].forEach(name => {
+    const bag = state[name];
+    if (bag && bag[oldKey] !== undefined) {
+      bag[newKey] = bag[oldKey];
+      delete bag[oldKey];
+    }
+  });
 }
 
 function reorderLevel(fromIdx, toIdx) {
@@ -582,6 +728,19 @@ function updateUI() {
   ps.className = 'status-chip ' + (connected ? 'status-connected' : 'status-disconnected');
 
   $('dirty-status').hidden = !state.dirty;
+  // Duplicate keys badge — když jsou v levelech duplicitní klíče, autosave
+  // přeskakuje zápis do gamee/js/levels.js (viz doAutosave). Bez vizuálního
+  // varování si toho designer všimne až když preview přestane reagovat.
+  const dk = $('dupkey-status');
+  if (dk) {
+    const dupes = findDuplicateKeys(state.levels || []);
+    if (dupes.length) {
+      dk.hidden = false;
+      dk.textContent = '⚠ Duplicitní klíče: ' + dupes.join(', ');
+    } else {
+      dk.hidden = true;
+    }
+  }
 
   $('btn-load').disabled = !connected;
   $('btn-publish').disabled = !connected || !state.levels.length;
@@ -598,6 +757,40 @@ function updateUI() {
   renderList();
   renderEditor();
   updateHistoryButtons();
+  _updateHealthBadge();
+}
+
+// Overall health badge — agreguje stav editoru: connected, autosave, sync,
+// duplicate keys. Designer vidí jednu zelenou tečku → vše OK; jakmile něco
+// hapruje, změní se na žlutou (working) nebo červenou (issues).
+function _updateHealthBadge() {
+  const badge = $('health-badge');
+  if (!badge) return;
+  const connected = !!state.rootHandle;
+  const dupes = findDuplicateKeys(state.levels || []);
+  const syncStuck = !$('sync-status').hidden;
+  const dirty = !!state.dirty;
+
+  let cls, txt, title;
+  if (!connected) {
+    cls = 'health-idle'; txt = '○';
+    title = 'Editor není připojen ke složce projektu. Klikni „📁 Connect folder".';
+  } else if (dupes.length || syncStuck) {
+    cls = 'health-bad'; txt = '●';
+    const probs = [];
+    if (dupes.length) probs.push('duplicate keys (' + dupes.join(', ') + ')');
+    if (syncStuck) probs.push('sync daemon stuck');
+    title = '⚠ Problém: ' + probs.join('; ') + '. Zkontroluj červené chipy vlevo.';
+  } else if (dirty) {
+    cls = 'health-warn'; txt = '●';
+    title = 'Připojeno · čeká se na autosave (300ms debounce). Bez akcí se za chvíli ukáže zelená.';
+  } else {
+    cls = 'health-ok'; txt = '●';
+    title = '✓ Připojeno · autosave OK · sync OK · žádné duplicity. Vše šlape.';
+  }
+  badge.className = 'health-badge ' + cls;
+  badge.textContent = txt;
+  badge.title = title;
 }
 
 // Kontrola zda má level rozumný obrázek. Preset = vždy OK (fixní pixely
@@ -728,21 +921,42 @@ function renderList() {
 
     li.addEventListener('click', () => { state.selectedIdx = idx; updateUI(); });
 
-    // Drag & drop
+    // Drag & drop s drop indikátorem (linka nad/pod podle Y pozice kurzoru).
     li.addEventListener('dragstart', (e) => {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', String(idx));
       li.classList.add('dragging');
     });
-    li.addEventListener('dragend', () => li.classList.remove('dragging'));
-    li.addEventListener('dragover', (e) => { e.preventDefault(); li.classList.add('drag-over'); });
-    li.addEventListener('dragleave', () => li.classList.remove('drag-over'));
+    li.addEventListener('dragend', () => {
+      li.classList.remove('dragging');
+      // cleanup všech indikátorů (mohl zůstat z předchozího dragoveru)
+      document.querySelectorAll('.level-item').forEach(el => {
+        el.classList.remove('drop-above', 'drop-below');
+      });
+    });
+    li.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      const rect = li.getBoundingClientRect();
+      const above = (e.clientY - rect.top) < rect.height / 2;
+      li.classList.toggle('drop-above', above);
+      li.classList.toggle('drop-below', !above);
+    });
+    li.addEventListener('dragleave', () => {
+      li.classList.remove('drop-above', 'drop-below');
+    });
     li.addEventListener('drop', (e) => {
       e.preventDefault();
-      li.classList.remove('drag-over');
+      const rect = li.getBoundingClientRect();
+      const above = (e.clientY - rect.top) < rect.height / 2;
+      li.classList.remove('drop-above', 'drop-below');
       const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
-      const to = idx;
-      if (!Number.isNaN(from)) reorderLevel(from, to);
+      if (Number.isNaN(from)) return;
+      // Spočítej finální index s ohledem na pozici kurzoru a směr přesunu.
+      // Když přesouvám zezhora dolů a dropuji "above" target, target se posune
+      // o jednu nahoru po splice → nemusíme adjustovat.
+      let to = above ? idx : idx + 1;
+      if (from < to) to -= 1; // splice z `from` před vložením posune target
+      if (from !== to) reorderLevel(from, to);
     });
 
     ul.appendChild(li);
@@ -756,6 +970,7 @@ function escapeHTML(s) {
 }
 
 let _lastPreviewKey = null;
+let _lastSelectedKey = null;
 function renderEditor() {
   const form = $('edit-form');
   const empty = $('edit-empty');
@@ -764,11 +979,32 @@ function renderEditor() {
     form.hidden = true;
     empty.hidden = false;
     if (_lastPreviewKey !== null) { _lastPreviewKey = null; schedulePreviewReload(); }
+    _lastSelectedKey = null;
     return;
   }
   form.hidden = false;
   empty.hidden = true;
   const lvl = state.levels[idx];
+
+  // Reset transient editor state když se přepíná na JINÝ level. Bez resetu by
+  // beState (selectedBlockIdx, drag, paint mode flags) přetrval z předchozího
+  // levelu → sidebar / cursor / drag-preview ukazují zombie data.
+  if (_lastSelectedKey !== lvl.key) {
+    if (typeof beState !== 'undefined' && beState) {
+      beState.selectedBlockIdx = -1;
+      beState.drag = null;
+      beState.pxDragging = false;
+      beState.beResizing = false;
+      beState.pxRectStart = null;
+      beState.pxRectEnd = null;
+      beState.mousePx = null;
+    }
+    // Carrier layout: reset variant selector na první variantu pro current diff
+    // (clRenderToolbar pak naplní podle reálných dat). Bez tohoto by zůstal
+    // index z předchozího levelu, který může být out-of-range pro nový level.
+    state.clActiveVariantIdx = -1;
+    _lastSelectedKey = lvl.key;
+  }
 
   $('f-key').value = lvl.key || '';
   $('f-label').value = lvl.label || '';
@@ -2031,6 +2267,10 @@ function clOnCellClick(r, c) {
   state.clSelCell = { r, c };
   markDirty();
   clRenderGrid(v);
+  // Capacity refresh — mutace buňky mění počty slotů per barvu (carrier/rocket/garage),
+  // takže chips vlevo musí přepočítat. Bez toho zůstaly stale dokud user nepřepnul
+  // variant a zpět.
+  clRenderCapacity(lvl, v);
 }
 
 function wireCarrierLayout() {
@@ -3675,10 +3915,13 @@ function wireBlockEditor() {
     const lvl = beCurrentLvl();
     const isCustom = lvl && lvl.image && lvl.image.source === 'custom';
 
-    // Pokud máme selected block a klik je na jeho EDGE → resize-drag (priorita
-    // před vším ostatním, aby šly chytnout i hrany ležící uvnitř pixel layeru).
+    // Pokud máme selected block a klik je na jeho EDGE → resize-drag.
+    // Guard: když je aktivní pixel paint mode (rect-fill / rect-erase už drží
+    // start, NEBO drag-paint běží), nech pixel painter převzít — resize handles
+    // by se duplicitně aktivovaly. Cursor feedback (mousemove výše) už respektuje
+    // tyto flagy, takže designer cursor ani neuvidí jako resize.
     const sel = lvl && lvl.blocks && lvl.blocks[beState.selectedBlockIdx];
-    if (sel) {
+    if (sel && !beState.pxDragging && !beState.pxRectStart) {
       const edge = beHitEdge(sel, p.x, p.y);
       if (edge) {
         e.preventDefault();
@@ -3899,7 +4142,15 @@ function wireForm() {
   $('f-key').addEventListener('input', (e) => {
     const L = lvl(); if (!L) return;
     histPush(L, 'f-key');
-    L.key = e.target.value.trim();
+    const oldKey = L.key;
+    const newKey = e.target.value.trim();
+    L.key = newKey;
+    // Migrate state mapy pod nový klíč (orphan stats by jinak zůstaly pod oldKey).
+    _migrateStatsKey(oldKey, newKey);
+    // Force preview reload — URL pro iframe se mění (ten odečítá `?level=KEY`).
+    // Bez resetu `_lastPreviewKey` by `renderEditor` neviděl změnu (selectedIdx
+    // je stejný) a preview by čekal na klíč, co už neexistuje.
+    _lastPreviewKey = null;
     markDirty();
     renderList(); // update title preview
   });
@@ -3937,6 +4188,11 @@ function wireForm() {
     beUpdatePixelToolbarVisibility();
     renderBlockCanvas();
     markDirty();
+    // Force preview reload — image source určuje co hra renderuje (smiley vs
+    // moon vs custom pixels). Bez explicit schedule by se reload udělal jen
+    // přes autosave (400ms), ale když user mezi tím změnil i jiný field,
+    // _lastPreviewKey by mohl zůstat stejný a renderEditor reload neschedule.
+    schedulePreviewReload();
   });
   // Image difficulty slider byl odstraněn — Type (f-type) je teď jediná osa
   // obtížnosti, kterou designer nastavuje. Viz komentář u typeBadge.
@@ -4123,6 +4379,30 @@ function wirePanelResizers() {
   }
 }
 
+// Section collapse persist — pamatuje, které z 3 collapsible sekcí (Informace
+// /Obraz/Grid) má designer otevřené. Bez toho by se po reloadu vždy všechny
+// otevřely a designer musí znovu posbírat preferovaný layout.
+function wireSectionCollapsePersist() {
+  const KEY = 'bb-editor-section-state';
+  const sections = [
+    { sel: '.ed-section-info',  id: 'info' },
+    { sel: '.ed-section-image', id: 'image' },
+    { sel: '.ed-section-grid',  id: 'grid' },
+  ];
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { saved = {}; }
+  sections.forEach(({ sel, id }) => {
+    const el = document.querySelector(sel);
+    if (!el) return;
+    if (saved[id] === false) el.removeAttribute('open');
+    else if (saved[id] === true) el.setAttribute('open', '');
+    el.addEventListener('toggle', () => {
+      saved[id] = el.open;
+      try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+    });
+  });
+}
+
 function boot() {
   if (!state.fsaSupported) {
     $('btn-connect').textContent = '❌ FSA not supported';
@@ -4138,6 +4418,7 @@ function boot() {
   wireLevelStats();
   wireHistory();
   wirePanelResizers();
+  wireSectionCollapsePersist();
   renderBlockPalette();
   updateUI();
   tryRestoreConnection();

@@ -3976,10 +3976,11 @@ function initGame(){
   // (defaultComplexity) > 'easy'. Flag _diffFromUrl si pamatujeme, ať ho
   // saveState v callbacku nepřeválcuje.
   let _diffFromUrl=false;
+  let _levelFromUrl=false;
   try{
     const url=new URL(location.href);
     const p=url.searchParams.get('level');
-    if(p&&LEVELS.some(l=>l.key===p))currentLevel=p;
+    if(p&&LEVELS.some(l=>l.key===p)){currentLevel=p;_levelFromUrl=true;}
     const d=url.searchParams.get('diff');
     if(d&&['easy','medium','hard'].includes(d)){difficulty=d;_diffFromUrl=true;}
   }catch(e){}
@@ -3999,8 +4000,11 @@ function initGame(){
         const saved=typeof data.saveState==='string'?JSON.parse(data.saveState):data.saveState;
         // Only honor saveState.level if it still exists in LEVELS (editor may
         // have removed/renamed it). Otherwise fall back to LEVELS[0].
+        // URL ?level= má prioritu — když preview iframe explicitně předá level,
+        // saveState ho nesmí přepsat (jinak by editor preview ukazoval pořád
+        // poslední hraný level místo toho, co je vybraný).
         let levelChanged=false;
-        if(saved.level&&LEVELS.some(l=>l.key===saved.level)&&saved.level!==currentLevel){
+        if(!_levelFromUrl&&saved.level&&LEVELS.some(l=>l.key===saved.level)&&saved.level!==currentLevel){
           currentLevel=saved.level;levelChanged=true;
         }
         // saveState.difficulty platí jen když URL explicitně nepřebíjí.

@@ -13,8 +13,11 @@
       <div id="header-status">
         <span id="project-status" class="status-chip status-disconnected">📁 Not connected</span>
         <span id="dirty-status" class="status-chip" hidden>● Unsaved</span>
+        <span id="dupkey-status" class="status-chip status-bad" hidden title="Více levelů sdílí stejný klíč. Hra (gamee/js/levels.js) se neaktualizuje, dokud klíče nebudou unikátní. Otevři dotčený level a změň Key v sekci Informace."></span>
+        <span id="sync-status" class="status-chip status-bad" hidden title="Sync daemon /tmp/balloon-sync.sh nepropouští soubory do /tmp/ballon-belt/, kde httpd serveruje. Preview iframe čte staré data. Otevři terminál a spusť: kill $(pgrep -f balloon-sync.sh); nohup /tmp/balloon-sync.sh > /tmp/balloon-sync.log 2>&1 &amp;"></span>
       </div>
       <div id="header-actions">
+        <span id="health-badge" class="health-badge health-idle" title="Celkový stav editoru: připojení, autosave, sync daemon, duplicitní klíče.">●</span>
         <button id="btn-connect" class="btn btn-primary">📁 Connect folder</button>
         <button id="btn-load" class="btn" disabled>↻ Reload</button>
         <button id="btn-publish" class="btn btn-publish" disabled>🚀 Publish to Game</button>

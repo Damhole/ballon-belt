@@ -68,10 +68,30 @@ body {
 .status-chip.status-disconnected { color: var(--text-3); }
 .status-chip.status-connected { color: var(--publish); background: var(--publish-bg); border-color: rgba(100,200,100,0.4); }
 .status-chip#dirty-status { color: var(--dirty); background: rgba(245,216,0,0.1); border-color: rgba(245,216,0,0.4); }
+.status-chip.status-bad { color: #ff7a7a; background: rgba(230,80,80,0.18); border-color: rgba(230,80,80,0.5); cursor: help; }
+
+/* Overall health badge — jednoduchá tečka co agreguje stav editoru. */
+.health-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  font-size: 16px;
+  line-height: 1;
+  cursor: help;
+  user-select: none;
+  transition: color 0.18s, text-shadow 0.18s;
+}
+.health-badge.health-idle { color: var(--text-3); }
+.health-badge.health-ok   { color: #5ec786; text-shadow: 0 0 6px rgba(94,199,134,0.55); }
+.health-badge.health-warn { color: #f5d800; text-shadow: 0 0 6px rgba(245,216,0,0.45); }
+.health-badge.health-bad  { color: #ff7a7a; text-shadow: 0 0 6px rgba(255,122,122,0.55); }
 
 #header-actions {
   display: flex;
   gap: 8px;
+  align-items: center;
 }
 
 .btn {
@@ -221,11 +241,28 @@ body {
   align-items: center;
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, transform 0.06s;
+  position: relative;
 }
 .level-item:hover { background: var(--bg-2); border-color: var(--border-light); }
 .level-item.selected { background: var(--bg-2); border-color: var(--accent); }
 .level-item.dragging { opacity: 0.35; }
-.level-item.drag-over { border-color: var(--accent); border-style: dashed; }
+/* Drop indikátor — silná accent linka NAD nebo POD targetem podle Y pozice
+   kurzoru. Bez border na celém boxu (jako dřív .drag-over) → přesnější UX
+   („sem to padne mezi A a B"). */
+.level-item.drop-above::before,
+.level-item.drop-below::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 3px;
+  background: var(--accent);
+  border-radius: 2px;
+  pointer-events: none;
+  box-shadow: 0 0 8px rgba(120,180,255,0.6);
+}
+.level-item.drop-above::before { top: -5px; }
+.level-item.drop-below::after  { bottom: -5px; }
 
 .drag-handle {
   cursor: grab;
