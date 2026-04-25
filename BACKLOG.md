@@ -362,7 +362,7 @@ v tuning hyperparametrů.
 
 _Sem házej všechno, co tě napadne. Při příští session to společně roztřídíme do tabulek výše._
 
-- _(prázdné — přidej cokoliv hnedka)_
+- **Bouncing-aware `simulateShotReaches`** — cannon dnes detekuje jen přímé LoS (direct/bank-L/bank-R/bank-T). Když je cíl dosažitelný přes odraz od wrong-color pixelu nebo bloku, simulate to rejectne a belt-feed ball nepustí (hráč pak vidí „Žádná shoda" i když je bounce cesta fyzikálně možná). Chce přesný port particle physics do simulate (bounce flip + bounceCap proti ping-pongu), ale pozor na false positives — minule (v49 dev) to způsobilo, že cannon bral barvy co ve skutečnosti nedosáhl. Dělat opatrně: matchovat `updateParticles` cell-by-cell, testovat proti reálným particles.
 
 ---
 
