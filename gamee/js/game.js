@@ -489,11 +489,33 @@ function pickCannonShot(ci,cannonXPos,cannonYPos){
     if(b.hp<=0)continue;
     // Mystery blok je cíl pro libovolnou barvu; solid jen pro shodnou.
     if(b.kind!=='mystery'&&b.color!==ci)continue;
-    // Cílíme na střed bloku (trajektorie tam musí vést).
+    // Aim points: střed bloku + každá EXPOSED edge cell (mask cell s alespoň
+    // jedním sousedem mimo blok). Když blok vyčuhuje jen jedním pixelem zpod
+    // pixelového blob-u, aim na střed je blokovaný, ale aim na ten vyčuhující
+    // pixel projde čistou LoS. Pro každý aim point se vytvoří separátní
+    // candidate target — findShotFromX si vybere ten, ze kterého se trefí.
+    const cx=Math.floor(b.x+b.w/2), cy=Math.floor(b.y+b.h/2);
     targets.push({
       tx:(b.x+b.w/2)*SCALE, ty:(b.y+b.h/2)*SCALE,
-      kind:'block', gx:Math.floor(b.x+b.w/2), gy:Math.floor(b.y+b.h/2), blockRef:b
+      kind:'block', gx:cx, gy:cy, blockRef:b
     });
+    if(b._mask){
+      for(let ly=0;ly<b.h;ly++)for(let lx=0;lx<b.w;lx++){
+        if(!b._mask[ly][lx])continue;
+        // edge cell = aspoň jeden sousední (N/S/E/W) je mimo masku
+        const edge=
+          (ly===0||!b._mask[ly-1][lx])||
+          (ly===b.h-1||!b._mask[ly+1][lx])||
+          (lx===0||!b._mask[ly][lx-1])||
+          (lx===b.w-1||!b._mask[ly][lx+1]);
+        if(!edge)continue;
+        const gx=b.x+lx, gy=b.y+ly;
+        targets.push({
+          tx:gx*SCALE+SCALE/2, ty:gy*SCALE+SCALE/2,
+          kind:'block', gx, gy, blockRef:b
+        });
+      }
+    }
   }
   if(!targets.length)return null;
   const candidates=[];
@@ -756,9 +778,6 @@ function respawnParticle(p){
 // Odsimuluje let projektilu stejnou fyzikou jako updateParticles (odraz od stěn, pohyb dt=1/60).
 // Vrátí true, když první zasažený barevný pixel = targetCi. Špatná barva = false.
 function simulateShotReaches(sx,sy,angle,targetCi,maxSteps=240,targetBlock=null){
-  // Tah 7d: swept check (firstCollisionOnPath) – stejná corner-cut logika
-  // jako u projektilů. Dělo tak nevidí cíl schovaný za diagonální štěrbinou
-  // dvou rohů bloků a nestřílí do slepé uličky.
   let x=sx,y=sy;
   let vx=Math.cos(angle)*PSPEED, vy=Math.sin(angle)*PSPEED;
   const dt=1/60;
@@ -772,8 +791,6 @@ function simulateShotReaches(sx,sy,angle,targetCi,maxSteps=240,targetBlock=null)
     const hit=firstCollisionOnPath(x,y,nx,ny,targetCi);
     if(hit){
       if(hit.blk){
-        // Mystery blok: projektil se ODRAZÍ (nepop-ne) – takže LoS je čistá
-        // jen když je mystery sám cílem. Jinak je neprůhledný.
         if(hit.blk.kind==='mystery') return targetBlock===hit.blk;
         if(hit.blk.color===targetCi) return true;
         return false;
@@ -3163,10 +3180,9 @@ function checkLaunchPoint(prevAnim, curAnim){
     // čte jen odkryté pixely). Bez téhle větve by koule na pásu projela dál, i když
     // je vedle ní živý blok shodné barvy → cannon nikdy nedostane item té barvy.
     const hasLiveBlockOfColor=currentBlocks.some(b=>b.hp>0&&(b.kind==='mystery'||b.color===color));
-    // Tah 5c: proveditelnost kanonu ověřujeme VŽDY (i když jsou cílem
-    // pixely – „exposed" neznamená „reachable", pixel může být schovaný
-    // za jinými pixely). Když kanon nemá žádnou čistou trajektorii, ball
-    // projede pásem místo aby se spotřebovala naprázdno.
+    // Cannon má co střílet, jen když pickCannonShot najde čistou LoS. Jinak
+    // ball krouží na pásu a čeká, až se prostor otevře — žádné předčasné
+    // konzumování bez záruky výstřelu.
     const cannonHasShot=!!pickCannonShot(color,cannonX,CANNON_Y);
     if((!avail.has(color)&&!hasLiveBlockOfColor)||!cannonHasShot){
       // Špatná barva – projede dál
@@ -3195,41 +3211,20 @@ function checkLaunchPoint(prevAnim, curAnim){
     const inQueue=gunQueue.filter(q=>q.ci===color).length;
     const totalActive=alreadyFlying+inQueue;
 
-    const room=exposedCount-totalActive;
-    if(exposedCount===0||room<=0){
-      // Dost projektilů už lítá pro aktuálně odkryté pixely – koule projede bez konzumace
-      stuckPassCount++;
-      if(stuckPassCount>=BELT_CAP*2){
-        if(belt.length>=BELT_CAP){
-          // Pás plný a žádná koule se nespotřebuje → zamčený stav, konec
-          endGame(false);
-          return;
-        }
-        if(anyLeft(grid)){
-          if(checkAndWarnAmmoDeficit()) stuckPassCount=0;
-        }
-      }
-      continue;
-    }
     stuckPassCount=0;
 
-    // Partial consume — pushne jen tolik projektilů, kolik se aktuálně vejde
-    // do exposed + block HP. Zbytek zůstane v ball.ppu a koule dál cykluje na
-    // pásu; při dalším průchodu launch pointem se pokusí doplnit (až exposure
-    // vzroste rozbitím okolních pixelů). Tím nevznikne queue plná stuck itemů.
+    // Spotřebuj celou kouli → vystřel všech ball.ppu projektilů. Některé
+    // možná nenajdou LoS hned — dispatch je odpálí na blocked úhel (nejbližší
+    // target), particle fyzika je odrazí a hledá cestu. Když barva v průběhu
+    // ztratí veškerý target, queue item se popne bez výstřelu (visible loss).
     noMatchPasses=0;
     loops=0;
-    const howMany=Math.min(ball.ppu,room);
-    for(let j=0;j<howMany;j++){
+    belt.splice(i,1);
+    drainPending();
+    drawBelt();drawPending();
+    const count=ball.ppu;
+    for(let j=0;j<count;j++){
       gunQueue.push({ci:color,color:COLORS[color]});
-    }
-    ball.ppu-=howMany;
-    if(ball.ppu<=0){
-      belt.splice(i,1);
-      drainPending();
-      drawBelt();drawPending();
-    } else {
-      drawBelt();
     }
     score+=10;
     document.getElementById('score').textContent=score;
@@ -3804,8 +3799,16 @@ function beltLoop(ts){
       //  3. Když žádná LoS → force-fire první barvu co má JAKÝKOLIV target.
       //  4. Pokud nic v queue nemá target → nic nestřílí (queue už byla vyčištěná).
       // Vybraná barva se přesune na začátek queue (aby šly po sobě).
-      while(gunQueue.length>0 && !hasAnyTargetForColor(gunQueue[0].ci)){
-        gunQueue.shift();
+      // Drop items, jejichž barva už nemá VŮBEC žádný target — ani sealed,
+      // ani blok, ani mystery. Spawn prázdný „dud" pop u hlavně, aby hráč
+      // viděl, že projektil byl ztracen (visible loss).
+      for(let i=gunQueue.length-1;i>=0;i--){
+        if(!hasAnyTargetForColor(gunQueue[i].ci)){
+          const lost=gunQueue.splice(i,1)[0];
+          const muzX=cannonX+Math.cos(cannonAngle)*14;
+          const muzY=CANNON_Y+Math.sin(cannonAngle)*14;
+          spawnPopShards(muzX,muzY,lost.color);
+        }
       }
       if(gunQueue.length===0){ gunFireTimer=0; }
     }
@@ -3834,6 +3837,7 @@ function beltLoop(ts){
       let shot=cannonLock;
       let chosenIdx=0;
       if(!shot){
+        // 1. Zkus čistou LoS (simulate) pro front, pak alternativy v queue.
         let picked=pickCannonShot(item.ci,cannonX,CANNON_Y);
         if(!picked){
           for(let i=1;i<gunQueue.length;i++){
@@ -3841,36 +3845,17 @@ function beltLoop(ts){
             if(alt){ picked=alt; chosenIdx=i; item=gunQueue[i]; break; }
           }
         }
-        // Žádná barva v queue nemá LoS → cannon čeká. Queue se odmotá až si
-        // hráč pošle barvu, která rozbije zeď a otevře LoS.
+        // 2. Žádná čistá LoS → blocked-angle force-fire na první queue barvu
+        // co má JAKÝKOLIV target. Particle pak fyzikálně bounce-uje a hledá.
         if(!picked){
-          cannonIdleT+=dt;
-          if(cannonIdleT>1.0 && !window._stuckLogged){
-            window._stuckLogged=true;
-            const avail=getAvailableColors(grid);
-            const uniq=[...new Set(gunQueue.map(q=>q.ci))];
-            const lines=uniq.map(ci=>{
-              const exp=getExposedPixelsOfColor(grid,ci).length;
-              let rawPix=0;
-              for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
-                if(grid[y][x]===ci) rawPix++;
-              }
-              let pixNotUnderBlock=0;
-              for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
-                if(grid[y][x]===ci && !findBlockAtPixel(x,y)) pixNotUnderBlock++;
-              }
-              const blksColor=currentBlocks.filter(b=>b.hp>0&&b.color===ci).length;
-              const blksMys=currentBlocks.filter(b=>b.hp>0&&b.kind==='mystery').length;
-              const hasAny=hasAnyTargetForColor(ci);
-              const ps=pickCannonShot(ci,cannonX,CANNON_Y);
-              const qCount=gunQueue.filter(q=>q.ci===ci).length;
-              return `ci=${ci} qN=${qCount} rawPix=${rawPix} pixNoBlk=${pixNotUnderBlock} exposedPix=${exp} blkColor=${blksColor} blkMyst=${blksMys} hasAny=${hasAny} shot=${ps?ps.type:'NULL'}`;
-            });
-            console.warn('[BB-STUCK]\n'+lines.join('\n'));
+          for(let i=0;i<gunQueue.length;i++){
+            if(hasAnyTargetForColor(gunQueue[i].ci)){
+              const f=pickCannonShotForceBlocked(gunQueue[i].ci,cannonX,CANNON_Y);
+              if(f){ picked=f; chosenIdx=i; item=gunQueue[i]; break; }
+            }
           }
-        } else {
-          cannonIdleT=0; window._stuckLogged=false;
         }
+        if(!picked) cannonIdleT+=dt; else { cannonIdleT=0; }
         if(picked){
           // Posuň vybraný item na začátek queue, aby následné výstřely šly stejné barvy.
           if(chosenIdx>0){
