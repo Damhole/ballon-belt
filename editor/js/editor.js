@@ -1192,6 +1192,7 @@ function clRenderCapacity(lvl, variant) {
     const sw = document.createElement('span');
     sw.className = 'cl-cap-sw';
     sw.style.background = BE_COLORS[c];
+    sw.textContent = String(c); // index barvy — odpovídá číslu v gridu (cl-cell)
     chip.appendChild(sw);
     const nums = document.createElement('span');
     nums.className = 'cl-cap-nums';
