@@ -384,6 +384,7 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
+| v48: cannon LoS robustness + solid bloky se stínem — mystery opaque v simulate, cannonLock s LoS revalidací, partial ball consume (ppu decrement), drawBlocks bez proužků + shadow pod spodní hranu | `3fda598` | 2026-04-25 |
 | v47: hasLineOfSight corner-cut — diagonální paprsek neprojde mezi dvěma blokovanými rohy, projektily už nemíří na cíle schované za štěrbinou | `0104bf3` | 2026-04-24 |
 | v46: projektily — swept collision (corner-cut jen při obou blokovaných rozích) + bezpečný nudge + steerAfterBounce řídí jen když je LoS na barvu, jinak volné poletování s ±16° rozptylem | `996865a` | 2026-04-24 |
 | v45: carrier layout banner — vyčistit stale fallback hlášku při editu gridu (byl zmatený ~1s gap po autosave) | `dbb8c52` | 2026-04-24 |
