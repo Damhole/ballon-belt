@@ -265,6 +265,10 @@ const state = {
   // Per-level/difficulty pixel counts reported by preview iframe (balloonbelt:level-stats).
   // Shape: { [levelKey]: { easy: number[9], medium: number[9], hard: number[9] } }.
   pxCountsByLevel: {},
+  // Per-level/difficulty projectile totals reported by game (sum per color across carriers+garage).
+  // Slouží k game-truth need-vs-have porovnání v editoru — pokud projCounts[c] < pxCounts[c],
+  // layout nedodá dost munice a level je technicky nedohratelný.
+  projCountsByLevel: {},
   // Per-level/difficulty fallback status reported by game (layout-applied / layout-fallback).
   // Shape: { [levelKey]: { [diff]: { applied:bool, reason:string|null, layoutName:string|null } } }.
   layoutStatusByLevel: {},
@@ -426,12 +430,12 @@ async function doAutosave() {
       // Preview reload AŽ po dokončení zápisu. Jinak by iframe reload proběhl
       // s 150ms debouncem ještě PŘED tím, než autosave (300ms debounce) stihne
       // zapsat soubor → iframe by si natahoval starou verzi levels.js.
-      // Navíc: server servíruje z /tmp/gamee (TCC blokuje ~/Documents), kam
-      // běží rsync daemon v tight loop. FSA write proběhne do ~/Documents
-      // instantně, ale do /tmp se mirror dostane za ~20-50ms. Dáme rsyncu
-      // 250ms forku, aby reload iframe chytil aktuální verzi (bez téhle pauzy
-      // viděl uživatel edit až po DALŠÍ akci, protože /tmp měl zpoždění).
-      setTimeout(() => reloadPreview(), 250);
+      // Navíc: server servíruje z /tmp/ballon-belt (TCC blokuje ~/Documents),
+      // kam běží rsync daemon /tmp/balloon-sync.sh s 150ms pollingem. FSA
+      // write proběhne do ~/Documents instantně, ale do /tmp se mirror dostane
+      // při příštím polling tiku (max ~200ms). 400ms forku dává bezpečnou
+      // rezervu, aby reload iframe chytil aktuální verzi.
+      setTimeout(() => reloadPreview(), 400);
     } else {
       setLastAction('⚠ editor/levels.json saved, but gamee/js/levels.js skipped — duplicate keys: ' + dupes.join(', '));
     }
@@ -773,17 +777,9 @@ function renderEditor() {
 
   $('f-gravity-on').checked = !!lvl.gravity;
 
-  const rocketsOn = !!lvl.rocketTargets;
-  $('f-rockets-on').checked = rocketsOn;
-  $('f-rockets-fields').hidden = !rocketsOn;
-  $('f-rocket-0').value = rocketsOn ? lvl.rocketTargets[0] : '';
-  $('f-rocket-1').value = rocketsOn ? lvl.rocketTargets[1] : '';
-
-  const garageOn = !!lvl.garage;
-  $('f-garage-on').checked = garageOn;
-  $('f-garage-fields').hidden = !garageOn;
-  $('f-garage-col').value = garageOn ? lvl.garage.col : '';
-  renderCarrierList(garageOn ? lvl.garage.carriers : []);
+  // Rockets/Garage toggles odebrány — speciální tile se aktivuje v carrier
+  // layoutu (drag rocket/garage dlaždice). lvl.rocketTargets / lvl.garage
+  // zůstávají v datech jen pro legacy levely bez layoutu (nečteme je do formy).
 
   // Block editor render (canvas + palette + selected-block panel).
   if (!Array.isArray(lvl.blocks)) lvl.blocks = [];
@@ -811,9 +807,11 @@ function renderEditor() {
 function renderPaletteSection(lvl) {
   if (!lvl.activePalette) lvl.activePalette = BE_PALETTE_PRESETS[0].colors.slice();
   const presetsWrap = $('palette-presets');
-  const swatchesWrap = $('palette-swatches');
-  if (!presetsWrap || !swatchesWrap) return;
+  if (!presetsWrap) return;
 
+  // Read-only palette-swatches odebrány — duplikovaly barvy z pt-colors
+  // (pixel toolbar) a be-palette (block editor sidebar). Aktivní paleta
+  // je vidět tam, kde je interaktivní.
   presetsWrap.innerHTML = '';
   BE_PALETTE_PRESETS.forEach(preset => {
     const btn = document.createElement('button');
@@ -830,53 +828,9 @@ function renderPaletteSection(lvl) {
     });
     presetsWrap.appendChild(btn);
   });
-
-  swatchesWrap.innerHTML = '';
-  lvl.activePalette.forEach(ci => {
-    const d = document.createElement('div');
-    d.className = 'palette-swatch';
-    d.style.background = BE_COLORS[ci];
-    d.title = 'Barva ' + ci;
-    swatchesWrap.appendChild(d);
-  });
 }
 
-function renderCarrierList(carriers) {
-  const wrap = $('f-garage-carriers');
-  wrap.innerHTML = '';
-  carriers.forEach((c, i) => {
-    const chip = document.createElement('div');
-    chip.className = 'carrier-chip';
-    const input = document.createElement('input');
-    input.type = 'number';
-    input.min = 0;
-    input.max = 8;
-    input.value = c.color;
-    input.addEventListener('change', () => {
-      const lvl = state.levels[state.selectedIdx];
-      if (lvl && lvl.garage) {
-        histPush(lvl, 'f-carrier-color-' + i);
-        lvl.garage.carriers[i].color = parseInt(input.value, 10) || 0;
-        markDirty();
-      }
-    });
-    chip.appendChild(input);
-    const rm = document.createElement('button');
-    rm.type = 'button';
-    rm.className = 'carrier-chip-remove';
-    rm.textContent = '×';
-    rm.addEventListener('click', () => {
-      const lvl = state.levels[state.selectedIdx];
-      if (lvl && lvl.garage) {
-        histPush(lvl, 'f-carrier-del');
-        lvl.garage.carriers.splice(i, 1);
-        markDirty();
-      }
-    });
-    chip.appendChild(rm);
-    wrap.appendChild(chip);
-  });
-}
+// renderCarrierList odebrána — patřila k legacy garage toggle (f-garage-carriers).
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CARRIER LAYOUT EDITOR — grid 7×rows tile painter + per-difficulty variants
@@ -1076,7 +1030,71 @@ function clCountLayoutSlotsByColor(variant) {
   return slots;
 }
 
+// Lokální výpočet pxCounts (pixely obrazu + HP živých bloků), zrcadlí game.js
+// countPixelsAndBlocks. Pro custom image spolehlivě — pixely jsou v lvl.image.pixels.
+// Pro smiley/mondrian/... vrací null (ty generátory editor nezrcadlí, fallback
+// na iframe postMessage). Solid blok vyčistí svůj footprint v gridu (pixely pod
+// ním se do count nepřičtou); mystery blok footprint neruší.
+function beComputeLocalPxCounts(lvl) {
+  if (!lvl) return null;
+  const src = lvl.image && lvl.image.source;
+  if (src !== 'custom') return null;
+  const pixels = lvl.image && lvl.image.pixels;
+  if (!Array.isArray(pixels)) return null;
+  const c = new Array(BE_COLORS.length).fill(0);
+  // 1) Postav 2D grid z pixelů, pak vyčisti footprint solid bloků na -1.
+  const grid = [];
+  for (let y = 0; y < BE_IMG_GH; y++) {
+    const row = new Array(BE_GW).fill(-1);
+    const src = pixels[y];
+    if (Array.isArray(src)) {
+      for (let x = 0; x < BE_GW; x++) {
+        const v = src[x];
+        if (Number.isInteger(v) && v >= 0 && v < BE_COLORS.length) row[x] = v;
+      }
+    }
+    grid.push(row);
+  }
+  const blocks = Array.isArray(lvl.blocks) ? lvl.blocks : [];
+  for (const b of blocks) {
+    if (b.kind === 'mystery') continue; // mystery footprint neruší pixely
+    const w = Math.max(1, b.w | 0), h = Math.max(1, b.h | 0);
+    const mask = beBlockMask(b.shape || 'rect', w, h);
+    for (let ly = 0; ly < h; ly++) for (let lx = 0; lx < w; lx++) {
+      if (!mask[ly][lx]) continue;
+      const gx = (b.x | 0) + lx, gy = (b.y | 0) + ly;
+      if (gy >= 0 && gy < BE_IMG_GH && gx >= 0 && gx < BE_GW) grid[gy][gx] = -1;
+    }
+  }
+  // 2) Count pixely
+  for (let y = 0; y < BE_IMG_GH; y++) for (let x = 0; x < BE_GW; x++) {
+    const v = grid[y][x];
+    if (v >= 0 && v < BE_COLORS.length) c[v]++;
+  }
+  // 3) Přičti HP živých bloků (solid k vlastní barvě, mystery proporčně).
+  for (const b of blocks) {
+    const hp = Math.max(1, b.hp | 0);
+    if (b.kind === 'mystery') {
+      const totalPx = c.reduce((a, v) => a + v, 0);
+      if (totalPx > 0) {
+        for (let i = 0; i < c.length; i++) if (c[i] > 0) c[i] += Math.ceil(hp * (c[i] / totalPx));
+      } else {
+        c[0] = (c[0] || 0) + hp;
+      }
+    } else {
+      const col = b.color | 0;
+      if (col >= 0 && col < c.length) c[col] += hp;
+    }
+  }
+  return c;
+}
+
 function clGetStatsForCurrent(lvl) {
+  // Primárně lokální výpočet — nezávislý na iframu, vždy odpovídá aktuálnímu
+  // editor state (včetně čerstvě přebarvených bloků). Jen pro custom image;
+  // pro smiley/mondrian atd. spadneme na iframe postMessage.
+  const local = beComputeLocalPxCounts(lvl);
+  if (local) return local;
   const bag = state.pxCountsByLevel;
   if (!bag || !lvl || !lvl.key) return null;
   const byDiff = bag[lvl.key];
@@ -1084,6 +1102,21 @@ function clGetStatsForCurrent(lvl) {
   // Primárně vrať data z aktivní obtížnosti. Fallback: libovolný diff, který je
   // k dispozici — pxCounts jsou invariantní vůči obtížnosti (určeny gridem a bloky),
   // takže pro capacity/generator stačí data z jakéhokoliv runu.
+  if (byDiff[state.clActiveDiff]) return byDiff[state.clActiveDiff];
+  for (const d of ['easy', 'medium', 'hard']) {
+    if (byDiff[d]) return byDiff[d];
+  }
+  return null;
+}
+
+// Game-truth projectile totals per barva (sum carriers+garage po injekcích) pro aktuální diff.
+// Na rozdíl od pxCounts tato hodnota závisí na difficulty (layout je per-diff), takže
+// přednostně vrátí data z aktivní obtížnosti, fallback na jakoukoliv dostupnou.
+function clGetProjCountsForCurrent(lvl) {
+  const bag = state.projCountsByLevel;
+  if (!bag || !lvl || !lvl.key) return null;
+  const byDiff = bag[lvl.key];
+  if (!byDiff) return null;
   if (byDiff[state.clActiveDiff]) return byDiff[state.clActiveDiff];
   for (const d of ['easy', 'medium', 'hard']) {
     if (byDiff[d]) return byDiff[d];
@@ -1113,6 +1146,9 @@ function clRenderCapacity(lvl, variant) {
 
   const slots = clCountLayoutSlotsByColor(variant);
   const pxCounts = clGetStatsForCurrent(lvl);
+  // projCounts = game-truth počet projektilů per barva ze hry (sum carriers+garage queue).
+  // Když dorazilo, má přednost před slot-based odhadem — porovnáváme pixel-level.
+  const projCounts = clGetProjCountsForCurrent(lvl);
   wrap.hidden = false;
 
   body.innerHTML = '';
@@ -1126,20 +1162,30 @@ function clRenderCapacity(lvl, variant) {
     const need = pxCounts ? (pxCounts[c] | 0) : 0;
     const needSlots = need > 0 ? Math.ceil(need / CL_PROJECTILES_PER_CARRIER) : 0;
     const has = slots[c] | 0;
+    const haveProj = projCounts ? (projCounts[c] | 0) : null;
     let status = 'ok';
     if (pxCounts) {
-      if (need > 0 && has === 0) { status = 'bad'; problems.push('barva ' + c + ': chybí nosiče (' + need + ' px)'); }
-      else if (need > 0 && has < needSlots) { status = 'bad'; problems.push('barva ' + c + ': málo slotů (' + has + '/' + needSlots + ')'); }
-      else if (need === 0 && has > 0) { status = 'warn'; problems.push('barva ' + c + ': přebytečné sloty (' + has + ' bez pixelů)'); }
-      else { status = 'ok'; }
+      if (haveProj !== null) {
+        // Pixel-level game-truth check (autoritativní — přesně odráží co hra postavila).
+        if (need > 0 && haveProj < need) {
+          status = 'bad';
+          problems.push('barva ' + c + ': ' + haveProj + '/' + need + ' px (chybí ' + (need - haveProj) + ')');
+        } else if (need === 0 && haveProj > 0) {
+          status = 'warn';
+          problems.push('barva ' + c + ': ' + haveProj + ' projektilů bez pixelů');
+        }
+      } else {
+        // Fallback slot-based check, dokud nedorazí projCounts z preview iframu.
+        if (need > 0 && has === 0) { status = 'bad'; problems.push('barva ' + c + ': chybí nosiče (' + need + ' px)'); }
+        else if (need > 0 && has < needSlots) { status = 'bad'; problems.push('barva ' + c + ': málo slotů (' + has + '/' + needSlots + ')'); }
+        else if (need === 0 && has > 0) { status = 'warn'; problems.push('barva ' + c + ': přebytečné sloty (' + has + ' bez pixelů)'); }
+      }
     } else {
-      // Bez stats jen ukaž sloty — neutral.
       status = 'idle';
     }
     if (status !== 'idle') bump(status);
 
-    // Skryj čipy pro barvy, které jsou bezvýznamné (0 need && 0 slots) když máme stats.
-    if (pxCounts && need === 0 && has === 0) continue;
+    if (pxCounts && need === 0 && has === 0 && (haveProj === null || haveProj === 0)) continue;
 
     const chip = document.createElement('div');
     chip.className = 'cl-cap-chip chip-' + status;
@@ -1151,7 +1197,10 @@ function clRenderCapacity(lvl, variant) {
     nums.className = 'cl-cap-nums';
     const main = document.createElement('span');
     main.className = 'cl-cap-need';
-    if (pxCounts) {
+    if (pxCounts && haveProj !== null) {
+      main.textContent = haveProj + ' / ' + need + ' px';
+      chip.title = 'barva ' + c + ': hra postavila ' + haveProj + ' projektilů, potřeba ' + need + ' px (' + has + ' slot(ů))';
+    } else if (pxCounts) {
       main.textContent = has + ' / ' + needSlots;
       chip.title = 'barva ' + c + ': ' + need + ' px → potřeba ' + needSlots + ' nosič(ů), máš ' + has;
     } else {
@@ -1162,12 +1211,42 @@ function clRenderCapacity(lvl, variant) {
     if (pxCounts && need > 0) {
       const sub = document.createElement('span');
       sub.className = 'cl-cap-sub';
-      const perSlot = has > 0 ? Math.ceil(need / has) : 0;
-      sub.textContent = need + ' px' + (has > 0 ? (' · ' + perSlot + '/nos') : '');
+      if (haveProj !== null) {
+        sub.textContent = has + ' nos · ' + Math.ceil(need / CL_PROJECTILES_PER_CARRIER) + ' min';
+      } else {
+        const perSlot = has > 0 ? Math.ceil(need / has) : 0;
+        sub.textContent = need + ' px' + (has > 0 ? (' · ' + perSlot + '/nos') : '');
+      }
       nums.appendChild(sub);
     }
     chip.appendChild(nums);
     body.appendChild(chip);
+  }
+
+  // Total řádek — součet napříč všemi barvami (pixelů vs projektilů).
+  if (pxCounts) {
+    let totalNeed = 0, totalHave = 0;
+    for (let c = 0; c < BE_COLORS.length; c++) {
+      totalNeed += (pxCounts[c] | 0);
+      if (projCounts) totalHave += (projCounts[c] | 0);
+    }
+    const totalChip = document.createElement('div');
+    totalChip.className = 'cl-cap-chip chip-' + (projCounts ? (totalHave < totalNeed ? 'bad' : 'ok') : 'idle');
+    totalChip.style.flexBasis = '100%';
+    const tNums = document.createElement('span');
+    tNums.className = 'cl-cap-nums';
+    const tMain = document.createElement('span');
+    tMain.className = 'cl-cap-need';
+    if (projCounts) {
+      tMain.textContent = 'celkem: ' + totalHave + ' / ' + totalNeed + ' proj.';
+      totalChip.title = 'Celkem projektilů napříč barvami: hra postavila ' + totalHave + ' / potřeba ' + totalNeed;
+    } else {
+      tMain.textContent = 'celkem potřeba: ' + totalNeed + ' proj.';
+      totalChip.title = 'Celkem pixelů/HP k rozbití: ' + totalNeed + ' (projCounts ještě nedorazil z preview)';
+    }
+    tNums.appendChild(tMain);
+    totalChip.appendChild(tNums);
+    body.appendChild(totalChip);
   }
 
   // Layout applied/fallback banner — co hra doopravdy použila?
@@ -1511,18 +1590,53 @@ function clRepairUnreachable(variant) {
   }
 }
 
+// Relevantní barvy pro aktuální level = sjednocení:
+//   (a) barev přítomných v obraze / blocích (pxCounts > 0)
+//   (b) barev již použitých v aktuální variantě carrier gridu (aby uživatel
+//       nepřišel o přístup k barvě, kterou má v gridu a chce ji odebrat/změnit,
+//       i když mezitím zmizela z obrazu).
+// Vrací Set čísel (0..63). Když nelze nic odvodit (smiley/mondrian bez pxCounts
+// a prázdný grid), vrátí null → palette zobrazí všechny barvy jako fallback.
+function clRelevantColors(lvl) {
+  const set = new Set();
+  const px = (typeof beComputeLocalPxCounts === 'function') ? beComputeLocalPxCounts(lvl) : null;
+  if (px && Array.isArray(px)) {
+    for (let i = 0; i < px.length; i++) if (px[i] > 0) set.add(i);
+  } else if (lvl && lvl.key && state.pxCountsByLevel && state.pxCountsByLevel[lvl.key]) {
+    const c = state.pxCountsByLevel[lvl.key];
+    for (let i = 0; i < c.length; i++) if (c[i] > 0) set.add(i);
+  }
+  const v = clActiveVariant(lvl);
+  if (v && Array.isArray(v.grid)) {
+    for (const row of v.grid) {
+      if (!Array.isArray(row)) continue;
+      for (const t of row) {
+        if (!t) continue;
+        if (typeof t.color === 'number') set.add(t.color | 0);
+        if (Array.isArray(t.queue)) {
+          for (const q of t.queue) if (q && typeof q.color === 'number') set.add(q.color | 0);
+        }
+      }
+    }
+  }
+  return set.size ? set : null;
+}
+
 function clRenderPalette() {
   const pal = $('cl-palette');
   if (!pal) return;
   pal.innerHTML = '';
+  const lvl = beCurrentLvl();
+  const relevant = clRelevantColors(lvl);
   const items = [];
   items.push({ kind: 'select', label: '◎' });
   items.push({ kind: 'wall', label: '▦' });     // zeď = default blank, blokuje aktivaci
   items.push({ kind: 'null', label: '∅' });      // tunel = propouští aktivaci (honeycomb)
   items.push({ kind: 'garage', label: '🏠' });
   items.push({ kind: 'hidden', label: '?' });
-  for (let c = 0; c < BE_COLORS.length; c++) items.push({ kind: 'carrier', color: c });
-  for (let c = 0; c < BE_COLORS.length; c++) items.push({ kind: 'rocket', color: c });
+  const colorFilter = (c) => !relevant || relevant.has(c);
+  for (let c = 0; c < BE_COLORS.length; c++) if (colorFilter(c)) items.push({ kind: 'carrier', color: c });
+  for (let c = 0; c < BE_COLORS.length; c++) if (colorFilter(c)) items.push({ kind: 'rocket', color: c });
 
   const makeKey = (tool) => tool ? (tool.kind + (tool.color != null ? ':' + tool.color : '')) : '';
   const activeKey = makeKey(state.clTool);
@@ -2047,6 +2161,84 @@ function beHydrate(b) {
   };
 }
 
+// True, pokud barva existuje na levelu i poté, co ignorujeme blok `exceptBlockIdx`:
+// - je barvou jiného bloku, NEBO
+// - je barvou alespoň jednoho pixelu custom obrázku (pixely pod solid blokem se
+//   při spuštění hry vyčistí, takže pixel pod zjišťovaným blokem do úvahy nebereme;
+//   u mystery bloku pixely pod ním zůstávají, takže ano).
+// Pokud barva nikde jinde NEexistuje → je „orphan", carrier layout by ji neměl držet.
+function bePaletteColorStillUsed(lvl, color, exceptBlockIdx) {
+  if (!lvl) return false;
+  const blocks = lvl.blocks || [];
+  for (let i = 0; i < blocks.length; i++) {
+    if (i === exceptBlockIdx) continue;
+    if ((blocks[i].color | 0) === (color | 0)) return true;
+  }
+  // Pixely custom obrázku
+  const img = lvl.image;
+  if (img && img.source === 'custom' && Array.isArray(img.pixels)) {
+    // Určíme footprint solid bloku, který právě měníme — ty pixely se ve hře smažou,
+    // takže je ignorujeme. Mystery blok footprint nemaže.
+    let maskedCells = null;
+    const exceptBlk = blocks[exceptBlockIdx];
+    if (exceptBlk && exceptBlk.kind !== 'mystery') {
+      maskedCells = new Set();
+      const w = Math.max(1, exceptBlk.w | 0);
+      const h = Math.max(1, exceptBlk.h | 0);
+      const mask = beBlockMask(exceptBlk.shape || 'rect', w, h);
+      for (let ly = 0; ly < h; ly++) for (let lx = 0; lx < w; lx++) {
+        if (!mask[ly][lx]) continue;
+        maskedCells.add(((exceptBlk.y | 0) + ly) + ',' + ((exceptBlk.x | 0) + lx));
+      }
+    }
+    for (let y = 0; y < img.pixels.length; y++) {
+      const row = img.pixels[y];
+      if (!Array.isArray(row)) continue;
+      for (let x = 0; x < row.length; x++) {
+        if (maskedCells && maskedCells.has(y + ',' + x)) continue;
+        if ((row[x] | 0) === (color | 0)) return true;
+      }
+    }
+    return false;
+  }
+  // Pro non-custom image (smiley/mondrian) nemáme levný lokální výpočet pixelů →
+  // buďme opatrní a vraťme true (barva může být v generovaném obrázku). Uživatel
+  // pak případně pře-regeneruje layout ručně. Auto-propagace se tak aktivuje hlavně
+  // u custom obrázků, kde je jistota.
+  return true;
+}
+
+// Propaguje změnu barvy OLD → NEW do všech nosičů + raket + garage queue v carrier
+// layoutech daného levelu, plus do top-level lvl.garage. Volat jen když jsme se přesvědčili,
+// že OLD barva už na levelu není (jinak bychom přebili designerem nastavené carriers).
+function bePropagateBlockColorChange(lvl, oldColor, newColor) {
+  if (!lvl || oldColor === newColor) return;
+  const variants = Array.isArray(lvl.carrierLayouts) ? lvl.carrierLayouts : [];
+  for (const v of variants) {
+    if (!v || !Array.isArray(v.grid)) continue;
+    for (const row of v.grid) {
+      if (!Array.isArray(row)) continue;
+      for (const tile of row) {
+        if (!tile) continue;
+        if ((tile.type === 'carrier' || tile.type === 'rocket') &&
+            (tile.color | 0) === (oldColor | 0)) {
+          tile.color = newColor;
+        }
+        if (tile.type === 'garage' && Array.isArray(tile.queue)) {
+          for (const q of tile.queue) {
+            if (q && (q.color | 0) === (oldColor | 0)) q.color = newColor;
+          }
+        }
+      }
+    }
+  }
+  if (lvl.garage && Array.isArray(lvl.garage.carriers)) {
+    for (const c of lvl.garage.carriers) {
+      if (c && (c.color | 0) === (oldColor | 0)) c.color = newColor;
+    }
+  }
+}
+
 function beClampPos(blk) {
   blk.x = Math.max(0, Math.min(BE_GW - blk.w, blk.x));
   blk.y = Math.max(0, Math.min(BE_IMG_GH - blk.h, blk.y));
@@ -2324,10 +2516,29 @@ function renderSelectedBlockPanel() {
       const lvl = beCurrentLvl();
       const b = lvl && lvl.blocks[beState.selectedBlockIdx];
       if (!b) return;
+      const oldColor = b.color | 0;
+      const newColor = i;
+      if (oldColor === newColor) return;
       histPush(lvl, 'block-color');
-      b.color = i;
+      b.color = newColor;
+      // Auto-propagace na carrier layouty + garage: pokud stará barva už není použitá
+      // (ani jiným blokem, ani pixelem vlastního obrázku), recoloruj nosiče staré
+      // barvy na novou. Bez tohohle zůstávaly v layoutu zamrzle tily s color=OLD,
+      // hra je vykreslila v preview jako „orphan" nosiče cizí barvy (report v45).
+      if (!bePaletteColorStillUsed(lvl, oldColor, beState.selectedBlockIdx)) {
+        bePropagateBlockColorChange(lvl, oldColor, newColor);
+      }
+      // Změna barvy bloku = změna pxCounts → layout-applied/fallback status z předchozího
+      // iframe runu je outdated. Vyčistit, ať banner nedrží starou chybu dokud iframe
+      // nepošle novou postMessage (~800ms gap). Stejná logika jako pro cl-* akce
+      // (v45 fix) — jen tam byla scoped přímo na histPush.
+      if (lvl && lvl.key) {
+        const bag = state.layoutStatusByLevel && state.layoutStatusByLevel[lvl.key];
+        if (bag) delete bag[state.clActiveDiff];
+      }
       renderSelectedBlockPanel();
       renderBlockCanvas();
+      renderCarrierLayout(lvl);
       markDirty();
     });
     colors.appendChild(d);
@@ -3393,54 +3604,7 @@ function wireForm() {
     markDirty();
   });
 
-  $('f-rockets-on').addEventListener('change', (e) => {
-    const L = lvl(); if (!L) return;
-    histPush(L, 'f-rockets-on');
-    L.rocketTargets = e.target.checked ? [0, 0] : null;
-    $('f-rockets-fields').hidden = !e.target.checked;
-    if (e.target.checked) {
-      $('f-rocket-0').value = 0;
-      $('f-rocket-1').value = 0;
-    }
-    markDirty();
-  });
-  $('f-rocket-0').addEventListener('change', (e) => {
-    const L = lvl(); if (!L || !L.rocketTargets) return;
-    histPush(L, 'f-rocket-0');
-    L.rocketTargets[0] = parseInt(e.target.value, 10) || 0;
-    markDirty();
-  });
-  $('f-rocket-1').addEventListener('change', (e) => {
-    const L = lvl(); if (!L || !L.rocketTargets) return;
-    histPush(L, 'f-rocket-1');
-    L.rocketTargets[1] = parseInt(e.target.value, 10) || 0;
-    markDirty();
-  });
-
-  $('f-garage-on').addEventListener('change', (e) => {
-    const L = lvl(); if (!L) return;
-    histPush(L, 'f-garage-on');
-    if (e.target.checked) {
-      L.garage = { col: 3, carriers: [{ color: 0 }] };
-    } else {
-      L.garage = null;
-    }
-    renderEditor();
-    markDirty();
-  });
-  $('f-garage-col').addEventListener('change', (e) => {
-    const L = lvl(); if (!L || !L.garage) return;
-    histPush(L, 'f-garage-col');
-    L.garage.col = parseInt(e.target.value, 10) || 0;
-    markDirty();
-  });
-  $('btn-add-carrier').addEventListener('click', () => {
-    const L = lvl(); if (!L || !L.garage) return;
-    histPush(L, 'f-carrier-add');
-    L.garage.carriers.push({ color: 0 });
-    renderCarrierList(L.garage.carriers);
-    markDirty();
-  });
+  // Rockets/Garage toggle handlery odebrány — viz comment v loadFormFromLvl.
 
   $('btn-delete').addEventListener('click', () => {
     if (state.selectedIdx >= 0) deleteLevel(state.selectedIdx);
@@ -3519,6 +3683,11 @@ function wireLevelStats() {
       const diff = m.difficulty || 'easy';
       if (!state.pxCountsByLevel[m.levelKey]) state.pxCountsByLevel[m.levelKey] = {};
       state.pxCountsByLevel[m.levelKey][diff] = m.pxCounts.slice(0, BE_COLORS.length);
+      if (Array.isArray(m.projCounts)) {
+        if (!state.projCountsByLevel) state.projCountsByLevel = {};
+        if (!state.projCountsByLevel[m.levelKey]) state.projCountsByLevel[m.levelKey] = {};
+        state.projCountsByLevel[m.levelKey][diff] = m.projCounts.slice(0, BE_COLORS.length);
+      }
       // Status neresetujeme — applied/fallback message chodí v rámci stejného startLevel
       // a může přijít *před* level-stats (v game.js: buildColsFromLayout posílá applied
       // uvnitř makeColumns, level-stats až potom). Reset by jen smazal čerstvý výsledek.
@@ -3550,6 +3719,65 @@ function _maybeRerenderCapacity(levelKey, diff) {
   renderList();
 }
 
+// Drag-resize panelů (Levels / Edit / Preview). Šířky se ukládají do localStorage.
+function wirePanelResizers() {
+  const main = $('app-main');
+  if (!main) return;
+  const KEY = 'bb-editor-panel-widths';
+  // Defaults — match initial CSS (col-list 280px, col-preview 520px, edit fills rest 1fr)
+  const defaults = { list: 280, preview: 520 };
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { saved = {}; }
+  const widths = { ...defaults, ...saved };
+
+  function apply() {
+    main.style.setProperty('--col-list', widths.list + 'px');
+    main.style.setProperty('--col-preview', widths.preview + 'px');
+    // edit zůstává 1fr — vyplní zbytek
+  }
+  function persist() {
+    try { localStorage.setItem(KEY, JSON.stringify(widths)); } catch (e) {}
+  }
+  apply();
+
+  document.querySelectorAll('.col-resizer').forEach(el => {
+    el.addEventListener('mousedown', startDrag);
+  });
+
+  function startDrag(e) {
+    e.preventDefault();
+    const el = e.currentTarget;
+    const which = el.dataset.resizer; // 'list-edit' | 'edit-preview'
+    const rect = main.getBoundingClientRect();
+    const startX = e.clientX;
+    const startList = widths.list;
+    const startPreview = widths.preview;
+    el.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      if (which === 'list-edit') {
+        // pozitivní dx → list širší
+        widths.list = Math.max(180, Math.min(rect.width - widths.preview - 360, startList + dx));
+      } else if (which === 'edit-preview') {
+        // pozitivní dx → preview UŽŠÍ (handle se posouvá doprava → edit širší, preview menší)
+        widths.preview = Math.max(360, Math.min(rect.width - widths.list - 360, startPreview - dx));
+      }
+      apply();
+    }
+    function onUp() {
+      el.classList.remove('dragging');
+      document.body.style.cursor = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      persist();
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+}
+
 function boot() {
   if (!state.fsaSupported) {
     $('btn-connect').textContent = '❌ FSA not supported';
@@ -3564,6 +3792,7 @@ function boot() {
   wireCarrierLayout();
   wireLevelStats();
   wireHistory();
+  wirePanelResizers();
   renderBlockPalette();
   updateUI();
   tryRestoreConnection();

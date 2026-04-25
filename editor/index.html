@@ -33,6 +33,8 @@
         </div>
       </section>
 
+      <div class="col-resizer" data-resizer="list-edit" title="Táhni pro změnu šířky"></div>
+
       <section id="edit-panel">
         <div class="panel-header">
           <h2>Edit</h2>
@@ -45,111 +47,79 @@
           Select a level to edit, or <button id="btn-add-from-empty" class="btn btn-small" disabled>+ add a new one</button>.
         </div>
         <form id="edit-form" hidden>
-          <div class="form-row">
-            <label for="f-key">Key <span class="hint">(unique ID, lowercase)</span></label>
-            <input type="text" id="f-key" required pattern="[a-z][a-z0-9_-]*">
-          </div>
-          <div class="form-row">
-            <label for="f-label">Label <span class="hint">(display name)</span></label>
-            <input type="text" id="f-label" required>
-          </div>
-          <div class="form-row-2">
-            <div class="form-row">
-              <label for="f-type">Type</label>
-              <select id="f-type">
-                <option value="relaxing">relaxing</option>
-                <option value="medium">medium</option>
-                <option value="hard">hard</option>
-                <option value="hardcore">hardcore</option>
-              </select>
-            </div>
-            <div class="form-row">
-              <label for="f-image-source">Image source</label>
-              <select id="f-image-source">
-                <option value="smiley">smiley</option>
-                <option value="moon">moon</option>
-                <option value="starwars">starwars (C-3PO)</option>
-                <option value="frog">frog</option>
-                <option value="mondrian">mondrian</option>
-                <option value="custom">custom (prázdné plátno)</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Paleta levelu -->
-          <div class="form-section palette-section">
-            <label>Paleta levelu <span class="hint">(barvy dostupné v tomto levelu)</span></label>
-            <div class="palette-presets" id="palette-presets"></div>
-            <div class="palette-swatches" id="palette-swatches"></div>
-          </div>
-
-          <div class="form-section">
-            <label class="checkbox-row">
-              <input type="checkbox" id="f-gravity-on">
-              <span>Gravity enabled</span>
-            </label>
-          </div>
-
-          <div class="form-section">
-            <label class="checkbox-row">
-              <input type="checkbox" id="f-rockets-on">
-              <span>Rockets enabled</span>
-            </label>
-            <div id="f-rockets-fields" class="nested-fields" hidden>
-              <div class="form-row-2">
-                <div class="form-row">
-                  <label for="f-rocket-0">Target color 1 (0–8)</label>
-                  <input type="number" id="f-rocket-0" min="0" max="8">
-                </div>
-                <div class="form-row">
-                  <label for="f-rocket-1">Target color 2 (0–8)</label>
-                  <input type="number" id="f-rocket-1" min="0" max="8">
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="form-section">
-            <label class="checkbox-row">
-              <input type="checkbox" id="f-garage-on">
-              <span>Garage enabled</span>
-            </label>
-            <div id="f-garage-fields" class="nested-fields" hidden>
+          <details class="ed-section ed-section-info" open>
+            <summary class="ed-section-head"><span class="ed-section-num">1</span> Informace</summary>
+            <div class="ed-section-body">
               <div class="form-row">
-                <label for="f-garage-col">Column (0–6)</label>
-                <input type="number" id="f-garage-col" min="0" max="6">
+                <label for="f-key">Key <span class="hint">(unique ID, lowercase)</span></label>
+                <input type="text" id="f-key" required pattern="[a-z][a-z0-9_-]*">
               </div>
               <div class="form-row">
-                <label>Carriers (colors 0–8)</label>
-                <div id="f-garage-carriers" class="carrier-list"></div>
-                <button type="button" id="btn-add-carrier" class="btn btn-small">+ carrier</button>
+                <label for="f-label">Label <span class="hint">(display name)</span></label>
+                <input type="text" id="f-label" required>
               </div>
-            </div>
-          </div>
+              <div class="form-row">
+                <label for="f-type">Type</label>
+                <select id="f-type">
+                  <option value="relaxing">relaxing</option>
+                  <option value="medium">medium</option>
+                  <option value="hard">hard</option>
+                  <option value="hardcore">hardcore</option>
+                </select>
+              </div>
 
-          <div class="form-section block-editor-section">
-            <label>Image &amp; blocks <span class="hint">(pro custom: malování pixelů; pro všechny: drag-drop bloků)</span></label>
-            <div id="pixel-toolbar" class="pixel-toolbar" hidden>
+            </div>
+          </details>
+
+          <details class="ed-section ed-section-image" open>
+            <summary class="ed-section-head"><span class="ed-section-num">2</span> Obraz</summary>
+            <div class="ed-section-body">
+              <div class="form-section">
+                <label class="checkbox-row">
+                  <input type="checkbox" id="f-gravity-on">
+                  <span>Gravity enabled</span>
+                </label>
+              </div>
+              <div class="form-row">
+                <label for="f-image-source">Image source</label>
+                <select id="f-image-source">
+                  <option value="smiley">smiley</option>
+                  <option value="moon">moon</option>
+                  <option value="starwars">starwars (C-3PO)</option>
+                  <option value="frog">frog</option>
+                  <option value="mondrian">mondrian</option>
+                  <option value="custom">custom (prázdné plátno)</option>
+                </select>
+              </div>
+
+              <div class="form-section block-editor-section">
+                <label>Pixely &amp; bloky <span class="hint">(pro custom: malování pixelů; pro všechny: drag-drop bloků)</span></label>
+            <div class="image-toolbar">
               <div class="pt-row">
-                <span class="pt-label">nástroj</span>
-                <div class="pt-tools">
-                  <button type="button" class="pt-tool active" data-tool="paint" title="Paint (kreslení po pixelech)">✎</button>
-                  <button type="button" class="pt-tool" data-tool="erase" title="Erase (gumování)">✕</button>
-                  <button type="button" class="pt-tool" data-tool="rect-fill" title="Fill rectangle">▢+</button>
-                  <button type="button" class="pt-tool" data-tool="rect-erase" title="Erase rectangle">▢−</button>
+                <span class="pt-label">paleta</span>
+                <div class="palette-presets" id="palette-presets"></div>
+              </div>
+              <div id="pixel-toolbar" class="pixel-toolbar-inner" hidden>
+                <div class="pt-row">
+                  <span class="pt-label">nástroj</span>
+                  <div class="pt-tools">
+                    <button type="button" class="pt-tool active" data-tool="paint" title="Paint (kreslení po pixelech)">✎</button>
+                    <button type="button" class="pt-tool" data-tool="erase" title="Erase (gumování)">✕</button>
+                    <button type="button" class="pt-tool" data-tool="rect-fill" title="Fill rectangle">▢+</button>
+                    <button type="button" class="pt-tool" data-tool="rect-erase" title="Erase rectangle">▢−</button>
+                  </div>
                 </div>
-              </div>
-              <div class="pt-row">
-                <span class="pt-label">barva</span>
-                <div id="pt-colors" class="pt-colors"></div>
-              </div>
-              <div class="pt-row">
-                <button type="button" id="pt-clear-all" class="btn btn-small btn-danger">vyčistit celé plátno</button>
-                <button type="button" id="pt-import-foto" class="btn btn-small">📷 Import foto</button>
-                <button type="button" id="pt-generate" class="btn btn-small">🎲 Generovat</button>
-                <input type="file" id="pt-foto-file" accept="image/*" hidden>
-              </div>
-              <div id="gen-panel" class="gen-panel" hidden>
+                <div class="pt-row">
+                  <span class="pt-label">barva</span>
+                  <div id="pt-colors" class="pt-colors"></div>
+                </div>
+                <div class="pt-row">
+                  <button type="button" id="pt-clear-all" class="btn btn-small btn-danger">vyčistit celé plátno</button>
+                  <button type="button" id="pt-import-foto" class="btn btn-small">📷 Import foto</button>
+                  <button type="button" id="pt-generate" class="btn btn-small">🎲 Generovat</button>
+                  <input type="file" id="pt-foto-file" accept="image/*" hidden>
+                </div>
+                <div id="gen-panel" class="gen-panel" hidden>
                 <div class="gen-row">
                   <span class="gen-label">režim</span>
                   <label class="gen-check"><input type="radio" name="gen-mode" value="pixels" checked> Pixely</label>
@@ -174,6 +144,7 @@
                 </div>
                 <div class="gen-row">
                   <button type="button" id="gen-go" class="btn btn-small btn-accent">🎲 Generovat</button>
+                </div>
                 </div>
               </div>
             </div>
@@ -242,9 +213,14 @@
               </div>
             </div>
           </div>
+            </div>
+          </details>
 
-          <div class="form-section carrier-layout-section">
-            <label>Carrier layout <span class="hint">(manuální grid 7×cols; prázdné = auto-gen)</span></label>
+          <details class="ed-section ed-section-grid" open>
+            <summary class="ed-section-head"><span class="ed-section-num">3</span> Grid (nosiče)</summary>
+            <div class="ed-section-body">
+              <div class="form-section carrier-layout-section">
+                <label>Carrier layout <span class="hint">(manuální grid 7×cols; prázdné = auto-gen)</span></label>
             <div class="cl-toolbar">
               <div class="cl-tb-row">
                 <span class="cl-tb-label">complexity</span>
@@ -305,6 +281,8 @@
               </div>
             </div>
           </div>
+            </div>
+          </details>
 
           <div class="summary-bar">
             <span class="summary-label">Type:</span>
@@ -317,6 +295,8 @@
           </div>
         </form>
       </section>
+
+      <div class="col-resizer" data-resizer="edit-preview" title="Táhni pro změnu šířky"></div>
 
       <section id="preview-panel">
         <div class="panel-header">
