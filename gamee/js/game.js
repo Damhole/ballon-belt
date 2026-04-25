@@ -775,28 +775,55 @@ function respawnParticle(p){
   }
 }
 
-// Odsimuluje let projektilu stejnou fyzikou jako updateParticles (odraz od stěn, pohyb dt=1/60).
-// Vrátí true, když první zasažený barevný pixel = targetCi. Špatná barva = false.
-function simulateShotReaches(sx,sy,angle,targetCi,maxSteps=240,targetBlock=null){
+// Odsimuluje let projektilu stejnou fyzikou jako updateParticles —
+// stěny + odraz od wrong-color pixelů a non-target mystery bloků.
+// Bounce cap brání ping-pongu a zároveň drží simulaci blízko reality
+// (s každým odrazem roste numerická divergence vůči reálnému particlu,
+// který má drobný spread na fire angle). Limit ~4 odrazů → 95%+ shoda.
+function simulateShotReaches(sx,sy,angle,targetCi,maxSteps=600,targetBlock=null){
   let x=sx,y=sy;
   let vx=Math.cos(angle)*PSPEED, vy=Math.sin(angle)*PSPEED;
   const dt=1/60;
   const YMAX=GH*SCALE-2;
+  let bounces=0;
+  const BOUNCE_CAP=4;
   for(let s=0;s<maxSteps;s++){
     let nx=x+vx*dt, ny=y+vy*dt;
-    if(nx<1){nx=1; vx=Math.abs(vx);}
-    else if(nx>358){nx=358; vx=-Math.abs(vx);}
-    if(ny<2){ny=2; vy=Math.abs(vy);}
+    let wallBounced=false;
+    if(nx<1){nx=1; vx=Math.abs(vx); wallBounced=true;}
+    else if(nx>358){nx=358; vx=-Math.abs(vx); wallBounced=true;}
+    if(ny<2){ny=2; vy=Math.abs(vy); wallBounced=true;}
     else if(ny>YMAX) return false;
     const hit=firstCollisionOnPath(x,y,nx,ny,targetCi);
     if(hit){
+      // Detekce: cíl trefen?
       if(hit.blk){
-        if(hit.blk.kind==='mystery') return targetBlock===hit.blk;
-        if(hit.blk.color===targetCi) return true;
-        return false;
+        if(hit.blk.kind==='mystery'){
+          if(targetBlock===hit.blk) return true;
+          // mystery v cestě → odraz (HP simulace neřešíme)
+        } else if(hit.blk.color===targetCi){
+          return true;
+        }
+        // wrong-color blok → odraz
+      } else {
+        if(hit.cell===targetCi) return true;
+        // wrong-color pixel → odraz
       }
-      if(hit.cell===targetCi) return true;
-      if(hit.cell>-1) return false;
+      // Odraz: flip vx/vy podle směru přechodu z prev cell do hit cell
+      // (přesně jako updateParticles na řádku 1081/1119/1165).
+      const prevGx=Math.floor(x/SCALE), prevGy=Math.floor(y/SCALE);
+      if(prevGx!==hit.gx) vx=-vx;
+      if(prevGy!==hit.gy) vy=-vy;
+      if(prevGx===hit.gx&&prevGy===hit.gy){vx=-vx; vy=-vy;}
+      bounces++;
+      if(bounces>BOUNCE_CAP) return false;
+      // Position zůstává před kolizí (jako updateParticles při bounce — nudge
+      // se aplikuje až další iterací). Tím se vyhneme zaseknutí v hit cell.
+      continue;
+    }
+    if(wallBounced){
+      bounces++;
+      if(bounces>BOUNCE_CAP) return false;
     }
     x=nx; y=ny;
   }
