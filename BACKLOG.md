@@ -388,6 +388,7 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
+| v56: FPS counter klikatelný — toggle [BB-FPS] console logů (Shift+P nefungoval kvůli DevTools autocomplete focus) | `5a7b34d` | 2026-04-26 |
 | v55: FPS counter + per-frame profiler v rohu canvasu (šedá/žlutá/červená podle fps), per-frame cache pro pickCannonShot a hasAnyTargetForColor → dispatch ze 133ms na 1-2ms, fps ze 7 na 120 stable | `3b12bf0` | 2026-04-26 |
 | v54: editor revize — sync hardening (auto-rename dup keys, orphan stats cleanup, sync health check), state cleanup (transient beState reset on level switch, _lastPreviewKey on rename), URL ?level priority over saveState v gamee (_levelFromUrl flag), drop indikátor při drag-reorder, overall health badge v hlavičce, section collapse persistence | `cc799bc` | 2026-04-26 |
 | v53: editor — block resize handles (8 corners/edges, drag), generator overhaul (kaleido-only blocks, max-rect-extraction, mirror pairing, HP tiers 40/80/120, area-based ratio, min 4×6), banner data-driven (detekce pin bez varianty, multi-variant note, prázdná varianta) | `3ad89e3` | 2026-04-26 |
