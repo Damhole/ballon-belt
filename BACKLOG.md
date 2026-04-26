@@ -42,7 +42,7 @@ Seznam všech nápadů, co chceme vyzkoušet, s prioritou a stavem. Na začátku
 | P2 | 💡 idea | S | **Vizuální rocket-targets picker** — místo dvou čísel klikni na sloupec |
 | P2 | 💡 idea | S | **Grid/snap helpery** — volitelný snap bloku na 3×3, pravítka na okrajích |
 | P2 | ✅ done | M | **Foto → pixel art import** — tlačítko v pixel toolbaru, crop+pan+zoom modal, kvantizace na herní paletu + Floyd–Steinberg dithering. Commit `8104f41` (v33). |
-| P2 | 💡 idea | XL | **AI level tester** — simuluje průchod levelem (optimal/greedy/random/worst-case), vypočítá metriky (dead-end rate, decision richness, bottleneck color, garage/rocket utilization, difficulty score 0–100), volitelně přes Claude API doporučí konkrétní úpravy. Detailní popis níže ⬇ |
+| P2 | ✅ done | XL | **AI level tester** — Phase 1+2+3 hotovo (v59): 3-tier solver hierarchy (random/heuristik/beam), belt-queue model, waste-aware beam, funnel friction, SOLVED_TOLERANCE_PX=40, 6-faktor difficulty score, 6 labels, verdict chips, per-color cleared/stuckPx, SVG trace chart, heat-mapa. Phase 4 (LLM analýza obrazu + recommendations) v inboxu. |
 | P3 | 💡 idea | M | **Export/Import JSON** jednoho levelu — sdílení mezi větvemi/lidmi mimo FSA |
 | P3 | 💡 idea | S | **Pattern stamps** v pixel editoru — uložené „stamp" pixel arty (koule, srdce, hvězda) |
 
@@ -388,6 +388,7 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
+| v59: AI level tester Phase 1+2+3 — playtester panel s 3-tier solver hierarchy (random/heuristik/beam), belt-queue model (balónky cyklují místo "ztrácí"), waste-aware beam search (8 šíře, 8s budget, expansion pruning), funnel friction tracking, SOLVED_TOLERANCE_PX=40 (1 carrier worth), 6-faktor difficulty score 0–100 s expandable breakdown panel + 6 labels (Relaxing/Easy/Medium/Hard/Hardcore/⚠Broken), verdict chips (lineární puzzle / forgiving / belt overflow / broken), per-color cleared/stuckPx diagnostika, SVG trace chart pro 3 strategie + 50× random envelope s 4 toggle filtry, heat-mapa zbytkových pixelů (mini-canvas + toggle overlay přes obraz), belt overflow badge rozlišený od regular fail, snapshot pxCounts při startLevel (fix mutated block HP) | `TBD` | 2026-04-26 |
 | v57: editor viewport-lock — body/app height:100vh + overflow:hidden, panely scrollují samostatně, preview je vždy v zorném poli při scroll v Edit panelu (mobile stack ≤1100px zachován) | `17107f6` | 2026-04-26 |
 | v56: FPS counter klikatelný — toggle [BB-FPS] console logů (Shift+P nefungoval kvůli DevTools autocomplete focus) | `5a7b34d` | 2026-04-26 |
 | v55: FPS counter + per-frame profiler v rohu canvasu (šedá/žlutá/červená podle fps), per-frame cache pro pickCannonShot a hasAnyTargetForColor → dispatch ze 133ms na 1-2ms, fps ze 7 na 120 stable | `3b12bf0` | 2026-04-26 |

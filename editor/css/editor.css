@@ -1436,3 +1436,293 @@ body {
   border: 1px solid rgba(255,140,40,0.45);
   color: #ffb86b;
 }
+
+/* ── Playtester panel ───────────────────────────────────────────────────── */
+.cl-tester {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+.cl-tester-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.cl-tester-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 0;
+  font-size: 12px;
+}
+.cl-tr-label { color: var(--text-3); }
+.cl-tr-val { font-weight: 600; color: var(--text-1); }
+.cl-tr-val.val-warn { color: #ffc95c; }
+.cl-tr-score {
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.cl-tr-score.score-relax    { background: rgba(80,200,100,0.10); color: #88dd99; }
+.cl-tr-score.score-easy     { background: rgba(80,200,100,0.18); color: #6ee28a; }
+.cl-tr-score.score-medium   { background: rgba(255,180,30,0.18); color: #ffc95c; }
+.cl-tr-score.score-hard     { background: rgba(255,140,40,0.2);  color: #ffae6c; }
+.cl-tr-score.score-hardcore { background: rgba(255,90,90,0.2);   color: #ff8a8a; }
+.cl-tr-score.score-broken   { background: rgba(255,200,50,0.25); color: #ffd95c; border: 1px dashed #ffae3a; }
+/* Label badge vedle čísla — varianty pro 6 kategorií */
+.cl-difflabel {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 6px;
+  cursor: help;
+}
+.cl-difflabel.cl-diff-relax    { background: rgba(80,200,100,0.10); color: #88dd99; }
+.cl-difflabel.cl-diff-easy     { background: rgba(80,200,100,0.18); color: #6ee28a; }
+.cl-difflabel.cl-diff-medium   { background: rgba(255,180,30,0.18); color: #ffc95c; }
+.cl-difflabel.cl-diff-hard     { background: rgba(255,140,40,0.2);  color: #ffae6c; }
+.cl-difflabel.cl-diff-hardcore { background: rgba(255,90,90,0.2);   color: #ff8a8a; }
+.cl-difflabel.cl-diff-broken   { background: rgba(255,200,50,0.25); color: #ffd95c; border: 1px dashed #ffae3a; }
+/* Solve badges — strict (perfect) / tolerance (close enough) / fail */
+.cl-solve-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: 6px;
+  cursor: help;
+}
+.cl-solve-strict    { background: rgba(80,200,100,0.18); color: #6ee28a; }
+.cl-solve-tolerance { background: rgba(120,200,255,0.18); color: #88c8ff; }
+.cl-solve-fail      { background: rgba(255,90,90,0.2);   color: #ff8a8a; }
+.cl-solve-overflow  { background: rgba(255,90,90,0.25);  color: #ff5252; border: 1px solid rgba(255,90,90,0.5); }
+/* Info color (= solver succeeded but random failed — not alarming, just informational) */
+.cl-tr-val.val-info { color: #88c8ff; font-weight: 600; }
+.cl-rh-pct { color: rgba(255,255,255,0.4); font-size: 10px; font-weight: 400; margin-left: 4px; }
+/* Expandable breakdown — <details> + <table> */
+.cl-diff-breakdown {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.06);
+  font-size: 11px;
+}
+.cl-diff-breakdown > summary {
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-2);
+  font-weight: 600;
+}
+.cl-diff-breakdown > summary:hover { color: var(--text-1); }
+.cl-diff-breakdown[open] > summary { margin-bottom: 6px; }
+.cl-db-total {
+  float: right;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.cl-db-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.cl-db-table th,
+.cl-db-table td {
+  text-align: left;
+  padding: 3px 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.cl-db-table th { color: var(--text-2); font-weight: 600; font-size: 10px; }
+.cl-db-label { cursor: help; }
+.cl-db-input { color: var(--text-1); }
+.cl-db-formula code {
+  font-size: 10px;
+  color: rgba(255,255,255,0.55);
+  font-family: ui-monospace, monospace;
+}
+.cl-db-points { font-weight: 700; text-align: right; white-space: nowrap; }
+.cl-db-max { color: rgba(255,255,255,0.4); font-weight: 400; }
+.cl-db-note {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  color: var(--text-2);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+/* Verdict chip — interpretace charakteru levelu */
+.cl-db-verdict {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.cl-db-verdict-linear { background: rgba(255,180,30,0.12); color: #ffc95c; border-left: 3px solid #ffc95c; }
+.cl-db-verdict-easy   { background: rgba(80,200,100,0.12); color: #88dd99; border-left: 3px solid #88dd99; }
+.cl-db-verdict-broken { background: rgba(255,200,50,0.15); color: #ffd95c; border-left: 3px solid #ffae3a; }
+.cl-db-verdict-belt   { background: rgba(255,90,90,0.15); color: #ff8a8a; border-left: 3px solid #ff5252; }
+.cl-tr-score-na {
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(150,150,150,0.15);
+  color: #888;
+}
+.cl-tester-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.2);
+  vertical-align: middle;
+  margin-right: 2px;
+}
+.cl-tester-warn {
+  color: #ffc95c;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.cl-tester-info {
+  color: var(--text-3);
+  font-size: 11px;
+  margin-top: 4px;
+}
+.cl-tester-idle, .cl-tester-running, .cl-tester-error {
+  font-size: 12px;
+  color: var(--text-3);
+  padding: 4px 0;
+}
+.cl-tester-colors { margin-top: 8px; }
+.cl-tc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.cl-tc-table th {
+  color: var(--text-3);
+  font-weight: 500;
+  text-align: left;
+  padding: 2px 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.cl-tc-table td {
+  padding: 2px 4px;
+  color: var(--text-1);
+}
+.cl-tc-table tbody tr.td-deficit td { color: #ff8a8a; }
+.cl-tc-table tbody tr.td-surplus td:nth-child(4) { color: #6ee28a; }
+/* Strategic-fail row: balance OK ale cleared < need (stuck pixels) */
+.cl-tc-table tbody tr.td-stuck td { color: #ffae6c; }
+.cl-tc-table .cl-cleared-warn { color: #ff8a8a; font-weight: 600; cursor: help; }
+
+/* Belt warning levels (Phase 2) */
+.cl-tr-val.val-overflow { color: #ff5252; font-weight: 700; }
+.cl-tt-budget { font-size: 11px; color: #ffc95c; cursor: help; }
+
+/* Trace chart (Phase 2.5) */
+.cl-tester-trace {
+  margin-top: 12px;
+  padding: 8px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+.cl-tt-controls {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  margin-bottom: 6px;
+  align-items: center;
+}
+.cl-tt-controls label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-1);
+}
+.cl-tt-controls input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+.cl-tt-title {
+  font-weight: 600;
+  color: var(--text-2);
+  margin-right: 6px;
+  cursor: help;
+}
+.cl-tt-sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+.cl-tt-sw-env {
+  background: linear-gradient(180deg, rgba(150,150,150,0.5), rgba(150,150,150,0.15));
+  border: 1px solid rgba(150,150,150,0.4);
+}
+#cl-tt-svg-wrap { width: 100%; }
+#cl-tt-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.cl-tt-axis { stroke: rgba(255,255,255,0.25); stroke-width: 1; fill: none; }
+.cl-tt-grid  { stroke: rgba(255,255,255,0.07); stroke-width: 1; fill: none; }
+.cl-tt-axis-label { fill: rgba(255,255,255,0.5); font-size: 9px; font-family: ui-monospace, monospace; }
+.cl-tt-envelope { fill: rgba(150,150,150,0.18); stroke: rgba(150,150,150,0.3); stroke-width: 0.5; }
+.cl-tt-median { stroke: rgba(180,180,180,0.7); stroke-width: 1; stroke-dasharray: 3 3; fill: none; }
+.cl-tt-line { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.cl-tt-line-maxgain { stroke: #3b82f6; }
+.cl-tt-line-fulluse { stroke: #10b981; }
+.cl-tt-line-beam    { stroke: #a855f7; }
+.cl-tt-dot { stroke: none; cursor: help; }
+.cl-tt-dot.cl-tt-line-maxgain { fill: #3b82f6; }
+.cl-tt-dot.cl-tt-line-fulluse { fill: #10b981; }
+.cl-tt-dot.cl-tt-line-beam    { fill: #a855f7; }
+
+/* Heat-mapa zbytkových pixelů (Phase 2.5) */
+.cl-tester-heatmap {
+  margin-top: 12px;
+  padding: 8px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+.cl-th-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 11px;
+  gap: 8px;
+}
+.cl-th-label { color: var(--text-2); cursor: help; }
+#cl-th-toggle { padding: 2px 8px; font-size: 10px; }
+#cl-th-mini {
+  display: block;
+  image-rendering: pixelated;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: #1a1a1a;
+}
+.cl-th-overlay-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  image-rendering: pixelated;
+  z-index: 10;
+}

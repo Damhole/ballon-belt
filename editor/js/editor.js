@@ -1219,14 +1219,17 @@ function renderCarrierLayout(lvl) {
   const emptyEl = $('cl-empty');
   const edEl = $('cl-editor');
   const capEl = $('cl-capacity');
+  const testerEl = $('cl-tester');
   if (!variant) {
     emptyEl.hidden = false;
     edEl.hidden = true;
     if (capEl) capEl.hidden = true;
+    if (testerEl) testerEl.hidden = true;
     return;
   }
   emptyEl.hidden = true;
   edEl.hidden = false;
+  if (testerEl) testerEl.hidden = false;
 
   // Generator tlačítka — enable jen pokud máme pxCounts pro aktuální level/diff.
   const pxForGen = clGetStatsForCurrent(lvl);
@@ -2444,6 +2447,14 @@ function wireCarrierLayout() {
     clResizeGrid(v, newRows);
     markDirty();
     renderCarrierLayout(lvl);
+  });
+
+  $('cl-analyze-btn').addEventListener('click', () => {
+    const frame = $('preview-frame');
+    if (!frame || !frame.contentWindow) return;
+    const body = $('cl-tester-body');
+    if (body) body.innerHTML = '<div class="cl-tester-running">Analyzuji…</div>';
+    frame.contentWindow.postMessage({ type: 'balloonbelt:analyze-level' }, '*');
   });
 }
 
@@ -4306,6 +4317,473 @@ function wireLevelStats() {
       };
       _maybeRerenderCapacity(m.levelKey, diff);
       return;
+    }
+
+    if (m.type === 'balloonbelt:analysis-results') {
+      renderTesterResults(m.results);
+      return;
+    }
+  });
+}
+
+// Modul-level state — drží poslední výsledky a UI preference,
+// aby toggle/checkbox handlery mohly re-renderovat bez nového postMessage.
+let _lastTesterResult = null;
+const _traceVisibility = { maxGain: true, fullUse: true, beam: true, envelope: true };
+let _heatmapMode = 'mini'; // 'mini' | 'overlay'
+
+function renderTesterResults(r) {
+  _lastTesterResult = r;
+  const body = $('cl-tester-body');
+  if (!body) return;
+  if (!r) {
+    body.innerHTML = '<div class="cl-tester-error">Výsledky nejsou k dispozici (level není načten).</div>';
+    return;
+  }
+  const hasDeficit = r.colorDetails && Object.values(r.colorDetails).some(d => d.balance < 0);
+  const simFailed = !r.solved;
+  const toleranceUsed = !!r.toleranceUsed;
+  const diffMeta = _difficultyMeta(r.diffScore);
+  const bottleneckSwatch = r.bottleneckColor >= 0
+    ? `<span class="cl-tester-swatch" style="background:${BE_COLORS[r.bottleneckColor]}"></span> ${r.bottleneckColor}`
+    : '—';
+  let solverNote = '';
+  if (toleranceUsed) {
+    const tol = r.SOLVED_TOLERANCE_PX || 40;
+    solverNote = `<div class="cl-tester-info">ℹ <b>Effectively solved s tolerancí:</b> solver zbylo <b>${r.remainPx} px</b> (limit ${tol} px = 1 carrier worth). Level považujeme za dohratelný — pár pixelů uvázlo kvůli timing nuancím, lidský hráč by to obvykle vyřešil tím, že by carriery klikal v jiném pořadí. Heat-mapa ukazuje, které pixely zbyly.</div>`;
+  } else if (simFailed) {
+    if (hasDeficit) {
+      solverNote = '<div class="cl-tester-warn">⚠ Simulátor nedokončil — některé barvy mají deficit projektilů (červené řádky v tabulce). Level pravděpodobně není dohratelný.</div>';
+    } else {
+      // Bilance OK ale solver failed — vyjmenuj konkrétní možné příčiny.
+      const causes = [];
+      if (r.beltOverflow) causes.push('<b>belt overflow</b> (Peak belt load > 14) — moc no-match balónků se kupí na pásu rychleji, než stíhají vystřelit; v reálné hře by hra skončila zablokovaným pásem');
+      else if (r.beltDeadlockRisk) causes.push('<b>belt deadlock risk</b> (Peak belt load > 12) — funnel by občas odmítl klik na carrier, hráč by si musel počkat');
+      if (r.stuckBalls && r.stuckBalls > 0) causes.push('<b>' + r.stuckBalls + ' uvízlých balónků</b> na pásu — solver vystřelil carriery, jejichž pixely se nakonec nikdy neodhalily. Pozn.: každý carrier se rozpadá na <b>UPC=4 malé balónky</b>, každý s 1/4 ammo. „Pár chybějících pixelů" v heat-mapě = sečtené ammo ze stuck balónků z různých carrierů, ne celý carrier worth.');
+      if (r.hitTimeBudget) causes.push('<b>beam time budget</b> — beam search vypršel 2 s rozpočet; možná existuje řešení, které prostě nestihl prozkoumat');
+      causes.push('<b>strategický timing</b> — všechny tři strategie pálí carrier, jakmile je aktivní, neumí počkat na plnou expozici barvy; lidský hráč to umí');
+      const causeList = causes.map(c => '<li>' + c + '</li>').join('');
+      solverNote = '<div class="cl-tester-info">ℹ <b>Capacity OK + solver fail</b>: bilance per-barva sedí, ale žádná strategie nedokončila. Možné příčiny:<ul style="margin:4px 0 0 14px;padding:0;font-size:11px;">' + causeList + '</ul><div style="margin-top:6px;font-size:11px;">Pozn.: capacity OK kontroluje jen totální projektily per barva. Belt load + access order kontroluje až playtester.</div></div>';
+    }
+  }
+  const minClicksVal = simFailed ? `<span title="solver nedokončil">— (${r.minClicks}+)</span>` : r.minClicks;
+  // Difficulty score se zobrazuje VŽDY (i pro nedořešené). Vedle čísla je doporučený label
+  // (Relaxing/Easy/Medium/Hard/Hardcore/⚠ Broken). Klikem na ⓘ se zobrazí breakdown jak se
+  // skóre počítá. Štítek je jen DOPORUČENÍ — žádná auto-změna level.type.
+  const diffScoreVal = `<span class="cl-tr-score ${diffMeta.cls}">${r.diffScore} / 100</span> <span class="cl-difflabel cl-diff-${diffMeta.key}" title="Doporučený label podle skóre. Žádná auto-změna level.type — jen návrh.">${diffMeta.icon} ${diffMeta.name}</span>`;
+  // Belt warning — dvouúrovňový (>12 risk, >14 overflow). Jen pokud máme data.
+  let beltRow = '';
+  if (typeof r.peakBeltLoad === 'number') {
+    const cap = r.BELT_CAP || 14;
+    const beltCls = r.beltOverflow ? 'val-overflow' : (r.beltDeadlockRisk ? 'val-warn' : '');
+    const beltIcon = r.beltOverflow ? '🚫 ' : (r.beltDeadlockRisk ? '⚠ ' : '');
+    const beltTitle = `Maximální zatížení pásu během simulace (max ${cap}). Nad 12 = funnel deadlock risk (klik na carrier odmítnut), nad 14 = belt overflow / game-over scénář. Odhad: lookback 8 kliků × no-match kuličky (proj−gain) na pásu.`;
+    beltRow = `<div class="cl-tester-row"><span class="cl-tr-label" title="${beltTitle}">Peak belt load</span><span class="cl-tr-val ${beltCls}">${beltIcon}${r.peakBeltLoad} / ${cap}</span></div>`;
+  }
+  // Solver used — ukázat která strategie zvítězila + tolerance + budget warning + belt overflow
+  let solverUsedRow = '';
+  if (r.solverUsed) {
+    const tol = r.SOLVED_TOLERANCE_PX || 40;
+    let badge = '';
+    if (r.solved && r.strictSolved) {
+      badge = ' <span class="cl-solve-badge cl-solve-strict" title="Solver vyčistil úplně všechny pixely — žádný zbytek.">✓ přesně</span>';
+    } else if (r.solved && r.toleranceUsed) {
+      badge = ` <span class="cl-solve-badge cl-solve-tolerance" title="Solver zbylo ${r.remainPx} pixelů (tolerance je ${tol} px = 1 carrier worth). Level považován za dohratelný — pár pixelů uvázlo kvůli timing nuancím, které lidský hráč obvykle vyřeší.">✓ tolerance (${r.remainPx} px)</span>`;
+    } else if (r.beltOverflow) {
+      // Reálný důvod failu: pás přetekl. Tolerance NEPLATÍ — v reálné hře by hra skončila
+      // game-overem PŘED dokončením těch zbylých pixelů.
+      badge = ` <span class="cl-solve-badge cl-solve-overflow" title="Belt overflow (peak ${r.peakBeltLoad}/${r.BELT_CAP || 14}) — pás by v reálné hře přetekl a hra by skončila GAME-OVEREM dřív, než by solver dokončil zbylé ${r.remainPx} px. Tolerance se NEPOUŽIJE, protože hra by neskončila řádně.">🚫 belt overflow${r.remainPx > 0 ? ` (zbývá ${r.remainPx} px)` : ''}</span>`;
+    } else {
+      badge = ` <span class="cl-solve-badge cl-solve-fail" title="Solver nedořešil — zbývá ${r.remainPx} px (víc než tolerance ${tol}).">✗ zbývá ${r.remainPx} px</span>`;
+    }
+    solverUsedRow = `<div class="cl-tester-row"><span class="cl-tr-label" title="Která ze 3 strategií poskytla nejlepší výsledek: max-gain greedy, full-use greedy, nebo beam search. Tolerance ${tol} px (= 1 carrier worth) — pokud zbývá ≤ tolerance A nedošlo k belt overflow, level uznán jako 'effectively solved'.">Použitý solver</span><span class="cl-tr-val">${r.solverUsed}${badge}${r.hitTimeBudget ? ' <span class="cl-tt-budget" title="Beam search vypršel time budget — možná existuje lepší řešení.">⏱</span>' : ''}</span></div>`;
+  }
+  // Funnel friction — kolik % kliků by reálná hra odmítla (queue >= 12).
+  let funnelRow = '';
+  if (typeof r.funnelFrictionPct === 'number' && r.funnelRejectedCount > 0) {
+    const fpct = r.funnelFrictionPct;
+    const threshold = r.PENDING_DISPENSE_THRESHOLD || 12;
+    const fcls = fpct >= 30 ? 'val-overflow' : fpct >= 10 ? 'val-warn' : '';
+    const ficon = fpct >= 30 ? '🚫 ' : fpct >= 10 ? '⚠ ' : '';
+    const ftitle = `V kolika % kliků by reálná hra zobrazila "Funnel full" warning a klik odmítla. Pending threshold = ${threshold}. Solver toto IGNORUJE (klikne i tak), ale v reálu by hráč musel čekat. Vysoké % = level vyžaduje pomalé klikání.`;
+    funnelRow = `<div class="cl-tester-row"><span class="cl-tr-label" title="${ftitle}">Funnel friction</span><span class="cl-tr-val ${fcls}">${ficon}${fpct} % (${r.funnelRejectedCount} kliků)</span></div>`;
+  }
+  body.innerHTML = `
+    <div class="cl-tester-row"><span class="cl-tr-label" title="Počet nosičů odebraných nejlepším solverem. Nižší = kratší level.">Minimální kliků</span><span class="cl-tr-val">${minClicksVal}</span></div>
+    ${(() => {
+      // Hierarchie 3 typů hráčů — od nejhloupějšího po nejchytřejšího.
+      // Každý ukazuje X / Y dohrálo. Designer vidí, na jaké úrovni hráče level "padá".
+      const tol = r.SOLVED_TOLERANCE_PX || 40;
+      const rs = r.randomSuccesses || 0;
+      const rc = r.randomCloseCalls || 0;
+      const rt = r.randomTotal || 50;
+      const hs = r.heuristikSolved || 0;
+      const ht = r.heuristikTotal || 2;
+      const beam = r.beamSolved ? '✓' : '✗';
+      // Random — barva: zelená když ≥ 30 % uspěje, modrá info když 0 (lineární level), šedá střed
+      const rPct = Math.round(rs/rt*100);
+      const rCls = rs===0 ? (r.solved ? 'val-info' : 'val-warn') : (rPct>=30 ? '' : 'val-info');
+      const rCloseStr = rc>0 ? ` <span class="cl-rh-pct">+ ${rc} skoro</span>` : '';
+      const hCls = hs===0 ? 'val-warn' : '';
+      const beamCls = r.beamSolved ? '' : 'val-warn';
+      return `
+        <div class="cl-tester-row"><span class="cl-tr-label" title="50 náhodných průchodů (preferují beneficial carrier). Kolik z nich dohrálo do tolerance ${tol} px. ŽÁDNÝ vztah ke solverovi! Tohle simuluje 'nováčka bez plánu'. 'skoro' = další runs, kde zbylo ≤ 2.5× tolerance (= byly blízko k úspěchu).">Random hráč</span><span class="cl-tr-val ${rCls}">${rs} / ${rt}${rCloseStr} <span class="cl-rh-pct">(${rPct}% solve)</span></span></div>
+        <div class="cl-tester-row"><span class="cl-tr-label" title="Heuristické solvery (max-gain + full-use greedy) — chytřejší než random, ale BEZ lookaheadu. Simulují 'solidního hráče s intuicí'. Pokud TYTO selžou, level vyžaduje plán dopředu.">Heuristik</span><span class="cl-tr-val ${hCls}">${hs} / ${ht}</span></div>
+        <div class="cl-tester-row"><span class="cl-tr-label" title="Beam search (8 paralelních scénářů, lookahead). Nejlepší solver = simuluje 'experta s plánem'. Pokud i tohle selže, level je extrémně tight.">Plánovač (beam)</span><span class="cl-tr-val ${beamCls}">${beam}</span></div>
+      `;
+    })()}
+    <div class="cl-tester-row"><span class="cl-tr-label" title="Průměrný počet smysluplných voleb na krok v optimal průchodu. Nižší = lineárnější level; vyšší = zajímavější, více cest.">Decision richness</span><span class="cl-tr-val">${r.decisionRichness}</span></div>
+    <div class="cl-tester-row"><span class="cl-tr-label" title="Barva, kterou simulátor začal používat NEJPOZDĚJI (krok N v sloupci 'přístup' v tabulce výše). POZOR: nejde o pozici carrieru v honeycombu! Carrier té barvy může být klidně v první řadě (fyzicky hned přístupný), ale její PIXELY V OBRAZU jsou buried pod jinými barvami — simulátor čekal, než se odkryjí. Tj. bottleneck = barva s nejhlubšími pixely v obrazu, ne s nejhlubším carrierem.">Bottleneck barva (pixelů)</span><span class="cl-tr-val">${bottleneckSwatch}</span></div>
+    <div class="cl-tester-row"><span class="cl-tr-label" title="Podíl slotů v carrier gridu, které jsou typu garáž. 0 % = garáž v tomto layoutu nepřináší žádné nosiče.">Garage utiliz.</span><span class="cl-tr-val">${r.garageUtil} %</span></div>
+    ${beltRow}
+    ${funnelRow}
+    ${solverUsedRow}
+    <div class="cl-tester-row"><span class="cl-tr-label" title="Orientační skóre 0–100. Vždy spočítáno (i pro neřešené levely). Vedle čísla je doporučený label.">Difficulty score</span><span class="cl-tr-val">${diffScoreVal}</span></div>
+    ${_renderDifficultyBreakdown(r)}
+    ${solverNote}
+    ${_renderColorDetailsTable(r.colorDetails)}
+    ${_renderTraceChart(r.traces, r.randomEnvelope)}
+    ${_renderHeatmapPanel(r.remainingGrid, r.solved)}
+  `;
+  // Post-render: připojit handlery a vykreslit canvasy.
+  _wireTraceCheckboxes();
+  if (r.remainingGrid && !r.solved) _drawRemainingHeatmap(r.remainingGrid, _heatmapMode);
+  _wireHeatmapToggle();
+}
+
+function _renderColorDetailsTable(details) {
+  if (!details || !Object.keys(details).length) return '';
+  const rows = Object.entries(details).map(([c, d]) => {
+    // Klíčová diagnostika: stuckPx > 0 = simulace nedokázala vyčistit, i když balance OK.
+    // Tj. solver "promrhal" carriery na špatných shlucích a zbytek nezbylo čím pálit.
+    const stuckPx = d.stuckPx || 0;
+    const cleared = d.cleared != null ? d.cleared : (d.need - stuckPx);
+    const hasStuck = stuckPx > 0;
+    const rowCls = d.balance < 0 ? 'td-deficit' : (hasStuck ? 'td-stuck' : (d.balance > 10 ? 'td-surplus' : ''));
+    const swatch = `<span class="cl-tester-swatch" style="background:${BE_COLORS[Number(c)]}"></span>`;
+    const balStr = (d.balance >= 0 ? '+' : '') + d.balance;
+    const acc = d.accessStep !== null ? 'krok ' + d.accessStep : '—';
+    const clearedStr = hasStuck
+      ? `<span class="cl-cleared-warn" title="Solver vyčistil ${cleared} z ${d.need} px této barvy. ${stuckPx} px zůstalo přesto, že balance je +0 nebo kladný — strategický fail (carriery vystřeleny dřív, než se odhalily zbylé shluky barvy).">${cleared}/${d.need} ⚠</span>`
+      : `${cleared}/${d.need}`;
+    return `<tr class="${rowCls}"><td>${swatch} ${c}</td><td>${d.need}</td><td>${d.have}</td><td>${balStr}</td><td>${clearedStr}</td><td>${acc}</td></tr>`;
+  }).join('');
+  return `
+    <div class="cl-tester-colors">
+      <table class="cl-tc-table">
+        <thead><tr>
+          <th title="Index barvy v paletě">barva</th>
+          <th title="Projektilů potřebných k rozbití všech pixelů + HP bloků dané barvy">potřeba</th>
+          <th title="Projektilů dostupných ve všech nosičích a frontě garáže dané barvy">zásoby</th>
+          <th title="zásoby − potřeba. Záporné (červeně) = reálný deficit → level nejde dokončit. +0 nebo kladné = ok.">bilance</th>
+          <th title="Kolik pixelů této barvy simulace skutečně vyčistila / kolik bylo potřeba. Když cleared < need a balance je +0, jde o STRATEGICKÝ fail simulátoru — carriery byly vystřeleny dřív, než se odhalily všechny shluky té barvy. Heat-mapa pak ukáže, kde zbylé pixely jsou.">vyčištěno</th>
+          <th title="Krok greedy simulace, kdy byla tato barva poprvé použita. 'krok 0' = hned dostupná, vysoké číslo = hluboko zakopána.">přístup</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+// ─── Difficulty score — label klasifikace + expandable breakdown
+// Mapuje 0–100 score na 6 kategorií (Relaxing/Easy/Medium/Hard/Hardcore/Broken).
+// 100+ = ⚠ Broken — solver nedořešil + zbylo hodně grídu.
+// Difficulty thresholdy. Nastaveny tak, aby:
+//   - Levely solved všemi 3 solvery + balance ok → Relaxing/Easy (≤ 40)
+//   - Levely vyžadující plán (jen beam) + ne-trivial random fail → Medium (40-60)
+//   - Levely tight + dlouhé → Hard (60-80)
+//   - Vyžadují perfektní plán → Hardcore (80-95)
+//   - Solver fail + zbylé pixely → Broken (95+)
+function _difficultyMeta(score) {
+  if (score >= 95) return { key: 'broken', name: 'Broken?', icon: '⚠', cls: 'score-broken' };
+  if (score >= 80) return { key: 'hardcore', name: 'Hardcore', icon: '🔴', cls: 'score-hardcore' };
+  if (score >= 60) return { key: 'hard', name: 'Hard', icon: '🟠', cls: 'score-hard' };
+  if (score >= 40) return { key: 'medium', name: 'Medium', icon: '🟡', cls: 'score-medium' };
+  if (score >= 20) return { key: 'easy', name: 'Easy', icon: '🔵', cls: 'score-easy' };
+  return { key: 'relax', name: 'Relaxing', icon: '🟢', cls: 'score-relax' };
+}
+
+function _renderDifficultyBreakdown(r) {
+  if (!r.diffBreakdown || !r.diffInputs) return '';
+  const b = r.diffBreakdown;
+  const inp = r.diffInputs;
+  const cap = inp.BELT_CAP || 14;
+  const total = (b.length||0) + (b.risk||0) + (b.complexity||0) + (b.belt||0) + (b.solverNeed||0) + (b.solver||0);
+  const solverResults = inp.solverResults || [];
+  const solverResultsStr = solverResults.length
+    ? solverResults.map(s => `${s.solved ? '✓' : '✗'} ${s.name}`).join(', ')
+    : '—';
+  const rows = [
+    {
+      key: 'length', label: 'Délka levelu',
+      input: `${inp.clicks} kliků`,
+      formula: `min(1, ${inp.clicks}/40) × 20`,
+      hint: 'Víc kliků = delší level = únavnější. Cap při 40 klicích.',
+      points: b.length || 0, max: 20,
+    },
+    {
+      key: 'solverNeed', label: 'Plánování potřeba',
+      input: `${inp.solversSolved || 0}/${inp.solversTotal || 3} solverů (${solverResultsStr})`,
+      formula: `(${inp.solversTotal||3}-${inp.solversSolved||0})/${inp.solversTotal||3} × 25`,
+      hint: 'Kolik ze 3 solverů (max-gain greedy, full-use greedy, beam search) level dořešilo. 3/3 = jakákoliv strategie projde (intuitivní level). 1/3 = jen chytrý solver (vyžaduje plán). 0/3 = ani plán nestačí (broken nebo extrémně tight).',
+      points: b.solverNeed || 0, max: 25,
+    },
+    {
+      key: 'risk', label: 'Riziko zaseknutí (random hráč)',
+      input: `${inp.deadEndPct} % fail`,
+      formula: `${(inp.deadEndPct/100).toFixed(2)} × 15`,
+      hint: 'Z 50 NÁHODNÝCH průchodů (s preferencí beneficial carrierů) kolik končí zaseknutím. Měří jak je level náchylný na chyby v náhodném pořadí. POZOR: random simulace nemá plně lidskou intuici, takže může selhávat i na levelech, kde reálný hráč najde cestu.',
+      points: b.risk || 0, max: 15,
+    },
+    {
+      key: 'complexity', label: 'Složitost rozhodování',
+      input: `${inp.decisionRichness.toFixed(1)} voleb/krok`,
+      formula: `min(1, ${inp.decisionRichness.toFixed(1)}/5) × 15`,
+      hint: 'Průměr smysluplných voleb per krok v greedy průchodu. 0 = lineární (jediná správná volba), vyšší = víc cest. Hodně voleb = víc šancí na chybu pro nováčka.',
+      points: b.complexity || 0, max: 15,
+    },
+    {
+      key: 'belt', label: 'Belt overflow risk',
+      input: `${inp.peakBeltLoad}/${cap}`,
+      formula: `${inp.peakBeltLoad}/${cap} × 15`,
+      hint: 'Maximální zatížení pásu během solver run. >12 = funnel risk (klik na carrier odmítnut), >14 = game-over scénář.',
+      points: b.belt || 0, max: 15,
+    },
+    {
+      key: 'solver', label: 'Penalizace za nedořešení',
+      input: inp.solved ? '✓ dořešil (žádná penalty)' : `✗ nedořešil, zbývá ${inp.remainingPx}/${inp.totalPx} px`,
+      formula: inp.solved ? '0' : `(0.3 + ${inp.remainingPx}/${inp.totalPx} × 0.7) × 10`,
+      hint: 'Trestné body pokud ani beam search level nedořeší. 0 = solver to zvládl (good). Plné body 10 = solver i s 8s budgetem to nedal a zbylo hodně pixelů (level je extrémně tight nebo broken).',
+      points: b.solver || 0, max: 10,
+    },
+  ];
+  // Verdikt: rozpoznej charakter levelu z kombinace metrik.
+  let verdict = '';
+  if (inp.solved && inp.deadEndPct >= 80 && inp.decisionRichness < 1.5) {
+    verdict = '<div class="cl-db-verdict cl-db-verdict-linear">⚡ <b>Lineární puzzle:</b> solver dořešil, ale pro náhodného hráče je level neprůchozí. Existuje jediná správná posloupnost — pro experta easy, pro nováčka frustrující.</div>';
+  } else if (inp.solved && inp.deadEndPct < 20) {
+    verdict = '<div class="cl-db-verdict cl-db-verdict-easy">🟢 <b>Forgiving level:</b> solver dořešil, většina náhodných her taky. Hodně cest, level odpouští chyby.</div>';
+  } else if (!inp.solved && b.solver >= 8) {
+    verdict = '<div class="cl-db-verdict cl-db-verdict-broken">⚠ <b>Možná broken:</b> ani beam search level nedořešil v rozpočtu. Buď extrémně tight balance, nebo design issue (honeycomb dead-end / chybějící carriery).</div>';
+  } else if (inp.peakBeltLoad > inp.BELT_CAP) {
+    verdict = '<div class="cl-db-verdict cl-db-verdict-belt">🚫 <b>Belt overflow:</b> level vede k zablokování pásu. Hra by skončila game-overem.</div>';
+  }
+  const rowsHtml = rows.map(row => `
+    <tr>
+      <td class="cl-db-label" title="${row.hint}">${row.label}</td>
+      <td class="cl-db-input">${row.input}</td>
+      <td class="cl-db-formula"><code>${row.formula}</code></td>
+      <td class="cl-db-points">${row.points} <span class="cl-db-max">/ ${row.max}</span></td>
+    </tr>
+  `).join('');
+  return `
+    <details class="cl-diff-breakdown">
+      <summary>Jak je obtížnost spočítána? <span class="cl-db-total">${total} / 100</span></summary>
+      ${verdict}
+      <table class="cl-db-table">
+        <thead><tr><th>Faktor</th><th>Vstup</th><th>Vzorec</th><th>Body</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      <div class="cl-db-note">
+        <b>Jak to číst:</b> každý faktor přispívá max počtem bodů (sloupec „Body"). Součet = celkové skóre 0–100.
+        <b>Solver vs random hráč jsou nezávislé!</b> Solver = expert s plánem (beam search), random = 50 náhodných průchodů (nováček). Level může být současně „solver dořešil" + „100 % random fail" = lineární puzzle.
+        Žádná auto-změna level.type — label vedle skóre je jen <i>doporučení</i>.
+      </div>
+    </details>`;
+}
+
+// ─── Trace chart (SVG) — průběh náročnosti per krok pro 3 strategie + envelope
+// Kompozit per krok = (1−beneficial/active)*30 + max(0,beltLoad−8)*6 + (beltLoad>14 ? 60 : 0).
+// Vyšší = horší krok (víc plýtvání, méně voleb, blízko belt overflow).
+// Per-step intenzita kroku — kompozit ukazuje, jak "nervózní" byl daný klik.
+// Phase 3: drop waste (balónky cyklují, nemizí). Místo toho belt-load ramping.
+function _composite(p) {
+  const choiceFactor = p.activeCount > 0 ? 1 - p.beneficial / p.activeCount : 0;
+  const bl = p.beltLoad != null ? p.beltLoad : (p.beltLoadEst || 0);
+  const beltRamp = Math.max(0, bl - 8) * 6; // belt > 50% kapacity = ramp
+  const overflowPenalty = bl > 14 ? 60 : 0;
+  return Math.max(0, choiceFactor * 30 + beltRamp + overflowPenalty);
+}
+
+function _renderTraceChart(traces, envelope) {
+  if (!traces) return '';
+  const haveAny = ['maxGain', 'fullUse', 'beam'].some(k => traces[k] && traces[k].length);
+  if (!haveAny) return '';
+  return `
+    <div class="cl-tester-trace">
+      <div class="cl-tt-controls">
+        <span class="cl-tt-title" title="Graf 'intenzity per krok' pro každou strategii. POZOR: Y-osa NENÍ difficulty score (0-100). Je to per-step kompozit = (1−beneficial/active)*30 + max(0,beltLoad−8)*6 + (beltLoad>14 ? 60 : 0). Vyšší = nervóznější krok (málo voleb, vysoký belt-load). Hover nad bod = detaily kroku.">Intenzita per krok</span>
+        <label title="MAX-GAIN GREEDY: V každém kroku vystřelí carrier, který má NEJVÍC vystavených pixelů své barvy v gridu (maximalizuje okamžitý progres). Žádný lookahead. Funguje dobře na volnějších levelech, ale tight levely s balance≈0 typicky selže — pálí carriery i když by se víc pixelů jejich barvy odhalilo později.">
+          <input type="checkbox" data-trace="maxGain" ${_traceVisibility.maxGain ? 'checked' : ''}>
+          <span class="cl-tt-sw" style="background:#3b82f6"></span> max-gain
+        </label>
+        <label title="FULL-USE GREEDY: Preferuje carriery, kde gain >= projectiles (žádné plýtvání municí). Když takový neexistuje, fallback na max-gain. Lepší pro tight levely, kde každá ztracená střela = neřešitelné.">
+          <input type="checkbox" data-trace="fullUse" ${_traceVisibility.fullUse ? 'checked' : ''}>
+          <span class="cl-tt-sw" style="background:#10b981"></span> full-use
+        </label>
+        <label title="BEAM SEARCH: Drží 8 nejlepších stavů (clicks + waste*10 + remainingPx*0.1) a v každé hloubce expanduje všechny aktivní carriery → znovu ořeže na 8. Time budget 2 s. Najde nejlepší cestu, kterou greedy nevidí. Když ⏱ vyprší, vrátí best-so-far. Pozn.: na grafu může vykazovat vyšší end-game peak než kratší greedy strategie — protože se dostala dál a end-game je přirozeně náročnější (málo voleb, vyšší belt load).">
+          <input type="checkbox" data-trace="beam"    ${_traceVisibility.beam ? 'checked' : ''}>
+          <span class="cl-tt-sw" style="background:#a855f7"></span> beam
+        </label>
+        <label title="50× RANDOM SPREAD: Spustí 50 náhodných průchodů (volí carriery náhodně z 'beneficial' poolu). Šedý envelope ukazuje rozsah obtížnosti per krok od 10. percentilu (= šťastný hráč) k 90. percentilu (= smolař). Tečkovaná čára = median (typický hráč). Široký spread = level je hodně závislý na pořadí; úzký = deterministický.">
+          <input type="checkbox" data-trace="envelope" ${_traceVisibility.envelope ? 'checked' : ''}>
+          <span class="cl-tt-sw cl-tt-sw-env"></span> 50× random spread
+        </label>
+      </div>
+      <div id="cl-tt-svg-wrap">${_buildTraceSvg(traces, envelope)}</div>
+    </div>`;
+}
+
+function _buildTraceSvg(traces, envelope) {
+  const W = 460, H = 160, P = 28;
+  // Sjednotit X-rozsah přes všechny trace-y a envelope.
+  const allLens = [];
+  ['maxGain', 'fullUse', 'beam'].forEach(k => { if (traces[k]) allLens.push(traces[k].length); });
+  if (envelope && envelope.p50) allLens.push(envelope.p50.length);
+  const maxStep = Math.max(1, ...allLens) - 1;
+  // Sjednotit Y-rozsah: max kompozit.
+  let maxScore = 10;
+  const consider = arr => { for (const p of arr || []) maxScore = Math.max(maxScore, p.score != null ? p.score : _composite(p)); };
+  ['maxGain', 'fullUse', 'beam'].forEach(k => consider(traces[k]));
+  if (envelope) { consider(envelope.p10); consider(envelope.p50); consider(envelope.p90); }
+  maxScore = Math.ceil(maxScore / 10) * 10;
+  const xs = step => P + (step / Math.max(1, maxStep)) * (W - 2 * P);
+  const ys = v => H - P - (Math.min(maxScore, v) / maxScore) * (H - 2 * P);
+  // Axes + grid lines
+  const axisLines = [];
+  for (let i = 0; i <= 4; i++) {
+    const v = (maxScore / 4) * i;
+    const y = ys(v);
+    axisLines.push(`<line class="cl-tt-grid" x1="${P}" y1="${y}" x2="${W - P}" y2="${y}"/>`);
+    axisLines.push(`<text class="cl-tt-axis-label" x="${P - 4}" y="${y + 3}" text-anchor="end">${Math.round(v)}</text>`);
+  }
+  axisLines.push(`<line class="cl-tt-axis" x1="${P}" y1="${P}" x2="${P}" y2="${H - P}"/>`);
+  axisLines.push(`<line class="cl-tt-axis" x1="${P}" y1="${H - P}" x2="${W - P}" y2="${H - P}"/>`);
+  axisLines.push(`<text class="cl-tt-axis-label" x="${W / 2}" y="${H - 6}" text-anchor="middle">krok</text>`);
+  axisLines.push(`<text class="cl-tt-axis-label" x="8" y="${H / 2}" text-anchor="middle" transform="rotate(-90 8 ${H / 2})">intenzita kroku</text>`);
+  // Envelope (p10–p90 area + p50 dashed line)
+  let envSvg = '';
+  if (envelope && envelope.p10 && envelope.p90 && _traceVisibility.envelope) {
+    const top = envelope.p90.map((p, i) => `${xs(p.step)},${ys(p.score)}`).join(' ');
+    const bot = envelope.p10.slice().reverse().map(p => `${xs(p.step)},${ys(p.score)}`).join(' ');
+    envSvg += `<polygon class="cl-tt-envelope" points="${top} ${bot}"/>`;
+    if (envelope.p50) {
+      const med = envelope.p50.map((p, i) => `${i ? 'L' : 'M'}${xs(p.step)},${ys(p.score)}`).join(' ');
+      envSvg += `<path class="cl-tt-median" d="${med}"/>`;
+    }
+  }
+  // Strategy paths + hover dots
+  const series = [
+    { k: 'maxGain', cls: 'cl-tt-line-maxgain', label: 'max-gain' },
+    { k: 'fullUse', cls: 'cl-tt-line-fulluse', label: 'full-use' },
+    { k: 'beam',    cls: 'cl-tt-line-beam',    label: 'beam' },
+  ];
+  let stratSvg = '';
+  for (const s of series) {
+    if (!_traceVisibility[s.k] || !traces[s.k] || !traces[s.k].length) continue;
+    const t = traces[s.k];
+    const d = t.map((p, i) => `${i ? 'L' : 'M'}${xs(p.step)},${ys(_composite(p))}`).join(' ');
+    stratSvg += `<path class="cl-tt-line ${s.cls}" d="${d}"/>`;
+    // Hover dots — native SVG <title> tooltip, žádný JS.
+    for (const p of t) {
+      stratSvg += `<circle class="cl-tt-dot ${s.cls}" cx="${xs(p.step)}" cy="${ys(_composite(p))}" r="2.5"><title>${s.label} | krok ${p.step} | active ${p.activeCount} | beneficial ${p.beneficial} | gain ${p.pickedGain}/${p.pickedProj} | belt ${p.beltLoad != null ? p.beltLoad : (p.beltLoadEst || 0)}</title></circle>`;
+    }
+  }
+  return `<svg id="cl-tt-svg" viewBox="0 0 ${W} ${H}">${axisLines.join('')}${envSvg}${stratSvg}</svg>`;
+}
+
+function _wireTraceCheckboxes() {
+  const wrap = document.querySelector('.cl-tt-controls');
+  if (!wrap) return;
+  wrap.querySelectorAll('input[type="checkbox"][data-trace]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      _traceVisibility[cb.dataset.trace] = cb.checked;
+      const svgWrap = $('cl-tt-svg-wrap');
+      if (svgWrap && _lastTesterResult) {
+        svgWrap.innerHTML = _buildTraceSvg(_lastTesterResult.traces, _lastTesterResult.randomEnvelope);
+      }
+    });
+  });
+}
+
+// ─── Heat-mapa zbytkových pixelů — když solver nedokončí, ukáže kde to drhne.
+// Default mini-canvas v testeru, toggle přepne na overlay přes editor obraz canvas.
+function _renderHeatmapPanel(remainingGrid, solved) {
+  if (!remainingGrid || solved) return '';
+  return `
+    <div class="cl-tester-heatmap">
+      <div class="cl-th-header">
+        <span class="cl-th-label" title="Pixely, které solver nedokázal odstranit. Pomáhá vidět, kde se simulace zaseká — která barva zůstala buried v honeycombu.">Zbytkové pixely (solver nedokončil)</span>
+        <button id="cl-th-toggle" class="btn btn-small" type="button">${_heatmapMode === 'overlay' ? '⤡ Skrýt overlay' : '⤢ Zobrazit přes obraz'}</button>
+      </div>
+      <canvas id="cl-th-mini" width="180" height="135" style="${_heatmapMode === 'overlay' ? 'display:none' : ''}"></canvas>
+    </div>`;
+}
+
+function _drawRemainingHeatmap(remainingGrid, mode) {
+  const targetId = mode === 'overlay' ? 'cl-th-overlay' : 'cl-th-mini';
+  let cv = document.getElementById(targetId);
+  if (mode === 'overlay' && !cv) {
+    // Lazy-create overlay canvas přes editor obraz canvas (be-canvas).
+    const beCanvas = $('be-canvas');
+    if (!beCanvas) return;
+    cv = document.createElement('canvas');
+    cv.id = 'cl-th-overlay';
+    cv.width = beCanvas.width;
+    cv.height = beCanvas.height;
+    cv.className = 'cl-th-overlay-canvas';
+    // Pozice — připoj na parent element be-canvasu (oba absolute v jednom containeru).
+    const parent = beCanvas.parentElement;
+    if (parent) {
+      parent.style.position = parent.style.position || 'relative';
+      parent.appendChild(cv);
+    } else {
+      document.body.appendChild(cv);
+    }
+  }
+  if (!cv) return;
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const S = mode === 'overlay' ? BE_SCALE : 5;
+  const GW = 36; // BE_GW
+  const GH = remainingGrid.length;
+  if (mode === 'mini') {
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+  } else {
+    ctx.globalAlpha = 0.7;
+  }
+  for (let y = 0; y < GH; y++) {
+    const row = remainingGrid[y];
+    if (!row) continue;
+    for (let x = 0; x < GW; x++) {
+      const v = row[x];
+      if (v == null || v < 0) continue;
+      ctx.fillStyle = BE_COLORS[v] || '#888';
+      ctx.fillRect(x * S, y * S, S, S);
+    }
+  }
+  ctx.globalAlpha = 1.0;
+}
+
+function _wireHeatmapToggle() {
+  const btn = $('cl-th-toggle');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    if (!_lastTesterResult || !_lastTesterResult.remainingGrid) return;
+    if (_heatmapMode === 'mini') {
+      _heatmapMode = 'overlay';
+      const mini = $('cl-th-mini');
+      if (mini) mini.style.display = 'none';
+      _drawRemainingHeatmap(_lastTesterResult.remainingGrid, 'overlay');
+      btn.textContent = '⤡ Skrýt overlay';
+    } else {
+      _heatmapMode = 'mini';
+      const mini = $('cl-th-mini');
+      if (mini) mini.style.display = '';
+      const overlay = document.getElementById('cl-th-overlay');
+      if (overlay) overlay.remove();
+      btn.textContent = '⤢ Zobrazit přes obraz';
+      _drawRemainingHeatmap(_lastTesterResult.remainingGrid, 'mini');
     }
   });
 }

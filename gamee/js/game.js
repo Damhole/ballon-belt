@@ -31,6 +31,12 @@ const COLS=7;
 const GW=36,GH=31,IMG_GH=27;
 const UPC=4;
 const PPU=10;
+// Playtester tolerance — kolik pixelů smí zůstat nedořešených a stále uznáme "solved".
+// Default 40 = UPC*PPU = jeden výchozí carrier worth of projectiles. Reasoning: pokud
+// solver nechá max 1 carrier neoštudírovaný kvůli timing nuancím, level je v podstatě
+// dohratelný (extra carrier + chytré timing = success). Bez tolerance: tight balance
+// + jakákoli timing chyba = "fail" i když je level v reálu OK.
+const SOLVED_TOLERANCE_PX=UPC*PPU;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BLOCKS (Okruh 2) — puzzle-style HP walls inside the image area
@@ -218,6 +224,7 @@ function computeTotalDifficulty(imgDiff,carrDiff){
   return{key:'hardcore',label:'Hard-core'};
 }
 let grid,belt,pending,columns,score,loops,running,difficulty='easy',gravityOn=false,rocketsOn=false,garageMode='off',currentLevel='smiley';
+let _ptInitGrid=null,_ptInitColumns=null,_ptInitPxCounts=null; // playtester snapshot při startu levelu
 // True když makeColumns postavil grid z `level.carrierLayouts[...]` (layout-based).
 // startLevel podle toho ví, že má PŘESKOČIT rocket + garage injekci (layout už má
 // rakety/garáž embedded jako tiles). False = auto-generovaný grid = injekce jede jako dřív.
@@ -1076,7 +1083,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v58');
+          gamee.updateScore(score,playTime,'balloon-belt-v59');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -2140,6 +2147,617 @@ function isLevelSolvable(startGrid,carrierQueue){
   }
   return !anyLeft(g);
 }
+// ── Level Playtester — Phase 1 ───────────────────────────────────────────────
+function _ptActive(C,c,r){
+  if(c<0||c>=COLS||r<0)return false;
+  const col=C[c];if(!col||r>=col.length)return false;
+  const slot=col[r];if(!slot||slot.wall||slot.type==='garage')return false;
+  if(r===0)return true;
+  if(col[r-1]===null)return true;
+  if(r+1<col.length&&col[r+1]===null)return true;
+  if(c>0){const lc=C[c-1];if(lc&&r<lc.length&&lc[r]===null)return true;}
+  if(c+1<COLS){const rc=C[c+1];if(rc&&r<rc.length&&rc[r]===null)return true;}
+  return false;
+}
+function _ptListActive(C){
+  const a=[];
+  for(let c=0;c<COLS;c++){const col=C[c];if(!col)continue;for(let r=0;r<col.length;r++)if(_ptActive(C,c,r))a.push([c,r]);}
+  return a;
+}
+// Spočítá počet zbylých pixelů v sim gridu (žádné -1 buňky).
+function _ptCountPixels(g){
+  let n=0;
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++)if(g[y][x]!==-1)n++;
+  return n;
+}
+// Odhad peak loadu na pásu během simulace (počet BALÓNKŮ, ne projektilů!).
+// Každý klik = UPC=4 balónky na pás. Residual = balónky, co nenajdou cíl =
+// 4 × (1 − gain/proj). Když gain >= proj, všechny 4 vystřelí (drain). Lookback 4
+// kliky (belt rotuje cca 4 ball pozice / klik cyklus). Peak nad 12 = funnel risk,
+// nad 14 = belt overflow. Konzervativní heuristika; reálná hra má lepší drain timing.
+function _ptEstimateBeltPeak(history){
+  let peak=0;
+  for(let i=0;i<history.length;i++){
+    let load=UPC; // aktuální klik právě přidal UPC balónků na pás
+    for(let j=Math.max(0,i-3);j<i;j++){
+      const h=history[j];
+      const wasteFrac=h.proj>0?Math.max(0,h.proj-h.gain)/h.proj:1;
+      load+=Math.round(UPC*wasteFrac); // residual balónky z předchozích kliků
+    }
+    if(load>peak)peak=load;
+  }
+  return peak;
+}
+// Block-free exposure check for simulation — ignores currentBlocks (live state),
+// so mystery-block-covered pixels are treated as reachable in the sim grid.
+function _ptGetExposed(g,color){
+  const open=getOpenEmptyCells(g);
+  const out=[];
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    if(g[y][x]!==color)continue;
+    let exp=false;
+    if(y>0&&open.has((y-1)*GW+x))exp=true;
+    else if(y<GH-1&&open.has((y+1)*GW+x))exp=true;
+    else if(x>0&&open.has(y*GW+(x-1)))exp=true;
+    else if(x<GW-1&&open.has(y*GW+(x+1)))exp=true;
+    if(exp)out.push({x,y});
+  }
+  return out;
+}
+// Expand garage slots into regular carrier slots so the greedy/random simulation
+// can model carriers dispensed by garages (placed after the garage position).
+function _ptExpandGarages(cols){
+  return cols.map(col=>{
+    const out=[];
+    for(const slot of col){
+      if(!slot||slot.wall){out.push(slot);continue;}
+      if(slot.type==='garage'){
+        out.push(null); // garage slot consumed (its physical position becomes empty)
+        for(const item of(slot.queue||[]))out.push({color:item.color,projectiles:item.projectiles||UPC*PPU});
+        continue;
+      }
+      out.push(slot);
+    }
+    return out;
+  });
+}
+// Vrací {cleared, wasted} — kolik pixelů barvy bylo vyčištěno (chain) a kolik
+// projektilů zbylo nevyužitých (= waste). Důležité pro beam scoring: penalizujeme
+// stavy, kde solver pálil carriery dřív, než byly všechny pixely barvy vystavené.
+function _ptApplyColor(g,color,proj){
+  let td=proj;
+  while(td>0){
+    const exp=_ptGetExposed(g,color); // block-free: works on sim grid only
+    if(!exp.length)break;
+    exp.sort((a,b)=>b.y-a.y);
+    const take=Math.min(td,exp.length);
+    for(let i=0;i<take;i++)g[exp[i].y][exp[i].x]=-1;
+    td-=take;
+    if(gravityOn)applyGravityTo(g);
+  }
+  return {cleared: proj - td, wasted: td};
+}
+// Belt-queue simulace jednoho kliku: přidá UPC balónků na pás (rozdělené projektily),
+// pak drain — pálí balónky, jejichž barva má vystavené pixely. Stuck balls (color
+// nemá exposed pixely) zůstávají na pásu a čekají na další click cycle.
+// Vrací { gain, beltLoad } — gain = pixely vyčištěné v tomto kroku, beltLoad = velikost
+// fronty po drainu. Tohle nahrazuje původní _ptApplyColor v simulaci, protože reálná
+// hra balónky NEZTRÁCÍ — cyklují, dokud nenajdou cíl nebo dokud nedojde k belt overflow.
+function _ptSimulateClick(g, beltQueue, color, proj){
+  // Funnel rejection check: v reálné hře by tento klik nešel, kdyby pending > 12.
+  // Modelujeme to flagem (klikneme i tak, ale poznamenáme si, že by hra řekla NE).
+  const funnelRejected=beltQueue.length>=PENDING_DISPENSE_THRESHOLD;
+  // 1) Distribute proj into UPC balónků (jako reálný distributeProjectiles).
+  const base=Math.floor(proj/UPC);
+  const rem=proj%UPC;
+  for(let i=0;i<UPC;i++) beltQueue.push({color,ammo:base+(i<rem?1:0)});
+  // 2) Drain loop — opakovaně palí balónky, dokud někdo může vystřelit.
+  const before=_ptCountPixels(g);
+  let totalWasted=0;
+  let progress=true;
+  while(progress){
+    progress=false;
+    for(let i=0;i<beltQueue.length;i++){
+      const b=beltQueue[i];
+      if(!b||b.ammo<=0){beltQueue.splice(i,1);i--;continue;}
+      const exp=_ptGetExposed(g,b.color);
+      if(!exp.length)continue;
+      const r=_ptApplyColor(g,b.color,b.ammo);
+      totalWasted+=r.wasted;
+      beltQueue.splice(i,1);
+      i--;
+      progress=true;
+    }
+  }
+  return {gain: before - _ptCountPixels(g), beltLoad: beltQueue.length, waste: totalWasted, funnelRejected};
+}
+// Greedy s vyběrem podle strategie:
+//   'max-gain' — vyber carrier s nejvíc vystavenými pixely (max immediate progress)
+//   'full-use' — preferuj carriery, kde gain >= projectiles (žádné plýtvání); fallback na max-gain
+// Pro tight levely (balance ≈ 0) je 'full-use' zásadně přesnější — naivní greedy
+// pálí carrier, jakmile je aktivní, a plýtvá projektily na nedostatečně vystavené barvy.
+// Greedy s vyběrem podle strategie. Heuristika potential = exposed_pixels − queued_ammo
+// (kolik nových pixelů by carrier vyčistil, když odečteme balónky stejné barvy už čekající
+// na pásu). Tohle reflektuje belt-queue model: cyklující balónky později uklidí část
+// budoucího exposed.
+function ptRunGreedy(grid,cols,strategy,opts){
+  strategy=strategy||'max-gain';
+  opts=opts||{};
+  const wantTrace=!!opts.trace;
+  const g=grid.map(r=>r.slice());
+  const C=_ptExpandGarages(cols.map(col=>col.slice()));
+  const beltQueue=[];
+  let beltOverflow=false;
+  let clicks=0,totalChoices=0,choiceSteps=0,totalWaste=0,funnelRejectedCount=0;
+  const colorFirstSeen={};
+  const history=[];
+  const trace=wantTrace?[]:null;
+  let sf=500;
+  while(anyLeft(g)&&sf-->0){
+    const act=_ptListActive(C);
+    if(!act.length)break;
+    // Spočítej queued ammo per barva — kolik balónků čeká na cíl té barvy.
+    const queuedAmmo={};
+    for(const b of beltQueue) queuedAmmo[b.color]=(queuedAmmo[b.color]||0)+b.ammo;
+    const stats=act.map(([c,r])=>{
+      const slot=C[c][r];
+      const proj=slot.projectiles||0;
+      const exposed=_ptGetExposed(g,slot.color).length;
+      const queued=queuedAmmo[slot.color]||0;
+      const potential=Math.max(0,exposed-queued); // co reálně přibude (queue nejdřív utratí exposed)
+      return{exposed,queued,potential,proj,fullUse:potential>0&&potential>=proj};
+    });
+    const beneficialCount=stats.filter(s=>s.potential>0).length;
+    if(beneficialCount>=2){totalChoices+=beneficialCount;choiceSteps++;}
+    let bestIdx=-1,bestVal=0;
+    if(strategy==='full-use'){
+      for(let i=0;i<stats.length;i++){
+        if(!stats[i].fullUse)continue;
+        if(stats[i].potential>bestVal){bestVal=stats[i].potential;bestIdx=i;}
+      }
+    }
+    if(bestIdx<0){
+      for(let i=0;i<stats.length;i++){
+        if(stats[i].potential>bestVal){bestVal=stats[i].potential;bestIdx=i;}
+      }
+    }
+    if(bestIdx<0){
+      // Dig: vyber carrier s nejvíc non-wall sousedy (otevře honeycomb cestu).
+      let bi=0,bd=-1;
+      for(let i=0;i<act.length;i++){
+        const [c,r]=act[i];let d=0;
+        for(const [nc,nr] of [[c,r+1],[c-1,r],[c+1,r]]){
+          if(nc<0||nc>=COLS||nr<0)continue;
+          const nc2=C[nc];if(!nc2||nr>=nc2.length)continue;
+          const s=nc2[nr];if(s&&!s.wall&&s.type!=='garage')d++;
+        }
+        if(d>bd){bd=d;bi=i;}
+      }
+      bestIdx=bi;
+    }
+    const [bc,br]=act[bestIdx];
+    const slot=C[bc][br];
+    const pickedProj=slot.projectiles||0;
+    if(colorFirstSeen[slot.color]===undefined)colorFirstSeen[slot.color]=clicks;
+    // Reálná simulace: balónky na pás + drain.
+    const sim=_ptSimulateClick(g,beltQueue,slot.color,pickedProj);
+    if(sim.beltLoad>BELT_CAP)beltOverflow=true;
+    if(sim.funnelRejected)funnelRejectedCount++;
+    totalWaste+=sim.waste||0;
+    history.push({step:clicks,color:slot.color,gain:sim.gain,proj:pickedProj,beltLoad:sim.beltLoad,funnelRejected:sim.funnelRejected});
+    if(trace)trace.push({step:clicks,activeCount:act.length,beneficial:beneficialCount,pickedGain:sim.gain,pickedProj,beltLoad:sim.beltLoad,remainingPx:_ptCountPixels(g)});
+    C[bc][br]=null;
+    clicks++;
+  }
+  // Final drain — po posledním kliku zkus ještě jednou všechno vystřelit.
+  let progress=true,drainSf=20;
+  while(progress&&drainSf-->0){
+    progress=false;
+    for(let i=0;i<beltQueue.length;i++){
+      const b=beltQueue[i];
+      if(!b||b.ammo<=0){beltQueue.splice(i,1);i--;continue;}
+      const exp=_ptGetExposed(g,b.color);
+      if(!exp.length)continue;
+      const r=_ptApplyColor(g,b.color,b.ammo);
+      totalWaste+=r.wasted;
+      beltQueue.splice(i,1);i--;progress=true;
+    }
+  }
+  let bottleneckColor=-1,bottleneckStep=-1;
+  for(const [c,s] of Object.entries(colorFirstSeen)){if(s>bottleneckStep){bottleneckStep=s;bottleneckColor=Number(c);}}
+  const peakBeltLoad=history.reduce((m,h)=>Math.max(m,h.beltLoad||0),0);
+  // Solved (strict) = grid empty AND queue empty AND no belt overflow.
+  // Solved (effective) = strict OR pixely zbylé ≤ tolerance (1 carrier worth).
+  const remainPxFinal=_ptCountPixels(g);
+  const strictSolved=remainPxFinal===0&&beltQueue.length===0&&!beltOverflow;
+  const solved=strictSolved||(remainPxFinal<=SOLVED_TOLERANCE_PX&&!beltOverflow);
+  return{solved,strictSolved,remainPx:remainPxFinal,clicks,decisionRichness:choiceSteps>0?Math.round(totalChoices/choiceSteps*10)/10:0,bottleneckColor,colorFirstSeen,history,trace,peakBeltLoad,beltOverflow,stuckBalls:beltQueue.length,waste:totalWaste,funnelRejectedCount,remainingGrid:remainPxFinal>0?g.map(r=>r.slice()):null};
+}
+function ptRunRandom(grid,cols,n,opts){
+  opts=opts||{};
+  const collectTraces=!!opts.collectTraces;
+  const expandedCols=_ptExpandGarages(cols);
+  let successes=0,totalClicks=0,closeCalls=0;
+  const allTraces=collectTraces?[]:null;
+  for(let i=0;i<n;i++){
+    const g=grid.map(r=>r.slice());
+    const C=expandedCols.map(col=>col.slice());
+    const beltQueue=[];
+    let beltOverflow=false;
+    let clicks=0,sf=500;
+    const history=[];
+    const trace=collectTraces?[]:null;
+    while(anyLeft(g)&&sf-->0){
+      const act=_ptListActive(C);
+      if(!act.length)break;
+      const queuedAmmo={};
+      for(const b of beltQueue) queuedAmmo[b.color]=(queuedAmmo[b.color]||0)+b.ammo;
+      const fullUse=[],beneficial=[];
+      let beneficialCount=0;
+      for(let j=0;j<act.length;j++){
+        const [c,r]=act[j];
+        const slot=C[c][r];
+        const exposed=_ptGetExposed(g,slot.color).length;
+        const queued=queuedAmmo[slot.color]||0;
+        const potential=Math.max(0,exposed-queued);
+        if(potential>0){
+          beneficial.push(act[j]);beneficialCount++;
+          if(potential>=(slot.projectiles||0))fullUse.push(act[j]);
+        }
+      }
+      const pool=fullUse.length>0?fullUse:(beneficial.length>0?beneficial:act);
+      const[bc,br]=pool[Math.floor(Math.random()*pool.length)];
+      const slot=C[bc][br];
+      const pickedProj=slot.projectiles||0;
+      const sim=_ptSimulateClick(g,beltQueue,slot.color,pickedProj);
+      if(sim.beltLoad>BELT_CAP)beltOverflow=true;
+      history.push({step:clicks,color:slot.color,gain:sim.gain,proj:pickedProj,beltLoad:sim.beltLoad,funnelRejected:sim.funnelRejected});
+      if(trace)trace.push({step:clicks,activeCount:act.length,beneficial:beneficialCount,pickedGain:sim.gain,pickedProj,beltLoad:sim.beltLoad,remainingPx:_ptCountPixels(g)});
+      C[bc][br]=null;
+      clicks++;
+    }
+    // Final drain
+    let progress=true,drainSf=20;
+    while(progress&&drainSf-->0){
+      progress=false;
+      for(let k=0;k<beltQueue.length;k++){
+        const b=beltQueue[k];if(!b||b.ammo<=0){beltQueue.splice(k,1);k--;continue;}
+        const exp=_ptGetExposed(g,b.color);if(!exp.length)continue;
+        _ptApplyColor(g,b.color,b.ammo);beltQueue.splice(k,1);k--;progress=true;
+      }
+    }
+    // Random success counted as effective solve (tolerance respected).
+    const remPx=_ptCountPixels(g);
+    if(remPx<=SOLVED_TOLERANCE_PX&&!beltOverflow){successes++;totalClicks+=clicks;}
+    // Close-call: pixely zbylé v rozšířené zóně (do 2× tolerance) = "skoro by to klaplo"
+    else if(remPx<=SOLVED_TOLERANCE_PX*2.5&&!beltOverflow){closeCalls++;}
+    if(allTraces)allTraces.push(trace);
+  }
+  // Spočítat envelope (p10, p50, p90) z kompozitního skóre per krok.
+  // Composite (Phase 3): málo voleb + belt risk (waste už není relevantní).
+  let envelope=null;
+  if(allTraces&&allTraces.length){
+    const composite=t=>(1-t.beneficial/Math.max(1,t.activeCount))*30+Math.max(0,(t.beltLoad||0)-8)*8+((t.beltLoad||0)>BELT_CAP?60:0);
+    const maxLen=Math.max(...allTraces.map(t=>t.length));
+    const p10=[],p50=[],p90=[];
+    for(let s=0;s<maxLen;s++){
+      const vals=[];
+      for(const t of allTraces)if(t[s])vals.push(composite(t[s]));
+      if(!vals.length)continue;
+      vals.sort((a,b)=>a-b);
+      const pick=q=>vals[Math.min(vals.length-1,Math.floor(q*vals.length))];
+      p10.push({step:s,score:pick(0.10)});
+      p50.push({step:s,score:pick(0.50)});
+      p90.push({step:s,score:pick(0.90)});
+    }
+    envelope={p10,p50,p90};
+  }
+  return{successRate:successes/n,avgClicks:successes>0?Math.round(totalClicks/successes):0,envelope,successes,closeCalls,total:n};
+}
+// Beam search s belt-queue modelem. Vylepšení Phase 3 (Iterace B):
+//   - beamWidth 8 → 16 (víc paralelních scénářů)
+//   - timeBudget 2 s → 5 s (víc času na dlouhé levely 60+ kliků)
+//   - depth 60 → 100 (podpora delších levelů)
+//   - waste tracking ve state + součást score (klíčové pro tight balance)
+//   - expansion pruning: rozšiřujeme jen beneficial carriery (gain>0), když existují.
+//     Když ne, rozšíříme jen 1 nejlepší dig kandidát. Snižuje branching factor 15→3-5.
+function ptRunBeamSearch(grid,cols,opts){
+  opts=opts||{};
+  // Defaults Phase 3 (Iterace B):
+  //   beam 8, budget 8s, depth 80.
+  // Pozn.: V postMessage kontextu (skutečné editorové použití) je V8 ~5× pomalejší
+  // než v devtools eval (kvůli inline cache divergenci). Budget musí být velkorysý,
+  // aby v reálné cestě beam stihl většinu levelů.
+  const beamWidth=opts.beamWidth||8;
+  const timeBudget=opts.timeBudgetMs||8000;
+  const maxDepth=opts.maxDepth||80;
+  const wantTrace=!!opts.trace;
+  const t0=(typeof performance!=='undefined'?performance:Date).now();
+  const init={
+    g:grid.map(r=>r.slice()),
+    C:_ptExpandGarages(cols.map(col=>col.slice())),
+    beltQueue:[],
+    beltOverflow:false,
+    clicks:0,
+    waste:0,
+    funnelRejectedCount:0,
+    history:[],trace:wantTrace?[]:null,
+    colorFirstSeen:{},
+  };
+  let beam=[init];
+  let bestSolved=null;
+  for(let depth=0;depth<maxDepth;depth++){
+    if(((typeof performance!=='undefined'?performance:Date).now()-t0)>timeBudget)break;
+    if(!beam.length)break;
+    const next=[];
+    for(const s of beam){
+      if(!anyLeft(s.g)&&s.beltQueue.length===0&&!s.beltOverflow){
+        if(!bestSolved||s.clicks<bestSolved.clicks||(s.clicks===bestSolved.clicks&&s.waste<bestSolved.waste))bestSolved=s;
+        continue;
+      }
+      if(s.beltOverflow)continue;
+      const act=_ptListActive(s.C);
+      if(!act.length)continue;
+      const queuedAmmo={};
+      for(const b of s.beltQueue) queuedAmmo[b.color]=(queuedAmmo[b.color]||0)+b.ammo;
+      const stats=act.map(([c,r])=>{
+        const slot=s.C[c][r];
+        const exposed=_ptGetExposed(s.g,slot.color).length;
+        return{exposed,queued:queuedAmmo[slot.color]||0,proj:slot.projectiles||0};
+      });
+      const beneficialCount=stats.filter(x=>Math.max(0,x.exposed-x.queued)>0).length;
+      // Expansion pruning — jen beneficial carriery + 1 dig fallback.
+      // Tohle dramaticky snižuje branching factor (typicky 15 → 3-5 children per state).
+      const expandIdxs=[];
+      for(let i=0;i<stats.length;i++){
+        if(Math.max(0,stats[i].exposed-stats[i].queued)>0)expandIdxs.push(i);
+      }
+      if(expandIdxs.length===0){
+        // Dig fallback: vyber jeden nejlepší dig kandidát (nejvíc non-wall sousedů).
+        let bi=0,bd=-1;
+        for(let i=0;i<act.length;i++){
+          const [c,r]=act[i];let d=0;
+          for(const [nc,nr] of [[c,r+1],[c-1,r],[c+1,r]]){
+            if(nc<0||nc>=COLS||nr<0)continue;
+            const nc2=s.C[nc];if(!nc2||nr>=nc2.length)continue;
+            const sl=nc2[nr];if(sl&&!sl.wall&&sl.type!=='garage')d++;
+          }
+          if(d>bd){bd=d;bi=i;}
+        }
+        expandIdxs.push(bi);
+      }
+      for(const i of expandIdxs){
+        const [c,r]=act[i];
+        const slot=s.C[c][r];
+        const child={
+          g:s.g.map(row=>row.slice()),
+          C:s.C.map(col=>col.slice()),
+          beltQueue:s.beltQueue.map(b=>({color:b.color,ammo:b.ammo})),
+          beltOverflow:s.beltOverflow,
+          clicks:s.clicks+1,
+          waste:s.waste,
+          funnelRejectedCount:s.funnelRejectedCount,
+          history:s.history.slice(),
+          trace:wantTrace?s.trace.slice():null,
+          colorFirstSeen:Object.assign({},s.colorFirstSeen),
+        };
+        if(child.colorFirstSeen[slot.color]===undefined)child.colorFirstSeen[slot.color]=s.clicks;
+        const sim=_ptSimulateClick(child.g,child.beltQueue,slot.color,slot.projectiles||0);
+        if(sim.beltLoad>BELT_CAP)child.beltOverflow=true;
+        if(sim.funnelRejected)child.funnelRejectedCount++;
+        child.waste+=sim.waste||0;
+        child.history.push({step:s.clicks,color:slot.color,gain:sim.gain,proj:slot.projectiles||0,beltLoad:sim.beltLoad,funnelRejected:sim.funnelRejected});
+        if(wantTrace)child.trace.push({step:s.clicks,activeCount:act.length,beneficial:beneficialCount,pickedGain:sim.gain,pickedProj:slot.projectiles||0,beltLoad:sim.beltLoad,remainingPx:_ptCountPixels(child.g)});
+        child.C[c][r]=null;
+        next.push(child);
+      }
+    }
+    if(!next.length)break;
+    next.sort((a,b)=>{
+      // Skóre: overflow tvrdě, pak funnel rejected (= klik, který by reálná hra neumožnila),
+      // pak waste, queue, clicks, remaining. Funnel*8 = beam preferuje funnel-friendly cesty.
+      const aRem=_ptCountPixels(a.g);
+      const bRem=_ptCountPixels(b.g);
+      const sa=(a.beltOverflow?1e9:0)+(a.funnelRejectedCount||0)*8+a.waste*5+a.beltQueue.length*3+a.clicks+aRem*0.5;
+      const sb=(b.beltOverflow?1e9:0)+(b.funnelRejectedCount||0)*8+b.waste*5+b.beltQueue.length*3+b.clicks+bRem*0.5;
+      return sa-sb;
+    });
+    beam=next.slice(0,beamWidth);
+    if(bestSolved&&beam.every(s=>s.clicks>=bestSolved.clicks))break;
+  }
+  const result=bestSolved||beam[0]||init;
+  const elapsed=((typeof performance!=='undefined'?performance:Date).now()-t0);
+  let progress=true,drainSf=20;
+  while(progress&&drainSf-->0){
+    progress=false;
+    for(let k=0;k<result.beltQueue.length;k++){
+      const b=result.beltQueue[k];if(!b||b.ammo<=0){result.beltQueue.splice(k,1);k--;continue;}
+      const exp=_ptGetExposed(result.g,b.color);if(!exp.length)continue;
+      const r=_ptApplyColor(result.g,b.color,b.ammo);
+      result.waste=(result.waste||0)+r.wasted;
+      result.beltQueue.splice(k,1);k--;progress=true;
+    }
+  }
+  const peakBeltLoad=result.history.reduce((m,h)=>Math.max(m,h.beltLoad||0),0);
+  const remainPxFinal=_ptCountPixels(result.g);
+  const strictSolved=remainPxFinal===0&&result.beltQueue.length===0&&!result.beltOverflow;
+  const solved=strictSolved||(remainPxFinal<=SOLVED_TOLERANCE_PX&&!result.beltOverflow);
+  let bottleneckColor=-1,bottleneckStep=-1;
+  for(const [c,s] of Object.entries(result.colorFirstSeen||{})){
+    if(s>bottleneckStep){bottleneckStep=s;bottleneckColor=Number(c);}
+  }
+  return{
+    solved,
+    strictSolved,
+    remainPx:remainPxFinal,
+    clicks:result.clicks,
+    waste:result.waste||0,
+    funnelRejectedCount:result.funnelRejectedCount||0,
+    history:result.history,
+    trace:result.trace,
+    decisionRichness:0,
+    bottleneckColor,
+    colorFirstSeen:result.colorFirstSeen||{},
+    peakBeltLoad,
+    beltOverflow:result.beltOverflow,
+    stuckBalls:result.beltQueue.length,
+    remainingGrid:remainPxFinal>0?result.g.map(r=>r.slice()):null,
+    hitTimeBudget:elapsed>=timeBudget,
+  };
+}
+function ptAnalyzeCurrentLevel(){
+  if(!_ptInitGrid||!_ptInitColumns)return null;
+  // 3-strategy ensemble: max-gain greedy, full-use greedy, beam search.
+  // Pro tight levely (balance≈0) je beam výrazně lepší. Vezmeme best výsledek.
+  const gA=ptRunGreedy(_ptInitGrid,_ptInitColumns,'max-gain',{trace:true});
+  const gB=ptRunGreedy(_ptInitGrid,_ptInitColumns,'full-use',{trace:true});
+  // Progressive beam: nejdřív rychlý (8/8s/80). Pokud nedořešil A žádná greedy taky ne,
+  // eskalujeme na thorough (16/12s/100). Worst-case 20s celkem na beam.
+  let gC=ptRunBeamSearch(_ptInitGrid,_ptInitColumns,{trace:true});
+  if(!gC.solved&&!gA.solved&&!gB.solved){
+    const thorough=ptRunBeamSearch(_ptInitGrid,_ptInitColumns,{trace:true,beamWidth:16,timeBudgetMs:12000,maxDepth:100});
+    if(thorough.solved||(thorough.remainingGrid&&_ptCountPixels(thorough.remainingGrid)<_ptCountPixels(gC.remainingGrid||[])))gC=thorough;
+  }
+  const cands=[{name:'max-gain',r:gA},{name:'full-use',r:gB},{name:'beam',r:gC}];
+  // Priorita: solved > méně zbylých pixelů (= dál se dostal) > méně kliků > méně waste.
+  // Pro neúspěšné runs je počet kliků ZAVÁDĚJÍCÍ (málo kliků = solver to vzdal brzy),
+  // proto v selhání primárně řadíme podle remainingPx.
+  const remPx=r=>r.remainingGrid?_ptCountPixels(r.remainingGrid):0;
+  cands.sort((a,b)=>{
+    if(a.r.solved!==b.r.solved)return a.r.solved?-1:1;
+    if(!a.r.solved){
+      const ar=remPx(a.r),br=remPx(b.r);
+      if(ar!==br)return ar-br;
+    }
+    if(a.r.clicks!==b.r.clicks)return a.r.clicks-b.r.clicks;
+    return (a.r.waste||0)-(b.r.waste||0);
+  });
+  const best=cands[0];
+  const rnd=ptRunRandom(_ptInitGrid,_ptInitColumns,50,{collectTraces:true});
+  // peakBeltLoad bereme z BEST runu (reálný belt-queue model, ne odhad).
+  // Belt overflow flag taky z best runu.
+  const peakBeltLoad=best.r.peakBeltLoad||0;
+  const anyOverflow=cands.some(c=>c.r.beltOverflow);
+  const stuckBalls=best.r.stuckBalls||0;
+  let garageSl=0,totalSl=0;
+  for(const col of _ptInitColumns)for(const slot of col){
+    if(!slot||slot.wall)continue;
+    totalSl++;
+    if(slot.type==='garage')garageSl++;
+  }
+  const garageUtil=totalSl>0?Math.round(garageSl/totalSl*100):0;
+  // Použij snapshot pxCounts ze startLevel — currentBlocks mohou mít zmutované HP
+  // pokud user už hrál level. Snapshot drží PŮVODNÍ stav.
+  const pxNeed=_ptInitPxCounts?Array.from(_ptInitPxCounts):countPixelsAndBlocks(_ptInitGrid);
+  const projHave=new Array(COLORS.length).fill(0);
+  for(const col of _ptInitColumns)for(const slot of col){
+    if(!slot||slot.wall)continue;
+    if(slot.type==='garage'){
+      for(const gc of(slot.queue||[]))if(typeof gc.color==='number')projHave[gc.color]+=(gc.projectiles||UPC*PPU);
+    }else if(slot.type!=='rocket'&&typeof slot.color==='number'){
+      projHave[slot.color]+=(slot.projectiles||UPC*PPU);
+    }
+  }
+  // Spočítej "vyčištěno per barva" = pxBefore − pxAfter ze simulace.
+  // pxBefore = countPixels(_ptInitGrid) (jen pixely, bez blokových HP).
+  // pxAfter = countPixels(remainingGrid) — když solver dořešil, je to 0.
+  const pxBefore=countPixels(_ptInitGrid);
+  const pxAfter=best.r.remainingGrid?countPixels(best.r.remainingGrid):new Array(COLORS.length).fill(0);
+  const colorDetails={};
+  for(let c=0;c<COLORS.length;c++){
+    if(!pxNeed[c]&&!projHave[c])continue;
+    const stuckPx=pxAfter[c]||0;
+    const cleared=(pxBefore[c]||0)-stuckPx;
+    colorDetails[c]={
+      need:pxNeed[c]||0,
+      have:projHave[c]||0,
+      balance:(projHave[c]||0)-(pxNeed[c]||0),
+      accessStep:best.r.colorFirstSeen[c]!==undefined?best.r.colorFirstSeen[c]:null,
+      cleared,
+      stuckPx,
+    };
+  }
+  // ─── Difficulty score (Phase 3, rev 2) — 6 faktorů, váha 0-100.
+  // Klíčové změny vs prev:
+  //   - Risk weight 30→15 (random fail rate ne nutně reflektuje real human play)
+  //   - NEW: solverNeed (0-25) — kolik solverů selhalo. Pro level kde max-gain solve je
+  //     intuitivní, kde jen beam solve vyžaduje plán.
+  //   - Length 25→20, complexity 20→15 (více prostoru pro nuancované signály)
+  const solversSolved=cands.filter(c=>c.r.solved).length; // 0..3
+  const totalPx=pxNeed.reduce((a,b)=>a+(b||0),0);
+  const remainPx=best.r.remainingGrid?_ptCountPixels(best.r.remainingGrid):0;
+  const lengthFactor=Math.min(1,(best.r.clicks||0)/40);
+  // Risk: random fail rate. Když ALESPOŇ JEDEN solver dořeší, halvíme — plán existuje,
+  // jen random ho nenašel. Když nikdo nedořeší, plný risk.
+  let riskFactor=Math.min(1,Math.max(0,1-rnd.successRate));
+  if(solversSolved>=1)riskFactor*=0.5;
+  const complexityFactor=Math.min(1,(best.r.decisionRichness||0)/5);
+  const beltFactor=Math.min(1,(peakBeltLoad||0)/BELT_CAP);
+  const solverFactor=best.r.solved?0:Math.min(1,0.3+(remainPx/Math.max(1,totalPx))*0.7);
+  // solverNeedFactor: 0 (3/3 solve), 1 (žádný). Když beam time-budget A nikdo nesolve,
+  // halvíme — možná řešitelný, jen pomalá CPU/V8 quirk. Don't over-penalize.
+  let solverNeedFactor=(3-solversSolved)/3;
+  if(gC.hitTimeBudget&&solversSolved===0)solverNeedFactor*=0.5;
+  const diffBreakdown={
+    length:Math.round(20*lengthFactor),
+    risk:Math.round(15*riskFactor),
+    complexity:Math.round(15*complexityFactor),
+    belt:Math.round(15*beltFactor),
+    solverNeed:Math.round(25*solverNeedFactor),
+    solver:Math.round(10*solverFactor),
+  };
+  const diffScore=diffBreakdown.length+diffBreakdown.risk+diffBreakdown.complexity+diffBreakdown.belt+diffBreakdown.solverNeed+diffBreakdown.solver;
+  // Inputs pro UI breakdown panel — surová data, aby UI mohlo vysvětlit "proč N bodů".
+  const diffInputs={
+    clicks:best.r.clicks||0,
+    deadEndPct:Math.round((1-rnd.successRate)*100),
+    decisionRichness:best.r.decisionRichness||0,
+    peakBeltLoad:peakBeltLoad||0,
+    BELT_CAP,
+    solved:!!best.r.solved,
+    remainingPx:remainPx,
+    totalPx,
+    solversSolved,
+    solversTotal:3,
+    solverResults:cands.map(c=>({name:c.name,solved:!!c.r.solved})),
+  };
+  return{
+    solved:best.r.solved,
+    strictSolved:!!best.r.strictSolved,
+    toleranceUsed:!!best.r.solved&&!best.r.strictSolved,
+    remainPx:best.r.remainPx||0,
+    SOLVED_TOLERANCE_PX,
+    minClicks:best.r.clicks,
+    solverUsed:best.name,
+    hitTimeBudget:!!gC.hitTimeBudget,
+    deadEndRate:Math.round((1-rnd.successRate)*100),
+    randomSuccesses:rnd.successes||0,
+    randomCloseCalls:rnd.closeCalls||0,
+    randomTotal:rnd.total||50,
+    heuristikSolved:[gA,gB].filter(g=>g.solved).length,
+    heuristikTotal:2,
+    beamSolved:!!gC.solved,
+    decisionRichness:best.r.decisionRichness,
+    bottleneckColor:best.r.bottleneckColor,
+    garageUtil,
+    diffScore,
+    diffBreakdown,
+    diffInputs,
+    colorDetails,
+    traces:{maxGain:gA.trace,fullUse:gB.trace,beam:gC.trace},
+    randomEnvelope:rnd.envelope,
+    remainingGrid:best.r.solved?null:best.r.remainingGrid,
+    peakBeltLoad,
+    beltDeadlockRisk:peakBeltLoad>12,
+    beltOverflow:anyOverflow||peakBeltLoad>BELT_CAP,
+    stuckBalls,
+    funnelRejectedCount:best.r.funnelRejectedCount||0,
+    funnelFrictionPct:best.r.clicks?Math.round((best.r.funnelRejectedCount||0)/best.r.clicks*100):0,
+    PENDING_DISPENSE_THRESHOLD,
+    BELT_CAP,
+  };
+}
+// ────────────────────────────────────────────────────────────────────────────
 function distributeProjectiles(total){
   const base=Math.floor(total/UPC);
   const extra=total%UPC;
@@ -3301,7 +3919,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v58');
+    gamee.updateScore(score,playTime,'balloon-belt-v59');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -3419,7 +4037,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v58');
+  gamee.updateScore(score,playTime,'balloon-belt-v59');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -3542,6 +4160,18 @@ function startLevel(){
     }
     // Pokud 10× selhalo, garáž tiše vypadne (grid zůstane bez ní — lepší než unsolvable).
   }
+  // Playtester snapshot — uložíme čerstvý stav hned po finalizaci columns.
+  // Důležité: SNAPSHOTUJEME pxCounts taky, protože currentBlocks.hp se mění
+  // během hraní (hráč ničí bloky → HP klesne). Bez snapshotu by playtester
+  // viděl REDUKOVANÉ pxNeed po té, co user level zkoušel hrát.
+  _ptInitGrid=grid.map(r=>r.slice());
+  _ptInitPxCounts=Array.from(_pxCountsForLevel);
+  _ptInitColumns=columns.map(c=>c.map(s=>{
+    if(!s)return s;
+    const copy={...s};
+    if(Array.isArray(s.queue))copy.queue=s.queue.map(q=>({...q}));
+    return copy;
+  }));
   // Editor hook: columns už jsou po injekcích (rakety/garáž) finální → pošleme
   // nadřazenému oknu stats s pxCounts (need) + projCounts (have per barva),
   // aby editor mohl zobrazit game-truth need-vs-have a chyby, když layout
@@ -4208,10 +4838,18 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v58');
+      gamee.updateScore(score,playTime,'balloon-belt-v59');
       event.detail.callback();
     });
 
     gamee.gameReady();
+  });
+
+  // Playtester: editor pošle balloonbelt:analyze-level, vrátíme výsledky.
+  window.addEventListener('message',function(ev){
+    const m=ev.data;
+    if(!m||m.type!=='balloonbelt:analyze-level')return;
+    const results=ptAnalyzeCurrentLevel();
+    try{window.parent.postMessage({type:'balloonbelt:analysis-results',results},'*');}catch(e){}
   });
 }
