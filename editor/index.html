@@ -289,6 +289,37 @@
                 <div class="cl-tester-idle">Klikni ▶ Analyzovat pro simulaci aktuálního layoutu.</div>
               </div>
             </div>
+            <details id="cl-curves" class="cl-curves" hidden>
+              <summary class="cl-curves-head">
+                <span class="cl-section-title">křivky obtížnosti <span class="hint">(per-step trace, 4 dimenze)</span></span>
+                <span id="cl-curves-status" class="cl-curves-status hint"></span>
+              </summary>
+              <div class="cl-curves-body">
+                <div class="cl-curves-controls">
+                  <label title="Choice = beneficial / active per krok. Vyšší = víc smysluplných voleb pro hráče.">
+                    <input type="checkbox" data-curve-dim="choice" checked>
+                    <span class="cl-curve-sw" style="background:#3b82f6"></span> Choice
+                  </label>
+                  <label title="Pressure = beltLoad / BELT_CAP per krok. Vyšší = blíž overflow (nervóznější krok).">
+                    <input type="checkbox" data-curve-dim="pressure" checked>
+                    <span class="cl-curve-sw" style="background:#ef4444"></span> Pressure
+                  </label>
+                  <label title="Progress = pickedGain / remainingPx_before. Vyšší = velký kus pixelů smetl jedním klikem.">
+                    <input type="checkbox" data-curve-dim="progress" checked>
+                    <span class="cl-curve-sw" style="background:#10b981"></span> Progress
+                  </label>
+                  <label title="Solver gap = kolik z 3 strategií ještě běží. Vyšší = jen lepší solver projde (tricky kroky).">
+                    <input type="checkbox" data-curve-dim="solverGap" checked>
+                    <span class="cl-curve-sw" style="background:#f59e0b"></span> Solver gap
+                  </label>
+                </div>
+                <div id="cl-curves-svg-wrap"></div>
+                <div id="cl-curves-pin-popover" class="cl-curve-pin-popover" hidden></div>
+                <div id="cl-curves-empty" class="cl-curves-empty">
+                  Klikni <b>▶ Analyzovat</b> v sekci playtester pro zobrazení křivek obtížnosti.
+                </div>
+              </div>
+            </details>
             <div id="cl-editor" class="cl-editor" hidden>
               <div class="cl-grid-wrap">
                 <div id="cl-grid" class="cl-grid"></div>

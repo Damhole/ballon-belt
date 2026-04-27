@@ -31066,7 +31066,17 @@
             }
           ]
         ],
-        "cols": 5
+        "cols": 5,
+        "curveAnnotations": [
+          {
+            "id": "pin-1777318371076-5rzxc",
+            "stepStart": 8,
+            "stepEnd": 8,
+            "tag": "easier",
+            "note": "",
+            "dimension": "pressure"
+          }
+        ]
       },
       {
         "name": "new-level-31-hard-v2",

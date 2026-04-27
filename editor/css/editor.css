@@ -1768,3 +1768,200 @@ body {
   image-rendering: pixelated;
   z-index: 10;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Difficulty Curve panel (Úr. 1) — křivky obtížnosti pod KAPACITA
+   ═══════════════════════════════════════════════════════════════════════ */
+.cl-curves {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.cl-curves[open] { padding-bottom: 10px; }
+.cl-curves-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.cl-curves-head::-webkit-details-marker { display: none; }
+.cl-curves-head::before {
+  content: '▸';
+  font-size: 10px;
+  color: var(--text-3);
+  transition: transform 0.15s;
+  width: 10px;
+}
+.cl-curves[open] .cl-curves-head::before { transform: rotate(90deg); }
+.cl-curves-status { margin-left: auto; font-size: 11px; }
+.cl-curves-body { margin-top: 8px; position: relative; }
+.cl-curves-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.cl-curves-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+.cl-curves-controls input[type="checkbox"] { margin: 0; cursor: pointer; }
+.cl-curve-sw {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  border: 1px solid rgba(255,255,255,0.15);
+}
+.cl-curve-crosshair {
+  stroke: rgba(255,255,255,0.35);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  pointer-events: none;
+}
+#cl-curves-svg-wrap {
+  position: relative;
+  width: 100%;
+}
+.cl-curves-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: visible;
+}
+.cl-curve-grid { stroke: rgba(255,255,255,0.05); stroke-width: 1; }
+.cl-curve-axis-label { font-size: 9px; fill: var(--text-3); }
+.cl-curve-line { fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.cl-curve-dot-g { cursor: crosshair; }
+.cl-curve-dot { pointer-events: none; }
+.cl-curve-dot-hit { fill: transparent; }
+.cl-curve-dot-g:hover .cl-curve-dot { r: 4; }
+
+/* Pin (anotace designera) */
+.cl-curve-pin { cursor: pointer; }
+.cl-curve-pin-line {
+  stroke: #a855f7;
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+  pointer-events: stroke;
+}
+.cl-curve-pin-range {
+  fill: rgba(168,85,247,0.15);
+  pointer-events: auto;
+}
+.cl-curve-pin-handle {
+  fill: #a855f7;
+  stroke: white;
+  stroke-width: 1.5;
+  cursor: ew-resize;
+}
+.cl-curve-pin-handle:hover { r: 6; }
+.cl-curve-pin-chip {
+  display: inline-block;
+  background: #a855f7;
+  color: white;
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.cl-curve-pin-chip.cl-pin-orphan { background: #ef4444; }
+
+/* Popover (formulář pinu) */
+.cl-curve-pin-popover {
+  position: absolute;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 8px;
+  z-index: 50;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cl-curve-pin-popover select,
+.cl-curve-pin-popover textarea {
+  width: 100%;
+  font-size: 11px;
+  padding: 3px 5px;
+  background: var(--bg-2);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+.cl-curve-pin-popover textarea { resize: vertical; min-height: 32px; }
+.cl-curve-pin-popover .cl-pin-popover-meta { font-size: 10px; color: var(--text-3); }
+.cl-curve-pin-popover .cl-pin-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+.cl-curve-pin-popover .cl-pin-delete {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: transparent;
+  color: var(--danger, #ef4444);
+  border: 1px solid var(--danger, #ef4444);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.cl-curve-pin-popover .cl-pin-close {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--bg-2);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+/* Tooltip (per-step hover) */
+.cl-curve-tooltip {
+  position: absolute;
+  background: rgba(0,0,0,0.92);
+  color: white;
+  font-size: 10px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 40;
+  border: 1px solid rgba(255,255,255,0.1);
+  min-width: 160px;
+  line-height: 1.5;
+}
+.cl-curve-tooltip > div { font-size: 10px; }
+
+.cl-curves-empty {
+  font-size: 11px;
+  color: var(--text-3);
+  padding: 12px 8px;
+  text-align: center;
+  background: var(--bg-2);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  margin-top: 6px;
+}
+.cl-curves-warn {
+  font-size: 10px;
+  color: #f59e0b;
+  margin-top: 4px;
+}

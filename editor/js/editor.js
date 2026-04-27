@@ -1345,6 +1345,13 @@ function renderCarrierLayout(lvl) {
   clRenderPalette();
   clRenderGrid(variant);
   clRenderCapacity(lvl, variant);
+  // Difficulty Curve panel — viditelnost + render po přepnutí variantu.
+  // Nový variant = jiný layout = jiná trace. Schovej popover, reset expand state.
+  if (typeof renderCurvesPanel === 'function') {
+    _curvesUiState.expandedPinId = null;
+    _hideCurvePopover && _hideCurvePopover();
+    renderCurvesPanel(lvl, variant);
+  }
 }
 
 // Capacity helper — spočítá "needed vs slots" per barvu pro aktuální layout a
@@ -2978,6 +2985,9 @@ function wireCarrierLayout() {
     if (body) body.innerHTML = '<div class="cl-tester-running">Analyzuji…</div>';
     frame.contentWindow.postMessage({ type: 'balloonbelt:analyze-level' }, '*');
   });
+
+  // Difficulty Curve panel — wire jednou
+  if (typeof _wireCurvesPanelOnce === 'function') _wireCurvesPanelOnce();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -5237,8 +5247,37 @@ let _lastTesterResult = null;
 const _traceVisibility = { maxGain: true, fullUse: true, beam: true, envelope: true };
 let _heatmapMode = 'mini'; // 'mini' | 'overlay'
 
+// Difficulty Curve panel (Úr. 1) — module state
+const CURVE_DIMS = ['choice', 'pressure', 'progress', 'solverGap'];
+const CURVE_DIM_LABELS = {
+  choice:    'Choice (šíře rozhodování) = beneficial / active per krok',
+  pressure:  'Pressure (tlak pásu) = beltLoad / BELT_CAP per krok',
+  progress:  'Progress (tempo úklidu) = pickedGain / remainingPx_before',
+  solverGap: 'Solver gap = kolik z 3 strategií ještě běží',
+};
+const CURVE_DIM_COLORS = {
+  choice:    '#3b82f6', // modrá
+  pressure:  '#ef4444', // červená
+  progress:  '#10b981', // zelená
+  solverGap: '#f59e0b', // oranžová
+};
+const PIN_TAGS = ['harder', 'easier', 'more decisions', 'less decisions', 'less belt pressure'];
+let _curvesUiState = {
+  visibleDims: { choice: true, pressure: true, progress: true, solverGap: true },
+  expandedPinId: null,    // null = žádný pin v expand mode
+  dragHandle: null,       // {pinId, side: 'start'|'end'} při tažení handle
+  openPopoverId: null,    // pin id s otevřeným popoverem
+};
+let _curveCache = null;   // přepočítané křivky pro aktuální _lastTesterResult
+
 function renderTesterResults(r) {
   _lastTesterResult = r;
+  // Difficulty Curve panel — invalidace cache + re-render
+  _curveCache = null;
+  try {
+    const lvl = beCurrentLvl();
+    renderCurvesPanel(lvl, clActiveVariant(lvl));
+  } catch (e) { /* panel může být neinicializovaný při prvním loadu */ }
   const body = $('cl-tester-body');
   if (!body) return;
   if (!r) {
@@ -5387,6 +5426,644 @@ function _renderColorDetailsTable(details) {
         <tbody>${rows}</tbody>
       </table>
     </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Difficulty Curve panel (Úr. 1) — křivky obtížnosti per-step z trace
+// ═══════════════════════════════════════════════════════════════════════
+
+// 1) Compute funkce — pure, vrací array {step, value (0-1), raw}
+function _pickPrimaryTrace(traces) {
+  if (!traces) return null;
+  if (traces.beam && traces.beam.length) return traces.beam;
+  const candidates = [traces.fullUse, traces.maxGain].filter(t => t && t.length);
+  if (!candidates.length) return null;
+  return candidates.sort((a, b) => b.length - a.length)[0];
+}
+function computeChoiceCurve(trace) {
+  return trace.map(p => ({
+    step: p.step,
+    value: p.activeCount > 0 ? Math.min(1, p.beneficial / p.activeCount) : 0,
+    raw: p,
+  }));
+}
+function computePressureCurve(trace, beltCap) {
+  const cap = Math.max(1, beltCap || 14);
+  return trace.map(p => ({
+    step: p.step,
+    value: Math.min(1, (p.beltLoad || 0) / cap),
+    raw: p,
+  }));
+}
+function computeProgressCurve(trace) {
+  return trace.map(p => {
+    const before = (p.remainingPx || 0) + (p.pickedGain || 0);
+    return {
+      step: p.step,
+      value: before > 0 ? Math.min(1, (p.pickedGain || 0) / before) : 0,
+      raw: p,
+    };
+  });
+}
+function computeSolverGapCurve(traces) {
+  if (!traces) return [];
+  const lens = {
+    maxGain: traces.maxGain ? traces.maxGain.length : 0,
+    fullUse: traces.fullUse ? traces.fullUse.length : 0,
+    beam:    traces.beam    ? traces.beam.length    : 0,
+  };
+  const maxLen = Math.max(lens.maxGain, lens.fullUse, lens.beam);
+  if (!maxLen) return [];
+  const totalAvail = (lens.maxGain ? 1 : 0) + (lens.fullUse ? 1 : 0) + (lens.beam ? 1 : 0);
+  const out = [];
+  for (let s = 0; s < maxLen; s++) {
+    let alive = 0;
+    if (lens.maxGain > s) alive++;
+    if (lens.fullUse > s) alive++;
+    if (lens.beam    > s) alive++;
+    const gap = totalAvail > 0 ? alive / totalAvail : 0;
+    const rawSrc = (traces.beam && traces.beam[s])
+                || (traces.fullUse && traces.fullUse[s])
+                || (traces.maxGain && traces.maxGain[s]) || {};
+    out.push({
+      step: s,
+      value: 1 - gap, // 0 = všichni žijí, 1 = nikdo (=stop)
+      raw: { ...rawSrc, step: s, aliveCount: alive, totalAvail },
+    });
+  }
+  return out;
+}
+function buildCurvesFromResult(r) {
+  if (!r || !r.traces) return null;
+  const primary = _pickPrimaryTrace(r.traces);
+  if (!primary || !primary.length) return null;
+  return {
+    choice:    computeChoiceCurve(primary),
+    pressure:  computePressureCurve(primary, r.BELT_CAP || 14),
+    progress:  computeProgressCurve(primary),
+    solverGap: computeSolverGapCurve(r.traces),
+    maxStep: Math.max(
+      primary.length,
+      r.traces.maxGain ? r.traces.maxGain.length : 0,
+      r.traces.fullUse ? r.traces.fullUse.length : 0,
+      r.traces.beam    ? r.traces.beam.length    : 0,
+    ) - 1,
+    primaryStrategy: r.traces.beam && r.traces.beam.length ? 'beam'
+                   : r.traces.fullUse && r.traces.fullUse.length ? 'fullUse'
+                   : 'maxGain',
+  };
+}
+
+// 2) SVG renderer — vrací HTML string s <svg> obsahujícím všechny visible curves +
+//    pins + crosshair (pro hover tooltip). Multi-curve verze.
+function _curveDimColor(dim) { return CURVE_DIM_COLORS[dim] || '#3b82f6'; }
+
+function _buildCurveSvg(cache, visibleDims, maxStep) {
+  const W = 520, H = 220, P = 32;
+  if (!cache) {
+    return '<div class="cl-curves-empty">Žádná data k vykreslení.</div>';
+  }
+  const visible = CURVE_DIMS.filter(d => visibleDims[d] && cache[d] && cache[d].length);
+  if (!visible.length) {
+    return '<div class="cl-curves-empty">Zaškrtni alespoň jednu dimenzi v ovladačích nahoře.</div>';
+  }
+  const ms = Math.max(1, maxStep || cache.maxStep || 0);
+  const xs = step => P + (step / ms) * (W - 2 * P);
+  const ys = v => H - P - Math.max(0, Math.min(1, v)) * (H - 2 * P);
+
+  const parts = [];
+  // Y grid + labels (0%, 25%, 50%, 75%, 100%)
+  for (let i = 0; i <= 4; i++) {
+    const v = i / 4;
+    const y = ys(v);
+    parts.push(`<line class="cl-curve-grid" x1="${P}" y1="${y}" x2="${W - P}" y2="${y}"/>`);
+    parts.push(`<text class="cl-curve-axis-label" x="${P - 4}" y="${y + 3}" text-anchor="end">${(v * 100).toFixed(0)}%</text>`);
+  }
+  // X ticks
+  const xTickStep = ms <= 30 ? 5 : ms <= 80 ? 10 : 20;
+  for (let s = xTickStep; s <= ms; s += xTickStep) {
+    parts.push(`<line x1="${xs(s)}" y1="${H - P}" x2="${xs(s)}" y2="${H - P + 3}" stroke="rgba(255,255,255,0.2)"/>`);
+    parts.push(`<text class="cl-curve-axis-label" x="${xs(s)}" y="${H - P + 13}" text-anchor="middle">${s}</text>`);
+  }
+  parts.push(`<line class="cl-curve-grid" x1="${P}" y1="${H - P}" x2="${W - P}" y2="${H - P}"/>`);
+
+  // Per-dim path — tlustší pro lepší rozlišitelnost při překryvu
+  for (const dim of visible) {
+    const curve = cache[dim];
+    const color = _curveDimColor(dim);
+    const d = curve.map((p, i) => `${i ? 'L' : 'M'}${xs(p.step).toFixed(1)},${ys(p.value).toFixed(1)}`).join(' ');
+    parts.push(`<path class="cl-curve-line" data-dim="${dim}" d="${d}" stroke="${color}" stroke-width="2" opacity="0.85"/>`);
+    // Malé tečky jen na koncových bodech pro orientaci, ne na všech (jinak nepřehledné při překryvu)
+    if (curve.length) {
+      const last = curve[curve.length - 1];
+      parts.push(`<circle cx="${xs(last.step)}" cy="${ys(last.value)}" r="3" fill="${color}" opacity="0.9"/>`);
+    }
+  }
+
+  // Crosshair vertical line (default skrytý, ukáže se na hover)
+  parts.push(`<line id="cl-curve-crosshair" class="cl-curve-crosshair" x1="0" y1="${P}" x2="0" y2="${H - P}" style="visibility:hidden"/>`);
+
+  // Per-step hit areas — neviditelný overlay pro hover detection (vertikální pruh per step)
+  if (ms > 0) {
+    const stripW = (W - 2 * P) / Math.max(1, ms);
+    for (let s = 0; s <= ms; s++) {
+      const cx = xs(s);
+      parts.push(`<rect class="cl-curve-hit" data-step="${s}" x="${cx - stripW / 2}" y="${P}" width="${stripW}" height="${H - 2 * P}" fill="transparent" pointer-events="all"/>`);
+    }
+  }
+
+  // Pins group (renderuje se separátně přes _renderCurvePins)
+  parts.push(`<g class="cl-curve-pins"></g>`);
+
+  return `<svg id="cl-curve-svg" class="cl-curves-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" data-w="${W}" data-h="${H}" data-p="${P}" data-maxstep="${ms}" xmlns="http://www.w3.org/2000/svg">${parts.join('')}</svg>`;
+}
+
+// 3) Pin rendering uvnitř SVG — vykreslí všechny piny aktuální variantu.
+//    Piny jsou cross-dimenzní (svislá čára přes celý graf), takže nepotřebují curve.
+function _renderCurvePins(variant) {
+  const svg = document.getElementById('cl-curve-svg');
+  if (!svg) return;
+  const pinsGroup = svg.querySelector('.cl-curve-pins');
+  if (!pinsGroup) return;
+  pinsGroup.innerHTML = '';
+  const pins = (variant && Array.isArray(variant.curveAnnotations)) ? variant.curveAnnotations : [];
+  if (!pins.length) return;
+
+  const W = +svg.dataset.w, H = +svg.dataset.h, P = +svg.dataset.p;
+  const ms = +svg.dataset.maxstep;
+  const xs = step => P + (Math.min(step, ms) / Math.max(1, ms)) * (W - 2 * P);
+  const ns = 'http://www.w3.org/2000/svg';
+
+  for (const pin of pins) {
+    const isExpanded = _curvesUiState.expandedPinId === pin.id && pin.stepEnd > pin.stepStart;
+    const orphan = pin.stepStart > ms;
+    const startVisX = orphan ? W - P + 4 : xs(pin.stepStart);
+    const endVisX = orphan ? W - P + 4 : xs(Math.min(pin.stepEnd, ms));
+
+    const g = document.createElementNS(ns, 'g');
+    g.setAttribute('class', 'cl-curve-pin');
+    g.setAttribute('data-pin-id', pin.id);
+
+    // Range fill (jen v expand mode + ne orphan)
+    if (isExpanded && !orphan) {
+      const rect = document.createElementNS(ns, 'rect');
+      rect.setAttribute('class', 'cl-curve-pin-range');
+      rect.setAttribute('x', startVisX);
+      rect.setAttribute('y', P);
+      rect.setAttribute('width', Math.max(0, endVisX - startVisX));
+      rect.setAttribute('height', H - 2 * P);
+      g.appendChild(rect);
+    }
+
+    // Levá hrana (vždy)
+    const lineL = document.createElementNS(ns, 'line');
+    lineL.setAttribute('class', 'cl-curve-pin-line');
+    lineL.setAttribute('x1', startVisX);
+    lineL.setAttribute('y1', P);
+    lineL.setAttribute('x2', startVisX);
+    lineL.setAttribute('y2', H - P);
+    g.appendChild(lineL);
+
+    // Pravá hrana (jen expand)
+    if (isExpanded && !orphan) {
+      const lineR = document.createElementNS(ns, 'line');
+      lineR.setAttribute('class', 'cl-curve-pin-line');
+      lineR.setAttribute('x1', endVisX);
+      lineR.setAttribute('y1', P);
+      lineR.setAttribute('x2', endVisX);
+      lineR.setAttribute('y2', H - P);
+      g.appendChild(lineR);
+    }
+
+    // Drag handles (jen expand)
+    if (isExpanded && !orphan) {
+      const hL = document.createElementNS(ns, 'circle');
+      hL.setAttribute('class', 'cl-curve-pin-handle');
+      hL.setAttribute('data-handle', 'start');
+      hL.setAttribute('cx', startVisX);
+      hL.setAttribute('cy', H / 2);
+      hL.setAttribute('r', 5);
+      g.appendChild(hL);
+      const hR = document.createElementNS(ns, 'circle');
+      hR.setAttribute('class', 'cl-curve-pin-handle');
+      hR.setAttribute('data-handle', 'end');
+      hR.setAttribute('cx', endVisX);
+      hR.setAttribute('cy', H / 2);
+      hR.setAttribute('r', 5);
+      g.appendChild(hR);
+    }
+
+    // Chip (klikatelný — otevře popover)
+    const chipFO = document.createElementNS(ns, 'foreignObject');
+    const chipW = orphan ? 26 : (pin.tag ? 90 : 30);
+    chipFO.setAttribute('x', startVisX - chipW / 2);
+    chipFO.setAttribute('y', P - 22);
+    chipFO.setAttribute('width', chipW);
+    chipFO.setAttribute('height', 20);
+    chipFO.setAttribute('style', 'overflow:visible');
+    const chip = document.createElement('div');
+    chip.setAttribute('class', 'cl-curve-pin-chip' + (orphan ? ' cl-pin-orphan' : ''));
+    chip.setAttribute('data-pin-id', pin.id);
+    chip.setAttribute('data-action', 'open-popover');
+    chip.title = orphan ? `Pin je za koncem aktuálního trace (step ${pin.stepStart}, max ${ms})` : '';
+    chip.textContent = orphan ? '⚠' : (pin.tag || '📌');
+    chipFO.appendChild(chip);
+    g.appendChild(chipFO);
+
+    pinsGroup.appendChild(g);
+  }
+}
+
+// 4) Hlavní render — volá se z renderTesterResults + dim změna + variant switch
+function renderCurvesPanel(lvl, variant) {
+  const wrap = document.getElementById('cl-curves');
+  if (!wrap) return;
+  if (!variant) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+
+  const empty = document.getElementById('cl-curves-empty');
+  const svgWrap = document.getElementById('cl-curves-svg-wrap');
+  const status = document.getElementById('cl-curves-status');
+
+  // Sync toggles → state (po prvním renderu, default je vše checked)
+  document.querySelectorAll('#cl-curves [data-curve-dim]').forEach(cb => {
+    if (typeof _curvesUiState.visibleDims[cb.dataset.curveDim] === 'boolean') {
+      cb.checked = _curvesUiState.visibleDims[cb.dataset.curveDim];
+    }
+  });
+
+  if (!_lastTesterResult) {
+    if (svgWrap) svgWrap.innerHTML = '';
+    if (empty) {
+      empty.hidden = false;
+      empty.innerHTML = 'Klikni <b>▶ Analyzovat</b> v sekci playtester pro zobrazení křivek obtížnosti.';
+    }
+    if (status) status.textContent = 'data nejsou';
+    _hideCurvePopover();
+    return;
+  }
+  if (!_curveCache) _curveCache = buildCurvesFromResult(_lastTesterResult);
+  if (!_curveCache) {
+    if (svgWrap) svgWrap.innerHTML = '';
+    if (empty) {
+      empty.hidden = false;
+      empty.textContent = 'Level je nedohratelný — žádná data k vykreslení křivek.';
+    }
+    if (status) status.textContent = 'trace prázdné';
+    return;
+  }
+  if (empty) empty.hidden = true;
+
+  const html = _buildCurveSvg(_curveCache, _curvesUiState.visibleDims, _curveCache.maxStep);
+  if (svgWrap) svgWrap.innerHTML = html;
+
+  if (status) {
+    const strat = _curveCache.primaryStrategy === 'beam' ? 'beam search'
+              : _curveCache.primaryStrategy === 'fullUse' ? 'full-use heuristik'
+              : 'max-gain heuristik';
+    const visCount = CURVE_DIMS.filter(d => _curvesUiState.visibleDims[d]).length;
+    status.textContent = `${_curveCache.maxStep + 1} kroků · ${strat} · ${visCount}/4 dimenzí`;
+  }
+
+  // Piny (variant per-variant)
+  if (!Array.isArray(variant.curveAnnotations)) variant.curveAnnotations = [];
+  _renderCurvePins(variant);
+
+  // Pokud je popover otevřený, znovu pozicovat (variant.curveAnnotations stále existuje)
+  if (_curvesUiState.openPopoverId) {
+    const stillExists = variant.curveAnnotations.find(p => p.id === _curvesUiState.openPopoverId);
+    if (stillExists) _showCurvePopover(stillExists);
+    else _hideCurvePopover();
+  }
+}
+
+// 5) Tooltip + popover helpers
+function _formatCurveTooltip(dim, raw) {
+  if (!raw) return '';
+  const parts = [`krok ${raw.step}`];
+  if (typeof raw.activeCount === 'number')  parts.push(`active ${raw.activeCount}`);
+  if (typeof raw.beneficial === 'number')   parts.push(`beneficial ${raw.beneficial}`);
+  if (typeof raw.pickedGain === 'number')   parts.push(`gain ${raw.pickedGain}px`);
+  if (typeof raw.beltLoad === 'number')     parts.push(`belt ${raw.beltLoad}/${(_lastTesterResult && _lastTesterResult.BELT_CAP) || 14}`);
+  if (typeof raw.remainingPx === 'number')  parts.push(`zbývá ${raw.remainingPx}px`);
+  if (dim === 'solverGap' && typeof raw.aliveCount === 'number') {
+    parts.push(`${raw.aliveCount}/${raw.totalAvail} strategií`);
+  }
+  return parts.join(' • ');
+}
+
+// Multi-row tooltip — pro daný step ukáže hodnoty všech visible dimenzí + raw kontext.
+function _showCurveMultiTooltip(step, mouseX, mouseY) {
+  if (!_curveCache) return;
+  const visible = CURVE_DIMS.filter(d => _curvesUiState.visibleDims[d] && _curveCache[d] && _curveCache[d].length);
+  if (!visible.length) { _hideCurveTooltip(); return; }
+  const rows = [];
+  let rawCtx = null;
+  for (const dim of visible) {
+    const point = _curveCache[dim].find(p => p.step === step);
+    if (!point) continue;
+    if (!rawCtx) rawCtx = point.raw;
+    const pct = Math.round(point.value * 100);
+    const color = _curveDimColor(dim);
+    const label = dim === 'solverGap' ? 'gap' : dim;
+    rows.push(`<div style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:9px;height:9px;background:${color};border-radius:2px"></span><span style="min-width:54px">${label}</span><span style="font-weight:600">${pct}%</span></div>`);
+  }
+  const ctxParts = [`<b>krok ${step}</b>`];
+  if (rawCtx) {
+    if (typeof rawCtx.activeCount === 'number')  ctxParts.push(`active ${rawCtx.activeCount}`);
+    if (typeof rawCtx.beneficial === 'number')   ctxParts.push(`benef ${rawCtx.beneficial}`);
+    if (typeof rawCtx.pickedGain === 'number')   ctxParts.push(`gain ${rawCtx.pickedGain}px`);
+    if (typeof rawCtx.beltLoad === 'number')     ctxParts.push(`belt ${rawCtx.beltLoad}/${(_lastTesterResult && _lastTesterResult.BELT_CAP) || 14}`);
+    if (typeof rawCtx.remainingPx === 'number')  ctxParts.push(`zbývá ${rawCtx.remainingPx}px`);
+  }
+  const html = `<div style="margin-bottom:3px;border-bottom:1px solid rgba(255,255,255,0.15);padding-bottom:3px">${ctxParts.join(' • ')}</div>${rows.join('')}`;
+  _showCurveTooltip(html, mouseX, mouseY);
+}
+function _showCurveTooltip(html, mouseX, mouseY) {
+  let tip = document.querySelector('.cl-curve-tooltip');
+  const wrap = document.getElementById('cl-curves-svg-wrap');
+  if (!wrap) return;
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.className = 'cl-curve-tooltip';
+    wrap.appendChild(tip);
+  }
+  tip.hidden = false;
+  tip.innerHTML = html;
+  const rect = wrap.getBoundingClientRect();
+  const x = mouseX - rect.left + 10;
+  const y = mouseY - rect.top - 26;
+  tip.style.left = Math.max(4, Math.min(rect.width - tip.offsetWidth - 4, x)) + 'px';
+  tip.style.top = Math.max(0, y) + 'px';
+}
+function _hideCurveTooltip() {
+  const tip = document.querySelector('.cl-curve-tooltip');
+  if (tip) tip.hidden = true;
+}
+
+function _showCurvePopover(pin) {
+  const pop = document.getElementById('cl-curves-pin-popover');
+  const svg = document.getElementById('cl-curve-svg');
+  if (!pop || !svg) return;
+  _curvesUiState.openPopoverId = pin.id;
+  const W = +svg.dataset.w, P = +svg.dataset.p, ms = +svg.dataset.maxstep;
+  const stepClamp = Math.min(pin.stepStart, ms);
+  const xs = P + (stepClamp / Math.max(1, ms)) * (W - 2 * P);
+  const svgRect = svg.getBoundingClientRect();
+  // Pozice je relativní k popover.parentElement (cl-curves-body, který má position:relative).
+  // Bez tohoto by se popover umístil podle nejbližšího pozicovaného předka — což může být body
+  // → popover skočí do levého horního rohu obrazovky.
+  const refRect = (pop.offsetParent || pop.parentElement).getBoundingClientRect();
+  const screenX = svgRect.left + (xs / W) * svgRect.width;
+  const localX = screenX - refRect.left;
+  const localY = svgRect.top + svgRect.height * 0.18 - refRect.top;
+
+  const tagOptions = PIN_TAGS.map(t =>
+    `<option value="${t}"${pin.tag === t ? ' selected' : ''}>${t}</option>`
+  ).join('');
+  const isOrphan = pin.stepStart > ms;
+  const meta = pin.stepEnd > pin.stepStart
+    ? `kroky ${pin.stepStart}–${pin.stepEnd}`
+    : `krok ${pin.stepStart}`;
+  pop.innerHTML = `
+    <select class="cl-pin-tag" data-pin-id="${pin.id}">
+      <option value="">— zvol tag —</option>${tagOptions}
+    </select>
+    <textarea class="cl-pin-note" data-pin-id="${pin.id}" rows="2" placeholder="poznámka…">${(pin.note || '').replace(/</g, '&lt;')}</textarea>
+    <div class="cl-pin-popover-meta">${meta}${isOrphan ? ' <span class="cl-curves-warn">⚠ za koncem trace</span>' : ''}</div>
+    <div class="cl-pin-actions">
+      <button type="button" class="cl-pin-delete" data-pin-id="${pin.id}">✕ smazat</button>
+      ${isOrphan ? `<button type="button" class="cl-pin-snap" data-pin-id="${pin.id}">↩ posun na konec</button>` : ''}
+      <button type="button" class="cl-pin-close">hotovo</button>
+    </div>`;
+  pop.style.left = Math.max(4, Math.min(refRect.width - 200, localX)) + 'px';
+  pop.style.top = Math.max(0, localY) + 'px';
+  pop.hidden = false;
+}
+function _hideCurvePopover() {
+  const pop = document.getElementById('cl-curves-pin-popover');
+  if (pop) { pop.hidden = true; pop.innerHTML = ''; }
+  _curvesUiState.openPopoverId = null;
+}
+
+// 6) Step snap — z mouse X pozice nad SVG vypočte step (round-to-int)
+function _snapMouseXToStep(svg, mouseClientX) {
+  const W = +svg.dataset.w, P = +svg.dataset.p, ms = +svg.dataset.maxstep;
+  const rect = svg.getBoundingClientRect();
+  const localX = (mouseClientX - rect.left) * (W / rect.width);
+  const stepFloat = ((localX - P) / (W - 2 * P)) * ms;
+  return Math.max(0, Math.min(ms, Math.round(stepFloat)));
+}
+
+// 7) Event wiring — voláno jednou v init
+function _wireCurvesPanelOnce() {
+  const wrap = document.getElementById('cl-curves');
+  const svgWrap = document.getElementById('cl-curves-svg-wrap');
+  if (!wrap || !svgWrap) return;
+
+  // Toggle dim checkboxes — přepne visibility, re-render
+  document.querySelectorAll('#cl-curves [data-curve-dim]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      _curvesUiState.visibleDims[cb.dataset.curveDim] = cb.checked;
+      renderCurvesPanel(beCurrentLvl(), clActiveVariant(beCurrentLvl()));
+    });
+  });
+
+  // Toggle re-render po expand panelu (race condition safety)
+  wrap.addEventListener('toggle', () => {
+    if (wrap.open) {
+      renderCurvesPanel(beCurrentLvl(), clActiveVariant(beCurrentLvl()));
+    } else {
+      _hideCurvePopover();
+    }
+  });
+
+  // SVG event delegation — klik
+  svgWrap.addEventListener('click', (ev) => {
+    const svg = document.getElementById('cl-curve-svg');
+    if (!svg || ev.target.closest('.cl-curve-pin-popover')) return;
+
+    const lvl = beCurrentLvl();
+    const variant = clActiveVariant(lvl);
+    if (!variant) return;
+    if (!Array.isArray(variant.curveAnnotations)) variant.curveAnnotations = [];
+
+    // Klik na chip → otevři popover
+    const chip = ev.target.closest('[data-action="open-popover"]');
+    if (chip) {
+      const pinId = chip.dataset.pinId;
+      const pin = variant.curveAnnotations.find(p => p.id === pinId);
+      if (pin) _showCurvePopover(pin);
+      return;
+    }
+    // Klik na handle → ignoruj (drag handler řeší)
+    if (ev.target.classList.contains('cl-curve-pin-handle')) return;
+
+    // Klik na pin čáru → toggle expand mode
+    const pinLine = ev.target.closest('.cl-curve-pin-line');
+    if (pinLine) {
+      const pinG = pinLine.closest('.cl-curve-pin');
+      if (!pinG) return;
+      const pinId = pinG.dataset.pinId;
+      const pin = variant.curveAnnotations.find(p => p.id === pinId);
+      if (!pin) return;
+      if (_curvesUiState.expandedPinId === pinId) {
+        pin.stepEnd = pin.stepStart;
+        _curvesUiState.expandedPinId = null;
+      } else {
+        const ms = +svg.dataset.maxstep;
+        pin.stepEnd = Math.min(ms, pin.stepStart + Math.max(1, Math.floor(ms * 0.1)));
+        _curvesUiState.expandedPinId = pinId;
+      }
+      markDirty();
+      _renderCurvePins(variant);
+      return;
+    }
+    // Klik na range fill → ignoruj (chápeme jako neutral plochu pinu)
+    if (ev.target.classList.contains('cl-curve-pin-range')) return;
+
+    // Klik kdekoli jinde v SVG (hit-rect nebo background) → vytvoř nový pin
+    if (ev.target.closest('#cl-curve-svg')) {
+      // Snap to step: pokud klik byl na hit-rect, použij dataset.step (přesné),
+      // jinak vypočítej z pozice myši.
+      const hitRect = ev.target.classList.contains('cl-curve-hit') ? ev.target : null;
+      const step = hitRect ? +hitRect.dataset.step : _snapMouseXToStep(svg, ev.clientX);
+      const pin = {
+        id: 'pin-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+        stepStart: step,
+        stepEnd: step,
+        tag: '',
+        note: '',
+      };
+      variant.curveAnnotations.push(pin);
+      _curvesUiState.expandedPinId = null;
+      markDirty();
+      _renderCurvePins(variant);
+      _showCurvePopover(pin);
+    }
+  });
+
+  // Hover — vertikální crosshair + multi-row tooltip přes všechny visible dimenze
+  svgWrap.addEventListener('mousemove', (ev) => {
+    const hitRect = ev.target.classList.contains('cl-curve-hit') ? ev.target : null;
+    const svg = document.getElementById('cl-curve-svg');
+    const crosshair = document.getElementById('cl-curve-crosshair');
+    if (!hitRect || !svg || !_curveCache) {
+      _hideCurveTooltip();
+      if (crosshair) crosshair.style.visibility = 'hidden';
+      return;
+    }
+    const step = +hitRect.dataset.step;
+    const W = +svg.dataset.w, P = +svg.dataset.p, ms = +svg.dataset.maxstep;
+    const xs = P + (step / Math.max(1, ms)) * (W - 2 * P);
+    if (crosshair) {
+      crosshair.setAttribute('x1', xs);
+      crosshair.setAttribute('x2', xs);
+      crosshair.style.visibility = 'visible';
+    }
+    _showCurveMultiTooltip(step, ev.clientX, ev.clientY);
+  });
+  svgWrap.addEventListener('mouseleave', () => {
+    _hideCurveTooltip();
+    const crosshair = document.getElementById('cl-curve-crosshair');
+    if (crosshair) crosshair.style.visibility = 'hidden';
+  });
+
+  // Drag handles — mousedown na handle → start drag, document mousemove → update, mouseup → end
+  svgWrap.addEventListener('mousedown', (ev) => {
+    if (!ev.target.classList.contains('cl-curve-pin-handle')) return;
+    const pinG = ev.target.closest('.cl-curve-pin');
+    if (!pinG) return;
+    _curvesUiState.dragHandle = {
+      pinId: pinG.dataset.pinId,
+      side: ev.target.dataset.handle, // 'start' | 'end'
+    };
+    ev.preventDefault();
+  });
+  document.addEventListener('mousemove', (ev) => {
+    const drag = _curvesUiState.dragHandle;
+    if (!drag) return;
+    const svg = document.getElementById('cl-curve-svg');
+    if (!svg) return;
+    const lvl = beCurrentLvl();
+    const variant = clActiveVariant(lvl);
+    if (!variant || !Array.isArray(variant.curveAnnotations)) return;
+    const pin = variant.curveAnnotations.find(p => p.id === drag.pinId);
+    if (!pin) return;
+    const step = _snapMouseXToStep(svg, ev.clientX);
+    if (drag.side === 'start') {
+      pin.stepStart = Math.max(0, Math.min(pin.stepEnd - 1, step));
+    } else {
+      pin.stepEnd = Math.max(pin.stepStart + 1, Math.min(+svg.dataset.maxstep, step));
+    }
+    _renderCurvePins(variant);
+  });
+  document.addEventListener('mouseup', () => {
+    if (_curvesUiState.dragHandle) {
+      _curvesUiState.dragHandle = null;
+      markDirty();
+    }
+  });
+
+  // Popover form events (delegated)
+  const pop = document.getElementById('cl-curves-pin-popover');
+  if (pop) {
+    pop.addEventListener('change', (ev) => {
+      const lvl = beCurrentLvl();
+      const variant = clActiveVariant(lvl);
+      if (!variant) return;
+      if (ev.target.classList.contains('cl-pin-tag')) {
+        const pin = variant.curveAnnotations.find(p => p.id === ev.target.dataset.pinId);
+        if (pin) {
+          pin.tag = ev.target.value;
+          markDirty();
+          _renderCurvePins(variant);
+        }
+      }
+    });
+    let noteTimer = null;
+    pop.addEventListener('input', (ev) => {
+      if (!ev.target.classList.contains('cl-pin-note')) return;
+      const lvl = beCurrentLvl();
+      const variant = clActiveVariant(lvl);
+      if (!variant) return;
+      const pin = variant.curveAnnotations.find(p => p.id === ev.target.dataset.pinId);
+      if (!pin) return;
+      pin.note = ev.target.value;
+      if (noteTimer) clearTimeout(noteTimer);
+      noteTimer = setTimeout(() => markDirty(), 300);
+    });
+    pop.addEventListener('click', (ev) => {
+      const lvl = beCurrentLvl();
+      const variant = clActiveVariant(lvl);
+      if (!variant) return;
+      if (ev.target.classList.contains('cl-pin-delete')) {
+        const idx = variant.curveAnnotations.findIndex(p => p.id === ev.target.dataset.pinId);
+        if (idx >= 0) {
+          variant.curveAnnotations.splice(idx, 1);
+          _curvesUiState.expandedPinId = null;
+          _hideCurvePopover();
+          markDirty();
+          _renderCurvePins(variant);
+        }
+        return;
+      }
+      if (ev.target.classList.contains('cl-pin-snap')) {
+        const pin = variant.curveAnnotations.find(p => p.id === ev.target.dataset.pinId);
+        if (pin && _curveCache) {
+          pin.stepStart = _curveCache.maxStep;
+          pin.stepEnd = _curveCache.maxStep;
+          markDirty();
+          _renderCurvePins(variant);
+          _showCurvePopover(pin); // re-pozicovat
+        }
+        return;
+      }
+      if (ev.target.classList.contains('cl-pin-close')) {
+        _hideCurvePopover();
+      }
+    });
+  }
 }
 
 // ─── Difficulty score — label klasifikace + expandable breakdown

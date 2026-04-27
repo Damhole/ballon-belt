@@ -43,6 +43,7 @@ Seznam všech nápadů, co chceme vyzkoušet, s prioritou a stavem. Na začátku
 | P2 | 💡 idea | S | **Grid/snap helpery** — volitelný snap bloku na 3×3, pravítka na okrajích |
 | P2 | ✅ done | M | **Foto → pixel art import** — tlačítko v pixel toolbaru, crop+pan+zoom modal, kvantizace na herní paletu + Floyd–Steinberg dithering. Commit `8104f41` (v33). |
 | P2 | ✅ done | XL | **AI level tester** — Phase 1+2+3 hotovo (v59): 3-tier solver hierarchy (random/heuristik/beam), belt-queue model, waste-aware beam, funnel friction, SOLVED_TOLERANCE_PX=40, 6-faktor difficulty score, 6 labels, verdict chips, per-color cleared/stuckPx, SVG trace chart, heat-mapa. Phase 4 (LLM analýza obrazu + recommendations) v inboxu. |
+| P1 | 📋 planned | XL | **Difficulty Curve Editor** — propojení testeru + generátoru. 3 úrovně: (1) curve panel (4 normalizované křivky choice/pressure/progress/solver-gap z trace), (2) mutace návrhář (designer pinem označí rozsah kroků + tag, system vrátí top 3 atomické mutace ze 50 zkoušených), (3) curve template + auto-tune (simulated annealing nad mutation poolem k cílové shape). Bez AI, čistě algoritmicky. Deep dive ↓. |
 | P3 | 💡 idea | M | **Export/Import JSON** jednoho levelu — sdílení mezi větvemi/lidmi mimo FSA |
 | P3 | 💡 idea | S | **Pattern stamps** v pixel editoru — uložené „stamp" pixel arty (koule, srdce, hvězda) |
 
@@ -267,6 +268,229 @@ Dvě oddělené fáze, fáze 1 dává hodnotu i bez API:
 minimální kliknutí, difficulty score, dead-end rate, bottleneck color, garage/rocket utilization.
 Žádný LLM, žádná heat-mapa. Jen čísla v panelu.
 
+### Deep dive: Difficulty Curve Editor
+
+**Proč je to zajímavé:** Tester v59 vrací jen agregované metriky (difficulty score 0–100,
+verdict chip). Designer ale chce vědět **kdy** během levelu se obtížnost láme — jestli
+je level moc lehký první 1/3 a moc těžký poslední 1/3, nebo má plochou křivku, nebo
+spike v polovině. Tester už `trace[]` zaznamenává per-step (`activeCount, beneficial,
+pickedGain, beltLoad, remainingPx`) — máme všechna data pro shape-aware tuning.
+Cíl: dát designeru nástroj, který data **zobrazí jako křivku** a pak nabídne **algoritmické
+mutace** layoutu k tvarování křivky podle záměru.
+
+#### Vstupní data (z testeru, dnes existující)
+
+Per-step `trace[]` z `ptRunGreedy` / `ptRunBeamSearch`:
+- `step`, `activeCount` (kolik nosičů aktivních)
+- `beneficial` (z toho kolik dává smysl — match s pixely)
+- `pickedGain` (px vyčištěno tímto krokem), `pickedProj` (vystřelených projektilů)
+- `beltLoad` (zaplnění pásu), `remainingPx` (zbývá celkem)
+
+Summary: `decisionRichness, bottleneckColor, peakBeltLoad, beltOverflow, funnelRejectedCount,
+per-color {cleared, stuckPx}, remainingGrid` (heat-mapa).
+
+#### Odvozené křivky (4 dimenze)
+
+1. **Choice curve** = `beneficial / activeCount` per step → šíře smysluplného rozhodování
+2. **Pressure curve** = `beltLoad / BELT_CAP` per step → tlak pásu
+3. **Progress curve** = `pickedGain / remainingPx` per step → tempo úklidu
+4. **Solver gap curve** = kolik z 3 strategií (random/heuristik/beam) zvládá až do daného
+   kroku → kde se začínají rozcházet = tam jsou tricky rozhodnutí
+
+#### Úroveň 1 — Curve panel (M, ~3 h)
+
+- 4 SVG grafy pod existujícím Analyzátor blokem, x = kroky 0–N, y = normalizované 0–1
+- Per-step tooltip (krok, active, beneficial, gain, belt, remain)
+- Shift-klik → přidá pin (rozsah kroků + tag z palety: `harder` / `easier` /
+  `more decisions` / `less decisions` / `less belt pressure` + volný text note)
+- Piny se ukládají do `lvl.curveAnnotations: [{stepRange, tag, note}]`
+- Žádné automatické změny — designer jen vidí shape + dělá poznámky
+
+**Hodnota i samostatně:** dnes tester říká "skóre 47", curve panel řekne *"krok
+6–12 je flat choice = 0.3, ale pak skok na 0.9 v krocích 13–18"*. Designer ví,
+co se s levelem děje.
+
+#### Úroveň 2 — Mutace návrhář (L, ~5 h)
+
+Předpokládá Úroveň 1 + společnou **mutation pool** infrastrukturu (sdílí s Úr. 3).
+
+**Workflow:**
+1. Designer má pin (z Úr. 1) s tagem `harder` v rozsahu 6–12
+2. Stiskne `⚙ Suggest` → spustí 50 mutací zaměřených na buňky aktivní v daném
+   step rozsahu (z `history[step].active`)
+3. UI vrátí **top 3 kandidáty** seřazené podle shape match score:
+   - Popis mutace (1–2 atomické změny)
+   - Diff metrik (clicks, peak choice, belt risk, difficulty score)
+   - Mini-overlay křivky (current vs proposed)
+4. `▷ Preview` overlayne křivku nad stávající, `✓ Apply` zapíše do layoutu
+5. Apply prochází `clRepairUnreachable` + `clRepairPostGarageUnreachable` validací
+
+**Mutation pool (8 atomických typů):**
+- `SWAP_CELLS(a, b)` — prohození 2 buněk
+- `TOGGLE_HIDDEN(cell)` — `?` flag toggle
+- `MOVE_GARAGE(from, to)` — přesun garáže o 1 buňku
+- `REORDER_GARAGE_QUEUE(garage)` — permutace queue
+- `INSERT_WALL(cell)` / `REMOVE_WALL(cell)`
+- `ADD_ROCKET(cell, color)` / `REMOVE_ROCKET(cell)`
+- `SWAP_COLORS(a, b)` — jen výměna barev (zachová pozice)
+
+**Compute:** 50× `ptRunGreedy('max-gain')` heuristik ≈ 250 ms. Realtime feel.
+
+**Klíč:** mapování krok → buňka v gridu. Tester zaznamenává `act[]` per step,
+takže můžeme cílit mutace jen na carriers potenciálně aktivní v pinned rozsahu
++ jejich ortogonální sousedi. Tím zkracujeme search space z O(N²) na O(K²),
+kde K je velikost lokální oblasti.
+
+#### Úroveň 3 — Curve template + auto-tune (XL, ~10 h)
+
+Předpokládá Úroveň 1 + 2.
+
+**Workflow:**
+1. Designer vybere shape z **template galerie**:
+   - `FLAT` — konstantní obtížnost
+   - `WARMUP-CLIMAX-COOLDOWN` — `╱─╲` křivka
+   - `STAIRCASE` — postupný nárůst
+   - `EARLY HOOK` — strmý začátek, plateau
+   - `ENDGAME PUZZLE` — easy → spike na konci
+   - `DOUBLE PEAK` — `╱╲╱╲`
+   - `CUSTOM` — drag handle body do své shape
+2. Apply target: `CHOICE` / `PRESSURE` / `PROGRESS` / `ALL` (weighted)
+3. Intensity slider (mild ↔ aggressive — kolik mutací max akceptovat)
+4. Time budget (10 s / 30 s / 2 min / 10 min)
+5. `▶ AUTO-TUNE` spustí simulated annealing nad mutation poolem
+6. Live monitor: target curve | current best curve | delta | accepted mutations log
+7. Po doběhnutí: final summary + diff grid (před/po) + `Apply all` / `Try again` / `Discard`
+
+**Algoritmus (simulated annealing, vanilla JS):**
+```
+T = 1.0
+while elapsed < budget:
+  mutation = pickRandomMutation(weighted)
+  candidate = repair(apply(current, mutation))
+  score = shapeMatchScore(simulate(candidate).trace, target)
+  delta = score - bestScore
+  accept = delta < 0 || random() < exp(-delta / T)
+  if accept: current = candidate; emit(...)
+  T *= 0.997  // pomalé chladnutí
+return best
+```
+
+**Compute:** 30 s budget × 100 ms na simulaci = ~250 iterací. Heuristik (ne beam)
+pro fitness, beam jen 1× na konci pro confirmation.
+
+**Klíčová metrika `shapeMatchScore`:** vážená L2 distance mezi normalizovanými
+křivkami. DTW (dynamic time warping) ne — trace mají často podobnou délku, L2 stačí.
+
+#### Sdílená infrastruktura (úroveň 2 + 3)
+
+- `mutationPool` — 8 atomických mutací s factory funkcemi
+- `applyMutation(layout, mutation) → layout` (immutable, vrací kopii)
+- `repairLayout(layout) → layout` (volá existující `clRepairUnreachable` + post-garage)
+- `simulateLayout(layout) → trace` (wrapper nad `ptRunGreedy('max-gain')`)
+- `shapeMatchScore(trace, targetCurve) → number` (L2 distance, váhovaná dimenze)
+- `pickRandomMutation(layout, opts: {focusRegion, weights})` — váhovaný výběr,
+  volitelně omezený na region (pro Úr. 2)
+
+#### Riziko & otevřené otázky
+
+- **Krok ↔ buňka mapping:** tester dnes zaznamenává `act[]` per step? Ověřit, jinak
+  doplnit do trace (low-cost change v `ptRunGreedy`).
+- **Repair pipeline kompletnost:** po atomické mutaci může vzniknout layout, který
+  fail-uje silně — Úr. 2 musí umět *odmítnout* mutaci, ne jen repair. Threshold:
+  pokud repair otevře >3 walls, mutaci dropnout.
+- **Overfitting v Úr. 3:** SA může konvergovat ke křivce, ale level je nehratelný
+  (např. všechny mutace toggle hidden = level je samé `?`). Mitigation: zachovat
+  validaci `decisionRichness > 1.5` jako hard constraint v fitness.
+- **UI density:** 4 grafy + piny + suggest panel je hodně. Možná tabové view
+  (Choice / Pressure / Progress / Solver Gap) místo side-by-side.
+
+#### Pořadí implementace (návrh)
+
+1. **Úr. 1** — vykreslit křivky z trace, pin UI, persistence (1–2 dny)
+2. **Mutation pool + repair pipeline** — sdílený pro 2 i 3 (1 den)
+3. **Úr. 2** — pin → suggest → top 3 → apply (3–5 dní)
+4. **Úr. 3** — template galerie + SA + monitor (5–10 dní)
+
+Mezi 2 a 3 je rozdíl hlavně v **search strategy** (random sampling vs SA) a **UI**.
+Compute backend je z 80 % sdílený.
+
+**MVP scope (Úr. 1):** 4 SVG křivky pod Analyzátor blokem, per-step tooltip,
+shift-klik pro piny, persistence v `lvl.curveAnnotations`. Žádné mutace, žádné
+auto-tune. Jen vidět shape + anotovat.
+
+#### Doplnění Úr. 1: Replay & Scrub (Úr. 1.5)
+
+Designer chce nejen vidět *graf* obtížnosti, ale i *konkrétní moment v gridu* — co
+solver v daném kroku klikl + jak vypadal grid + jak ubývaly pixely. Hover step
+v křivce → mini canvas vykreslí stav v ten okamžik. Plus timeline scrubber:
+designer může táhnout přes celý průchod a sledovat replay.
+
+**Co dnes chybí v testeru pro plný replay:**
+
+| Datum | Stav | Co s tím |
+|-------|------|----------|
+| `(c, r)` carrieru klik per krok | ❌ history má jen `color` | Přidat 2 čísla do `history.push` (game.js:2360, 2427, 2562). Náklad: ~50 čísel per run. |
+| Pixel diff per krok (které pixely mizí v grid) | ❌ jen finální `remainingGrid` | V `_ptSimulateClick` shromáždit `clearedPixels: [{x, y, color}]` a vrátit ven. Náklad: 5–20 záznamů per krok ≈ pár KB. |
+| Initial grid snapshot pro reconstrukci | ✅ máme `_ptInitGrid` | Stačí poslat 1× při Analyzovat. |
+
+S tím trojím má editor vše pro reconstrukci stavu v každém kroku:
+`gridAt(step) = initGrid + sum(clearedPixels[0..step])`.
+
+**UI: timeline scrubber + mini gridy + play kontrolér**
+
+```
+┌─ Replay  step 12 / 24 ─────────────────────────────────────────
+│
+│   Carrier grid (mini)              Image grid (mini)
+│   ┌──────────────────┐              ┌──────────────────────┐
+│   │ . . ✸ . .        │  ← klik (3,1)│ ░░░▓▓▓▓░░░           │
+│   │ . . ⊙ . .        │              │ ░░▓▓▓░▓▓▓░░ ← ✦ právě│
+│   │ . . . . .        │              │ ░░░░░░░░░░░  zničené │
+│   └──────────────────┘              └──────────────────────┘
+│
+│  [⏮][◀][▶][⏭]  rychlost ●─○ 0.5×  ○ 1×  ○ 2×  [⬇ export .webm]
+│
+│  Timeline (drag to scrub):
+│  ├─●─●──●──●─●●●●●●●─●●─●──●──●─●─┤
+│  0    5    10  ↑12   15   20   24
+│         (currently here)
+└──────────────────────────────────────────────────────────────────
+```
+
+- **Hover step v křivce nad replay** → highlight kroku v timeline + sync mini gridů
+- **Drag scrubber** → real-time scrub, mini gridy se aktualizují (snap-to-step, ~25 fps)
+- **Play tlačítko** → auto-replay s rychlostí 0.5×/1×/2× (200/100/50 ms per krok)
+- **Pin v křivce** koreluje s timeline: hover pin = highlight rozsahu kroků v timeline
+- **Export .webm** — `MediaRecorder` API na canvas, ~5s clip, download. Zero dependencies.
+
+**Use cases pro designera:**
+
+1. **„Co solver v 8. kroku klikl?"** — hover step na křivce → mini grid ukáže.
+2. **„Jak vypadal pás na vrcholu pressure?"** — najdi vrchol Pressure curve, scrub k němu, vidíš `beltLoad: 11/14` + grid ve 12. kroku.
+3. **„Tenhle level vypadá monotónně"** → play replay → vidíš 24 kroků zpopu carrierů, většina je pop-and-clear bez zajímavé strategie. Subjektivní pocit potvrzený.
+4. **Sdílení mezi designery** — export .webm, hodit do Slack: „heleď, tohle je broken — beam search se 5× zasekne na barvě 6".
+
+**Velikost práce:**
+
+| Krok | Co | Velikost |
+|------|-----|----------|
+| #1 | `(c, r)` v history (game.js, 3 push call sites) | XS, 15 min |
+| #2 | Pixel diff v `_ptSimulateClick` + history field | S, 60 min |
+| #3 | Replay state machine v editoru (currentStep, isPlaying, speed) | S, 60 min |
+| #4 | Mini canvas renderery (carrier grid + image grid, scaled down) | M, 90 min |
+| #5 | Timeline scrubber UI (range input + custom track + step markers) | S, 60 min |
+| #6 | Play kontrolér (▶/⏮/⏭, rAF loop) + sync s curve hover | S, 60 min |
+| #7 | Export .webm (MediaRecorder) | XS, 30 min |
+
+**Celkem: ~5–6 h.** Bez AI, vanilla JS, žádné nové dependencies.
+
+**Otevřené otázky:**
+
+- **Které trace replay-ovat** — primary (beam) nebo nechat designera vybrat (3 strategie)? MVP: primary. Pokud bude potřeba, doplníme dropdown „replay strategie".
+- **Persistence replay state** — žádná. Replay je „live tooling", po reload editoru se vrací default na step 0.
+- **Performance scrubu** — full grid re-render @ 60 fps na 36×27 canvas s 972 px je triviální (~0.1ms). Žádný worry.
+- **Belt animace?** — pro Úr. 1.5 vynechat (`beltLoad` je už jasný z curve panelu). Pokud budeš chtít, doplníme jako třetí mini canvas.
+
 ### Deep dive: Adaptivní obtížnost podle hráčova progressu
 
 **Proč je to zajímavé:** Balloon Belt má momentálně fixní 14 levelů × 3 obtížnosti. Hráč, co
@@ -374,7 +598,11 @@ _Sem házej všechno, co tě napadne. Při příští session to společně rozt
 
 _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme)_
 
-- _(nic aktivního)_
+- **Difficulty Curve Editor — Úroveň 1.5 (Replay & Scrub)** — Úr. 1 hotová (v63):
+  multi-curve panel + piny + crosshair tooltip. Teď přidáme: `(c, r)` carrieru +
+  pixel diff per krok do testeru, mini canvas (carrier grid + image grid) pod
+  křivkou, timeline scrubber, play/pause, rychlost, export .webm. Hover step
+  v křivce sync s mini gridy. Deep dive: viz [Difficulty Curve Editor](#deep-dive-difficulty-curve-editor) → *Doplnění Úr. 1: Replay & Scrub*.
 
 **Follow-up okruhy po carrier layout editoru** (až si ho zkusíme v praxi):
 - Solvability check + warning badge u variant — počet slotů per barvu vs. obraz
