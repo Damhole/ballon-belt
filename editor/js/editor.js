@@ -614,8 +614,14 @@ function reloadPreview() {
   $('preview-empty').hidden = true;
   frame.hidden = false;
   const diff = $('preview-diff').value || 'easy';
+  // Force aktuálně vybranou variantu (jinak hra losuje náhodně mezi variantami
+  // pro stejný diff a designer vidí jinou než tu, kterou má v editoru otevřenou).
+  const activeV = clActiveVariant(lvl);
+  const variantParam = (activeV && activeV.name && activeV.difficulty === diff)
+    ? '&variant=' + encodeURIComponent(activeV.name) : '';
   const url = '../gamee/index_local.html?level=' + encodeURIComponent(lvl.key) +
               '&diff=' + encodeURIComponent(diff) +
+              variantParam +
               '&t=' + Date.now();
   // Hard refresh: about:blank → real URL. Vynutí plný reload (včetně cache-bust
   // scriptů uvnitř index_local.html, viz inline <script> tam). Bez blanku browser
@@ -870,9 +876,10 @@ function clComputeLevelStatus(lvl) {
       problems.push('"' + (v.name || '?') + '" (' + (v.difficulty || '?') + '): ' + unreach + ' nedostupných nosičů');
     }
   }
-  const diffs = ['easy', 'medium', 'hard'];
+  const diffs = ['easy', 'medium', 'hard', 'hardcore'];
   const statusBag = state.layoutStatusByLevel[lvl.key] || {};
-  const pxBag = state.pxCountsByLevel[lvl.key] || {};
+  const pxBag    = state.pxCountsByLevel[lvl.key]    || {};
+  const projBag  = state.projCountsByLevel[lvl.key]  || {};
   for (const d of diffs) {
     const v = layouts.find(vv => vv && vv.difficulty === d);
     if (!v) continue; // chybějící layout není error — auto-gen to zvládne
@@ -881,15 +888,32 @@ function clComputeLevelStatus(lvl) {
       problems.push(d + ': layout spadl na auto-gen (' + (st.reason || 'neznámý důvod') + ')');
       continue;
     }
-    const px = pxBag[d] || pxBag.easy || pxBag.medium || pxBag.hard;
-    if (px) {
+    const px = pxBag[d] || pxBag.hard || pxBag.medium || pxBag.easy;
+    if (!px) continue;
+
+    // Preferuj game-truth projCounts z preview (hra ví přesně kolik projektilů postavila).
+    // Fallback: konzervativní slot-count odhad (předpokládá max CL_PROJECTILES_PER_CARRIER/slot).
+    // Fallback dává false positive pro barvy s hodně pixely — hra přidělí víc proj/nosič.
+    const proj = projBag[d] || null;
+    if (proj) {
+      // Game-truth check — autoritativní.
+      for (let c = 0; c < BE_COLORS.length; c++) {
+        const need = px[c] | 0;
+        if (need <= 0) continue;
+        const have = proj[c] | 0;
+        if (have < need) problems.push(d + ': barva ' + c + ' má ' + have + '/' + need + ' px (deficit ' + (need - have) + ')');
+      }
+    } else {
+      // Fallback: slot-based odhad. Používej vyšší práh (2× default) aby se omezily
+      // false-positivy u barev s hodně pixely (hra přiděluje >40 proj/nosič když je
+      // nosičů méně než minimum). Skutečná chyba se projeví až po načtení preview.
       const slotsByColor = clCountLayoutSlotsByColor(v);
       for (let c = 0; c < BE_COLORS.length; c++) {
         const need = px[c] | 0;
         if (need <= 0) continue;
-        const needSlots = Math.ceil(need / CL_PROJECTILES_PER_CARRIER);
+        const needSlots = Math.ceil(need / (CL_PROJECTILES_PER_CARRIER * 2)); // 2× buffer
         if ((slotsByColor[c] || 0) < needSlots) {
-          problems.push(d + ': barva ' + c + ' potřebuje ' + needSlots + ' slot(ů), layout má ' + (slotsByColor[c] || 0));
+          problems.push(d + ': barva ' + c + ' potřebuje ≥' + needSlots + ' slot(ů), layout má ' + (slotsByColor[c] || 0) + ' (otevři preview pro přesná čísla)');
         }
       }
     }
@@ -1041,6 +1065,12 @@ function renderEditor() {
     // aktuální výběr — designer tak vždy vidí relevantní variantu hned po přepnutí.
     if (lvl.defaultComplexity && CL_DIFFICULTIES.includes(lvl.defaultComplexity)) {
       state.clActiveDiff = lvl.defaultComplexity;
+    }
+    // Sync preview-diff dropdown na clActiveDiff — bez toho zůstane default 'easy'
+    // a reloadPreview pošle hru se špatnou difficulty (i když pin je hard).
+    const diffSel = $('preview-diff');
+    if (diffSel && state.clActiveDiff && diffSel.value !== state.clActiveDiff) {
+      diffSel.value = state.clActiveDiff;
     }
     _lastSelectedKey = lvl.key;
   }
@@ -1682,6 +1712,152 @@ function clRenderCapacity(lvl, variant) {
   }
 }
 
+// Vrátí true pokud by umístění garáže (nebo zdi) na (garR, garC) trvale zablokalo
+// některý carrier — simuluje "post-empty" stav kde jsou všechny garáže permanentní zdi.
+// Používá se jako pre-check před každým umístěním garáže i wall-slotu.
+function clGarageBlocksCarriers(grid, rows, cols, testR, testC) {
+  const DIRS = [[-1,0],[1,0],[0,-1],[0,1]];
+  const isBlock = (r, c) => {
+    if (r === testR && c === testC) return true;   // kandidát → zeď
+    const t = grid[r][c];
+    if (!t) return false;
+    return t.type === 'wall' || t.wall === true || t.type === 'garage'; // stávající garáže = permanentní zdi
+  };
+  const reach = [];
+  for (let r = 0; r < rows; r++) reach.push(new Array(cols).fill(false));
+  const bq = [];
+  for (let c = 0; c < cols; c++) {
+    if (!isBlock(0, c)) { reach[0][c] = true; bq.push([0, c]); }
+  }
+  while (bq.length) {
+    const [r, c] = bq.shift();
+    for (const [dr, dc] of DIRS) {
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+      if (reach[nr][nc] || isBlock(nr, nc)) continue;
+      reach[nr][nc] = true;
+      bq.push([nr, nc]);
+    }
+  }
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (r === testR && c === testC) continue;
+      const t = grid[r][c];
+      if (t && t.type === 'carrier' && !reach[r][c]) return true;
+    }
+  }
+  return false;
+}
+
+// Po umístění všech garážíků zkontroluje post-garage dostupnost (garáže = zdi).
+// Pro každý carrier nedostupný v tomto stavu se pokusí otevřít null tunel cestou
+// KOLEM garážíků. Pokud cesta neexistuje, odstraní blokující garáž (→ carrier).
+function clRepairPostGarageUnreachable(variant) {
+  const rows = variant.grid.length;
+  const cols = clGetCols(variant);
+  const DIRS = [[-1,0],[1,0],[0,-1],[0,1]];
+
+  const postReach = () => {
+    const isBlockPost = (r, c) => {
+      const t = variant.grid[r][c];
+      return !!(t && (t.type === 'wall' || t.wall === true || t.type === 'garage'));
+    };
+    const reach = [];
+    for (let r = 0; r < rows; r++) reach.push(new Array(cols).fill(false));
+    const bq = [];
+    for (let c = 0; c < cols; c++) {
+      if (!isBlockPost(0, c)) { reach[0][c] = true; bq.push([0, c]); }
+    }
+    while (bq.length) {
+      const [r, c] = bq.shift();
+      for (const [dr, dc] of DIRS) {
+        const nr = r + dr, nc = c + dc;
+        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+        if (reach[nr][nc] || isBlockPost(nr, nc)) continue;
+        reach[nr][nc] = true;
+        bq.push([nr, nc]);
+      }
+    }
+    return reach;
+  };
+
+  for (let iter = 0; iter < 40; iter++) {
+    const reach = postReach();
+    let target = null;
+    for (let r = 0; r < rows && !target; r++) {
+      for (let c = 0; c < cols; c++) {
+        const t = variant.grid[r][c];
+        if (t && t.type === 'carrier' && !reach[r][c]) { target = { r, c }; break; }
+      }
+    }
+    if (!target) return;
+
+    // BFS z target přes walls (NE přes garáže) k dosažitelné zóně
+    const parent = new Map();
+    const seen = new Set();
+    seen.add(target.r + ',' + target.c);
+    const bq = [target];
+    let found = null;
+    while (bq.length) {
+      const cur = bq.shift();
+      if (reach[cur.r][cur.c] && (cur.r !== target.r || cur.c !== target.c)) { found = cur; break; }
+      for (const [dr, dc] of DIRS) {
+        const nr = cur.r + dr, nc = cur.c + dc;
+        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+        const k = nr + ',' + nc;
+        if (seen.has(k)) continue;
+        const nt = variant.grid[nr][nc];
+        if (nt && nt.type === 'garage') continue;  // garáže nepřekračujeme
+        seen.add(k);
+        parent.set(k, cur.r + ',' + cur.c);
+        bq.push({ r: nr, c: nc });
+      }
+    }
+
+    if (!found) {
+      // Tunel kolem garážíků neexistuje — odstraň blokující garáž sousedící s target nebo s unreachable zónou
+      let removed = false;
+      // Prohledej unreachable oblast a najdi garáž sousedící s ní
+      const unreachSeen = new Set();
+      const unreachQ = [target];
+      unreachSeen.add(target.r + ',' + target.c);
+      while (unreachQ.length) {
+        const cur = unreachQ.shift();
+        for (const [dr, dc] of DIRS) {
+          const nr = cur.r + dr, nc = cur.c + dc;
+          if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+          const k = nr + ',' + nc;
+          if (unreachSeen.has(k)) continue;
+          const nt = variant.grid[nr][nc];
+          if (nt && nt.type === 'garage') {
+            // Tato garáž blokuje — odstraň ji (první queue položka = carrier)
+            const firstColor = nt.queue && nt.queue[0] ? nt.queue[0].color : 0;
+            variant.grid[nr][nc] = { type: 'carrier', color: firstColor };
+            removed = true;
+            break;
+          }
+          unreachSeen.add(k);
+          if (!nt || nt.type === 'wall' || nt.wall) continue;
+          unreachQ.push({ r: nr, c: nc });
+        }
+        if (removed) break;
+      }
+      if (!removed) return;
+      continue;
+    }
+
+    // Otevři tunel: wall → null (carriery a rakety necháme)
+    let cur = found.r + ',' + found.c;
+    const targetKey = target.r + ',' + target.c;
+    while (cur && cur !== targetKey) {
+      const [pr, pc] = cur.split(',').map(Number);
+      const t = variant.grid[pr][pc];
+      if (t && (t.type === 'wall' || t.wall === true)) variant.grid[pr][pc] = null;
+      cur = parent.get(cur);
+    }
+  }
+}
+
 // Generator rozložení — napodobuje game.js auto-gen:
 //   easy   → frequent-first, round-robin pro variety, mírné shuffle uvnitř řádků
 //   medium → full shuffle (chaotické rozložení)
@@ -1689,7 +1865,7 @@ function clRenderCapacity(lvl, variant) {
 // Vždy respektuje user-set počet řádků (rows slider). Volné sloty = null (průchody).
 // Mode: 'fill' = doplní jen null tiles (zachová carrier/wall/garage/rocket),
 //       'reset' = vyprázdní grid a naplní znovu.
-function clGenerateLayout(variant, pxCounts, mode) {
+function clGenerateLayout(variant, pxCounts, mode, lvl) {
   if (!variant || !pxCounts) return false;
   const rows = variant.grid.length;
   const cols = clGetCols(variant);
@@ -1851,6 +2027,19 @@ function clGenerateLayout(variant, pxCounts, mode) {
     allocateByWeights(rowKeys.map(() => 1 + Math.random() * 0.4));
   }
 
+  // *** Garantuj ≥1 nosič v řadě 0 — bez toho je grid od startu uzamčený ***
+  // Řada 0 je vždy "aktivní" (top-edge pravidlo honeycomb), takže bez nosiče tam
+  // se hráč ke všem ostatním nosičům nedostane.
+  {
+    const row0Idx = rowKeys.indexOf(0);
+    if (row0Idx >= 0 && perRow[row0Idx] === 0 && queue.length > 0) {
+      // Přesuň 1 nosič z nejhlubší neprázdné řady do řady 0
+      for (let i = rowKeys.length - 1; i > row0Idx; i--) {
+        if (perRow[i] > 0) { perRow[i]--; perRow[row0Idx]++; break; }
+      }
+    }
+  }
+
   // 6) Medium potřebuje náhodné pořadí queue → pozice v rámci každé řady i přes řady.
   //    Pro easy/hard zachováváme queue ordering: queue[0..perRow[0]-1] → řada 0 (top),
   //    queue[next chunk] → řada 1, ...  takže frekvent nahoru, rare dolů.
@@ -1909,11 +2098,156 @@ function clGenerateLayout(variant, pxCounts, mode) {
     }
   }
 
-  // 9) Solvability repair: hráč musí mít cestu ke KAŽDÉMU carrierovi. Pokud generátor
-  //    uzavřel některé do ostrova z walls, otevřeme minimální tunel (převedeme walls
-  //    na null po nejkratší cestě k reachable regionu). Null přidáme JEN tam, kde je
-  //    to nevyhnutelné — designer uvidí jasně, kde byl grid „špatný".
+  // 9) SPECIALS: post-process — garáže a rakety. Aplikuje se PŘED repair, aby
+  //    repair mohl zafixovat případné nové unreachable tiles.
+  const genGarages = !!($('cl-spec-garage-on') && $('cl-spec-garage-on').checked);
+  const genRockets = !!($('cl-spec-rocket-on') && $('cl-spec-rocket-on').checked);
+
+  if (genGarages) {
+    const baseCount = parseInt(($('cl-spec-garage-count') || {}).value || '2', 10);
+    const doRandom  = !!($('cl-spec-garage-random') && $('cl-spec-garage-random').checked);
+
+    // Efektivní počet: základ + ±1 náhoda + škálování podle difficulty
+    let numGar = baseCount;
+    if (doRandom) numGar += Math.floor(Math.random() * 3) - 1; // -1, 0, nebo +1
+    if (diff === 'easy')       numGar = Math.max(0, numGar - 1);
+    else if (diff === 'hard')  numGar = Math.min(6, numGar + 1);
+    numGar = Math.max(0, Math.min(6, numGar));
+
+    // Počet nosičů v queue per garáž (čím těžší, tím víc "uvnitř")
+    const queueSize = diff === 'easy' ? 2 : diff === 'hard' ? 4 : 3;
+
+    // Sbírej jen nově vložené carriers z řad 1+ — řada 0 se NIKDY nedotýká.
+    // Řada 0 musí mít vždy aktivní nosič (top-edge pravidlo), jinak je grid uzamčen.
+    const newCarriers = [];
+    for (let r = 1; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const t = grid[r] && grid[r][c];
+        if (t && t.type === 'carrier' && !occupied.has(r + ',' + c)) {
+          newCarriers.push({ r, c, color: t.color });
+        }
+      }
+    }
+
+    // Nelze vyrobit víc garážíků než dovoluje počet nosičů (queueSize na každou;
+    // garSlot.color + queueSize-1 extra = queueSize celkem). Nechej aspoň 1 volný.
+    numGar = Math.min(numGar, Math.floor(Math.max(0, newCarriers.length - 1) / queueSize));
+
+    // Cílová hloubka pro pozici samotné garáže
+    const garDepthMin = diff === 'easy'  ? 0
+                      : diff === 'medium'? Math.floor(rows * 0.2)
+                      :                   Math.floor(rows * 0.35);
+    const garDepthMax = diff === 'easy'  ? Math.max(0, Math.ceil(rows * 0.4) - 1)
+                      :                   rows - 1;
+
+    for (let g = 0; g < numGar; g++) {
+      if (newCarriers.length < queueSize) break; // potřeba: 1 garSlot + queueSize-1 extra
+
+      // Seřaď kandidáty: první zkoušej ty ve správné hloubce, pak ostatní jako fallback.
+      const inRange = newCarriers.map((n, i) => i).filter(i => {
+        const n = newCarriers[i];
+        return n.r >= garDepthMin && n.r <= garDepthMax;
+      });
+      const outRange = newCarriers.map((n, i) => i).filter(i => !inRange.includes(i));
+      if (diff === 'hard') outRange.reverse(); // hard preferuje hlubší
+      const candidateIdxs = [...inRange, ...outRange];
+
+      // Najdi první kandidáta, jehož permanentní přítomnost (jako zeď) nezablokuje
+      // žádný jiný carrier v post-garage simulaci.
+      let garIdx = -1;
+      for (const idx of candidateIdxs) {
+        const n = newCarriers[idx];
+        if (!clGarageBlocksCarriers(grid, rows, cols, n.r, n.c)) {
+          garIdx = idx;
+          break;
+        }
+      }
+      if (garIdx < 0) continue; // žádná bezpečná pozice — přeskoč tuto garáž
+
+      const garSlot = newCarriers.splice(garIdx, 1)[0];
+
+      // Vezmi queue nosiče (queueSize - 1 extra, protože garSlot.color je první položka):
+      //   hard:   z konce pole (rare/hluboké barvy → hodně "zakopané")
+      //   easy:   ze začátku (frekventované → lehčí přístup)
+      //   medium: mix – z obou konců střídavě
+      const queueColors = [];
+      for (let q = 0; q < queueSize - 1 && newCarriers.length > 0; q++) {
+        let qIdx;
+        if      (diff === 'hard')   qIdx = newCarriers.length - 1;
+        else if (diff === 'easy')   qIdx = 0;
+        else                        qIdx = (q % 2 === 0) ? 0 : newCarriers.length - 1;
+        // Queue wall: přeskoč pozice, které by zablokovaly ostatní carriery
+        let safeQIdx = qIdx;
+        for (let attempt = 0; attempt < newCarriers.length; attempt++) {
+          const tryIdx = (qIdx + attempt * (diff === 'hard' ? -1 : 1) + newCarriers.length) % newCarriers.length;
+          if (!clGarageBlocksCarriers(grid, rows, cols, newCarriers[tryIdx].r, newCarriers[tryIdx].c)) {
+            safeQIdx = tryIdx;
+            break;
+          }
+        }
+        const qSlot = newCarriers.splice(safeQIdx, 1)[0];
+        queueColors.push(qSlot.color);
+        grid[qSlot.r][qSlot.c] = { type: 'wall' }; // slot pro queue → zeď
+      }
+
+      // Ulož garáž: garSlot.color je 1. položka queue — nosič na pozici garáže NESMÍ
+      // být zahozen, jinak jeho barva zmizí z layoutu a hra přepne na auto-gen.
+      grid[garSlot.r][garSlot.c] = {
+        type: 'garage',
+        queue: [{ color: garSlot.color }, ...queueColors.map(color => ({ color }))],
+      };
+    }
+
+    // Auto-zapni garageMode na levelu (pokud vypnutý) — jinak hra garáže ignoruje
+    if (numGar > 0 && lvl && !lvl.garage) {
+      lvl.garage = 'multi';
+    }
+  }
+
+  if (genRockets) {
+    // Počet raket: 1 na easy/medium, 2 na hard — záměrně málo (helpers, ne základ)
+    const numRockets = diff === 'hard' ? 2 : 1;
+    // Rakety patří do přístupné zóny (blíže vrcholu) — jsou to helpery
+    const rocketDepthMax = diff === 'easy'  ? Math.min(1, rows - 1)
+                         : diff === 'hard'  ? Math.min(3, rows - 1)
+                         :                   Math.min(2, rows - 1);
+
+    // Sbírej wall sloty v přístupné zóně (rakety nahrazují jen walls, ne carriers)
+    const wallCandidates = [];
+    for (let r = 0; r <= rocketDepthMax; r++) {
+      for (let c = 0; c < cols; c++) {
+        const t = grid[r] && grid[r][c];
+        if (!t || t.type === 'wall' || t.wall === true) wallCandidates.push({ r, c });
+      }
+    }
+    shuffleArr(wallCandidates);
+
+    // Barvy raket = nejčetnější barvy v aktuálním gridu (nejlepší helper pro hráče)
+    const rocketColorCnt = new Array(BE_COLORS.length).fill(0);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const t = grid[r] && grid[r][c];
+        if (t && t.type === 'carrier') rocketColorCnt[t.color]++;
+      }
+    }
+    const topRocketColors = rocketColorCnt
+      .map((cnt, i) => ({ color: i, cnt }))
+      .filter(x => x.cnt > 0)
+      .sort((a, b) => b.cnt - a.cnt);
+
+    for (let i = 0; i < Math.min(numRockets, wallCandidates.length, topRocketColors.length); i++) {
+      const pos = wallCandidates[i];
+      grid[pos.r][pos.c] = { type: 'rocket', color: topRocketColors[i].color };
+    }
+  }
+
+  // 10) Solvability repair: hráč musí mít cestu ke KAŽDÉMU carrierovi/garáži/raketě.
+  //     Pokud generátor uzavřel některé do ostrova z walls, otevřeme minimální tunel.
   clRepairUnreachable(variant);
+  // Bezpečnostní síť: ověř post-garage dostupnost a oprav, pokud generátor něco
+  // přehlédl (např. wall sloty garáže zablokovaly cestu). Volí tunel kolem, nebo
+  // v krajním případě garáž odstraní (→ carrier z 1. queue položky).
+  if (genGarages) clRepairPostGarageUnreachable(variant);
   return true;
 }
 
@@ -1957,7 +2291,20 @@ function clRepairUnreachable(variant) {
         q.push({ r: nr, c: nc });
       }
     }
-    if (!found) return; // celý grid unreachable (row 0 is all walls) — nic neopravíme
+    if (!found) {
+      // Celý grid unreachable — row 0 je plná zdí. Otevři první wall v row 0 jako tunel
+      // aby BFS měl odkud startovat. Příští iterace loop pak opraví zbývající.
+      let opened = false;
+      for (let c = 0; c < cols && !opened; c++) {
+        const t = variant.grid[0][c];
+        if (t && (t.type === 'wall' || t.wall === true)) {
+          variant.grid[0][c] = null;
+          opened = true;
+        }
+      }
+      if (!opened) return; // row 0 je prázdná (null buňky) ale přesto unreachable — vzdáme se
+      continue; // zkus repair znovu s novým tunelem
+    }
 
     // Zpětná cesta: wall na cestě → null (otevři tunel). Carriery/rockety necháme.
     let cur = found.r + ',' + found.c;
@@ -2286,6 +2633,28 @@ function clRenderInspector(variant) {
     title.className = 'cl-hint';
     title.textContent = 'garage queue (' + (t.queue || []).length + ' nosič' + ((t.queue || []).length === 1 ? '' : 'ů') + ')';
     body.appendChild(title);
+
+    // Destroyable toggle
+    const destroyRow = document.createElement('div');
+    destroyRow.className = 'cl-insp-destroy-row';
+    const destroyCb = document.createElement('input');
+    destroyCb.type = 'checkbox';
+    destroyCb.id = 'cl-insp-destroy-cb';
+    destroyCb.checked = !!t.destroyable;
+    destroyCb.addEventListener('change', () => {
+      histPush(beCurrentLvl(), 'cl-garage-destroyable');
+      t.destroyable = destroyCb.checked;
+      markDirty();
+      renderCarrierLayout(beCurrentLvl());
+    });
+    const destroyLbl = document.createElement('label');
+    destroyLbl.htmlFor = 'cl-insp-destroy-cb';
+    destroyLbl.textContent = '💥 zničitelná';
+    destroyLbl.title = 'Hráč může garáž zničit kliknutím — obsah queue propadne';
+    destroyRow.appendChild(destroyCb);
+    destroyRow.appendChild(destroyLbl);
+    body.appendChild(destroyRow);
+
     const row = document.createElement('div');
     row.className = 'cl-insp-queue';
     (t.queue || []).forEach((q, idx) => {
@@ -2453,6 +2822,10 @@ function wireCarrierLayout() {
     if (!Number.isNaN(idx)) {
       state.clActiveVariantIdx = idx;
       renderCarrierLayout(beCurrentLvl());
+      // Force preview reload — jinak hra dál ukazuje náhodnou variantu (nebo tu
+      // co dostala při minulém načtení). URL ?variant=NAME přepne hru na tuto.
+      _lastPreviewKey = null;
+      schedulePreviewReload();
     }
   });
 
@@ -2535,7 +2908,7 @@ function wireCarrierLayout() {
     const px = clGetStatsForCurrent(lvl);
     if (!v || !px) { alert('Spusť preview hry vpravo — generator potřebuje reálné pxCounts.'); return; }
     histPush(lvl, 'cl-gen-fill');
-    const ok = clGenerateLayout(v, px, 'fill');
+    const ok = clGenerateLayout(v, px, 'fill', lvl);
     if (!ok) { alert('Generator nemohl doplnit — zkontroluj velikost gridu.'); return; }
     markDirty();
     renderCarrierLayout(lvl);
@@ -2548,7 +2921,7 @@ function wireCarrierLayout() {
     const px = clGetStatsForCurrent(lvl);
     if (!v || !px) { alert('Spusť preview hry vpravo — generator potřebuje reálné pxCounts.'); return; }
     histPush(lvl, 'cl-gen-reset');
-    const ok = clGenerateLayout(v, px, 'reset');
+    const ok = clGenerateLayout(v, px, 'reset', lvl);
     if (!ok) { alert('Generator selhal.'); return; }
     markDirty();
     renderCarrierLayout(lvl);
@@ -2587,6 +2960,15 @@ function wireCarrierLayout() {
     clResizeGrid(v, null, newCols);
     markDirty();
     renderCarrierLayout(lvl);
+  });
+
+  // Specials: garáže toggle + slider
+  $('cl-spec-garage-on').addEventListener('change', () => {
+    const on = $('cl-spec-garage-on').checked;
+    $('cl-spec-garage-sub').hidden = !on;
+  });
+  $('cl-spec-garage-count').addEventListener('input', () => {
+    $('cl-spec-garage-count-val').textContent = $('cl-spec-garage-count').value;
   });
 
   $('cl-analyze-btn').addEventListener('click', () => {

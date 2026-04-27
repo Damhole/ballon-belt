@@ -239,6 +239,9 @@ let _ptInitGrid=null,_ptInitColumns=null,_ptInitPxCounts=null; // playtester sna
 // startLevel podle toho ví, že má PŘESKOČIT rocket + garage injekci (layout už má
 // rakety/garáž embedded jako tiles). False = auto-generovaný grid = injekce jede jako dřív.
 let columnsFromLayout=false;
+// Když preview iframe (editor) chce force-loadnout konkrétní variantu carrier layoutu
+// (?variant=NAME v URL), uložíme název sem; pickLayoutVariant ho preferuje před náhodou.
+let _forcedVariantName=null;
 // garageMode: 'off' | 'single' (1 náhodný směr) | 'multi' (2-4 náhodné směry)
 const GAR_DIR_VEC={N:[0,-1],S:[0,1],W:[-1,0],E:[1,0]};
 let beltAnim=0,lastBeltTime=null;
@@ -2810,6 +2813,12 @@ function pickLayoutVariant(levelDef,diff){
   if(!all||!all.length)return null;
   const candidates=all.filter(v=>v&&v.difficulty===diff&&Array.isArray(v.grid)&&v.grid.length);
   if(!candidates.length)return null;
+  // URL ?variant=NAME force-loaduje konkrétní variantu (pro editor preview, aby
+  // designer viděl právě tu variantu, kterou má vybranou — místo náhody mezi všemi).
+  if(typeof _forcedVariantName==='string'&&_forcedVariantName){
+    const forced=candidates.find(v=>v.name===_forcedVariantName);
+    if(forced)return forced;
+  }
   return candidates[Math.floor(Math.random()*candidates.length)];
 }
 function buildColsFromLayout(layout,pxCounts){
@@ -2890,7 +2899,7 @@ function buildColsFromLayout(layout,pxCounts){
           const proj=(chunks&&chunks.length)?chunks.shift():UPC*PPU;
           return {color:col,projectiles:proj};
         }):[];
-        cols[c].push({type:'garage',directions:['N'],queue,_pendingDirs:true});
+        cols[c].push({type:'garage',directions:['N'],queue,_pendingDirs:true,destroyable:!!t.destroyable});
         continue;
       }
       if(t.type==='carrier'){
@@ -3494,7 +3503,9 @@ function drawCarriers(){
         const arrGlyph={N:'\u25B2',S:'\u25BC',W:'\u25C0',E:'\u25B6'};
         let arrHTML='';
         for(const d of dirs)arrHTML+='<span class="'+arrMap[d]+'">'+arrGlyph[d]+'</span>';
-        div.innerHTML='<div class="cbox" style="position:relative;background:'+nextColor+';display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:1.5px solid rgba(0,0,0,0.45)">'
+        const destroyBadge=slot.destroyable&&active?'<span style="position:absolute;top:1px;right:2px;font-size:8px;opacity:0.85">💥</span>':'';
+        div.innerHTML='<div class="cbox" style="position:relative;background:'+nextColor+';display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:1.5px solid rgba(0,0,0,0.45)'+(slot.destroyable&&active?';outline:2px solid rgba(255,80,0,0.7);outline-offset:-2px':'')+'">'
+          +destroyBadge
           +arrHTML
           +'<span style="font-size:16px;line-height:1">🏠</span>'
           +'<span style="font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,0.8)">'+count+'</span>'
@@ -3520,7 +3531,8 @@ function drawCarriers(){
         const borderStyle=isCleanup?'border:2px dashed rgba(255,255,255,0.55)':'border:1.5px solid rgba(0,0,0,0.45)';
         div.innerHTML='<div class="cbox" style="background:'+bg+';'+borderStyle+'">'+ballsHTML+'</div>';
       }
-      if(active&&!isGarage){div.dataset.col=c;div.dataset.row=r;div.addEventListener('click',onCarrierClick);}
+      const isDestroyable=isGarage&&active&&slot.destroyable;
+      if((active&&!isGarage)||isDestroyable){div.dataset.col=c;div.dataset.row=r;div.addEventListener('click',onCarrierClick);}
       col.appendChild(div);
     }
     el.appendChild(col);
@@ -3589,6 +3601,15 @@ function onCarrierClick(e){
     noMatchPasses=0;
     drawCarriers();drawBelt();drawPending();
     setStatus('🚀 Rakety v trychtýři!');
+    return;
+  }
+  if(slot.type==='garage'&&slot.destroyable){
+    // Zničitelná garáž: hráč ji odpálí → zmizí okamžitě, queue propadne.
+    // (Otevře cestu k nosičům pod ní, aniž by čekal na postupné dispensování.)
+    columns[c][r]=null;
+    noMatchPasses=0;
+    drawCarriers();drawBelt();drawPending();
+    setStatus('💥 Garáž zničena!');
     return;
   }
   const projectiles=slot.projectiles||UPC*PPU;
@@ -4093,7 +4114,7 @@ function startLevel(){
   // Dříve byly globální toggly v UI hry — ty jsou v28 pryč, zdroj pravdy je levelDef.
   gravityOn=!!levelDef.gravity;
   rocketsOn=!!levelDef.rocketTargets;
-  garageMode=levelDef.garage?'single':'off';
+  garageMode=levelDef.garage==='multi'?'multi':levelDef.garage?'single':'off';
   currentBlocks=hydrateBlocks(levelDef.blocks);
   // Solid blok je neprůhledný — pod ním nemají být žádné pixely, jinak by
   // generátor vyrobil nosiče, které se stanou nepoužitelnými (pixely se
@@ -4806,7 +4827,10 @@ function initGame(){
     const p=url.searchParams.get('level');
     if(p&&LEVELS.some(l=>l.key===p)){currentLevel=p;_levelFromUrl=true;}
     const d=url.searchParams.get('diff');
-    if(d&&['easy','medium','hard'].includes(d)){difficulty=d;_diffFromUrl=true;}
+    if(d&&['easy','medium','hard','hardcore'].includes(d)){difficulty=d;_diffFromUrl=true;}
+    // ?variant=NAME force-loaduje konkrétní variantu z carrierLayouts (preview z editoru).
+    const v=url.searchParams.get('variant');
+    if(v)_forcedVariantName=v;
   }catch(e){}
   // Pokud URL neurčila diff, aplikuj designer pin pro aktuální level. Pokud
   // saveState má vlastní difficulty, tu aplikujeme níže v gameInit callbacku.

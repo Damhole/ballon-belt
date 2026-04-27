@@ -250,6 +250,17 @@
                 <input type="range" id="cl-cols" min="1" max="7" step="2" value="7">
               </div>
               <div class="cl-tb-row">
+                <span class="cl-tb-label">specials</span>
+                <label class="cl-check-label"><input type="checkbox" id="cl-spec-garage-on"> garáže</label>
+                <label class="cl-check-label"><input type="checkbox" id="cl-spec-rocket-on"> rakety</label>
+              </div>
+              <div class="cl-tb-row cl-spec-sub" id="cl-spec-garage-sub" hidden>
+                <span class="cl-tb-label cl-tb-sublabel">↳ garážíků</span>
+                <input type="range" id="cl-spec-garage-count" min="1" max="4" step="1" value="2">
+                <span id="cl-spec-garage-count-val" class="val">2</span>
+                <label class="cl-check-label"><input type="checkbox" id="cl-spec-garage-random" checked> ±náhoda</label>
+              </div>
+              <div class="cl-tb-row">
                 <span class="cl-tb-label">generátor</span>
                 <button type="button" id="cl-gen-fill" class="btn btn-small" title="Doplň null buňky nosiči podle reálných pxCounts; existující tile nech.">🎲 doplnit prázdné</button>
                 <button type="button" id="cl-gen-reset" class="btn btn-small btn-danger" title="Vyprázdni grid a vygeneruj nový rozložení od nuly.">♻ regenerovat</button>
