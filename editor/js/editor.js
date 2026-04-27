@@ -59,37 +59,59 @@ const BE_PALETTE_PRESETS = [
   { key: 'popart',  label: 'Pop art',        colors: [12,18,5,22,26,30,3,39,43,14,7,8] },
 ];
 
+// Otočí masku o 90° po směru hodinových ručiček.
+// Vstup: m[nRows][nCols] → výstup: m[nCols][nRows]
+function _rotateMaskCW(m, nRows, nCols) {
+  const out = [];
+  for (let r = 0; r < nCols; r++) out.push(new Array(nRows).fill(false));
+  for (let y = 0; y < nRows; y++)
+    for (let x = 0; x < nCols; x++)
+      out[x][nRows - 1 - y] = m[y][x];
+  return out;
+}
+
 // Port blockMask z game.js (1:1 identický, aby editor renderoval tvary stejně jako hra).
-function beBlockMask(shape, w, h) {
+// rot = 0..3 otočení o 90° CW. w, h jsou zobrazované (effective) rozměry.
+function beBlockMask(shape, w, h, rot) {
+  rot = ((rot || 0) % 4 + 4) % 4;
+  // Kanonické (neotočené) rozměry — základ pro výpočet masky
+  const bw = rot % 2 === 0 ? w : h;
+  const bh = rot % 2 === 0 ? h : w;
   const m = [];
-  for (let y = 0; y < h; y++) m.push(new Array(w).fill(false));
+  for (let y = 0; y < bh; y++) m.push(new Array(bw).fill(false));
   if (shape === 'rect') {
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) m[y][x] = true;
+    for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) m[y][x] = true;
   } else if (shape === 'cross') {
-    const cx = Math.floor((w - 1) / 2), cy = Math.floor((h - 1) / 2);
-    const armW = Math.max(1, Math.floor(w / 3)), armH = Math.max(1, Math.floor(h / 3));
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const cx = Math.floor((bw - 1) / 2), cy = Math.floor((bh - 1) / 2);
+    const armW = Math.max(1, Math.floor(bw / 3)), armH = Math.max(1, Math.floor(bh / 3));
+    for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
       if (Math.abs(y - cy) <= Math.floor(armH / 2)) m[y][x] = true;
       if (Math.abs(x - cx) <= Math.floor(armW / 2)) m[y][x] = true;
     }
   } else if (shape === 'L') {
-    const thick = Math.max(1, Math.floor(w / 3));
-    for (let y = 0; y < h; y++) for (let x = 0; x < thick; x++) m[y][x] = true;
-    for (let y = h - thick; y < h; y++) for (let x = 0; x < w; x++) m[y][x] = true;
+    const thick = Math.max(1, Math.floor(Math.min(bw, bh) / 2));
+    for (let y = 0; y < bh; y++) for (let x = 0; x < thick; x++) m[y][x] = true;
+    for (let y = bh - thick; y < bh; y++) for (let x = 0; x < bw; x++) m[y][x] = true;
   } else if (shape === 'T') {
-    const thick = Math.max(1, Math.floor(h / 3));
-    for (let y = 0; y < thick; y++) for (let x = 0; x < w; x++) m[y][x] = true;
-    const stemW = Math.max(1, Math.floor(w / 3));
-    const stemX = Math.floor((w - stemW) / 2);
-    for (let y = thick; y < h; y++) for (let x = stemX; x < stemX + stemW; x++) m[y][x] = true;
+    const thick = Math.max(1, Math.floor(Math.min(bw, bh) / 2));
+    for (let y = 0; y < thick; y++) for (let x = 0; x < bw; x++) m[y][x] = true;
+    const stemW = Math.max(1, Math.floor(bw / 3));
+    const stemX = Math.floor((bw - stemW) / 2);
+    for (let y = thick; y < bh; y++) for (let x = stemX; x < stemX + stemW; x++) m[y][x] = true;
   } else if (shape === 'circle') {
-    const cx = (w - 1) / 2, cy = (h - 1) / 2, rx = w / 2, ry = h / 2;
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const cx = (bw - 1) / 2, cy = (bh - 1) / 2, rx = bw / 2, ry = bh / 2;
+    for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
       const nx = (x - cx) / rx, ny = (y - cy) / ry;
       m[y][x] = (nx * nx + ny * ny) <= 1.0;
     }
   }
-  return m;
+  // Aplikuj rotaci
+  let res = m, cw = bw, ch = bh;
+  for (let i = 0; i < rot; i++) {
+    res = _rotateMaskCW(res, ch, cw);
+    [cw, ch] = [ch, cw];
+  }
+  return res;
 }
 
 // Editor-only state pro Block editor.
@@ -103,7 +125,19 @@ const beState = {
   pxDragging: false,        // true během click-drag kreslení
   pxRectStart: null,        // {x,y} při rect tool — počáteční pixel
   pxRectEnd: null,          // aktualní end pixel (hover během dragu)
+  altHeld: false,           // Alt drženo → pipette cursor (visual feedback Alt+klik nasaje barvu)
+  selectedBlocks: new Set(), // indexy bloků v multi-selectu (vždy sync s selectedBlockIdx)
+  rubberBandStart: null,    // {x,y} v image-px — začátek rubber-band tažení
+  rubberBandEnd: null,      // {x,y} aktuální konec rubber-bandu
 };
+
+// Clipboard pro copy/paste bloku (in-memory, přežije přepnutí levelu).
+let _beCopiedBlock = null;
+
+// Pipette / eyedropper cursor — SVG kapátko (žluté, černý outline). Když je Alt drženo
+// nad pixel canvasem custom levelu, zobrazí se místo default cursoru. Hot-spot 2,22
+// = špička kapátka vlevo dole.
+const PIPETTE_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path d='M21 3l-3-3-7 7-1-1-2 2 2 2-7 7v3h3l7-7 2 2 2-2-1-1z' fill='%23ffea00' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'/></svg>") 2 22, crosshair`;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // UNDO / REDO — per-level history stack
@@ -216,6 +250,7 @@ function histRedo() {
 function afterHistoryApply() {
   // Po aplikaci snapshotu překreslit editor, zaznamenat dirty a reloadnout preview.
   beState.selectedBlockIdx = -1;
+  beState.selectedBlocks = new Set();
   beState.drag = null;
   beState.mousePx = null;
   beState.pxRectStart = null;
@@ -992,6 +1027,7 @@ function renderEditor() {
   if (_lastSelectedKey !== lvl.key) {
     if (typeof beState !== 'undefined' && beState) {
       beState.selectedBlockIdx = -1;
+      beState.selectedBlocks = new Set();
       beState.drag = null;
       beState.pxDragging = false;
       beState.beResizing = false;
@@ -999,10 +1035,13 @@ function renderEditor() {
       beState.pxRectEnd = null;
       beState.mousePx = null;
     }
-    // Carrier layout: reset variant selector na první variantu pro current diff
-    // (clRenderToolbar pak naplní podle reálných dat). Bez tohoto by zůstal
-    // index z předchozího levelu, který může být out-of-range pro nový level.
+    // Carrier layout: reset variant selector na první variantu pro current diff.
     state.clActiveVariantIdx = -1;
+    // Přepni na pinnnutou complexity tohoto levelu (pokud existuje), jinak zachovej
+    // aktuální výběr — designer tak vždy vidí relevantní variantu hned po přepnutí.
+    if (lvl.defaultComplexity && CL_DIFFICULTIES.includes(lvl.defaultComplexity)) {
+      state.clActiveDiff = lvl.defaultComplexity;
+    }
     _lastSelectedKey = lvl.key;
   }
 
@@ -1113,15 +1152,12 @@ function clPickFirstVariantForDiff(lvl, diff) {
   for (let i = 0; i < all.length; i++) if (all[i] && all[i].difficulty === diff) return i;
   return -1;
 }
-function clBlankGrid(rows) {
-  // Default = zed (blokáda). Designer pak pozitivně maluje carriers + případné tunely.
-  // Dříve jsme inicializovali null, ale null = cestička, která aktivuje sousedy →
-  // designer viděl ve hře všechny nosiče aktivní i bez prvního kliku. Zed je sémanticky
-  // správný default pro „nic tady není, aktivace nepropouští".
+function clBlankGrid(rows, cols) {
+  cols = cols || CL_COLS;
   const g = [];
   for (let r = 0; r < rows; r++) {
     const row = [];
-    for (let c = 0; c < CL_COLS; c++) row.push({ type: 'wall' });
+    for (let c = 0; c < cols; c++) row.push({ type: 'wall' });
     g.push(row);
   }
   return g;
@@ -1132,17 +1168,47 @@ function clDefaultVariantName(lvl, diff) {
   for (let n = 1; n < 99; n++) if (!existing.includes(base + n)) return base + n;
   return base + Date.now();
 }
-function clResizeGrid(variant, newRows) {
+// Vrátí aktuální počet sloupců varianty (fallback na CL_COLS = 7).
+function clGetCols(variant) {
+  return (variant && typeof variant.cols === 'number' && variant.cols >= 1)
+    ? variant.cols : CL_COLS;
+}
+
+function clResizeGrid(variant, newRows, newCols) {
   if (!variant || !Array.isArray(variant.grid)) return;
+  const cols = newCols != null ? newCols : clGetCols(variant);
+
+  // Resize sloupců — symetricky z obou stran (vždy lichý počet)
+  if (newCols != null && newCols !== clGetCols(variant)) {
+    const oldCols = clGetCols(variant);
+    variant.cols = newCols;
+    const diff = newCols - oldCols;
+    const half = Math.abs(diff) >> 1; // diff je vždy sudý (liché→liché)
+    const rem  = Math.abs(diff) - half * 2; // 0 nebo 1 (paranoia)
+    for (const row of variant.grid) {
+      if (diff > 0) {
+        // Přidáváme half vlevo + half vpravo (+ 1 vpravo pokud odd diff)
+        for (let i = 0; i < half; i++) row.unshift({ type: 'wall' });
+        for (let i = 0; i < half + rem; i++) row.push({ type: 'wall' });
+      } else {
+        // Ubíráme half zleva + half zprava
+        for (let i = 0; i < half; i++) row.shift();
+        for (let i = 0; i < half + rem; i++) row.pop();
+      }
+    }
+  }
+
+  // Resize řádků
   const cur = variant.grid.length;
-  if (newRows === cur) return;
-  if (newRows < cur) {
-    variant.grid = variant.grid.slice(0, newRows);
-  } else {
-    for (let r = cur; r < newRows; r++) {
-      const row = [];
-      for (let c = 0; c < CL_COLS; c++) row.push({ type: 'wall' });
-      variant.grid.push(row);
+  if (newRows != null && newRows !== cur) {
+    if (newRows < cur) {
+      variant.grid = variant.grid.slice(0, newRows);
+    } else {
+      for (let r = cur; r < newRows; r++) {
+        const row = [];
+        for (let c = 0; c < cols; c++) row.push({ type: 'wall' });
+        variant.grid.push(row);
+      }
     }
   }
 }
@@ -1206,13 +1272,21 @@ function renderCarrierLayout(lvl) {
   // Rows slider
   const rowsInput = $('cl-rows');
   const rowsVal = $('cl-rows-val');
+  const colsInput = $('cl-cols');
+  const colsVal = $('cl-cols-val');
   if (variant) {
     rowsInput.value = variant.grid.length;
     rowsVal.textContent = variant.grid.length;
     rowsInput.disabled = false;
+    const curCols = clGetCols(variant);
+    colsInput.value = curCols;
+    colsVal.textContent = curCols;
+    colsInput.disabled = false;
   } else {
     rowsVal.textContent = '—';
     rowsInput.disabled = true;
+    colsVal.textContent = '—';
+    colsInput.disabled = true;
   }
 
   // Empty vs editor
@@ -1618,7 +1692,7 @@ function clRenderCapacity(lvl, variant) {
 function clGenerateLayout(variant, pxCounts, mode) {
   if (!variant || !pxCounts) return false;
   const rows = variant.grid.length;
-  const cols = CL_COLS;
+  const cols = clGetCols(variant);
   if (!rows) return false;
   const diff = state.clActiveDiff;
 
@@ -1815,9 +1889,9 @@ function clGenerateLayout(variant, pxCounts, mode) {
   const placedKeys = new Set();
   for (const p of placements) {
     const carrier = { type: 'carrier', color: p.color };
-    if (hiddenRate > 0 && p.pos.r > 0 && Math.random() < hiddenRate) {
-      carrier.hidden = true;
-    }
+    // Explicitně nastavit hidden i pro false — jinak hra háže vlastní Math.random()
+    // pro nosiče bez hodnoty, což způsobuje neshodu editor ↔ preview.
+    carrier.hidden = (hiddenRate > 0 && p.pos.r > 0 && Math.random() < hiddenRate);
     grid[p.pos.r][p.pos.c] = carrier;
     placedKeys.add(p.pos.r + ',' + p.pos.c);
   }
@@ -1845,7 +1919,7 @@ function clGenerateLayout(variant, pxCounts, mode) {
 
 function clRepairUnreachable(variant) {
   const rows = variant.grid.length;
-  const cols = CL_COLS;
+  const cols = clGetCols(variant);
   const DIRS = [[-1,0],[1,0],[0,-1],[0,1]];
   for (let iter = 0; iter < 50; iter++) {
     const reach = clReachability(variant);
@@ -2002,7 +2076,7 @@ function clRenderPalette() {
 // takže buňka v regionu obklopeném samými walls je unreachable.
 function clReachability(variant) {
   const rows = variant.grid.length;
-  const cols = CL_COLS;
+  const cols = clGetCols(variant);
   const reach = [];
   for (let r = 0; r < rows; r++) reach.push(new Array(cols).fill(false));
   const isBlock = (r, c) => {
@@ -2035,7 +2109,7 @@ function clCountUnreachable(variant) {
   const reach = clReachability(variant);
   let count = 0;
   for (let r = 0; r < variant.grid.length; r++) {
-    for (let c = 0; c < CL_COLS; c++) {
+    for (let c = 0; c < clGetCols(variant); c++) {
       const t = variant.grid[r][c];
       if (!t) continue;
       if ((t.type === 'carrier' || t.type === 'rocket' || t.type === 'garage') && !reach[r][c]) count++;
@@ -2049,11 +2123,19 @@ function clRenderGrid(variant) {
   if (!g) return;
   g.innerHTML = '';
   const rows = variant.grid.length;
-  g.style.gridTemplateRows = 'repeat(' + rows + ', 48px)';
+  const cols = clGetCols(variant);
+
+  // Fluid layout — buňky na 1fr, aspect-ratio wrapperu pro čtvercové buňky
+  g.style.gridTemplateRows = 'repeat(' + rows + ', 1fr)';
+  g.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+  const wrap = g.closest('.cl-grid-wrap');
+  if (wrap) wrap.style.setProperty('--cl-grid-ratio', cols + '/' + rows);
+
   const sel = state.clSelCell;
   const reach = clReachability(variant);
+
   for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < CL_COLS; c++) {
+    for (let c = 0; c < cols; c++) {
       const t = variant.grid[r] && variant.grid[r][c];
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -2074,19 +2156,60 @@ function clRenderGrid(variant) {
         q.textContent = '?';
         btn.appendChild(q);
       }
-      // Unreachable marker: carrier/rocket/garage bez cesty k top row.
+      // Unreachable marker
       if (t && (t.type === 'carrier' || t.type === 'rocket' || t.type === 'garage') && !reach[r][c]) {
         btn.classList.add('tile-unreachable');
         btn.title = (btn.title || '') + ' ⚠ nedostupný (obklopený zdmi)';
       }
-      // garage queue count badge
+      // Garage queue count badge
       if (t && t.type === 'garage' && Array.isArray(t.queue) && t.queue.length) {
         const badge = document.createElement('span');
         badge.className = 'cl-cell-badge';
         badge.textContent = String(t.queue.length);
         btn.appendChild(badge);
       }
+
       btn.addEventListener('click', () => clOnCellClick(r, c));
+
+      // ── Drag & drop swap ──────────────────────────────────────────
+      btn.draggable = true;
+      btn.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', r + ',' + c);
+        e.dataTransfer.effectAllowed = 'move';
+        // Odložit přidání třídy, aby prohlížeč stihl udělat drag snapshot
+        setTimeout(() => btn.classList.add('cl-drag-src'), 0);
+      });
+      btn.addEventListener('dragend', () => {
+        btn.classList.remove('cl-drag-src');
+      });
+      btn.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        btn.classList.add('cl-drag-over');
+      });
+      btn.addEventListener('dragleave', () => {
+        btn.classList.remove('cl-drag-over');
+      });
+      btn.addEventListener('drop', (e) => {
+        e.preventDefault();
+        btn.classList.remove('cl-drag-over');
+        const raw = e.dataTransfer.getData('text/plain');
+        if (!raw) return;
+        const [srcR, srcC] = raw.split(',').map(Number);
+        if (srcR === r && srcC === c) return;
+        const lvl = beCurrentLvl();
+        const v = clActiveVariant(lvl);
+        if (!v) return;
+        histPush(lvl, 'cl-swap');
+        // Swap tiles
+        const tmp = v.grid[srcR][srcC];
+        v.grid[srcR][srcC] = v.grid[r][c];
+        v.grid[r][c] = tmp;
+        markDirty();
+        renderCarrierLayout(lvl);
+      });
+      // ─────────────────────────────────────────────────────────────
+
       g.appendChild(btn);
     }
   }
@@ -2444,7 +2567,24 @@ function wireCarrierLayout() {
     const newRows = Math.max(1, Math.min(CL_MAX_ROWS, parseInt(rowsInput.value, 10) || 4));
     if (newRows === v.grid.length) return;
     histPush(lvl, 'cl-rows');
-    clResizeGrid(v, newRows);
+    clResizeGrid(v, newRows, null);
+    markDirty();
+    renderCarrierLayout(lvl);
+  });
+
+  // Cols slider
+  const colsInput = $('cl-cols');
+  colsInput.addEventListener('input', () => {
+    $('cl-cols-val').textContent = colsInput.value;
+  });
+  colsInput.addEventListener('change', () => {
+    const lvl = beCurrentLvl();
+    const v = clActiveVariant(lvl);
+    if (!v) return;
+    const newCols = Math.max(1, Math.min(CL_COLS, parseInt(colsInput.value, 10) || CL_COLS));
+    if (newCols === clGetCols(v)) return;
+    histPush(lvl, 'cl-cols');
+    clResizeGrid(v, null, newCols);
     markDirty();
     renderCarrierLayout(lvl);
   });
@@ -2478,7 +2618,7 @@ function beHydrate(b) {
     hp: Math.max(1, b.hp | 0),
     x: b.x | 0,
     y: b.y | 0,
-    _mask: beBlockMask(shape, w, h),
+    _mask: beBlockMask(shape, w, h, b.rot),
   };
 }
 
@@ -2615,9 +2755,10 @@ function renderBlockCanvas() {
   }
 
   const blocks = lvl.blocks || [];
+  const isSingle = beState.selectedBlocks.size <= 1;
   blocks.forEach((raw, idx) => {
     const b = beHydrate(raw);
-    beDrawOneBlock(ctx, b, idx === beState.selectedBlockIdx, false);
+    beDrawOneBlock(ctx, b, beState.selectedBlocks.has(idx), false, isSingle);
   });
 
   // Rect-tool preview — zvýrazní se obdélník mezi rectStart a rectEnd.
@@ -2642,6 +2783,56 @@ function renderBlockCanvas() {
     ctx.restore();
   }
 
+  // Group bounding-box handles (multi-select) — vnější žlutý outline + 8 handles
+  if (beState.selectedBlocks.size > 1) {
+    const bbox = beGroupBbox();
+    if (bbox) {
+      ctx.save();
+      ctx.strokeStyle = '#ffe07a';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(bbox.x * BE_SCALE - 2, bbox.y * BE_SCALE - 2,
+                     bbox.w * BE_SCALE + 4, bbox.h * BE_SCALE + 4);
+      ctx.setLineDash([]);
+      const hs = 7;
+      const hx = bbox.x * BE_SCALE - 2, hy = bbox.y * BE_SCALE - 2;
+      const hw = bbox.w * BE_SCALE + 4, hh = bbox.h * BE_SCALE + 4;
+      const handles = [
+        [hx, hy],           [hx + hw / 2, hy],  [hx + hw, hy],
+        [hx, hy + hh / 2],                       [hx + hw, hy + hh / 2],
+        [hx, hy + hh],      [hx + hw / 2, hy + hh], [hx + hw, hy + hh],
+      ];
+      ctx.fillStyle = '#ffe07a';
+      ctx.strokeStyle = '#1a1818';
+      ctx.lineWidth = 1;
+      for (const [hx0, hy0] of handles) {
+        ctx.fillRect(hx0 - hs / 2, hy0 - hs / 2, hs, hs);
+        ctx.strokeRect(hx0 - hs / 2, hy0 - hs / 2, hs, hs);
+      }
+      ctx.restore();
+    }
+  }
+
+  // Rubber-band selection overlay
+  if (beState.rubberBandStart && beState.rubberBandEnd) {
+    const rs = beState.rubberBandStart, re = beState.rubberBandEnd;
+    const rx = Math.min(rs.x, re.x) * BE_SCALE;
+    const ry = Math.min(rs.y, re.y) * BE_SCALE;
+    const rw = Math.abs(re.x - rs.x) * BE_SCALE;
+    const rh = Math.abs(re.y - rs.y) * BE_SCALE;
+    ctx.save();
+    ctx.globalAlpha = 0.15;
+    ctx.fillStyle = '#7eb8f7';
+    ctx.fillRect(rx, ry, rw, rh);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#7eb8f7';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(rx, ry, rw, rh);
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
   // Drag preview: poloprůhledný duch bloku na aktuální pozici kurzoru
   if (beState.drag && beState.mousePx) {
     const d = beState.drag;
@@ -2656,7 +2847,7 @@ function renderBlockCanvas() {
   }
 }
 
-function beDrawOneBlock(ctx, b, isSelected, isGhost) {
+function beDrawOneBlock(ctx, b, isSelected, isGhost, showHandles = true) {
   const isMystery = b.kind === 'mystery';
   const fill = isMystery ? '#555a62' : (BE_COLORS[b.color] || '#888');
   for (let ly = 0; ly < b.h; ly++) for (let lx = 0; lx < b.w; lx++) {
@@ -2709,22 +2900,23 @@ function beDrawOneBlock(ctx, b, isSelected, isGhost) {
       b.h * BE_SCALE + 2
     );
     ctx.setLineDash([]);
-    // Resize handle squares — středy hran + 4 rohy. Designer chytne handle
-    // a táhne pro resize. 8 bodů jako u běžného shape editoru.
-    const hs = 6; // velikost handle čtverce v px
-    const hx = b.x * BE_SCALE - 1, hy = b.y * BE_SCALE - 1;
-    const hw = b.w * BE_SCALE + 2, hh = b.h * BE_SCALE + 2;
-    const handles = [
-      [hx, hy], [hx + hw / 2, hy], [hx + hw, hy],            // NW, N, NE
-      [hx, hy + hh / 2],          [hx + hw, hy + hh / 2],    // W, E
-      [hx, hy + hh], [hx + hw / 2, hy + hh], [hx + hw, hy + hh] // SW, S, SE
-    ];
-    ctx.fillStyle = '#ffe07a';
-    ctx.strokeStyle = '#1a1818';
-    ctx.lineWidth = 1;
-    for (const [hx0, hy0] of handles) {
-      ctx.fillRect(hx0 - hs / 2, hy0 - hs / 2, hs, hs);
-      ctx.strokeRect(hx0 - hs / 2, hy0 - hs / 2, hs, hs);
+    if (showHandles) {
+      // Resize handle squares — středy hran + 4 rohy. Pouze pro single-select.
+      const hs = 6;
+      const hx = b.x * BE_SCALE - 1, hy = b.y * BE_SCALE - 1;
+      const hw = b.w * BE_SCALE + 2, hh = b.h * BE_SCALE + 2;
+      const handles = [
+        [hx, hy], [hx + hw / 2, hy], [hx + hw, hy],
+        [hx, hy + hh / 2],           [hx + hw, hy + hh / 2],
+        [hx, hy + hh], [hx + hw / 2, hy + hh], [hx + hw, hy + hh],
+      ];
+      ctx.fillStyle = '#ffe07a';
+      ctx.strokeStyle = '#1a1818';
+      ctx.lineWidth = 1;
+      for (const [hx0, hy0] of handles) {
+        ctx.fillRect(hx0 - hs / 2, hy0 - hs / 2, hs, hs);
+        ctx.strokeRect(hx0 - hs / 2, hy0 - hs / 2, hs, hs);
+      }
     }
     ctx.restore();
   }
@@ -2788,13 +2980,16 @@ function renderBlockPalette() {
   const wrap = $('be-palette');
   if (!wrap) return;
   wrap.innerHTML = '';
+  // Základní stavební jednotka = 5×5 image px.
+  // thick = floor(w/3) → pro přesně 5px ramena musí být w=15 (L, cross).
+  // T: top-bar thick = floor(h/3) → h=15 pro přesné rameno.
   const presets = [
-    { shape: 'rect',   kind: 'solid',   w: 4, h: 3, color: 4, hp: 10, label: 'rect' },
-    { shape: 'cross',  kind: 'solid',   w: 5, h: 5, color: 3, hp: 12, label: 'cross' },
-    { shape: 'L',      kind: 'solid',   w: 4, h: 4, color: 1, hp: 10, label: 'L' },
-    { shape: 'T',      kind: 'solid',   w: 5, h: 4, color: 5, hp: 10, label: 'T' },
-    { shape: 'circle', kind: 'solid',   w: 5, h: 5, color: 6, hp: 12, label: 'circle' },
-    { shape: 'rect',   kind: 'mystery', w: 3, h: 3, color: 0, hp: 8,  label: '? rect' },
+    { shape: 'rect',   kind: 'solid',   w:  5, h:  5, color: 4, hp: 10, label: '1×1' },
+    { shape: 'cross',  kind: 'solid',   w: 15, h: 15, color: 3, hp: 30, label: 'cross' },
+    { shape: 'L',      kind: 'solid',   w: 10, h: 10, color: 1, hp: 15, label: 'L' },
+    { shape: 'T',      kind: 'solid',   w: 15, h: 10, color: 5, hp: 20, label: 'T' },
+    { shape: 'circle', kind: 'solid',   w:  5, h:  5, color: 6, hp: 10, label: '○' },
+    { shape: 'rect',   kind: 'mystery', w:  5, h:  5, color: 0, hp:  8, label: '?' },
   ];
   presets.forEach(p => {
     const tile = document.createElement('div');
@@ -2863,71 +3058,138 @@ function renderSelectedBlockPanel() {
     return;
   }
   wrap.hidden = false;
-  // Vyplnit hodnoty
-  // kind seg
-  wrap.querySelectorAll('.be-seg-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.kind === (blk.kind === 'mystery' ? 'mystery' : 'solid'));
-  });
-  $('be-sel-shape').value = blk.shape || 'rect';
-  $('be-sel-w').value = blk.w;
-  $('be-sel-h').value = blk.h;
-  $('be-sel-x').value = blk.x;
-  $('be-sel-y').value = blk.y;
-  $('be-sel-hp').value = blk.hp;
-  $('be-sel-hp-val').textContent = blk.hp;
-  // Colors
-  const colors = $('be-sel-colors');
-  colors.innerHTML = '';
-  for (let i = 0; i < BE_COLORS.length; i++) {
+
+  const isMulti = beState.selectedBlocks.size > 1;
+
+  // Nadpis — počet v závorce při multi
+  const titleEl = wrap.querySelector('.be-section-title');
+  if (titleEl) titleEl.textContent = isMulti ? `výběr (${beState.selectedBlocks.size})` : 'výběr';
+
+  // Single-only řádky (druh, tvar, w/h, x/y, rotate) — skrýt v multi
+  const singleIds = ['be-sel-kind-row', 'be-sel-shape-row', 'be-sel-wh-row', 'be-sel-xy-row'];
+  for (const id of singleIds) { const el = $(id); if (el) el.hidden = isMulti; }
+  const rotBtn = $('be-rotate');
+  if (rotBtn) rotBtn.hidden = isMulti;
+
+  if (!isMulti) {
+    // Single-select: vyplnit všechna pole jako dřív
+    wrap.querySelectorAll('.be-seg-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.kind === (blk.kind === 'mystery' ? 'mystery' : 'solid'));
+    });
+    $('be-sel-shape').value = blk.shape || 'rect';
+    $('be-sel-w').value = blk.w;
+    $('be-sel-h').value = blk.h;
+    $('be-sel-x').value = blk.x;
+    $('be-sel-y').value = blk.y;
+  }
+
+  // HP — při multi zobraz "—" pokud jsou různé, jinak společnou hodnotu
+  if (isMulti) {
+    const hps = [...beState.selectedBlocks].map(si => lvl.blocks[si]?.hp).filter(v => v != null);
+    const allSameHp = hps.length > 0 && hps.every(v => v === hps[0]);
+    $('be-sel-hp-val').textContent = allSameHp ? hps[0] : '—';
+    $('be-sel-hp').value = blk.hp; // slider na primárním bloku pro výchozí polohu
+  } else {
+    $('be-sel-hp').value = blk.hp;
+    $('be-sel-hp-val').textContent = blk.hp;
+  }
+
+  // Colors — jen barvy aktivní palety levelu
+  const paletteIndices = (lvl.activePalette && lvl.activePalette.length > 0)
+    ? lvl.activePalette
+    : BE_COLORS.map((_, i) => i);
+  const selColors = isMulti
+    ? [...beState.selectedBlocks].map(si => lvl.blocks[si]?.color | 0)
+    : [blk.color | 0];
+  const colorsEl = $('be-sel-colors');
+  colorsEl.innerHTML = '';
+  for (const i of paletteIndices) {
     const d = document.createElement('div');
-    d.className = 'be-color-dot' + (i === (blk.color | 0) ? ' selected' : '');
+    const allMatch = selColors.length > 0 && selColors.every(c => c === i);
+    d.className = 'be-color-dot' + (allMatch ? ' selected' : '');
     d.style.background = BE_COLORS[i];
     d.title = 'color ' + i;
     d.addEventListener('click', () => {
-      const lvl = beCurrentLvl();
-      const b = lvl && lvl.blocks[beState.selectedBlockIdx];
-      if (!b) return;
-      const oldColor = b.color | 0;
-      const newColor = i;
-      if (oldColor === newColor) return;
-      histPush(lvl, 'block-color');
-      b.color = newColor;
-      // Auto-propagace na carrier layouty + garage: pokud stará barva už není použitá
-      // (ani jiným blokem, ani pixelem vlastního obrázku), recoloruj nosiče staré
-      // barvy na novou. Bez tohohle zůstávaly v layoutu zamrzle tily s color=OLD,
-      // hra je vykreslila v preview jako „orphan" nosiče cizí barvy (report v45).
-      if (!bePaletteColorStillUsed(lvl, oldColor, beState.selectedBlockIdx)) {
-        bePropagateBlockColorChange(lvl, oldColor, newColor);
+      const lvl2 = beCurrentLvl();
+      if (!lvl2) return;
+      if (beState.selectedBlocks.size > 1) {
+        // Hromadná změna barvy
+        histPush(lvl2, 'block-color');
+        for (const si of beState.selectedBlocks) {
+          const sb = lvl2.blocks[si];
+          if (!sb || (sb.color | 0) === i) continue;
+          sb.color = i;
+        }
+        if (lvl2.key) {
+          const bag = state.layoutStatusByLevel?.[lvl2.key];
+          if (bag) delete bag[state.clActiveDiff];
+        }
+        renderSelectedBlockPanel();
+        renderBlockCanvas();
+        renderCarrierLayout(lvl2);
+        markDirty();
+      } else {
+        const b = lvl2.blocks[beState.selectedBlockIdx];
+        if (!b) return;
+        const oldColor = b.color | 0;
+        if (oldColor === i) return;
+        histPush(lvl2, 'block-color');
+        b.color = i;
+        if (!bePaletteColorStillUsed(lvl2, oldColor, beState.selectedBlockIdx)) {
+          bePropagateBlockColorChange(lvl2, oldColor, i);
+        }
+        if (lvl2.key) {
+          const bag = state.layoutStatusByLevel?.[lvl2.key];
+          if (bag) delete bag[state.clActiveDiff];
+        }
+        renderSelectedBlockPanel();
+        renderBlockCanvas();
+        renderCarrierLayout(lvl2);
+        markDirty();
       }
-      // Změna barvy bloku = změna pxCounts → layout-applied/fallback status z předchozího
-      // iframe runu je outdated. Vyčistit, ať banner nedrží starou chybu dokud iframe
-      // nepošle novou postMessage (~800ms gap). Stejná logika jako pro cl-* akce
-      // (v45 fix) — jen tam byla scoped přímo na histPush.
-      if (lvl && lvl.key) {
-        const bag = state.layoutStatusByLevel && state.layoutStatusByLevel[lvl.key];
-        if (bag) delete bag[state.clActiveDiff];
-      }
-      renderSelectedBlockPanel();
-      renderBlockCanvas();
-      renderCarrierLayout(lvl);
-      markDirty();
     });
-    colors.appendChild(d);
+    colorsEl.appendChild(d);
   }
 }
 
 function beSelectBlock(idx) {
   beState.selectedBlockIdx = idx;
+  beState.selectedBlocks = idx >= 0 ? new Set([idx]) : new Set();
+  renderBlockCanvas();
+  renderSelectedBlockPanel();
+}
+
+function beToggleBlockSelection(idx) {
+  if (beState.selectedBlocks.has(idx)) {
+    beState.selectedBlocks.delete(idx);
+    if (beState.selectedBlockIdx === idx) {
+      const rem = [...beState.selectedBlocks];
+      beState.selectedBlockIdx = rem.length > 0 ? rem[rem.length - 1] : -1;
+    }
+  } else {
+    beState.selectedBlocks.add(idx);
+    beState.selectedBlockIdx = idx;
+  }
+  renderBlockCanvas();
+  renderSelectedBlockPanel();
+}
+
+function beSelectBlocks(indices) {
+  beState.selectedBlocks = new Set(indices);
+  beState.selectedBlockIdx = indices.length > 0 ? indices[indices.length - 1] : -1;
   renderBlockCanvas();
   renderSelectedBlockPanel();
 }
 
 function beDeleteSelected() {
   const lvl = beCurrentLvl();
-  if (!lvl || beState.selectedBlockIdx < 0) return;
+  if (!lvl || beState.selectedBlocks.size === 0) return;
   histPush(lvl, 'block-delete');
-  lvl.blocks.splice(beState.selectedBlockIdx, 1);
+  // Mazat od nejvyššího indexu dolů, aby nedocházelo k re-indexaci.
+  const indices = [...beState.selectedBlocks].sort((a, b) => b - a);
+  for (const i of indices) lvl.blocks.splice(i, 1);
   beState.selectedBlockIdx = -1;
+  beState.selectedBlocks = new Set();
   renderBlockCanvas();
   renderSelectedBlockPanel();
   markDirty();
@@ -2939,9 +3201,7 @@ function beRotateSelected() {
   const b = lvl.blocks[beState.selectedBlockIdx];
   if (!b) return;
   histPush(lvl, 'block-rotate');
-  // Rotace 90° = swap w/h. Tvar zůstává stejný (rect/cross/circle jsou rot-sym,
-  // L/T se „přegenerují" se swapnutými rozměry – aproximace, nejzajímavější efekt
-  // je u L a T kde se mění orientace ramene).
+  b.rot = ((b.rot || 0) + 1) % 4;
   const nw = b.h, nh = b.w;
   if (b.x + nw > BE_GW) b.x = BE_GW - nw;
   if (b.y + nh > BE_IMG_GH) b.y = BE_IMG_GH - nh;
@@ -2955,15 +3215,58 @@ function beRotateSelected() {
 
 function beMoveSelected(dx, dy) {
   const lvl = beCurrentLvl();
-  if (!lvl || beState.selectedBlockIdx < 0) return;
-  const b = lvl.blocks[beState.selectedBlockIdx];
-  if (!b) return;
+  if (!lvl || beState.selectedBlocks.size === 0) return;
   histPush(lvl, 'block-move-kbd');
-  b.x = Math.max(0, Math.min(BE_GW - b.w, b.x + dx));
-  b.y = Math.max(0, Math.min(BE_IMG_GH - b.h, b.y + dy));
+  for (const idx of beState.selectedBlocks) {
+    const b = lvl.blocks[idx];
+    if (!b) continue;
+    b.x = Math.max(0, Math.min(BE_GW - b.w, b.x + dx));
+    b.y = Math.max(0, Math.min(BE_IMG_GH - b.h, b.y + dy));
+  }
   renderBlockCanvas();
   renderSelectedBlockPanel();
   markDirty();
+}
+
+function beCopySelected() {
+  const lvl = beCurrentLvl();
+  if (!lvl || beState.selectedBlockIdx < 0) return;
+  const b = lvl.blocks[beState.selectedBlockIdx];
+  if (!b) return;
+  // Uložíme čistou kopii bez runtime _mask.
+  const { _mask, ...raw } = b;
+  _beCopiedBlock = raw;
+}
+
+function bePasteBlock() {
+  const lvl = beCurrentLvl();
+  if (!lvl || !_beCopiedBlock) return;
+  if (!Array.isArray(lvl.blocks)) lvl.blocks = [];
+  histPush(lvl, 'block-paste');
+  const src = _beCopiedBlock;
+  const nb = {
+    ...src,
+    x: Math.min(src.x + 2, BE_GW - src.w),
+    y: Math.min(src.y + 2, BE_IMG_GH - src.h),
+  };
+  lvl.blocks.push(nb);
+  beState.selectedBlockIdx = lvl.blocks.length - 1;
+  beState.selectedBlocks = new Set([beState.selectedBlockIdx]);
+  renderBlockCanvas();
+  renderSelectedBlockPanel();
+  markDirty();
+}
+
+function beGroupBbox() {
+  const lvl = beCurrentLvl();
+  if (!lvl || beState.selectedBlocks.size < 2) return null;
+  const blocks = [...beState.selectedBlocks].map(i => lvl.blocks[i]).filter(Boolean);
+  if (!blocks.length) return null;
+  const x0 = Math.min(...blocks.map(b => b.x));
+  const y0 = Math.min(...blocks.map(b => b.y));
+  const x1 = Math.max(...blocks.map(b => b.x + b.w));
+  const y1 = Math.max(...blocks.map(b => b.y + b.h));
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
 function beAddBlockFromDrag(pxX, pxY) {
@@ -2984,6 +3287,7 @@ function beAddBlockFromDrag(pxX, pxY) {
   };
   lvl.blocks.push(nb);
   beState.selectedBlockIdx = lvl.blocks.length - 1;
+  beState.selectedBlocks = new Set([beState.selectedBlockIdx]);
   renderBlockCanvas();
   renderSelectedBlockPanel();
   markDirty();
@@ -3903,20 +4207,62 @@ function wireBlockEditor() {
     beState.mousePx = null;
   });
 
+  // Pipette cursor: aktualizuj cursor podle altHeld + custom-level stavu. Voláno
+  // z keydown/keyup i z mousemove (přepíše edge/move cursor když je Alt drženo).
+  const applyPipetteCursor = () => {
+    const lvl = beCurrentLvl();
+    const isCustom = lvl && lvl.image && lvl.image.source === 'custom';
+    if (beState.altHeld && isCustom) {
+      cvs.style.cursor = PIPETTE_CURSOR;
+      return true;
+    }
+    return false;
+  };
+
+  // Window-level Alt tracking — keydown/keyup pracuje i mimo canvas focus.
+  // Blur reset = když uživatel přepne tab s Alt+Tab, neuvíznem v pipette stavu.
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Alt' && !beState.altHeld) {
+      beState.altHeld = true;
+      applyPipetteCursor();
+    }
+  });
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 'Alt' && beState.altHeld) {
+      beState.altHeld = false;
+      cvs.style.cursor = '';
+    }
+  });
+  window.addEventListener('blur', () => {
+    if (beState.altHeld) {
+      beState.altHeld = false;
+      cvs.style.cursor = '';
+    }
+  });
+
   // Hover cursor pro edge handles — sleduje pohyb a mění cursor.
   cvs.addEventListener('mousemove', (e) => {
     if (beState.pxDragging || beState.pxRectStart || beState.drag || beState.beResizing) return;
+    if (applyPipetteCursor()) return;  // Alt drženo → pipette cursor přepíše vše ostatní
     const lvl = beCurrentLvl();
-    const sel = lvl && lvl.blocks && lvl.blocks[beState.selectedBlockIdx];
-    if (!sel) { cvs.style.cursor = ''; return; }
     const p = bePxFromEvent(e);
-    const edge = beHitEdge(sel, p.x, p.y);
-    if (edge) {
-      cvs.style.cursor = BE_EDGE_CURSORS[edge] || 'pointer';
-    } else {
-      const hit = beHitTest(Math.floor(p.x), Math.floor(p.y));
-      cvs.style.cursor = (hit >= 0) ? 'move' : '';
+    if (beState.selectedBlocks.size === 1) {
+      // Single-select: resize cursor na hranách bloku
+      const sel = lvl && lvl.blocks && lvl.blocks[beState.selectedBlockIdx];
+      if (sel) {
+        const edge = beHitEdge(sel, p.x, p.y);
+        if (edge) { cvs.style.cursor = BE_EDGE_CURSORS[edge] || 'pointer'; return; }
+      }
+    } else if (beState.selectedBlocks.size > 1) {
+      // Multi-select: resize cursor na hranách group bbox
+      const bbox = beGroupBbox();
+      if (bbox) {
+        const edge = beHitEdge(bbox, p.x, p.y);
+        if (edge) { cvs.style.cursor = BE_EDGE_CURSORS[edge] || 'pointer'; return; }
+      }
     }
+    const hit = beHitTest(Math.floor(p.x), Math.floor(p.y));
+    cvs.style.cursor = (hit >= 0) ? 'move' : '';
   });
 
   // Klik na plátno → hit-test; existující blok = select, jinak deselect.
@@ -3926,12 +4272,26 @@ function wireBlockEditor() {
     const lvl = beCurrentLvl();
     const isCustom = lvl && lvl.image && lvl.image.source === 'custom';
 
+    // Pipette / eyedropper — Alt-click nasaje barvu pixelu. Má přednost před vším
+    // ostatním (bloky, edge-resize, paint), takže funguje i nad blokem (čte pixel
+    // pod ním — ten ve hře blok zakrývá, ale v editoru je zdroj pravdy).
+    if (e.altKey && isCustom && lvl.image && Array.isArray(lvl.image.pixels)) {
+      const x = Math.floor(p.x), y = Math.floor(p.y);
+      const row = lvl.image.pixels[y];
+      if (row && x >= 0 && x < row.length) {
+        const ci = row[x];
+        if (typeof ci === 'number' && ci >= 0) beSetPxColor(ci);
+      }
+      e.preventDefault();
+      return;
+    }
+
     // Pokud máme selected block a klik je na jeho EDGE → resize-drag.
     // Guard: když je aktivní pixel paint mode (rect-fill / rect-erase už drží
     // start, NEBO drag-paint běží), nech pixel painter převzít — resize handles
     // by se duplicitně aktivovaly. Cursor feedback (mousemove výše) už respektuje
     // tyto flagy, takže designer cursor ani neuvidí jako resize.
-    const sel = lvl && lvl.blocks && lvl.blocks[beState.selectedBlockIdx];
+    const sel = beState.selectedBlocks.size <= 1 && lvl && lvl.blocks && lvl.blocks[beState.selectedBlockIdx];
     if (sel && !beState.pxDragging && !beState.pxRectStart) {
       const edge = beHitEdge(sel, p.x, p.y);
       if (edge) {
@@ -3977,6 +4337,75 @@ function wireBlockEditor() {
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
         return;
+      }
+    }
+
+    // Group bbox resize — multi-select: táhnutí za handle skupiny škáluje všechny bloky.
+    if (beState.selectedBlocks.size > 1 && !beState.pxDragging && !beState.pxRectStart) {
+      const bbox = beGroupBbox();
+      if (bbox) {
+        const edge = beHitEdge(bbox, p.x, p.y);
+        if (edge) {
+          e.preventDefault();
+          const origBbox = { ...bbox };
+          // Snapshot normalizovaných pozic každého bloku v bbox (0..1)
+          const origBlocks = new Map();
+          for (const i of beState.selectedBlocks) {
+            const b = lvl.blocks[i];
+            if (!b) continue;
+            origBlocks.set(i, {
+              rx0: (b.x - origBbox.x) / origBbox.w,
+              ry0: (b.y - origBbox.y) / origBbox.h,
+              rx1: (b.x + b.w - origBbox.x) / origBbox.w,
+              ry1: (b.y + b.h - origBbox.y) / origBbox.h,
+            });
+          }
+          let resized = false;
+          beState.beResizing = true;
+          const onMove = (ev) => {
+            const pp = bePxFromEvent(ev);
+            let nx = origBbox.x, ny = origBbox.y, nw = origBbox.w, nh = origBbox.h;
+            if (edge.includes('e')) nw = Math.max(1, Math.min(BE_GW - nx, Math.round(pp.x - nx)));
+            if (edge.includes('w')) {
+              const right = origBbox.x + origBbox.w;
+              nx = Math.max(0, Math.min(right - 1, Math.round(pp.x)));
+              nw = right - nx;
+            }
+            if (edge.includes('s')) nh = Math.max(1, Math.min(BE_IMG_GH - ny, Math.round(pp.y - ny)));
+            if (edge.includes('n')) {
+              const bot = origBbox.y + origBbox.h;
+              ny = Math.max(0, Math.min(bot - 1, Math.round(pp.y)));
+              nh = bot - ny;
+            }
+            if (nw !== origBbox.w || nh !== origBbox.h || nx !== origBbox.x || ny !== origBbox.y) {
+              if (!resized) histPush(lvl, 'block-group-resize-' + Date.now());
+              for (const [i, o] of origBlocks) {
+                const b = lvl.blocks[i];
+                if (!b) continue;
+                const bw = Math.max(1, Math.round((o.rx1 - o.rx0) * nw));
+                const bh = Math.max(1, Math.round((o.ry1 - o.ry0) * nh));
+                const bx = Math.round(nx + o.rx0 * nw);
+                const by = Math.round(ny + o.ry0 * nh);
+                b.w = Math.min(bw, BE_GW);
+                b.h = Math.min(bh, BE_IMG_GH);
+                b.x = Math.max(0, Math.min(BE_GW - b.w, bx));
+                b.y = Math.max(0, Math.min(BE_IMG_GH - b.h, by));
+              }
+              resized = true;
+              renderBlockCanvas();
+              renderSelectedBlockPanel();
+            }
+          };
+          const onUp = () => {
+            beState.beResizing = false;
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            if (resized) markDirty();
+          };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+          return;
+        }
       }
     }
 
@@ -4036,25 +4465,91 @@ function wireBlockEditor() {
     }
 
     const idx = hitIdx;
-    if (idx !== beState.selectedBlockIdx) {
-      beSelectBlock(idx);
+
+    if (e.shiftKey && idx >= 0) {
+      // Shift+klik = přidat/odebrat blok z multi-selectu
+      beToggleBlockSelection(idx);
+    } else if (idx >= 0) {
+      // Klik na blok — pokud je součástí multi-selectu, zachovat výběr (pro drag)
+      if (beState.selectedBlocks.has(idx) && beState.selectedBlocks.size > 1) {
+        // Jen aktualizuj primární blok pro panel, neruš multi-select
+        beState.selectedBlockIdx = idx;
+        renderSelectedBlockPanel();
+      } else if (idx !== beState.selectedBlockIdx || beState.selectedBlocks.size > 1 || !beState.selectedBlocks.has(idx)) {
+        beSelectBlock(idx);
+      }
+    } else if (!e.shiftKey) {
+      // Klik na prázdné místo bez Shift → deselect
+      beSelectBlock(-1);
     }
-    // Pokud trefil blok, příprava na drag-move.
-    if (idx >= 0) {
-      const lvl = beCurrentLvl();
-      const b = lvl.blocks[idx];
-      const offX = p.x - b.x;
-      const offY = p.y - b.y;
+
+    // Rubber-band: táhnutí na prázdném místě (bez Shift)
+    if (idx < 0 && !e.shiftKey) {
+      beState.rubberBandStart = { x: p.x, y: p.y };
+      beState.rubberBandEnd   = { x: p.x, y: p.y };
+      renderBlockCanvas();
+      const onMove = (ev) => {
+        const pp = bePxFromEvent(ev);
+        beState.rubberBandEnd = { x: pp.x, y: pp.y };
+        renderBlockCanvas();
+      };
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        const rs = beState.rubberBandStart, re = beState.rubberBandEnd;
+        beState.rubberBandStart = null;
+        beState.rubberBandEnd   = null;
+        if (rs && re && (Math.abs(re.x - rs.x) > 0.5 || Math.abs(re.y - rs.y) > 0.5)) {
+          const x0 = Math.min(rs.x, re.x), x1 = Math.max(rs.x, re.x);
+          const y0 = Math.min(rs.y, re.y), y1 = Math.max(rs.y, re.y);
+          const dragLvl = beCurrentLvl();
+          const hits = [];
+          if (dragLvl && dragLvl.blocks) {
+            dragLvl.blocks.forEach((raw, i) => {
+              const b = beHydrate(raw);
+              if (b.x < x1 && b.x + b.w > x0 && b.y < y1 && b.y + b.h > y0) hits.push(i);
+            });
+          }
+          if (hits.length > 0) beSelectBlocks(hits);
+          else renderBlockCanvas();
+        } else {
+          renderBlockCanvas();
+        }
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+      return; // nepokračovat na drag-move
+    }
+
+    // Drag-move: blok byl trefen a není Shift
+    if (idx >= 0 && !e.shiftKey) {
+      const dragLvl = beCurrentLvl();
+      const refBlock = dragLvl.blocks[idx];
+      const offX = p.x - refBlock.x;
+      const offY = p.y - refBlock.y;
+      // Snapshot výchozích pozic všech vybraných bloků
+      const startPos = new Map();
+      for (const si of beState.selectedBlocks) {
+        const sb = dragLvl.blocks[si];
+        if (sb) startPos.set(si, { x: sb.x, y: sb.y });
+      }
+      const refStart = startPos.get(idx) || { x: refBlock.x, y: refBlock.y };
       let moved = false;
       const onMove = (ev) => {
         const pp = bePxFromEvent(ev);
-        const nx = Math.max(0, Math.min(BE_GW - b.w, Math.floor(pp.x - offX)));
-        const ny = Math.max(0, Math.min(BE_IMG_GH - b.h, Math.floor(pp.y - offY)));
-        if (nx !== b.x || ny !== b.y) {
-          // Push do historie JEN jednou za drag (v okamžiku kdy se poprvé
-          // skutečně pohlo). Pushujeme PŘED vlastní mutací pozice.
-          if (!moved) histPush(lvl, 'block-move-drag-' + Date.now());
-          b.x = nx; b.y = ny;
+        const newRefX = Math.max(0, Math.min(BE_GW - refBlock.w, Math.floor(pp.x - offX)));
+        const newRefY = Math.max(0, Math.min(BE_IMG_GH - refBlock.h, Math.floor(pp.y - offY)));
+        const dx = newRefX - refStart.x;
+        const dy = newRefY - refStart.y;
+        if (dx !== 0 || dy !== 0) {
+          if (!moved) histPush(dragLvl, 'block-move-drag-' + Date.now());
+          for (const si of beState.selectedBlocks) {
+            const sb = dragLvl.blocks[si];
+            const sp = startPos.get(si);
+            if (!sb || !sp) continue;
+            sb.x = Math.max(0, Math.min(BE_GW - sb.w, sp.x + dx));
+            sb.y = Math.max(0, Math.min(BE_IMG_GH - sb.h, sp.y + dy));
+          }
           moved = true;
           renderBlockCanvas();
           renderSelectedBlockPanel();
@@ -4072,7 +4567,7 @@ function wireBlockEditor() {
 
   // Klávesnice – funguje když má canvas focus.
   cvs.addEventListener('keydown', (e) => {
-    if (beState.selectedBlockIdx < 0) return;
+    if (beState.selectedBlocks.size === 0) return;
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
       beDeleteSelected();
@@ -4132,17 +4627,38 @@ function wireBlockEditor() {
   bindNum('be-sel-y', (b, v) => { b.y = Math.max(0, Math.min(BE_IMG_GH - b.h, v)); }, 'block-y');
   $('be-sel-hp').addEventListener('input', (e) => {
     const lvl = beCurrentLvl();
-    const b = lvl && lvl.blocks[beState.selectedBlockIdx];
-    if (!b) return;
+    if (!lvl) return;
+    const hp = Math.max(1, parseInt(e.target.value, 10) || 1);
+    $('be-sel-hp-val').textContent = hp;
     histPush(lvl, 'block-hp');
-    b.hp = Math.max(1, parseInt(e.target.value, 10) || 1);
-    $('be-sel-hp-val').textContent = b.hp;
+    if (beState.selectedBlocks.size > 1) {
+      for (const si of beState.selectedBlocks) {
+        const sb = lvl.blocks[si];
+        if (sb) sb.hp = hp;
+      }
+    } else {
+      const b = lvl.blocks[beState.selectedBlockIdx];
+      if (!b) return;
+      b.hp = hp;
+    }
     renderBlockCanvas();
     markDirty();
   });
 
   $('be-rotate').addEventListener('click', beRotateSelected);
   $('be-delete').addEventListener('click', beDeleteSelected);
+
+  // Deselekt při kliknutí mimo block-editor canvas.
+  // Klik uvnitř be-sel-wrap (slider, tlačítka) NESMÍ rušit výběr.
+  document.addEventListener('mousedown', (e) => {
+    if (beState.selectedBlocks.size === 0) return;
+    const canvas = $('be-canvas');
+    const selWrap = $('be-sel-wrap');
+    if (!canvas) return;
+    if (e.target === canvas) return;                              // klik na canvas — canvas si to sám ohandluje
+    if (selWrap && selWrap.contains(e.target)) return;           // klik na panel výběru (HP, barva, …)
+    beSelectBlock(-1);
+  }, { capture: true });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -4257,10 +4773,9 @@ function wireHistory() {
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
     const key = e.key.toLowerCase();
-    if (key !== 'z' && key !== 'y') return;
+    if (key !== 'z' && key !== 'y' && key !== 'c' && key !== 'v') return;
 
-    // Nevstupujeme do cesty nativnímu undo v textovém inputu — editovaný text
-    // má vlastní per-field historii v browseru, zmatek kdyby oba zasáhly najednou.
+    // Nevstupujeme do cesty nativnímu undo/copy/paste v textovém inputu.
     const tgt = e.target;
     const tag = tgt && tgt.tagName;
     const isTextInput = tgt && (
@@ -4272,12 +4787,20 @@ function wireHistory() {
 
     // Cmd+Z / Ctrl+Z       = undo
     // Cmd+Shift+Z / Ctrl+Y = redo  (Ctrl+Y je Windows/Linux konvence)
+    // Cmd+C / Ctrl+C       = copy vybraného bloku
+    // Cmd+V / Ctrl+V       = paste zkopírovaného bloku (offset +2 px)
     if (key === 'z' && !e.shiftKey) {
       e.preventDefault();
       histUndo();
     } else if ((key === 'z' && e.shiftKey) || key === 'y') {
       e.preventDefault();
       histRedo();
+    } else if (key === 'c' && beState.selectedBlockIdx >= 0) {
+      e.preventDefault();
+      beCopySelected();
+    } else if (key === 'v' && _beCopiedBlock) {
+      e.preventDefault();
+      bePasteBlock();
     }
   });
 }
@@ -4660,6 +5183,13 @@ function _buildTraceSvg(traces, envelope) {
   axisLines.push(`<line class="cl-tt-axis" x1="${P}" y1="${H - P}" x2="${W - P}" y2="${H - P}"/>`);
   axisLines.push(`<text class="cl-tt-axis-label" x="${W / 2}" y="${H - 6}" text-anchor="middle">krok</text>`);
   axisLines.push(`<text class="cl-tt-axis-label" x="8" y="${H / 2}" text-anchor="middle" transform="rotate(-90 8 ${H / 2})">intenzita kroku</text>`);
+  // X-axis tick labels every 5 / 10 / 20 steps (adaptive)
+  const xTickStep = maxStep <= 50 ? 5 : maxStep <= 100 ? 10 : 20;
+  for (let s = xTickStep; s <= maxStep; s += xTickStep) {
+    const x = xs(s);
+    axisLines.push(`<line x1="${x}" y1="${H - P}" x2="${x}" y2="${H - P + 3}" stroke="#666" stroke-width="1"/>`);
+    axisLines.push(`<text class="cl-tt-axis-label" x="${x}" y="${H - P + 11}" text-anchor="middle">${s}</text>`);
+  }
   // Envelope (p10–p90 area + p50 dashed line)
   let envSvg = '';
   if (envelope && envelope.p10 && envelope.p90 && _traceVisibility.envelope) {

@@ -156,63 +156,62 @@
                 <canvas id="be-canvas" width="360" height="270" tabindex="0"></canvas>
                 <div class="be-canvas-hint" id="be-canvas-hint">klikni do obrazu pro fokus · Del = smazat · R = rotovat · šipky = posun</div>
               </div>
-              <div class="be-sidebar">
-                <div class="be-palette-wrap">
-                  <div class="be-section-title">paleta <span class="hint">(táhni na plátno)</span></div>
-                  <div id="be-palette" class="be-palette"></div>
-                </div>
-                <div class="be-sel-wrap" id="be-sel-wrap" hidden>
-                  <div class="be-section-title">výběr</div>
-                  <div class="be-field-row">
-                    <label>druh</label>
-                    <div class="be-seg">
-                      <button type="button" class="be-seg-btn" data-kind="solid">solid</button>
-                      <button type="button" class="be-seg-btn" data-kind="mystery">mystery</button>
+              <div class="be-palette-wrap">
+                <div class="be-section-title">paleta <span class="hint">(táhni na plátno)</span></div>
+                <div id="be-palette" class="be-palette"></div>
+              </div>
+              <div class="be-sel-wrap" id="be-sel-wrap" hidden>
+                  <div class="be-sel-controls">
+                    <div class="be-field-row" id="be-sel-kind-row">
+                      <label>druh</label>
+                      <div class="be-seg">
+                        <button type="button" class="be-seg-btn" data-kind="solid">solid</button>
+                        <button type="button" class="be-seg-btn" data-kind="mystery">mystery</button>
+                      </div>
                     </div>
-                  </div>
-                  <div class="be-field-row">
-                    <label>tvar</label>
-                    <select id="be-sel-shape">
-                      <option value="rect">rect</option>
-                      <option value="cross">cross</option>
-                      <option value="L">L</option>
-                      <option value="T">T</option>
-                      <option value="circle">circle</option>
-                    </select>
-                  </div>
-                  <div class="be-field-row be-field-row-2">
-                    <div>
-                      <label>šířka</label>
-                      <input type="number" id="be-sel-w" min="1" max="36" value="3">
+                    <div class="be-field-row" id="be-sel-shape-row">
+                      <label>tvar</label>
+                      <select id="be-sel-shape">
+                        <option value="rect">rect</option>
+                        <option value="cross">cross</option>
+                        <option value="L">L</option>
+                        <option value="T">T</option>
+                        <option value="circle">circle</option>
+                      </select>
                     </div>
-                    <div>
-                      <label>výška</label>
-                      <input type="number" id="be-sel-h" min="1" max="27" value="3">
+                    <div class="be-field-row be-field-row-2" id="be-sel-wh-row">
+                      <div>
+                        <label>šířka</label>
+                        <input type="number" id="be-sel-w" min="1" max="36" value="3">
+                      </div>
+                      <div>
+                        <label>výška</label>
+                        <input type="number" id="be-sel-h" min="1" max="27" value="3">
+                      </div>
                     </div>
-                  </div>
-                  <div class="be-field-row be-field-row-2">
-                    <div>
-                      <label>x</label>
-                      <input type="number" id="be-sel-x" min="0" max="35" value="0">
+                    <div class="be-field-row be-field-row-2" id="be-sel-xy-row">
+                      <div>
+                        <label>x</label>
+                        <input type="number" id="be-sel-x" min="0" max="35" value="0">
+                      </div>
+                      <div>
+                        <label>y</label>
+                        <input type="number" id="be-sel-y" min="0" max="26" value="0">
+                      </div>
                     </div>
-                    <div>
-                      <label>y</label>
-                      <input type="number" id="be-sel-y" min="0" max="26" value="0">
+                    <div class="be-field-row be-sel-hp-field">
+                      <label>HP <span id="be-sel-hp-val" class="val">10</span></label>
+                      <input type="range" id="be-sel-hp" min="1" max="120" step="1" value="10">
+                    </div>
+                    <div class="be-sel-actions">
+                      <button type="button" id="be-rotate" class="btn btn-small">⟳ rotovat</button>
+                      <button type="button" id="be-delete" class="btn btn-small btn-danger">🗑 smazat</button>
                     </div>
                   </div>
                   <div class="be-field-row">
                     <label>barva <span class="hint">(solid)</span></label>
                     <div id="be-sel-colors" class="be-colors"></div>
                   </div>
-                  <div class="be-field-row">
-                    <label>HP <span id="be-sel-hp-val" class="val">10</span></label>
-                    <input type="range" id="be-sel-hp" min="1" max="60" step="1" value="10">
-                  </div>
-                  <div class="be-sel-actions">
-                    <button type="button" id="be-rotate" class="btn btn-small">⟳ rotovat</button>
-                    <button type="button" id="be-delete" class="btn btn-small btn-danger">🗑 smazat</button>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -245,6 +244,10 @@
               <div class="cl-tb-row">
                 <span class="cl-tb-label">řádky <span id="cl-rows-val" class="val">4</span></span>
                 <input type="range" id="cl-rows" min="1" max="7" step="1" value="4">
+              </div>
+              <div class="cl-tb-row">
+                <span class="cl-tb-label">sloupce <span id="cl-cols-val" class="val">7</span></span>
+                <input type="range" id="cl-cols" min="1" max="7" step="2" value="7">
               </div>
               <div class="cl-tb-row">
                 <span class="cl-tb-label">generátor</span>

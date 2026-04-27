@@ -598,25 +598,23 @@ body {
 .block-editor-section > label { font-weight: 500; }
 .block-editor {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   margin-top: 4px;
-  align-items: flex-start;
 }
-.block-editor .be-sidebar { flex: 1 1 180px; min-width: 180px; max-width: 240px; }
 .be-canvas-wrap {
   position: relative;
   background: #081a2e;
   border: 0.5px solid var(--border-light);
   border-radius: 6px;
   overflow: hidden;
-  width: 360px;
-  height: 270px;
+  width: 100%;
+  aspect-ratio: 36 / 27;
 }
 #be-canvas {
   display: block;
-  width: 360px;
-  height: 270px;
+  width: 100%;
+  height: 100%;
   cursor: crosshair;
   outline: none;
   image-rendering: pixelated;
@@ -656,7 +654,7 @@ body {
 
 .be-palette {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 6px;
 }
 .be-tile {
@@ -692,7 +690,24 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  box-sizing: border-box;
 }
+
+/* Horizontální řada kompaktních ovládacích prvků */
+.be-sel-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+}
+.be-sel-controls > .be-field-row { flex: 0 0 auto; }
+#be-sel-shape-row { min-width: 80px; }
+#be-sel-wh-row,
+#be-sel-xy-row { flex: 0 0 110px; }
+.be-sel-hp-field { flex: 1 1 100px; min-width: 80px; }
+.be-sel-hp-field input[type="range"] { width: 100%; }
+.be-sel-controls > .be-sel-actions { flex: 0 0 auto; margin-top: 0; align-self: flex-end; }
+
 .be-field-row { display: flex; flex-direction: column; gap: 4px; }
 .be-field-row label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; }
 .be-field-row input, .be-field-row select {
@@ -723,7 +738,7 @@ body {
 }
 .be-seg-btn.active { background: var(--accent); color: #0a1020; border-color: var(--accent); font-weight: 600; }
 
-.be-colors { display: grid; grid-template-columns: repeat(9, 1fr); gap: 3px; }
+.be-colors { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; }
 .be-color-dot {
   aspect-ratio: 1;
   border-radius: 4px;
@@ -734,6 +749,7 @@ body {
 .be-color-dot.selected { border-color: #ffffff; }
 
 .be-sel-actions { display: flex; gap: 6px; margin-top: 4px; }
+.be-sel-controls > .be-sel-actions .btn { flex: 0 0 auto; }
 .be-sel-actions .btn { flex: 1; }
 
 /* Image toolbar (paleta + pixel painter v jednom kontejneru) ------- */
@@ -1036,30 +1052,35 @@ body {
 
 .cl-editor {
   display: flex;
-  flex-wrap: wrap; /* paleta může spadnout pod grid, když je edit panel úzký */
-  gap: 12px;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
 }
 .cl-grid-wrap {
-  flex: 0 0 auto;
+  width: 100%;
+  box-sizing: border-box;
   background: var(--bg-1);
   border: 0.5px solid var(--border);
   border-radius: 8px;
-  padding: 10px;
-  display: flex;
-  justify-content: center;
+  padding: 8px;
+  aspect-ratio: var(--cl-grid-ratio, 7/5); /* nastavováno přes JS podle cols/rows */
 }
 .cl-grid {
   display: grid;
-  grid-template-columns: repeat(7, 48px);
+  grid-template-columns: repeat(7, 1fr); /* přepsáno JS */
   gap: 4px;
   background: var(--bg-0);
   padding: 6px;
   border-radius: 6px;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
 }
 .cl-cell {
-  width: 48px;
-  height: 48px;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
   background: var(--bg-3);
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -1073,6 +1094,7 @@ body {
   padding: 0;
   position: relative;
   transition: transform 0.08s;
+  aspect-ratio: 1; /* buňky vždy čtvercové */
 }
 .cl-cell:hover { transform: scale(1.06); border-color: var(--accent); z-index: 1; }
 /* Tunel (null) — vizuálně „otevřená" buňka, výrazný zelenkavý dot indikuje průchod */
@@ -1115,8 +1137,10 @@ body {
 }
 
 .cl-palette-wrap {
-  flex: 1 1 240px;
-  min-width: 0; /* dovolí flex-shrink i pod 200px (jinak overflow z parenta) */
+  flex: 0 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
   background: var(--bg-1);
   border: 0.5px solid var(--border);
   border-radius: 8px;
@@ -1276,6 +1300,8 @@ body {
 .cl-insp-hidden input[type="checkbox"] { margin: 0; cursor: pointer; }
 
 .cl-cell.tile-selected { outline: 2px solid var(--accent); outline-offset: 1px; z-index: 2; }
+.cl-cell.cl-drag-src  { opacity: 0.35; }
+.cl-cell.cl-drag-over { outline: 2px solid var(--accent); outline-offset: 1px; z-index: 3; background: rgba(100,160,255,0.18) !important; }
 
 .cl-inspector {
   margin-top: 6px;

@@ -27,7 +27,7 @@ const COLORS=[
   '#ff6e40','#40c4ff','#b9f6ca',
 ];
 const BELT_CAP=14;
-const COLS=7;
+let COLS=7; // může být přepsáno buildColsFromLayout pro layout s méně sloupci
 const GW=36,GH=31,IMG_GH=27;
 const UPC=4;
 const PPU=10;
@@ -50,35 +50,45 @@ const SOLVED_TOLERANCE_PX=UPC*PPU;
 // Targeting (pickTargetForColor): weighted random between pixels (w=1) and
 // blocks (w=hp), so partially-damaged blocks lose priority vs fresh pixels.
 // ═══════════════════════════════════════════════════════════════════════════
-function blockMask(shape,w,h){
-  const m=[]; for(let y=0;y<h;y++){m.push(new Array(w).fill(false));}
+function _rotateMaskCW(m,nRows,nCols){
+  const out=[];
+  for(let r=0;r<nCols;r++)out.push(new Array(nRows).fill(false));
+  for(let y=0;y<nRows;y++)for(let x=0;x<nCols;x++)out[x][nRows-1-y]=m[y][x];
+  return out;
+}
+function blockMask(shape,w,h,rot){
+  rot=((rot||0)%4+4)%4;
+  const bw=rot%2===0?w:h, bh=rot%2===0?h:w;
+  const m=[]; for(let y=0;y<bh;y++){m.push(new Array(bw).fill(false));}
   if(shape==='rect'){
-    for(let y=0;y<h;y++)for(let x=0;x<w;x++)m[y][x]=true;
+    for(let y=0;y<bh;y++)for(let x=0;x<bw;x++)m[y][x]=true;
   } else if(shape==='cross'){
-    const cx=Math.floor((w-1)/2), cy=Math.floor((h-1)/2);
-    const armW=Math.max(1,Math.floor(w/3)), armH=Math.max(1,Math.floor(h/3));
-    for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const cx=Math.floor((bw-1)/2), cy=Math.floor((bh-1)/2);
+    const armW=Math.max(1,Math.floor(bw/3)), armH=Math.max(1,Math.floor(bh/3));
+    for(let y=0;y<bh;y++)for(let x=0;x<bw;x++){
       if(Math.abs(y-cy)<=Math.floor(armH/2)) m[y][x]=true;
       if(Math.abs(x-cx)<=Math.floor(armW/2)) m[y][x]=true;
     }
   } else if(shape==='L'){
-    const thick=Math.max(1,Math.floor(w/3));
-    for(let y=0;y<h;y++)for(let x=0;x<thick;x++)m[y][x]=true;   // levý sloupec
-    for(let y=h-thick;y<h;y++)for(let x=0;x<w;x++)m[y][x]=true; // spodní řada
+    const thick=Math.max(1,Math.floor(Math.min(bw,bh)/2));
+    for(let y=0;y<bh;y++)for(let x=0;x<thick;x++)m[y][x]=true;
+    for(let y=bh-thick;y<bh;y++)for(let x=0;x<bw;x++)m[y][x]=true;
   } else if(shape==='T'){
-    const thick=Math.max(1,Math.floor(h/3));
-    for(let y=0;y<thick;y++)for(let x=0;x<w;x++)m[y][x]=true;   // horní řada
-    const stemW=Math.max(1,Math.floor(w/3));
-    const stemX=Math.floor((w-stemW)/2);
-    for(let y=thick;y<h;y++)for(let x=stemX;x<stemX+stemW;x++)m[y][x]=true; // noha
+    const thick=Math.max(1,Math.floor(Math.min(bw,bh)/2));
+    for(let y=0;y<thick;y++)for(let x=0;x<bw;x++)m[y][x]=true;
+    const stemW=Math.max(1,Math.floor(bw/3));
+    const stemX=Math.floor((bw-stemW)/2);
+    for(let y=thick;y<bh;y++)for(let x=stemX;x<stemX+stemW;x++)m[y][x]=true;
   } else if(shape==='circle'){
-    const cx=(w-1)/2, cy=(h-1)/2, rx=w/2, ry=h/2;
-    for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const cx=(bw-1)/2, cy=(bh-1)/2, rx=bw/2, ry=bh/2;
+    for(let y=0;y<bh;y++)for(let x=0;x<bw;x++){
       const nx=(x-cx)/rx, ny=(y-cy)/ry;
       m[y][x]=(nx*nx+ny*ny)<=1.0;
     }
   }
-  return m;
+  let res=m, cw=bw, ch=bh;
+  for(let i=0;i<rot;i++){ res=_rotateMaskCW(res,ch,cw); [cw,ch]=[ch,cw]; }
+  return res;
 }
 
 // Cover test — returns true if image pixel (gx,gy) is blocked by a live block.
@@ -126,7 +136,7 @@ function hydrateBlocks(defs){
     color:d.color|0,
     hp:Math.max(1,d.hp|0),
     maxHp:Math.max(1,d.hp|0),
-    _mask:blockMask(d.shape||'rect',Math.max(1,d.w|0),Math.max(1,d.h|0)),
+    _mask:blockMask(d.shape||'rect',Math.max(1,d.w|0),Math.max(1,d.h|0),d.rot),
   }));
 }
 
@@ -1083,7 +1093,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v59');
+          gamee.updateScore(score,playTime,'balloon-belt-v60');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -2803,6 +2813,8 @@ function pickLayoutVariant(levelDef,diff){
   return candidates[Math.floor(Math.random()*candidates.length)];
 }
 function buildColsFromLayout(layout,pxCounts){
+  // Přizpůsob COLS počtu sloupců layoutu (liché: 1/3/5/7). Default = 7.
+  COLS=(layout&&typeof layout.cols==='number'&&layout.cols>=1)?layout.cols:7;
   // 1) Zjistíme kolik carrier slotů layout má PER barvu.
   //    Počítáme JAK hlavní carrier tiles, TAK carriers v garážní queue — obojí
   //    reprezentuje "slot", který během hry vystřelí projektily. Dřív se queue
@@ -2967,6 +2979,7 @@ function makeColumns(pxCounts){
       return built;
     }
     // buildColsFromLayout vrátil null → spadne na auto-gen pod námi.
+    COLS=7; // reset na defaultní šířku
     console.warn('[layout] layout build failed, falling back to auto-gen');
   }
   // 2) Auto-gen (původní cesta).
@@ -3901,13 +3914,21 @@ function checkLaunchPoint(prevAnim, curAnim){
     const alreadyFlying=particles.filter(p=>p.phase==='fly'&&p.ci===color).length;
     const inQueue=gunQueue.filter(q=>q.ci===color).length;
     const totalActive=alreadyFlying+inQueue;
+    // Volné cíle = exposed minus už letící + zafrontěné projektily. Když je 0,
+    // ball by jen plýtvala — necháme ji projet pásem (cyklus). Vrátí se, až
+    // inflight uvolní místo, nebo padne do existující "no match" / pxNow===0
+    // větve výš. Tím se 4 koule × ppu=10 vs 6 free px konzumují jako:
+    // 1. koule (need=6) → atomic spotřeba 10 proj (6 trefí, 4 vyplivnuté ven),
+    // 2.–4. koule (need=0) → cyklí dál pásem až do cleanup.
+    const need=Math.max(0,exposedCount-totalActive);
+    if(need===0) continue;
 
     stuckPassCount=0;
 
-    // Spotřebuj celou kouli → vystřel všech ball.ppu projektilů. Některé
-    // možná nenajdou LoS hned — dispatch je odpálí na blocked úhel (nejbližší
-    // target), particle fyzika je odrazí a hledá cestu. Když barva v průběhu
-    // ztratí veškerý target, queue item se popne bez výstřelu (visible loss).
+    // Spotřebuj celou kouli atomicky → vystřel všech ball.ppu projektilů.
+    // Některé možná nenajdou LoS hned — dispatch je odpálí na blocked úhel
+    // (nejbližší target), particle fyzika je odrazí a hledá cestu. Když barva
+    // v průběhu ztratí veškerý target, queue item se popne bez výstřelu (visible loss).
     noMatchPasses=0;
     loops=0;
     belt.splice(i,1);
@@ -3919,7 +3940,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v59');
+    gamee.updateScore(score,playTime,'balloon-belt-v60');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -4037,7 +4058,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v59');
+  gamee.updateScore(score,playTime,'balloon-belt-v60');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -4838,7 +4859,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v59');
+      gamee.updateScore(score,playTime,'balloon-belt-v60');
       event.detail.callback();
     });
 

@@ -75,7 +75,7 @@ body {
 #funnel-warning.show{opacity:1;transform:translate(-50%,0)}
 #carriers-wrap{width:360px}
 #carriers-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:6px;text-align:center}
-#carriers-grid{display:flex;gap:4px;justify-content:center;flex-wrap:nowrap;width:360px}
+#carriers-grid{display:flex;gap:4px;justify-content:center;flex-wrap:nowrap}
 .carrier-col{display:flex;flex-direction:column;gap:6px;align-items:center}
 .carrier{user-select:none}
 .carrier.active{cursor:pointer;opacity:1}
