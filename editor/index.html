@@ -284,6 +284,9 @@
             <div id="cl-tester" class="cl-tester" hidden>
               <div class="cl-tester-head">
                 <span class="cl-section-title">playtester <span class="hint">(greedy optimal + 50× náhoda)</span></span>
+                <label class="cl-far-sighted-label" title="Far-sighted beam (Fáze 2.5): vidí investiční tahy (rozbití bariér, uvolnění garáže) a hodnotí cascade efekty. Defaultně vypnuto — porovnej oba režimy ručně.">
+                  <input type="checkbox" id="cl-far-sighted"> 🔭 prozřetelný beam
+                </label>
                 <button type="button" id="cl-analyze-btn" class="btn btn-small">▶ Analyzovat</button>
               </div>
               <div id="cl-tester-body" class="cl-tester-body">
@@ -316,6 +319,7 @@
                 </div>
                 <div id="cl-curves-svg-wrap"></div>
                 <div id="cl-curves-pin-popover" class="cl-curve-pin-popover" hidden></div>
+                <div id="cl-mut-suggest-panel" class="cl-mut-suggest-panel" hidden></div>
                 <div id="cl-curves-empty" class="cl-curves-empty">
                   Klikni <b>▶ Analyzovat</b> v sekci playtester pro zobrazení křivek obtížnosti.
                 </div>

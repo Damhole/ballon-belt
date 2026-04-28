@@ -3086,7 +3086,8 @@ function wireCarrierLayout() {
     if (!frame || !frame.contentWindow) return;
     const body = $('cl-tester-body');
     if (body) body.innerHTML = '<div class="cl-tester-running">Analyzuji…</div>';
-    frame.contentWindow.postMessage({ type: 'balloonbelt:analyze-level' }, '*');
+    const farSighted = !!($('cl-far-sighted') && $('cl-far-sighted').checked);
+    frame.contentWindow.postMessage({ type: 'balloonbelt:analyze-level', farSighted }, '*');
   });
 
   // Difficulty Curve panel — wire jednou
@@ -5342,6 +5343,28 @@ function wireLevelStats() {
       renderTesterResults(m.results);
       return;
     }
+
+    if (m.type === 'balloonbelt:mutation-suggestions') {
+      _mutSuggestState.loading = false;
+      _mutSuggestState.progress = null;
+      _mutSuggestState.results = m.suggestions || [];
+      _mutSuggestState.evalMode = m.evalMode || 'greedy';
+      try {
+        const lvl = beCurrentLvl(), variant = clActiveVariant(lvl);
+        renderMutSuggestPanel(lvl, variant);
+      } catch(e) { /* level může být odpojen */ }
+      return;
+    }
+
+    if (m.type === 'balloonbelt:mutation-progress') {
+      _mutSuggestState.progress = { current: m.current, total: m.total };
+      _mutSuggestState.evalMode = m.evalMode || 'beam';
+      try {
+        const lvl = beCurrentLvl(), variant = clActiveVariant(lvl);
+        renderMutSuggestPanel(lvl, variant);
+      } catch(e) { /* */ }
+      return;
+    }
   });
 }
 
@@ -5373,6 +5396,7 @@ let _curvesUiState = {
   openPopoverId: null,    // pin id s otevřeným popoverem
 };
 let _curveCache = null;   // přepočítané křivky pro aktuální _lastTesterResult
+let _mutSuggestState = { loading: false, pinId: null, results: [], previewIdx: null, progress: null, evalMode: 'greedy', evalModePref: 'greedy' };
 
 function renderTesterResults(r) {
   _lastTesterResult = r;
@@ -5633,6 +5657,42 @@ function buildCurvesFromResult(r) {
 //    pins + crosshair (pro hover tooltip). Multi-curve verze.
 function _curveDimColor(dim) { return CURVE_DIM_COLORS[dim] || '#3b82f6'; }
 
+// Přidá dashed overlay s křivkami mutation preview do hlavního SVG.
+function _appendMutPreviewOverlay(previewCurves) {
+  const svg = document.getElementById('cl-curve-svg');
+  if (!svg || !previewCurves || !previewCurves.length) return;
+  const W = +svg.dataset.w, H = +svg.dataset.h || 220, P = +svg.dataset.p;
+  const ms = +svg.dataset.maxstep;
+  const xs = step => P + (step / Math.max(1, ms)) * (W - 2 * P);
+  const ys = v => H - P - Math.max(0, Math.min(1, v)) * (H - 2 * P);
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.setAttribute('class', 'cl-mut-preview-overlay');
+
+  const addLine = (dim, color) => {
+    const pts = previewCurves.map(pt => {
+      const v = dim === 'choice' ? pt.choice : dim === 'pressure' ? pt.pressure : pt.progress;
+      return `${xs(pt.step).toFixed(1)},${ys(v).toFixed(1)}`;
+    }).join(' ');
+    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    poly.setAttribute('points', pts);
+    poly.setAttribute('fill', 'none');
+    poly.setAttribute('stroke', color);
+    poly.setAttribute('stroke-width', '2.5');
+    poly.setAttribute('stroke-dasharray', '5,3');
+    poly.setAttribute('opacity', '0.75');
+    g.appendChild(poly);
+  };
+
+  if (_curvesUiState.visibleDims.choice)   addLine('choice',   CURVE_DIM_COLORS.choice);
+  if (_curvesUiState.visibleDims.pressure) addLine('pressure', CURVE_DIM_COLORS.pressure);
+  if (_curvesUiState.visibleDims.progress) addLine('progress', CURVE_DIM_COLORS.progress);
+
+  // Vložit před piny group (aby piny byly nahoře)
+  const pinsGroup = svg.querySelector('.cl-curve-pins');
+  if (pinsGroup) svg.insertBefore(g, pinsGroup);
+  else svg.appendChild(g);
+}
+
 function _buildCurveSvg(cache, visibleDims, maxStep) {
   const W = 520, H = 220, P = 32;
   if (!cache) {
@@ -5830,7 +5890,16 @@ function renderCurvesPanel(lvl, variant) {
   if (empty) empty.hidden = true;
 
   const html = _buildCurveSvg(_curveCache, _curvesUiState.visibleDims, _curveCache.maxStep);
-  if (svgWrap) svgWrap.innerHTML = html;
+  if (svgWrap) {
+    svgWrap.innerHTML = html;
+    // Preview overlay — pokud je aktivní suggestion preview, vykreslit jako dashed overlay
+    if (_mutSuggestState.previewIdx !== null && svgWrap.dataset.mutPreview) {
+      try {
+        const previewCurves = JSON.parse(svgWrap.dataset.mutPreview);
+        _appendMutPreviewOverlay(previewCurves);
+      } catch (e) { /* ignore */ }
+    }
+  }
 
   if (status) {
     const strat = _curveCache.primaryStrategy === 'beam' ? 'beam search'
@@ -5949,6 +6018,12 @@ function _showCurvePopover(pin) {
     <div class="cl-pin-actions">
       <button type="button" class="cl-pin-delete" data-pin-id="${pin.id}">✕ smazat</button>
       ${isOrphan ? `<button type="button" class="cl-pin-snap" data-pin-id="${pin.id}">↩ posun na konec</button>` : ''}
+      ${_lastTesterResult && pin.tag ? `
+        <label class="cl-pin-suggest-mode" title="beam = přesnější eval (~10–30 s s progress barem), greedy = rychlé (~250 ms)">
+          <input type="checkbox" class="cl-pin-suggest-beam"${_mutSuggestState.evalModePref === 'beam' ? ' checked' : ''}> beam
+        </label>
+        <button type="button" class="cl-pin-suggest" data-pin-id="${pin.id}">⚙ Suggest</button>
+      ` : ''}
       <button type="button" class="cl-pin-close">hotovo</button>
     </div>`;
   pop.style.left = Math.max(4, Math.min(refRect.width - 200, localX)) + 'px';
@@ -5959,6 +6034,150 @@ function _hideCurvePopover() {
   const pop = document.getElementById('cl-curves-pin-popover');
   if (pop) { pop.hidden = true; pop.innerHTML = ''; }
   _curvesUiState.openPopoverId = null;
+}
+
+// ── Mutation Designer (Fáze 2) ─────────────────────────────────────────────
+
+// Aplikuje mutaci na variant.grid (transponované indexy: grid[row][col]).
+function applyMutationToVariant(variant, mut) {
+  if (!variant || !Array.isArray(variant.grid)) return;
+  const g = variant.grid;
+  const getCell = ({col, row}) => (g[row] && g[row][col] !== undefined ? g[row][col] : undefined);
+  const setCell = ({col, row}, val) => { if (g[row]) g[row][col] = val; };
+  switch (mut.type) {
+    case 'SWAP_CELLS': {
+      const tmp = getCell(mut.a);
+      setCell(mut.a, getCell(mut.b));
+      setCell(mut.b, tmp);
+      break;
+    }
+    case 'SWAP_COLORS': {
+      const sA = getCell(mut.a), sB = getCell(mut.b);
+      if (!sA || !sB) break;
+      const cA = sA.color;
+      setCell(mut.a, {...sA, color: sB.color});
+      setCell(mut.b, {...sB, color: cA});
+      break;
+    }
+    case 'INSERT_WALL':
+      setCell(mut.a, {type: 'wall'});
+      break;
+    case 'REMOVE_WALL':
+      setCell(mut.a, null);
+      break;
+    case 'TOGGLE_HIDDEN': {
+      const s = getCell(mut.a);
+      if (s) setCell(mut.a, {...s, hidden: !s.hidden});
+      break;
+    }
+  }
+}
+
+// Renderuje mini SVG overlay pro suggestion kartu (choice=modrá, pressure=červená).
+function _buildMutMiniSvg(baseCurves, newCurves) {
+  const W = 200, H = 50, P = 4;
+  if (!baseCurves || !baseCurves.length) return '';
+  const maxStep = Math.max(baseCurves[baseCurves.length - 1].step, 1);
+  const px = step => P + (step / maxStep) * (W - 2 * P);
+  const py = val => H - P - Math.min(1, Math.max(0, val)) * (H - 2 * P);
+
+  const line = (curves, dim, color, dash) => {
+    if (!curves || !curves.length) return '';
+    const pts = curves.map(pt => {
+      const v = dim === 'choice' ? pt.choice : pt.pressure;
+      return `${px(pt.step).toFixed(1)},${py(v).toFixed(1)}`;
+    }).join(' ');
+    return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" ${dash ? 'stroke-dasharray="3,2"' : ''}/>`;
+  };
+
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" class="cl-mut-mini-svg">
+    <rect width="${W}" height="${H}" rx="3" fill="#1a1a2e" opacity="0.4"/>
+    ${line(baseCurves, 'choice',   '#3b82f6', true)}
+    ${line(baseCurves, 'pressure', '#ef4444', true)}
+    ${line(newCurves,  'choice',   '#3b82f6', false)}
+    ${line(newCurves,  'pressure', '#ef4444', false)}
+    <text x="${P}" y="${H - 1}" font-size="7" fill="#888">— nový &nbsp; - - základ (choice=mod, press=čer)</text>
+  </svg>`;
+}
+
+// Renderuje panel s výsledky mutací.
+function renderMutSuggestPanel(lvl, variant) {
+  const panel = document.getElementById('cl-mut-suggest-panel');
+  if (!panel) return;
+
+  if (_mutSuggestState.loading) {
+    panel.hidden = false;
+    const mode = _mutSuggestState.evalMode === 'beam' ? '🎯 beam' : 'greedy';
+    const progress = _mutSuggestState.progress;
+    let body;
+    if (progress && progress.total > 0) {
+      const pct = Math.round((progress.current / progress.total) * 100);
+      body = `⏳ Hledám mutace (${mode})… <b>${progress.current} / ${progress.total}</b>
+        <div class="cl-mut-progress-bar"><div class="cl-mut-progress-fill" style="width:${pct}%"></div></div>`;
+    } else {
+      body = `⏳ Hledám mutace (${mode})… (50 simulací)`;
+    }
+    panel.innerHTML = `<div class="cl-mut-loading">${body}</div>`;
+    return;
+  }
+
+  const results = _mutSuggestState.results;
+  if (!results || !results.length) {
+    panel.hidden = true;
+    panel.innerHTML = '';
+    return;
+  }
+
+  panel.hidden = false;
+  const DIM_LABELS = { choice: 'choice', pressure: 'pressure', progress: 'progress' };
+
+  const cards = results.map((s, idx) => {
+    const deltaSign = s.deltaClicks > 0 ? '+' : '';
+    const solvedBadge = s.solved
+      ? '<span class="cl-mut-badge cl-mut-badge-ok">✓ dohratelné</span>'
+      : '<span class="cl-mut-badge cl-mut-badge-warn">⚠ neověřeno</span>';
+    const previewActive = _mutSuggestState.previewIdx === idx;
+
+    // Validační řádek — zkontroluj jestli každá dimenze šla správným směrem
+    let dirHtml = '';
+    if (s.dimDeltas) {
+      const chips = Object.entries(s.dimDeltas).map(([dim, d]) => {
+        const ok = d.wanted === d.got;
+        const neutral = d.got === '=';
+        const arrow = d.got === '+' ? '↑' : d.got === '-' ? '↓' : '—';
+        const cls = neutral ? 'cl-mut-dir-neutral' : ok ? 'cl-mut-dir-ok' : 'cl-mut-dir-bad';
+        const deltaStr = (d.delta >= 0 ? '+' : '') + (d.delta * 100).toFixed(1) + '%';
+        const title = `${DIM_LABELS[dim] || dim}: chtěli jsme ${d.wanted === '+' ? 'zvýšit' : 'snížit'}, skutečná změna ${deltaStr}`;
+        return `<span class="cl-mut-dir-chip ${cls}" title="${title}">${arrow}${DIM_LABELS[dim] || dim} ${deltaStr}</span>`;
+      }).join('');
+      dirHtml = `<div class="cl-mut-dir">${chips}</div>`;
+    }
+
+    return `<div class="cl-mut-card${previewActive ? ' cl-mut-card-preview' : ''}">
+      <div class="cl-mut-card-head">
+        <span class="cl-mut-desc">${s.desc}</span>
+        ${solvedBadge}
+      </div>
+      ${_buildMutMiniSvg(s.baseCurves, s.newCurves)}
+      ${dirHtml}
+      <div class="cl-mut-diff">
+        <span title="Změna počtu kliků">kliky: <b>${deltaSign}${s.deltaClicks}</b></span>
+        <span title="Skóre = jak moc mutace tlačí křivku správným směrem">skóre: <b>${s.score > 0 ? '+' : ''}${s.score}</b></span>
+      </div>
+      <div class="cl-mut-actions">
+        <button class="cl-mut-preview-btn${previewActive ? ' active' : ''}" data-mut-idx="${idx}">
+          ${previewActive ? '◼ Skrýt' : '▷ Preview'}
+        </button>
+        <button class="cl-mut-apply-btn" data-mut-idx="${idx}">✓ Aplikovat</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  panel.innerHTML = `<div class="cl-mut-header">
+    <span>Navrhované mutace (top ${results.length})</span>
+    <button class="cl-mut-close">✕</button>
+  </div>
+  <div class="cl-mut-cards">${cards}</div>`;
 }
 
 // 6) Step snap — z mouse X pozice nad SVG vypočte step (round-to-int)
@@ -6134,6 +6353,11 @@ function _wireCurvesPanelOnce() {
           markDirty();
           _renderCurvePins(variant);
         }
+        return;
+      }
+      // Beam toggle — uložit preferenci pro příští otevření popoverkobce
+      if (ev.target.classList.contains('cl-pin-suggest-beam')) {
+        _mutSuggestState.evalModePref = ev.target.checked ? 'beam' : 'greedy';
       }
     });
     let noteTimer = null;
@@ -6176,6 +6400,89 @@ function _wireCurvesPanelOnce() {
       }
       if (ev.target.classList.contains('cl-pin-close')) {
         _hideCurvePopover();
+        return;
+      }
+      // ⚙ Suggest — odešle pin do game.js, spustí mutation search
+      if (ev.target.classList.contains('cl-pin-suggest')) {
+        const pin = variant.curveAnnotations.find(p => p.id === ev.target.dataset.pinId);
+        if (!pin) return;
+        const frame = document.getElementById('preview-frame');
+        if (!frame || !frame.contentWindow) return;
+        // Eval mode přečteme z checkboxu v popoverkobce a zapamatujeme preferenci.
+        const popBeamCb = pop.querySelector('.cl-pin-suggest-beam');
+        const evalMode = (popBeamCb && popBeamCb.checked) ? 'beam' : 'greedy';
+        _mutSuggestState.evalModePref = evalMode;
+        _mutSuggestState.loading = true;
+        _mutSuggestState.pinId = pin.id;
+        _mutSuggestState.results = [];
+        _mutSuggestState.previewIdx = null;
+        _mutSuggestState.progress = null;
+        _mutSuggestState.evalMode = evalMode;
+        renderMutSuggestPanel(null, null);
+        _hideCurvePopover();
+        frame.contentWindow.postMessage({ type: 'balloonbelt:suggest-mutations', pin, evalMode }, '*');
+        return;
+      }
+    });
+  }
+
+  // Mutation suggest panel — delegovaný handler
+  const mutPanel = document.getElementById('cl-mut-suggest-panel');
+  if (mutPanel) {
+    mutPanel.addEventListener('click', (ev) => {
+      // Zavřít panel
+      if (ev.target.classList.contains('cl-mut-close')) {
+        _mutSuggestState.results = [];
+        _mutSuggestState.previewIdx = null;
+        renderMutSuggestPanel(null, null);
+        return;
+      }
+      const lvl = beCurrentLvl();
+      const variant = clActiveVariant(lvl);
+      if (!variant) return;
+
+      // Preview — toggle overlay křivky na hlavním SVG
+      if (ev.target.classList.contains('cl-mut-preview-btn')) {
+        const idx = +ev.target.dataset.mutIdx;
+        _mutSuggestState.previewIdx = _mutSuggestState.previewIdx === idx ? null : idx;
+        renderMutSuggestPanel(lvl, variant);
+        // Overlay preview křivky na hlavní SVG (přidat data-attr na svgWrap)
+        const svgWrapEl = document.getElementById('cl-curves-svg-wrap');
+        if (svgWrapEl) {
+          if (_mutSuggestState.previewIdx !== null) {
+            const sug = _mutSuggestState.results[_mutSuggestState.previewIdx];
+            svgWrapEl.dataset.mutPreview = JSON.stringify(sug ? sug.newCurves : []);
+          } else {
+            delete svgWrapEl.dataset.mutPreview;
+          }
+          renderCurvesPanel(lvl, variant);
+        }
+        return;
+      }
+
+      // Apply — zapíše mutaci do variant.grid
+      if (ev.target.classList.contains('cl-mut-apply-btn')) {
+        const idx = +ev.target.dataset.mutIdx;
+        const sug = _mutSuggestState.results[idx];
+        if (!sug) return;
+        // Snapshot PŘED mutací — Cmd+Z ji vrátí (unikátní actionKey = nekoalescuje)
+        histPush(lvl, 'cl-mut-apply-' + Date.now());
+        applyMutationToVariant(variant, sug.mutation);
+        markDirty();
+        clRenderGrid(variant);
+        // Resetovat suggest panel + spustit novou analýzu
+        _mutSuggestState.results = [];
+        _mutSuggestState.previewIdx = null;
+        const svgWrapEl = document.getElementById('cl-curves-svg-wrap');
+        if (svgWrapEl) delete svgWrapEl.dataset.mutPreview;
+        renderMutSuggestPanel(lvl, variant);
+        // Trigger re-analýzy
+        const frame = document.getElementById('preview-frame');
+        if (frame && frame.contentWindow) {
+          const farSighted = !!(document.getElementById('cl-far-sighted') && document.getElementById('cl-far-sighted').checked);
+          frame.contentWindow.postMessage({ type: 'balloonbelt:analyze-level', farSighted }, '*');
+        }
+        return;
       }
     });
   }
@@ -6691,9 +6998,11 @@ function _renderDifficultyBreakdown(r) {
   const rows = [
     {
       key: 'length', label: 'Délka levelu',
-      input: `${inp.clicks} kliků`,
-      formula: `min(1, ${inp.clicks}/40) × 20`,
-      hint: 'Víc kliků = delší level = únavnější. Cap při 40 klicích.',
+      input: (inp.projectedClicks && inp.projectedClicks !== inp.clicks)
+        ? `~${inp.projectedClicks} kliků (proj.: ${inp.clicks} done + odhad zbylých)`
+        : `${inp.clicks} kliků`,
+      formula: `min(1, ${inp.projectedClicks || inp.clicks}/40) × 20`,
+      hint: 'Víc kliků = delší level = únavnější. Cap při 40 klicích. Pro nedořešené levely se projektuje skutečná délka (done clicks + remainPx ÷ avg gain), aby se nepenalizovalo „krátké" levely jen proto, že solver to v půlce vzdal kvůli overflow.',
       points: b.length || 0, max: 20,
     },
     {
@@ -6733,15 +7042,22 @@ function _renderDifficultyBreakdown(r) {
     },
   ];
   // Verdikt: rozpoznej charakter levelu z kombinace metrik.
+  // Pro nedořešené levely vždycky doporuč ruční ověření — solvery nezvládají všechny
+  // chytré lidské tahy (timing, plánování dopředu), takže neúspěch ≠ jistá nedohratelnost.
   let verdict = '';
+  const verifyHint = !inp.solved ? ' <b>Designer by měl level ručně přehrát v preview a ověřit dohratelnost</b> — solvery mohou uváznout tam, kde lidský hráč najde cestu.' : '';
   if (inp.solved && inp.deadEndPct >= 80 && inp.decisionRichness < 1.5) {
     verdict = '<div class="cl-db-verdict cl-db-verdict-linear">⚡ <b>Lineární puzzle:</b> solver dořešil, ale pro náhodného hráče je level neprůchozí. Existuje jediná správná posloupnost — pro experta easy, pro nováčka frustrující.</div>';
   } else if (inp.solved && inp.deadEndPct < 20) {
     verdict = '<div class="cl-db-verdict cl-db-verdict-easy">🟢 <b>Forgiving level:</b> solver dořešil, většina náhodných her taky. Hodně cest, level odpouští chyby.</div>';
   } else if (!inp.solved && b.solver >= 8) {
-    verdict = '<div class="cl-db-verdict cl-db-verdict-broken">⚠ <b>Možná broken:</b> ani beam search level nedořešil v rozpočtu. Buď extrémně tight balance, nebo design issue (honeycomb dead-end / chybějící carriery).</div>';
+    verdict = `<div class="cl-db-verdict cl-db-verdict-broken">⚠ <b>Možná broken:</b> ani beam search level nedořešil v rozpočtu. Buď extrémně tight balance, nebo design issue (honeycomb dead-end / chybějící carriery).${verifyHint}</div>`;
   } else if (inp.peakBeltLoad > inp.BELT_CAP) {
-    verdict = '<div class="cl-db-verdict cl-db-verdict-belt">🚫 <b>Belt overflow:</b> level vede k zablokování pásu. Hra by skončila game-overem.</div>';
+    verdict = `<div class="cl-db-verdict cl-db-verdict-belt">🚫 <b>Belt overflow:</b> level vede k zablokování pásu. Hra by skončila game-overem.${verifyHint}</div>`;
+  } else if (!inp.solved) {
+    // Hraniční: solver nedokončil, ale not catastrophically — design může být OK,
+    // jen tight nebo vyžaduje human-level plánování. Hlavní use case: tight Hardcore levely.
+    verdict = `<div class="cl-db-verdict cl-db-verdict-borderline">🔬 <b>Hraniční level:</b> solver nedořešil, ale ne všechny pixely zbyly. Level je pravděpodobně dohratelný expertem (jen solver uvázl v lokálním optimu).${verifyHint}</div>`;
   }
   const rowsHtml = rows.map(row => `
     <tr>

@@ -2642,7 +2642,7 @@ function ptRunGreedy(grid,cols,strategy,opts){
     // Po pop kliku zkontroluj jestli některá garáž může dispensovat (free neighbor)
     const dispenses=_ptUpdateGarages(C);
     history.push({step:clicks,c:bc,r:br,color:slot.color,gain:sim.gain,proj:pickedProj,beltLoad:sim.beltLoad,funnelRejected:sim.funnelRejected,clearedPixels:sim.clearedPixels||[],blockHits:sim.blockHits||[],dispenses});
-    if(trace)trace.push({step:clicks,activeCount:act.length,beneficial:beneficialCount,pickedGain:sim.gain,pickedProj,beltLoad:sim.beltLoad,remainingPx:_ptCountPixels(g)});
+    if(trace)trace.push({step:clicks,activeCount:act.length,activeCells:act.map(([c,r])=>({c,r})),beneficial:beneficialCount,pickedGain:sim.gain,pickedProj,beltLoad:sim.beltLoad,remainingPx:_ptCountPixels(g)});
     clicks++;
     // Belt overflow = game over v reálné hře. Stop simulation.
     if(beltOverflow)break;
@@ -2722,7 +2722,7 @@ function ptRunRandom(grid,cols,n,opts){
       C[bc][br]=null;
       const dispenses=_ptUpdateGarages(C);
       history.push({step:clicks,c:bc,r:br,color:slot.color,gain:sim.gain,proj:pickedProj,beltLoad:sim.beltLoad,funnelRejected:sim.funnelRejected,clearedPixels:sim.clearedPixels||[],blockHits:sim.blockHits||[],dispenses});
-      if(trace)trace.push({step:clicks,activeCount:act.length,beneficial:beneficialCount,pickedGain:sim.gain,pickedProj,beltLoad:sim.beltLoad,remainingPx:_ptCountPixels(g)});
+      if(trace)trace.push({step:clicks,activeCount:act.length,activeCells:act.map(([c,r])=>({c,r})),beneficial:beneficialCount,pickedGain:sim.gain,pickedProj,beltLoad:sim.beltLoad,remainingPx:_ptCountPixels(g)});
       clicks++;
       // Belt overflow = game over. Stop simulation (real game by se zaseklo, balónky se hromadily).
       if(beltOverflow)break;
@@ -2777,6 +2777,63 @@ function ptRunRandom(grid,cols,n,opts){
 //   - waste tracking ve state + součást score (klíčové pro tight balance)
 //   - expansion pruning: rozšiřujeme jen beneficial carriery (gain>0), když existují.
 //     Když ne, rozšíříme jen 1 nejlepší dig kandidát. Snižuje branching factor 15→3-5.
+// ── Far-sighted beam helpers (Fáze 2.5) ────────────────────────────────────
+// Tyto funkce se volají jen když `opts.farSighted=true`. Default beam beze změny.
+
+// Vrátí Set<"c,r"> slotů, jejichž vyčištění by uvolnilo dispens stalled garáže.
+// Garáž je „stalled" pokud má neprázdnou queue, ale všichni dispens-směroví sousedi
+// jsou obsazeni (carrier/garage). Klik na takového souseda → garáž může dispensovat.
+function _ptGarageWaitingForSlot(C){
+  const out=new Set();
+  for(let c=0;c<C.length;c++){
+    const col=C[c];if(!col)continue;
+    for(let r=0;r<col.length;r++){
+      const slot=col[r];
+      if(!slot||slot.type!=='garage')continue;
+      if(!slot.queue||!slot.queue.length)continue;
+      const dirs=slot.directions||['N'];
+      for(const d of dirs){
+        const v=GAR_DIR_VEC[d]||[0,0];
+        const nc=c+v[0],nr=r+v[1];
+        if(nc<0||nc>=C.length||nr<0)continue;
+        const ncol=C[nc];if(!ncol||nr>=ncol.length)continue;
+        const ns=ncol[nr];
+        if(ns&&!ns.wall&&ns.type!=='garage')out.add(nc+','+nr);
+      }
+    }
+  }
+  return out;
+}
+
+// Kolik open-zone cells přibyde, kdyby byl tenhle blok zničen?
+// Reflood s block.hp=0, pak vrátí HP zpět. Approximate proxy pro „kolik pixelů
+// se odhalí" — open zóna roste o cells uvnitř footprintu bloku + sousedy.
+function _ptExposedDeltaIfBroken(g,blocks,block){
+  if(!block||block.hp<=0)return 0;
+  const before=_ptGetOpenEmptyCells(g,blocks).size;
+  const saved=block.hp;
+  block.hp=0;
+  const after=_ptGetOpenEmptyCells(g,blocks).size;
+  block.hp=saved;
+  return Math.max(0,after-before);
+}
+
+// Future potential: za každý živý blok spočítej delta open zóny po jeho zničení,
+// váženou exponential decay-em podle „kolik kliků by stálo blok rozbít".
+// UPC*PPU = max projektilů per click → 1-shot blok ≈ 1 klik, větší block-HP víc.
+function _ptFuturePotential(g,blocks){
+  if(!blocks||!blocks.length)return 0;
+  let p=0;
+  for(const b of blocks){
+    if(b.hp<=0)continue;
+    const delta=_ptExposedDeltaIfBroken(g,blocks,b);
+    if(delta<=0)continue;
+    const clicksToBreak=Math.max(1,Math.ceil(b.hp/(UPC*PPU)));
+    p+=delta*Math.pow(0.7,clicksToBreak);
+  }
+  return p;
+}
+
 function ptRunBeamSearch(grid,cols,opts){
   opts=opts||{};
   // Defaults Phase 3 (Iterace B):
@@ -2784,7 +2841,10 @@ function ptRunBeamSearch(grid,cols,opts){
   // Pozn.: V postMessage kontextu (skutečné editorové použití) je V8 ~5× pomalejší
   // než v devtools eval (kvůli inline cache divergenci). Budget musí být velkorysý,
   // aby v reálné cestě beam stihl většinu levelů.
-  const beamWidth=opts.beamWidth||8;
+  // Far-sighted (Fáze 2.5): když true, beam vidí investiční tahy (bariéry, garáže)
+  // a hodnotí cascade efekty přes _ptFuturePotential. Vyšší branching → bump beam.
+  const farSighted=opts.farSighted===true;
+  const beamWidth=opts.beamWidth||(farSighted?12:8);
   const timeBudget=opts.timeBudgetMs||8000;
   const maxDepth=opts.maxDepth||80;
   const wantTrace=!!opts.trace;
@@ -2801,6 +2861,7 @@ function ptRunBeamSearch(grid,cols,opts){
     clicks:0,
     waste:0,
     funnelRejectedCount:0,
+    blocksKilled:0,
     history:[],trace:wantTrace?[]:null,
     colorFirstSeen:{},
   };
@@ -2820,19 +2881,46 @@ function ptRunBeamSearch(grid,cols,opts){
       if(!act.length)continue;
       const queuedAmmo={};
       for(const b of s.beltQueue) queuedAmmo[b.color]=(queuedAmmo[b.color]||0)+b.ammo;
+      // Far-sighted expansion potřebuje vědět, kdo je investiční. Helper „garage waiting"
+      // se počítá 1× per state (ne per stat), proto tady nahoře.
+      const garageWaiting=farSighted?_ptGarageWaitingForSlot(s.C):null;
       const stats=act.map(([c,r])=>{
         const slot=s.C[c][r];
         const accBlocks=_ptAccessibleBlocks(s.blocks,s.g,slot.color);
         const blockHp=accBlocks.reduce((sum,b)=>sum+b.hp,0);
         const exposed=_ptGetExposed(s.g,slot.color,s.blocks).length+blockHp;
-        return{exposed,queued:queuedAmmo[slot.color]||0,proj:slot.projectiles||0};
+        const st={exposed,queued:queuedAmmo[slot.color]||0,proj:slot.projectiles||0};
+        if(farSighted){
+          // Investiční flagy:
+          //   breaksBarrier — barva carrieru = barva přístupného bloku → klik ho oslabí
+          //   unblocksGarage — slot blokuje dispens stalled garáže
+          st.breaksBarrier=accBlocks.length>0;
+          st.unblocksGarage=garageWaiting.has(c+','+r);
+        }
+        return st;
       });
       const beneficialCount=stats.filter(x=>Math.max(0,x.exposed-x.queued)>0).length;
       // Expansion pruning — jen beneficial carriery + 1 dig fallback.
       // Tohle dramaticky snižuje branching factor (typicky 15 → 3-5 children per state).
       const expandIdxs=[];
       for(let i=0;i<stats.length;i++){
-        if(Math.max(0,stats[i].exposed-stats[i].queued)>0)expandIdxs.push(i);
+        const benefit=Math.max(0,stats[i].exposed-stats[i].queued);
+        if(benefit>0){expandIdxs.push(i);continue;}
+        if(farSighted&&(stats[i].breaksBarrier||stats[i].unblocksGarage)){
+          // Investiční tah: nemá okamžitý gain, ale rozbije bariéru / uvolní garáž.
+          expandIdxs.push(i);
+        }
+      }
+      if(farSighted&&expandIdxs.length>6){
+        // Cap branching factor — vyber top 6 dle benefit + investiční bonus.
+        // Bez capu by se beam tree exponenciálně zhroutil (15 carriers × 12 widths × 80 depth).
+        const score=i=>{
+          const x=stats[i];
+          const ben=Math.max(0,x.exposed-x.queued);
+          return ben+(x.breaksBarrier?2:0)+(x.unblocksGarage?2:0);
+        };
+        expandIdxs.sort((a,b)=>score(b)-score(a));
+        expandIdxs.length=6;
       }
       if(expandIdxs.length===0){
         // Dig fallback: vyber jeden nejlepší dig kandidát (nejvíc non-wall sousedů).
@@ -2860,6 +2948,7 @@ function ptRunBeamSearch(grid,cols,opts){
           clicks:s.clicks+1,
           waste:s.waste,
           funnelRejectedCount:s.funnelRejectedCount,
+          blocksKilled:s.blocksKilled||0,
           history:s.history.slice(),
           trace:wantTrace?s.trace.slice():null,
           colorFirstSeen:Object.assign({},s.colorFirstSeen),
@@ -2869,6 +2958,10 @@ function ptRunBeamSearch(grid,cols,opts){
         if(sim.beltLoad>BELT_CAP)child.beltOverflow=true;
         if(sim.funnelRejected)child.funnelRejectedCount++;
         child.waste+=sim.waste||0;
+        // Reward za zničení bloku — sečteme `destroyed:true` z blockHits.
+        if(sim.blockHits&&sim.blockHits.length){
+          for(const bh of sim.blockHits)if(bh.destroyed)child.blocksKilled++;
+        }
         child.C[c][r]=null;
         const dispenses=_ptUpdateGarages(child.C);
         child.history.push({step:s.clicks,c:c,r:r,color:slot.color,gain:sim.gain,proj:slot.projectiles||0,beltLoad:sim.beltLoad,funnelRejected:sim.funnelRejected,clearedPixels:sim.clearedPixels||[],blockHits:sim.blockHits||[],dispenses});
@@ -2877,15 +2970,36 @@ function ptRunBeamSearch(grid,cols,opts){
       }
     }
     if(!next.length)break;
-    next.sort((a,b)=>{
-      // Skóre: overflow tvrdě, pak funnel rejected (= klik, který by reálná hra neumožnila),
-      // pak waste, queue, clicks, remaining. Funnel*8 = beam preferuje funnel-friendly cesty.
-      const aRem=_ptCountPixels(a.g);
-      const bRem=_ptCountPixels(b.g);
-      const sa=(a.beltOverflow?1e9:0)+(a.funnelRejectedCount||0)*8+a.waste*5+a.beltQueue.length*3+a.clicks+aRem*0.5;
-      const sb=(b.beltOverflow?1e9:0)+(b.funnelRejectedCount||0)*8+b.waste*5+b.beltQueue.length*3+b.clicks+bRem*0.5;
-      return sa-sb;
-    });
+    if(farSighted){
+      // Far-sighted scoring: oceňuje block destrukci a future cascade potential.
+      // remPx*1.0 (vs 0.5) přebije clicks*1 — investiční klik teď není striktně horší.
+      // blockHp*0.8: HP bariér jako first-class cíl (jejich existence stojí pixely).
+      // blocksKilled*-4: explicit reward za rozbití bariéry (1 zničený blok ≈ 5 HP value).
+      // futurePotential*-0.4: cascade — stavy s velkou „latentní" odkrytelnou plochou jsou lepší.
+      // Cache futurePotential per state (jednou, ne per child) — ušetří flood-fill calls.
+      for(const c of next){
+        if(c._futurePotential===undefined)c._futurePotential=_ptFuturePotential(c.g,c.blocks);
+        if(c._remPx===undefined)c._remPx=_ptCountPixels(c.g);
+        if(c._blockHp===undefined)c._blockHp=_ptBlockHpSum(c.blocks);
+      }
+      next.sort((a,b)=>{
+        const sa=(a.beltOverflow?1e9:0)+(a.funnelRejectedCount||0)*8+a.waste*5+a.beltQueue.length*3+a.clicks
+                +a._remPx*1.0+a._blockHp*0.8-(a.blocksKilled||0)*4-a._futurePotential*0.4;
+        const sb=(b.beltOverflow?1e9:0)+(b.funnelRejectedCount||0)*8+b.waste*5+b.beltQueue.length*3+b.clicks
+                +b._remPx*1.0+b._blockHp*0.8-(b.blocksKilled||0)*4-b._futurePotential*0.4;
+        return sa-sb;
+      });
+    } else {
+      next.sort((a,b)=>{
+        // Skóre: overflow tvrdě, pak funnel rejected (= klik, který by reálná hra neumožnila),
+        // pak waste, queue, clicks, remaining. Funnel*8 = beam preferuje funnel-friendly cesty.
+        const aRem=_ptCountPixels(a.g);
+        const bRem=_ptCountPixels(b.g);
+        const sa=(a.beltOverflow?1e9:0)+(a.funnelRejectedCount||0)*8+a.waste*5+a.beltQueue.length*3+a.clicks+aRem*0.5;
+        const sb=(b.beltOverflow?1e9:0)+(b.funnelRejectedCount||0)*8+b.waste*5+b.beltQueue.length*3+b.clicks+bRem*0.5;
+        return sa-sb;
+      });
+    }
     beam=next.slice(0,beamWidth);
     if(bestSolved&&beam.every(s=>s.clicks>=bestSolved.clicks))break;
   }
@@ -2937,17 +3051,364 @@ function ptRunBeamSearch(grid,cols,opts){
     hitTimeBudget:elapsed>=timeBudget,
   };
 }
-function ptAnalyzeCurrentLevel(){
+// ── Mutation Designer (Fáze 2) ────────────────────────────────────────────────
+
+function _ptDeepCloneColumns(cols){
+  return cols.map(col=>col.map(s=>{
+    if(s===null||s===undefined)return s;
+    const c={...s};
+    if(Array.isArray(s.queue))c.queue=s.queue.map(q=>({...q}));
+    return c;
+  }));
+}
+
+// Vrátí seznam carrier/rocket/garage buněk (ne null a ne wall) z columns.
+function _ptListCells(cols){
+  const cells=[];
+  for(let col=0;col<cols.length;col++){
+    for(let row=0;row<cols[col].length;row++){
+      const s=cols[col][row];
+      if(s&&!s.wall)cells.push({col,row});
+    }
+  }
+  return cells;
+}
+
+// Vrátí seznam wall buněk z columns.
+function _ptListWalls(cols){
+  const walls=[];
+  for(let col=0;col<cols.length;col++){
+    for(let row=0;row<cols[col].length;row++){
+      const s=cols[col][row];
+      if(s&&s.wall)walls.push({col,row});
+    }
+  }
+  return walls;
+}
+
+// Bezpečnostní check pro INSERT_WALL: neexistuje buňka níže ve stejném sloupci.
+function _ptInsertWallSafe(cols,col,row){
+  for(let r=row+1;r<cols[col].length;r++){
+    const s=cols[col][r];
+    if(s&&!s.wall)return false;
+  }
+  return true;
+}
+
+// Vrátí popis mutace česky.
+function _ptMutationDesc(mut){
+  const pos=p=>`(sl.${p.col},ř.${p.row})`;
+  switch(mut.type){
+    case'SWAP_CELLS':  return `Přesun nosiče ${pos(mut.a)} ↔ ${pos(mut.b)}`;
+    case'SWAP_COLORS': return `Výměna barev ${pos(mut.a)} ↔ ${pos(mut.b)}`;
+    case'INSERT_WALL': return `Přidána zeď na ${pos(mut.a)}`;
+    case'REMOVE_WALL': return `Odstraněna zeď na ${pos(mut.a)}`;
+    case'TOGGLE_HIDDEN':return `Přepnut skrytý flag ${pos(mut.a)}`;
+    default: return mut.type;
+  }
+}
+
+// Aplikuje mutaci na deep clone columns, vrátí nové columns nebo null (neplatná mutace).
+function _ptApplyMutation(cols,mut){
+  const C=_ptDeepCloneColumns(cols);
+  switch(mut.type){
+    case'SWAP_CELLS':{
+      const tmp=C[mut.a.col][mut.a.row];
+      C[mut.a.col][mut.a.row]=C[mut.b.col][mut.b.row];
+      C[mut.b.col][mut.b.row]=tmp;
+      break;
+    }
+    case'SWAP_COLORS':{
+      const sA=C[mut.a.col][mut.a.row];
+      const sB=C[mut.b.col][mut.b.row];
+      if(!sA||!sB||sA.wall||sB.wall)return null;
+      const cA=sA.color;
+      sA.color=sB.color;
+      sB.color=cA;
+      break;
+    }
+    case'INSERT_WALL':{
+      if(!_ptInsertWallSafe(cols,mut.a.col,mut.a.row))return null;
+      C[mut.a.col][mut.a.row]={wall:true};
+      break;
+    }
+    case'REMOVE_WALL':{
+      C[mut.a.col][mut.a.row]=null;
+      break;
+    }
+    case'TOGGLE_HIDDEN':{
+      const s=C[mut.a.col][mut.a.row];
+      if(!s||s.wall)return null;
+      C[mut.a.col][mut.a.row]={...s,hidden:!s.hidden};
+      break;
+    }
+    default: return null;
+  }
+  return C;
+}
+
+// TAG_DIRECTION: pro každý tag, jak by se měly změnit dimenze křivky v pin range.
+// choice = beneficial/active — NIŽŠÍ = méně zjevných tahů = TĚŽŠÍ pro hráče.
+// pressure = beltLoad/CAP — VYŠŠÍ = pás je plnější = TĚŽŠÍ.
+const _PT_TAG_DIRECTION={
+  'harder':            {choice:-1,pressure:+1},  // méně zjevných voleb + vyšší tlak
+  'easier':            {choice:+1,pressure:-1},  // více zjevných voleb + nižší tlak
+  'more decisions':    {choice:+1},              // více beneficiálních carrierů
+  'less decisions':    {choice:-1},              // méně beneficiálních carrierů
+  'less belt pressure':{pressure:-1},            // snížit belt load
+};
+
+// Průměrná hodnota dimenze v rozsahu kroků [s0, s1].
+function _ptAvgInRange(trace,dim,s0,s1){
+  let sum=0,count=0;
+  for(const pt of trace){
+    if(pt.step<s0||pt.step>s1)continue;
+    let val=0;
+    if(dim==='choice')val=pt.activeCount>0?pt.beneficial/pt.activeCount:0;
+    else if(dim==='pressure')val=pt.beltLoad/14;
+    else if(dim==='progress')val=pt.remainingPx>0?pt.pickedGain/pt.remainingPx:0;
+    sum+=val;count++;
+  }
+  return count>0?sum/count:0;
+}
+
+// Score mutace: vážená suma zlepšení v pin range podle tag direction.
+// Vrací {score, dimDeltas} kde dimDeltas popisuje skutečné změny per dimenzi.
+function _ptScoreMutation(baseTrace,newTrace,pin){
+  const dir=_PT_TAG_DIRECTION[pin.tag]||{'choice':-1,'pressure':+1};
+  let score=0;
+  const dimDeltas={};
+  for(const[dim,sign] of Object.entries(dir)){
+    const baseVal=_ptAvgInRange(baseTrace,dim,pin.stepStart,pin.stepEnd);
+    const nextVal=_ptAvgInRange(newTrace,dim,pin.stepStart,pin.stepEnd);
+    const delta=nextVal-baseVal;
+    dimDeltas[dim]={base:baseVal,next:nextVal,delta,wanted:sign>0?'+':'-',got:delta>0.005?'+':(delta<-0.005?'-':'=')};
+    score+=sign*delta;
+  }
+  return{score,dimDeltas};
+}
+
+// Unikátní klíč mutace pro deduplikaci.
+function _ptMutKey(mut){
+  if(!mut)return'null';
+  const a=`${mut.a?mut.a.col+','+mut.a.row:''}`;
+  const b=mut.b?`${mut.b.col},${mut.b.row}`:'';
+  return`${mut.type}|${a}|${b}`;
+}
+
+// Fokus region: sjednocení activeCells kroků [s0..s1] + ortogonální sousedi.
+function _ptBuildFocusRegion(trace,s0,s1,numCols){
+  const set=new Set();
+  const key=(c,r)=>`${c},${r}`;
+  for(const pt of trace){
+    if(pt.step<s0||pt.step>s1)continue;
+    if(!pt.activeCells)continue;
+    for(const{c,r} of pt.activeCells){
+      set.add(key(c,r));
+      // ortogonální sousedi (col±1, row±1) pro rozšíření search space
+      for(const[dc,dr] of[[-1,0],[1,0],[0,-1],[0,1]]){
+        const nc=c+dc,nr=r+dr;
+        if(nc>=0&&nc<numCols&&nr>=0)set.add(key(nc,nr));
+      }
+    }
+  }
+  return [...set].map(k=>{const[c,r]=k.split(',').map(Number);return{col:c,row:r};});
+}
+
+// Výběr náhodné mutace, s preferencí pro focus region.
+function _ptPickRandomMutation(cols,focusRegion){
+  const allCells=_ptListCells(cols);
+  const allWalls=_ptListWalls(cols);
+  if(allCells.length<2)return null;
+
+  // Váhy typů mutací
+  const types=['SWAP_CELLS','SWAP_COLORS','TOGGLE_HIDDEN','REMOVE_WALL','INSERT_WALL'];
+  const weights=[40,30,15,10,5];
+  const totalW=weights.reduce((a,b)=>a+b,0);
+  let rnd=Math.random()*totalW;
+  let type=types[types.length-1];
+  for(let i=0;i<types.length;i++){rnd-=weights[i];if(rnd<=0){type=types[i];break;}}
+
+  // Výběr z focus region pokud dostupné (70 % šance), jinak globální
+  const useFocus=focusRegion.length>=2&&Math.random()<0.7;
+  const pool=useFocus
+    ?focusRegion.filter(({col,row})=>{const s=cols[col]&&cols[col][row];return s&&!s.wall;})
+    :allCells;
+  if(pool.length<1)return null;
+
+  const pick=arr=>arr[Math.floor(Math.random()*arr.length)];
+
+  switch(type){
+    case'SWAP_CELLS':
+    case'SWAP_COLORS':{
+      if(pool.length<2)return null;
+      const a=pick(pool);
+      let b;
+      do{b=pick(pool);}while(b.col===a.col&&b.row===a.row);
+      return{type,a,b};
+    }
+    case'TOGGLE_HIDDEN':{
+      const a=pick(pool);
+      return{type,a};
+    }
+    case'REMOVE_WALL':{
+      if(!allWalls.length)return null;
+      return{type,a:pick(allWalls)};
+    }
+    case'INSERT_WALL':{
+      // Bezpečná místa: nesmí blokovat buňky níže
+      const safe=allCells.filter(({col,row})=>_ptInsertWallSafe(cols,col,row));
+      if(!safe.length)return null;
+      return{type,a:pick(safe)};
+    }
+    default: return null;
+  }
+}
+
+// Kompaktní mini-curves data pro SVG v editoru (jen choice + pressure per step).
+function _ptBuildMiniCurves(trace){
+  if(!trace||!trace.length)return[];
+  return trace.map(pt=>({
+    step:pt.step,
+    choice:pt.activeCount>0?pt.beneficial/pt.activeCount:0,
+    pressure:pt.beltLoad/14,
+    progress:pt.remainingPx>0?pt.pickedGain/(pt.remainingPx+pt.pickedGain):0,
+  }));
+}
+
+// Hlavní funkce: navrhne top 3 mutace pro daný pin.
+// Spustí jeden simulační run pro mutaci — buď greedy (rychlé) nebo far-sighted beam (přesné).
+// Beam s konzervativním budgetem aby 50 evaluací netrvalo déle než ~30 s celkem.
+function _ptEvalMutation(grid,cols,evalMode){
+  if(evalMode==='beam'){
+    return ptRunBeamSearch(grid,cols,{
+      trace:true,
+      farSighted:true,
+      beamWidth:6,
+      timeBudgetMs:600,  // 50 × 0.6s ≈ 30s worst case (typicky míň, beam končí dřív)
+      maxDepth:50,
+    });
+  }
+  return ptRunGreedy(grid,cols,'max-gain',{trace:true});
+}
+
+// Async verze pro beam mode — yielduje na event loop mezi mutacemi, aby UI nezamrzlo.
+// progressCb(current, total) volaný každých ~5 mutací.
+async function ptSuggestMutationsAsync(pin,opts,progressCb){
+  if(!_ptInitGrid||!_ptInitColumns)return[];
+  opts=opts||{};
+  const evalMode=opts.evalMode==='beam'?'beam':'greedy';
+  const numCols=_ptInitColumns.length;
+  // Baseline run vždycky stejnou metodou jako evaluace (aby diff měl smysl)
+  const base=_ptEvalMutation(_ptInitGrid,_ptInitColumns,evalMode);
+  if(!base.trace||!base.trace.length)return[];
+
+  const focusRegion=_ptBuildFocusRegion(base.trace,pin.stepStart||0,pin.stepEnd||base.trace.length,numCols);
+  const candidates=[];
+  const N=50;
+
+  for(let i=0;i<N;i++){
+    const mut=_ptPickRandomMutation(_ptInitColumns,focusRegion);
+    if(mut){
+      const newCols=_ptApplyMutation(_ptInitColumns,mut);
+      if(newCols){
+        const r=_ptEvalMutation(_ptInitGrid,newCols,evalMode);
+        if(r.trace&&r.trace.length){
+          const{score,dimDeltas}=_ptScoreMutation(base.trace,r.trace,pin);
+          candidates.push({mut,score,dimDeltas,trace:r.trace,clicks:r.clicks,solved:r.solved});
+        }
+      }
+    }
+    // Yield k event loop každých 5 mutací (jen v beam mode kde každá iterace je drahá).
+    // Greedy je dost rychlý že yielding není potřeba (250ms total) a stojí jen čas.
+    if(evalMode==='beam'&&(i+1)%5===0){
+      if(progressCb)progressCb(i+1,N);
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+  if(progressCb)progressCb(N,N);
+
+  candidates.sort((a,b)=>b.score-a.score);
+  const seen=new Set();
+  const deduped=[];
+  for(const c of candidates){
+    const k=_ptMutKey(c.mut);
+    if(seen.has(k))continue;
+    seen.add(k);
+    deduped.push(c);
+    if(deduped.length>=3)break;
+  }
+  const baseCurves=_ptBuildMiniCurves(base.trace);
+  return deduped.map(c=>({
+    mutation:c.mut,
+    score:Math.round(c.score*1000)/1000,
+    dimDeltas:c.dimDeltas,
+    desc:_ptMutationDesc(c.mut),
+    deltaClicks:c.clicks-base.clicks,
+    solved:c.solved,
+    baseCurves,
+    newCurves:_ptBuildMiniCurves(c.trace),
+    evalMode,
+  }));
+}
+
+// Sync wrapper pro zpětnou kompatibilitu (pokud by někdo volal přímo).
+function ptSuggestMutations(pin){
+  if(!_ptInitGrid||!_ptInitColumns)return[];
+  const numCols=_ptInitColumns.length;
+  const base=ptRunGreedy(_ptInitGrid,_ptInitColumns,'max-gain',{trace:true});
+  if(!base.trace||!base.trace.length)return[];
+
+  const focusRegion=_ptBuildFocusRegion(base.trace,pin.stepStart||0,pin.stepEnd||base.trace.length,numCols);
+  const candidates=[];
+
+  for(let i=0;i<50;i++){
+    const mut=_ptPickRandomMutation(_ptInitColumns,focusRegion);
+    if(!mut)continue;
+    const newCols=_ptApplyMutation(_ptInitColumns,mut);
+    if(!newCols)continue;
+    const r=ptRunGreedy(_ptInitGrid,newCols,'max-gain',{trace:true});
+    if(!r.trace||!r.trace.length)continue;
+    const{score,dimDeltas}=_ptScoreMutation(base.trace,r.trace,pin);
+    candidates.push({mut,score,dimDeltas,trace:r.trace,clicks:r.clicks,solved:r.solved});
+  }
+
+  candidates.sort((a,b)=>b.score-a.score);
+  const seen=new Set();
+  const deduped=[];
+  for(const c of candidates){
+    const k=_ptMutKey(c.mut);
+    if(seen.has(k))continue;
+    seen.add(k);
+    deduped.push(c);
+    if(deduped.length>=3)break;
+  }
+  const baseCurves=_ptBuildMiniCurves(base.trace);
+  return deduped.map(c=>({
+    mutation:c.mut,
+    score:Math.round(c.score*1000)/1000,
+    dimDeltas:c.dimDeltas,
+    desc:_ptMutationDesc(c.mut),
+    deltaClicks:c.clicks-base.clicks,
+    solved:c.solved,
+    baseCurves,
+    newCurves:_ptBuildMiniCurves(c.trace),
+  }));
+}
+
+function ptAnalyzeCurrentLevel(analyzeOpts){
   if(!_ptInitGrid||!_ptInitColumns)return null;
+  // farSighted (Fáze 2.5) — opt-in z editoru. Nový expansion + scoring v beamu.
+  const farSighted=!!(analyzeOpts&&analyzeOpts.farSighted);
   // 3-strategy ensemble: max-gain greedy, full-use greedy, beam search.
   // Pro tight levely (balance≈0) je beam výrazně lepší. Vezmeme best výsledek.
   const gA=ptRunGreedy(_ptInitGrid,_ptInitColumns,'max-gain',{trace:true});
   const gB=ptRunGreedy(_ptInitGrid,_ptInitColumns,'full-use',{trace:true});
   // Progressive beam: nejdřív rychlý (8/8s/80). Pokud nedořešil A žádná greedy taky ne,
   // eskalujeme na thorough (16/12s/100). Worst-case 20s celkem na beam.
-  let gC=ptRunBeamSearch(_ptInitGrid,_ptInitColumns,{trace:true});
+  let gC=ptRunBeamSearch(_ptInitGrid,_ptInitColumns,{trace:true,farSighted});
   if(!gC.solved&&!gA.solved&&!gB.solved){
-    const thorough=ptRunBeamSearch(_ptInitGrid,_ptInitColumns,{trace:true,beamWidth:16,timeBudgetMs:12000,maxDepth:100});
+    const thorough=ptRunBeamSearch(_ptInitGrid,_ptInitColumns,{trace:true,beamWidth:16,timeBudgetMs:12000,maxDepth:100,farSighted});
     if(thorough.solved||(thorough.remainingGrid&&_ptCountPixels(thorough.remainingGrid)<_ptCountPixels(gC.remainingGrid||[])))gC=thorough;
   }
   const cands=[{name:'max-gain',r:gA},{name:'full-use',r:gB},{name:'beam',r:gC}];
@@ -3018,7 +3479,20 @@ function ptAnalyzeCurrentLevel(){
   const solversSolved=cands.filter(c=>c.r.solved).length; // 0..3
   const totalPx=pxNeed.reduce((a,b)=>a+(b||0),0);
   const remainPx=best.r.remainingGrid?_ptCountPixels(best.r.remainingGrid):0;
-  const lengthFactor=Math.min(1,(best.r.clicks||0)/40);
+  // Length factor — pro nedořešené levely projektujeme skutečnou délku (kolik kliků
+  // by bylo potřeba k vyčištění zbývajících pixelů), aby score nepenalizoval „krátké"
+  // levely jen proto, že solver to v polovině vzdal kvůli belt overflow.
+  let projectedClicks=best.r.clicks||0;
+  if(!best.r.solved&&remainPx>0){
+    const doneClicks=best.r.clicks||0;
+    const doneGain=Math.max(0,totalPx-remainPx);
+    // Průměrný gain per click v already-played části. Fallback 25 px/click pokud
+    // solver vzdal moc brzo (doneGain malý nebo 0).
+    const avgGain=(doneClicks>0&&doneGain>0)?doneGain/doneClicks:25;
+    const projectedRemainingClicks=remainPx/Math.max(10,avgGain);
+    projectedClicks=Math.round(doneClicks+projectedRemainingClicks);
+  }
+  const lengthFactor=Math.min(1,projectedClicks/40);
   // Risk: random fail rate. Když ALESPOŇ JEDEN solver dořeší, halvíme — plán existuje,
   // jen random ho nenašel. Když nikdo nedořeší, plný risk.
   let riskFactor=Math.min(1,Math.max(0,1-rnd.successRate));
@@ -3042,6 +3516,7 @@ function ptAnalyzeCurrentLevel(){
   // Inputs pro UI breakdown panel — surová data, aby UI mohlo vysvětlit "proč N bodů".
   const diffInputs={
     clicks:best.r.clicks||0,
+    projectedClicks, // pro nedořešené levely = clicks + projekce remaining; jinak = clicks
     deadEndPct:Math.round((1-rnd.successRate)*100),
     decisionRichness:best.r.decisionRichness||0,
     peakBeltLoad:peakBeltLoad||0,
@@ -5249,7 +5724,24 @@ function initGame(){
   window.addEventListener('message',function(ev){
     const m=ev.data;
     if(!m||m.type!=='balloonbelt:analyze-level')return;
-    const results=ptAnalyzeCurrentLevel();
+    const results=ptAnalyzeCurrentLevel({farSighted:!!m.farSighted});
+    if(results)results.farSighted=!!m.farSighted; // echo zpět pro UI label
     try{window.parent.postMessage({type:'balloonbelt:analysis-results',results},'*');}catch(e){}
+  });
+
+  // Mutation Designer: editor pošle suggest-mutations s pinem, vrátíme top 3 mutace.
+  // evalMode: 'greedy' (default, ~250ms) | 'beam' (přesnější, ~10-30s, s progress).
+  window.addEventListener('message',function(ev){
+    const m=ev.data;
+    if(!m||m.type!=='balloonbelt:suggest-mutations')return;
+    const evalMode=m.evalMode==='beam'?'beam':'greedy';
+    const progressCb=(current,total)=>{
+      try{window.parent.postMessage({type:'balloonbelt:mutation-progress',current,total,evalMode},'*');}catch(e){}
+    };
+    ptSuggestMutationsAsync(m.pin||{},{evalMode},progressCb).then(suggestions=>{
+      try{window.parent.postMessage({type:'balloonbelt:mutation-suggestions',suggestions,evalMode},'*');}catch(e){}
+    }).catch(err=>{
+      try{window.parent.postMessage({type:'balloonbelt:mutation-suggestions',suggestions:[],error:String(err),evalMode},'*');}catch(e){}
+    });
   });
 }
