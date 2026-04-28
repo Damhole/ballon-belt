@@ -3203,11 +3203,25 @@ function buildColsFromLayout(layout,pxCounts){
       }catch(e){}
       return null; // celé přepne na auto-gen
     }
-    // Rovnoměrné rozdělení: base + remainder do prvních slotů.
-    const base=Math.floor(total/slots);
-    const rem=total%slots;
+    // Distribuce projektilů: cíl = TARGET (UPC*PPU=40) per carrier. Pokud máme
+    // dost projektilů (total ≥ (slots-1)*TARGET), držíme TARGET pro všechny
+    // carriery kromě posledního a do něj dáme zbytek. To zachovává konzistentní
+    // 40 per carrier vč. toho že máme 1 outlier.
+    // Pokud projektilů je málo (heavily underprovisioned), rovnoměrný split.
+    const TARGET=UPC*PPU; // 40
     const chunks=[];
-    for(let i=0;i<slots;i++)chunks.push(base+(i<rem?1:0));
+    if(slots===1){
+      chunks.push(total);
+    } else if(total>=(slots-1)*TARGET){
+      // Drž TARGET pro slots-1 carrier, zbytek do posledního
+      for(let i=0;i<slots-1;i++)chunks.push(TARGET);
+      chunks.push(total-(slots-1)*TARGET);
+    } else {
+      // Underprovisioned: rovnoměrný split (každý dostane <TARGET)
+      const base=Math.floor(total/slots);
+      const rem=total%slots;
+      for(let i=0;i<slots;i++)chunks.push(base+(i<rem?1:0));
+    }
     colorChunks[c]=chunks;
   }
   // 3) Stavba columns z layoutu — row-major průchod, pop chunk per carrier slot.

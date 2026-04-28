@@ -2521,16 +2521,45 @@ function _clBuildProjMap(lvl, variant) {
           }
         }
       }
+      // Najdi pro každou barvu poslední carrier v row-major iteraci (= ten,
+      // co v game.js dostane "outlier" chunk = total - (n-1)*TARGET).
+      const lastCarrierByColor = {};
+      for (let r = 0; r < variant.grid.length; r++) {
+        const row = variant.grid[r] || [];
+        for (let c = 0; c < clGetCols(variant); c++) {
+          const t = row[c];
+          if (!t || t.type !== 'carrier' || typeof t.color !== 'number') continue;
+          lastCarrierByColor[t.color] = c + ',' + r;
+        }
+      }
+      const TARGET = 40; // UPC * PPU
       for (let r = 0; r < variant.grid.length; r++) {
         const row = variant.grid[r] || [];
         for (let c = 0; c < clGetCols(variant); c++) {
           const t = row[c];
           if (!t || t.type !== 'carrier' || typeof t.color !== 'number') continue;
           const k = c + ',' + r;
-          if (map.has(k)) continue;
+          if (map.has(k)) continue; // tester history má přednost
           const total = totals[t.color] || 0;
           const num = counts[t.color] || 1;
-          if (total > 0) map.set(k, Math.floor(total / num));
+          if (total <= 0) continue;
+          let estProj;
+          if (num === 1) {
+            estProj = total;
+          } else if (total >= (num - 1) * TARGET) {
+            // Většina dostane TARGET, "poslední" carrier (row-major) má rest.
+            estProj = (lastCarrierByColor[t.color] === k)
+              ? total - (num - 1) * TARGET
+              : TARGET;
+          } else {
+            // Underprovisioned: rovnoměrný split (každý dostane <TARGET)
+            const base = Math.floor(total / num);
+            const rem = total % num;
+            // Pro určitost: prvních `rem` carrierů dostane base+1, ostatní base.
+            // Bez per-carrier index nejlépe odhadovat průměr.
+            estProj = base + (rem > 0 ? 1 : 0);
+          }
+          map.set(k, estProj);
         }
       }
     }
