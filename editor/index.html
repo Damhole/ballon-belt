@@ -362,6 +362,72 @@
                 </div>
               </div>
             </details>
+            <details id="cl-auto-tune" class="cl-auto-tune" hidden>
+              <summary class="cl-section-title">⚙ Auto-tune <span class="hint">(SA přes mutation pool — přerovná carriery k target shape)</span></summary>
+              <div class="cl-auto-tune-body">
+                <div class="cl-at-controls">
+                  <div class="cl-at-control-row">
+                    <label class="cl-at-label" title="Target shape — SA bude SA optimalizovat carrier layout, aby aktuální křivka co nejlépe odpovídala této shape.">Template:</label>
+                    <select id="cl-at-template">
+                      <option value="FLAT">FLAT — konstantní obtížnost</option>
+                      <option value="STAIRCASE">STAIRCASE — postupný nárůst</option>
+                      <option value="WARMUP_CLIMAX_COOLDOWN">WARMUP-CLIMAX-COOLDOWN ╱─╲</option>
+                      <option value="EARLY_HOOK">EARLY HOOK — strmý začátek</option>
+                      <option value="ENDGAME_PUZZLE">ENDGAME PUZZLE — spike na konci</option>
+                      <option value="DOUBLE_PEAK">DOUBLE PEAK ╱╲╱╲</option>
+                    </select>
+                  </div>
+                  <div id="cl-at-template-preview" class="cl-at-template-preview"></div>
+                  <div class="cl-at-control-row">
+                    <label class="cl-at-label" title="Která dimenze se má primárně optimalizovat. 'all' = vážený mix (choice + pressure + progress).">Apply target:</label>
+                    <select id="cl-at-target">
+                      <option value="all">Vše (vážené)</option>
+                      <option value="choice">Choice</option>
+                      <option value="pressure">Pressure</option>
+                      <option value="progress">Progress</option>
+                    </select>
+                  </div>
+                  <div class="cl-at-control-row">
+                    <label class="cl-at-label" title="Time budget pro SA. Delší = víc iterací = lepší fit. Editor je responzivní díky yieldingu.">Time budget:</label>
+                    <select id="cl-at-budget">
+                      <option value="30000" selected>30 s (rychlé)</option>
+                      <option value="120000">2 min (střední)</option>
+                      <option value="300000">5 min (důkladné)</option>
+                      <option value="600000">10 min (max)</option>
+                    </select>
+                  </div>
+                  <div class="cl-at-control-row">
+                    <label class="cl-far-sighted-label" title="beam eval = far-sighted beam místo greedy. Přesnější, ale ~5× pomalejší per iteraci → výrazně méně iterací v daném budgetu.">
+                      <input type="checkbox" id="cl-at-eval-beam"> 🎯 beam eval (přesnější, méně iterací)
+                    </label>
+                  </div>
+                  <div class="cl-at-control-row cl-at-actions">
+                    <button id="cl-at-start" class="btn btn-primary" type="button">▶ AUTO-TUNE</button>
+                    <button id="cl-at-stop" class="btn" type="button" hidden>■ STOP</button>
+                  </div>
+                  <div class="cl-at-control-row">
+                    <button id="cl-at-cleanup-hidden" class="btn btn-small" type="button" title="Smaže `?` flagy z carrierů, které jsou v hraně active (row 0 nebo tunel sousedem). Hra je beztak nevykreslí — flag je jen vizuální noise z minulých Apply.">🧹 Vyčistit ineffective `?` flagy</button>
+                  </div>
+                </div>
+                <div id="cl-at-monitor" class="cl-at-monitor" hidden>
+                  <div class="cl-at-stats">
+                    <span>iter: <b id="cl-at-iter">0</b></span>
+                    <span>accepted: <b id="cl-at-accepted">0</b></span>
+                    <span>best: <b id="cl-at-best">—</b></span>
+                    <span>T: <b id="cl-at-temp">1.00</b></span>
+                  </div>
+                  <div class="cl-mut-progress-bar"><div class="cl-mut-progress-fill" id="cl-at-progress-fill" style="width:0%"></div></div>
+                  <div class="cl-at-monitor-row">
+                    <div id="cl-at-monitor-svg-wrap"></div>
+                    <div class="cl-at-mini-grid-wrap">
+                      <div class="cl-at-mini-grid-label hint">live carrier layout (best)</div>
+                      <canvas id="cl-at-mini-grid" width="200" height="160"></canvas>
+                    </div>
+                  </div>
+                </div>
+                <div id="cl-at-result" class="cl-at-result" hidden></div>
+              </div>
+            </details>
             <div id="cl-editor" class="cl-editor" hidden>
               <div class="cl-grid-wrap">
                 <div id="cl-grid" class="cl-grid"></div>

@@ -403,8 +403,62 @@ async function readLevelsJson() {
   return JSON.parse(text);
 }
 
+// ── Bezpečnostní backup před každým write ──────────────────────────────────
+// Atomický overwrite přes FSA mažu starou verzi. Pro recovery (bad edit, JS bug
+// wipe state.levels) drží rotating timestamped backupy v `<dir>/.bak/levels.YYYYMMDD-HHMMSS.<ext>`.
+// Adresář je v .gitignore. Drží se posledních 20 (cca 10 MB pro JSON, méně pro JS-bare).
+const BAK_KEEP = 20;
+const BAK_DIRNAME = '.bak';
+
+function _bakTimestamp() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear()
+       + p(d.getMonth() + 1) + p(d.getDate())
+       + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+}
+
+// Před overwritem souboru zachová jeho současný obsah do `<parentDir>/.bak/<basename>.<ts>.<ext>`.
+// Když cílový soubor neexistuje (první save), backup se neprovádí. Failures swallowed —
+// backup je best-effort, hlavní write nesmí být zablokován chybou v backup pipelinu.
+async function _backupExisting(parentDir, filename) {
+  try {
+    let existingHandle;
+    try {
+      existingHandle = await parentDir.getFileHandle(filename); // bez create:true → throws když neexistuje
+    } catch (e) {
+      return; // první save, žádný předchozí obsah
+    }
+    const existingFile = await existingHandle.getFile();
+    if (existingFile.size === 0) return; // nic backupovat
+    const existingText = await existingFile.text();
+    const bakDir = await parentDir.getDirectoryHandle(BAK_DIRNAME, { create: true });
+    const dotIdx = filename.lastIndexOf('.');
+    const base = dotIdx >= 0 ? filename.slice(0, dotIdx) : filename;
+    const ext  = dotIdx >= 0 ? filename.slice(dotIdx) : '';
+    const bakName = `${base}.${_bakTimestamp()}${ext}`;
+    const bakHandle = await bakDir.getFileHandle(bakName, { create: true });
+    const w = await bakHandle.createWritable();
+    await w.write(existingText);
+    await w.close();
+    // Garbage collection: drž posledních BAK_KEEP, smaž starší (lexikograficky podle jména).
+    const names = [];
+    for await (const entry of bakDir.values()) {
+      if (entry.kind === 'file' && entry.name.startsWith(base + '.')) names.push(entry.name);
+    }
+    names.sort(); // ISO-like timestamp = lexikograficky odpovídá času
+    while (names.length > BAK_KEEP) {
+      const oldest = names.shift();
+      try { await bakDir.removeEntry(oldest); } catch (e) { /* ignore */ }
+    }
+  } catch (e) {
+    console.warn('[backup] failed (non-fatal):', e);
+  }
+}
+
 async function writeLevelsJson(levels) {
   const editorDir = await state.rootHandle.getDirectoryHandle('editor');
+  await _backupExisting(editorDir, 'levels.json');
   const fileHandle = await editorDir.getFileHandle('levels.json', { create: true });
   const writable = await fileHandle.createWritable();
   await writable.write(JSON.stringify(levels, null, 2) + '\n');
@@ -414,6 +468,7 @@ async function writeLevelsJson(levels) {
 async function writeGameLevelsJs(levels) {
   const gameeDir = await state.rootHandle.getDirectoryHandle('gamee');
   const jsDir = await gameeDir.getDirectoryHandle('js');
+  await _backupExisting(jsDir, 'levels.js');
   const fileHandle = await jsDir.getFileHandle('levels.js', { create: true });
   const writable = await fileHandle.createWritable();
   const content =
@@ -467,6 +522,14 @@ function scheduleAutosave() {
 }
 async function doAutosave() {
   if (!state.rootHandle) return;
+  // Empty-levels guard — pokud state.levels je prázdné, NEZapisuj. Defenzivní opatření
+  // proti bug-induced state corruption (např. JS error v editoru wipne pole). Bez guardu
+  // by autosave 300ms po crashe nahradil obsah na disku za []. Backup pipeline by sice
+  // tentokrát zachránila předchozí verzi, ale lepší vůbec nezapisovat když nejsme jisti.
+  if (!Array.isArray(state.levels) || state.levels.length === 0) {
+    setLastAction('⚠ Autosave přeskočen: state.levels je prázdné (zachová stávající soubory).');
+    return;
+  }
   // Auto-rename duplikátů PŘED zápisem — místo silentního skip writeGameLevelsJs.
   // Po renameu je `findDuplicateKeys` prázdné a oba soubory se zapíšou konzistentně.
   // Side effect: state maps (pxCountsByLevel/...) se nepřemigrují automaticky pro
@@ -1335,6 +1398,9 @@ function renderCarrierLayout(lvl) {
   emptyEl.hidden = true;
   edEl.hidden = false;
   if (testerEl) testerEl.hidden = false;
+  // Auto-tune panel se odhalí spolu s testerem; visible-trigger pro hot reload.
+  const autoTuneEl = document.getElementById('cl-auto-tune');
+  if (autoTuneEl) autoTuneEl.hidden = false;
 
   // Generator tlačítka — enable jen pokud máme pxCounts pro aktuální level/diff.
   const pxForGen = clGetStatsForCurrent(lvl);
@@ -2607,11 +2673,31 @@ function clRenderGrid(variant) {
         }
       }
       if (t && (t.type === 'carrier' || t.type === 'rocket') && t.hidden === true) {
+        // Editor zobrazuje `?` vždy když je flag nastaven (designerova data, nikoli
+        // game's effective render). Hra applies isCarrierActive rule a renderuje `?`
+        // pouze pokud je carrier inactive — designer to vidí v live preview iframe.
+        // Pokud chce flag-vs-effective sjednotit, použije 🧹 Vyčistit ineffective
+        // tlačítko v auto-tune panelu.
         btn.classList.add('tile-hidden');
         const q = document.createElement('span');
         q.className = 'cl-cell-hidden';
         q.textContent = '?';
         btn.appendChild(q);
+        // Vizuální cue když je flag ineffective — slabá opacity + tooltip suffix.
+        // Designer hned vidí: „mám tu `?`, ale hra ho nezobrazí (proto opaque).".
+        const isNullTunnel = (rr, cc) => {
+          if (rr < 0 || cc < 0 || rr >= variant.grid.length) return false;
+          const row = variant.grid[rr];
+          if (!row || cc >= row.length) return false;
+          return row[cc] === null;
+        };
+        const isActive = (r === 0)
+          || isNullTunnel(r - 1, c) || isNullTunnel(r + 1, c)
+          || isNullTunnel(r, c - 1) || isNullTunnel(r, c + 1);
+        if (isActive) {
+          q.classList.add('cl-cell-hidden-ineffective');
+          q.title = '`?` flag je nastaven, ale hra ho NErendruje — carrier je active (row 0 nebo tunel-soused). Flag zůstává v datech, vrátí se zpět pokud se sousedství změní.';
+        }
       }
       // Unreachable marker
       if (t && (t.type === 'carrier' || t.type === 'rocket' || t.type === 'garage') && !reach[r][c]) {
@@ -3093,6 +3179,7 @@ function wireCarrierLayout() {
   // Difficulty Curve panel — wire jednou
   if (typeof _wireCurvesPanelOnce === 'function') _wireCurvesPanelOnce();
   if (typeof _wireReplayPanelOnce === 'function') _wireReplayPanelOnce();
+  if (typeof _wireAutoTunePanelOnce === 'function') _wireAutoTunePanelOnce();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -5365,6 +5452,26 @@ function wireLevelStats() {
       } catch(e) { /* */ }
       return;
     }
+
+    // ── Auto-tune (Phase 3a) postMessage handlery ─────────────────────────
+    if (m.type === 'balloonbelt:auto-tune-progress') {
+      _atState.progress = m;
+      _atRenderMonitor();
+      return;
+    }
+    if (m.type === 'balloonbelt:auto-tune-result') {
+      _atState.running = false;
+      _atState.result = m.result || null;
+      // Hide STOP button, show start, hide monitor, show result
+      const startBtn = document.getElementById('cl-at-start');
+      const stopBtn = document.getElementById('cl-at-stop');
+      const monitor = document.getElementById('cl-at-monitor');
+      if (startBtn) startBtn.hidden = false;
+      if (stopBtn) stopBtn.hidden = true;
+      if (monitor) monitor.hidden = true;
+      _atRenderResult();
+      return;
+    }
   });
 }
 
@@ -5397,6 +5504,50 @@ let _curvesUiState = {
 };
 let _curveCache = null;   // přepočítané křivky pro aktuální _lastTesterResult
 let _mutSuggestState = { loading: false, pinId: null, results: [], previewIdx: null, progress: null, evalMode: 'greedy', evalModePref: 'greedy' };
+
+// ── Auto-tune (Phase 3a) state + templates ─────────────────────────────────
+// AUTOTUNE_TEMPLATES je duplicate definice z game.js (game.js neexportuje funkce
+// přes postMessage, takže potřebujeme lokální kopii pro mini SVG previews).
+const AUTOTUNE_TEMPLATES = {
+  FLAT: { label: 'FLAT', fn: (s, ms) => ({ choice: 0.5, pressure: 0.5, progress: 0.5 }) },
+  STAIRCASE: { label: 'STAIRCASE', fn: (s, ms) => {
+    const t = s/Math.max(1,ms);
+    const stage = Math.floor(t*3)/2;
+    return { choice: stage, pressure: stage*0.7, progress: 0.6 };
+  }},
+  WARMUP_CLIMAX_COOLDOWN: { label: 'WARMUP-CLIMAX-COOLDOWN', fn: (s, ms) => {
+    const t = s/Math.max(1,ms);
+    const peak = 1 - Math.abs(t - 0.6) * 2.5;
+    return { choice: Math.max(0.2, peak), pressure: Math.max(0.3, peak*0.8), progress: 0.5 };
+  }},
+  EARLY_HOOK: { label: 'EARLY HOOK', fn: (s, ms) => {
+    const t = s/Math.max(1,ms);
+    const early = t < 0.25 ? t*4 : 1;
+    return { choice: 0.7, pressure: early*0.8, progress: 0.4 + early*0.4 };
+  }},
+  ENDGAME_PUZZLE: { label: 'ENDGAME PUZZLE', fn: (s, ms) => {
+    const t = s/Math.max(1,ms);
+    const spike = t > 0.7 ? (t-0.7)/0.3 : 0;
+    return { choice: 0.3 + spike*0.6, pressure: 0.2 + spike*0.7, progress: 0.7 - spike*0.3 };
+  }},
+  DOUBLE_PEAK: { label: 'DOUBLE PEAK', fn: (s, ms) => {
+    const t = s/Math.max(1,ms);
+    const peak1 = Math.exp(-Math.pow((t-0.3)*4, 2));
+    const peak2 = Math.exp(-Math.pow((t-0.75)*4, 2));
+    const v = Math.max(peak1, peak2);
+    return { choice: 0.3+v*0.6, pressure: 0.3+v*0.5, progress: 0.5 };
+  }},
+};
+
+let _atState = {
+  running: false,
+  template: 'FLAT',
+  applyTarget: 'all',
+  budget: 30000,
+  evalMode: 'greedy',
+  progress: null,    // poslední progress event z game iframe
+  result: null,      // final výsledek po dokončení
+};
 
 function renderTesterResults(r) {
   _lastTesterResult = r;
@@ -6180,6 +6331,244 @@ function renderMutSuggestPanel(lvl, variant) {
   <div class="cl-mut-cards">${cards}</div>`;
 }
 
+// ── Auto-tune (Phase 3a) — render funkce + wiring ─────────────────────────
+
+// Rozbalí template fn na pole {step, choice, pressure, progress} pro daný počet kroků.
+function _atExpandTemplate(templateKey, maxStep) {
+  const tpl = AUTOTUNE_TEMPLATES[templateKey];
+  if (!tpl) return [];
+  const out = [];
+  const ms = Math.max(1, maxStep | 0);
+  for (let s = 0; s <= ms; s++) {
+    const v = tpl.fn(s, ms);
+    out.push({ step: s, choice: v.choice, pressure: v.pressure, progress: v.progress });
+  }
+  return out;
+}
+
+// Mini SVG s preview target shape — choice=modrá, pressure=červená, progress=zelená.
+// Sdílená rendering logika s _buildMutMiniSvg ale pro 3 dimenze a single curve set.
+function _atBuildPreviewSvg(curves, opts) {
+  opts = opts || {};
+  const W = opts.width || 320, H = opts.height || 50, P = 3;
+  if (!curves || !curves.length) return '';
+  const maxStep = curves[curves.length - 1].step || 1;
+  const px = step => P + (step / Math.max(1, maxStep)) * (W - 2 * P);
+  const py = val => H - P - Math.min(1, Math.max(0, val)) * (H - 2 * P);
+  const line = (curves, key, color, dash, opacity) => {
+    const pts = curves.map(p => `${px(p.step).toFixed(1)},${py(p[key]).toFixed(1)}`).join(' ');
+    return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5"
+      ${dash ? `stroke-dasharray="${dash}"` : ''} opacity="${opacity || 1}"/>`;
+  };
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    ${line(curves, 'choice',   '#3b82f6', null, 0.9)}
+    ${line(curves, 'pressure', '#ef4444', null, 0.9)}
+    ${line(curves, 'progress', '#10b981', null, 0.9)}
+  </svg>`;
+}
+
+// Live monitor / result SVG — overlay 3 sad křivek: target (čárkované), baseline (tenké šedé), best (plné).
+function _atBuildOverlaySvg(target, baseline, best, opts) {
+  opts = opts || {};
+  const W = opts.width || 360, H = opts.height || 80, P = 4;
+  if (!target || !target.length) return '';
+  const maxStep = target[target.length - 1].step || 1;
+  const px = step => P + (step / Math.max(1, maxStep)) * (W - 2 * P);
+  const py = val => H - P - Math.min(1, Math.max(0, val)) * (H - 2 * P);
+  const line = (curves, key, color, dash, width, opacity) => {
+    if (!curves || !curves.length) return '';
+    const pts = curves.map(p => `${px(p.step).toFixed(1)},${py(p[key]).toFixed(1)}`).join(' ');
+    return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="${width}"
+      ${dash ? `stroke-dasharray="${dash}"` : ''} opacity="${opacity}"/>`;
+  };
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${W}" height="${H}" fill="rgba(0,0,0,0.2)"/>
+    ${baseline ? line(baseline, 'choice',   '#3b82f6', null, 0.8, 0.3) : ''}
+    ${baseline ? line(baseline, 'pressure', '#ef4444', null, 0.8, 0.3) : ''}
+    ${baseline ? line(baseline, 'progress', '#10b981', null, 0.8, 0.3) : ''}
+    ${line(target, 'choice',   '#3b82f6', '4,3', 1.5, 0.7)}
+    ${line(target, 'pressure', '#ef4444', '4,3', 1.5, 0.7)}
+    ${line(target, 'progress', '#10b981', '4,3', 1.5, 0.7)}
+    ${best ? line(best, 'choice',   '#3b82f6', null, 2, 1.0) : ''}
+    ${best ? line(best, 'pressure', '#ef4444', null, 2, 1.0) : ''}
+    ${best ? line(best, 'progress', '#10b981', null, 2, 1.0) : ''}
+    <text x="${P}" y="9" font-size="8" fill="#888">- - target  ━ best  · · baseline</text>
+  </svg>`;
+}
+
+function _atRenderTemplatePreview() {
+  const wrap = document.getElementById('cl-at-template-preview');
+  const select = document.getElementById('cl-at-template');
+  if (!wrap || !select) return;
+  const key = select.value || 'FLAT';
+  const curves = _atExpandTemplate(key, 30);
+  wrap.innerHTML = _atBuildPreviewSvg(curves, { width: 360, height: 50 });
+}
+
+// Renderuje compact columns snapshot na canvas. Pattern shodný s _replayDrawCarrier.
+// cols formát: array kolumn × array slotů kde slot je null | {wall:true} | {type:'garage',queueLen} |
+//              {type:'rocket',color} | {color,projectiles,hidden}.
+function _atDrawMiniGrid(canvasId, cols) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !cols) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(0, 0, W, H);
+  const COLS = cols.length;
+  if (!COLS) return;
+  const rows = Math.max(1, ...cols.map(c => c ? c.length : 0));
+  const cellSize = Math.min(Math.floor(W / COLS), Math.floor(H / rows));
+  const offX = Math.floor((W - cellSize * COLS) / 2);
+  const offY = Math.floor((H - cellSize * rows) / 2);
+  for (let c = 0; c < COLS; c++) {
+    const col = cols[c]; if (!col) continue;
+    for (let r = 0; r < col.length; r++) {
+      const slot = col[r];
+      const x = offX + c * cellSize;
+      const y = offY + r * cellSize;
+      const w = cellSize - 1, h = cellSize - 1;
+      if (slot === null) {
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(x, y, w, h);
+        continue;
+      }
+      if (slot.wall) {
+        ctx.fillStyle = '#444';
+        ctx.fillRect(x, y, w, h);
+        continue;
+      }
+      if (slot.type === 'garage') {
+        ctx.fillStyle = '#7c4a1a';
+        ctx.fillRect(x, y, w, h);
+        if (slot.queueLen > 0 && cellSize > 12) {
+          ctx.fillStyle = '#fff';
+          ctx.font = Math.max(7, Math.floor(cellSize * 0.4)) + 'px ui-monospace,monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(String(slot.queueLen), x + w / 2, y + h / 2);
+        }
+        continue;
+      }
+      if (slot.type === 'rocket') {
+        ctx.fillStyle = (typeof BE_COLORS !== 'undefined' && BE_COLORS[slot.color]) || '#888';
+        ctx.fillRect(x, y, w, h);
+        continue;
+      }
+      // Carrier
+      ctx.fillStyle = (typeof BE_COLORS !== 'undefined' && BE_COLORS[slot.color]) || '#888';
+      ctx.fillRect(x, y, w, h);
+      if (slot.hidden && cellSize > 12) {
+        ctx.fillStyle = '#000';
+        ctx.font = Math.max(8, Math.floor(cellSize * 0.5)) + 'px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('?', x + w / 2, y + h / 2);
+      }
+    }
+  }
+}
+
+function _atRenderMonitor() {
+  const monitor = document.getElementById('cl-at-monitor');
+  if (!monitor) return;
+  if (!_atState.running) { monitor.hidden = true; return; }
+  monitor.hidden = false;
+  const p = _atState.progress;
+  if (!p) return;
+  const pct = Math.min(100, Math.round((p.elapsed / p.budget) * 100));
+  const fill = document.getElementById('cl-at-progress-fill');
+  if (fill) fill.style.width = pct + '%';
+  const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  setText('cl-at-iter', p.iter);
+  setText('cl-at-accepted', p.accepted);
+  setText('cl-at-best', p.bestScore);
+  setText('cl-at-temp', (p.T || 1).toFixed(3));
+  const svgWrap = document.getElementById('cl-at-monitor-svg-wrap');
+  if (svgWrap) {
+    svgWrap.innerHTML = _atBuildOverlaySvg(p.targetCurves, p.baselineCurves, p.bestCurves, { width: 360, height: 160 });
+  }
+  // Live carrier grid — bestColumns je v progress jen když se best zlepšil. Cache poslední
+  // známý snapshot na _atState.lastBestColumns, aby grid nezablikal mezi progress eventy.
+  if (p.bestColumns) _atState.lastBestColumns = p.bestColumns;
+  if (_atState.lastBestColumns) _atDrawMiniGrid('cl-at-mini-grid', _atState.lastBestColumns);
+}
+
+function _atRenderResult() {
+  const resultEl = document.getElementById('cl-at-result');
+  if (!resultEl) return;
+  const r = _atState.result;
+  if (!r) { resultEl.hidden = true; resultEl.innerHTML = ''; return; }
+  resultEl.hidden = false;
+  const baseScore = r.baseline ? '—' : '—';
+  const improved = r.best && r.best.score < (_atState.lastBaselineScore || Infinity);
+  const regressionWarn = !improved && _atState.lastBaselineScore !== undefined
+    ? `<div class="cl-at-warn">⚠ Best score (${r.best ? r.best.score : '?'}) není lepší než baseline. Apply jen pokud opravdu chceš tuto změnu.</div>`
+    : '';
+  const validityWarn = r.valid === false
+    ? `<div class="cl-at-warn">⚠ Final layout obsahuje unreachable carriery. clRepair se spustí při Apply, ale výsledek nemusí přesně odpovídat preview.</div>`
+    : '';
+  const abortedNote = r.aborted ? ' <span style="color:#ffc95c">(STOP)</span>' : '';
+  resultEl.innerHTML = `
+    <div class="cl-at-result-head">
+      <span>Výsledek auto-tune${abortedNote}</span>
+      <span style="font-size:10px;color:#a0a0b0">${r.iter} iterací · ${r.accepted} accepted</span>
+    </div>
+    <div class="cl-at-result-svg-wrap">${_atBuildOverlaySvg(r.targetCurves, r.baseline ? r.baseline.curves : null, r.best ? r.best.curves : null, { width: 360, height: 90 })}</div>
+    <div class="cl-at-result-stats">
+      <span>template: <b>${r.template}</b></span>
+      <span>target: <b>${r.applyTarget}</b></span>
+      <span>best score: <b>${r.best ? r.best.score : '—'}</b></span>
+      <span>mutations: <b>${r.best && r.best.mutations ? r.best.mutations.length : 0}</b></span>
+    </div>
+    ${regressionWarn}
+    ${validityWarn}
+    <div class="cl-at-result-actions">
+      <button type="button" class="cl-at-apply">✓ Apply</button>
+      <button type="button" class="cl-at-retry">↻ Try again</button>
+      <button type="button" class="cl-at-discard">✕ Discard</button>
+    </div>
+  `;
+}
+
+// Aplikuje sequence of mutations na variant.grid — používá Phase 2 applyMutationToVariant per mutation.
+function _atApplyMutationsToVariant(variant, mutations) {
+  if (!variant || !Array.isArray(mutations)) return;
+  for (const mut of mutations) applyMutationToVariant(variant, mut);
+}
+
+// Cleanup ineffective `?` flags — zrcadlí game's isCarrierActive ([game.js:4586]):
+//   active = row===0 OR má null souseda ortogonálně
+// Hra renderuje `?` jen na !active. Ineffective flagy (active+hidden) jsou data noise:
+// editor je ukazuje, hra je ignoruje. Funkce projde variant.grid a setne hidden=false
+// na všech aktivních cells — vrátí počet vyčištěných.
+function _clClearIneffectiveHiddenFlags(variant) {
+  if (!variant || !Array.isArray(variant.grid)) return 0;
+  const g = variant.grid;
+  const rows = g.length;
+  const cellAt = (r, c) => (g[r] && g[r][c] !== undefined) ? g[r][c] : undefined;
+  const isNullTunnel = (r, c) => cellAt(r, c) === null;
+  let cleaned = 0;
+  for (let r = 0; r < rows; r++) {
+    const row = g[r]; if (!row) continue;
+    for (let c = 0; c < row.length; c++) {
+      const slot = row[c];
+      if (!slot || !slot.hidden) continue;
+      // Mirror isCarrierActive: row===0 OR tunnel neighbor
+      let active = (r === 0);
+      if (!active && isNullTunnel(r - 1, c)) active = true;
+      if (!active && isNullTunnel(r + 1, c)) active = true;
+      if (!active && isNullTunnel(r, c - 1)) active = true;
+      if (!active && isNullTunnel(r, c + 1)) active = true;
+      if (active) {
+        row[c] = { ...slot, hidden: false };
+        cleaned++;
+      }
+    }
+  }
+  return cleaned;
+}
+
 // 6) Step snap — z mouse X pozice nad SVG vypočte step (round-to-int)
 function _snapMouseXToStep(svg, mouseClientX) {
   const W = +svg.dataset.w, P = +svg.dataset.p, ms = +svg.dataset.maxstep;
@@ -6468,6 +6857,8 @@ function _wireCurvesPanelOnce() {
         // Snapshot PŘED mutací — Cmd+Z ji vrátí (unikátní actionKey = nekoalescuje)
         histPush(lvl, 'cl-mut-apply-' + Date.now());
         applyMutationToVariant(variant, sug.mutation);
+        // SWAP_CELLS mohl přesunout hidden carrier vedle tunelu → cleanup ineffective flagy.
+        _clClearIneffectiveHiddenFlags(variant);
         markDirty();
         clRenderGrid(variant);
         // Resetovat suggest panel + spustit novou analýzu
@@ -6965,6 +7356,182 @@ function _wireReplayPanelOnce() {
       }
     }
   });
+}
+
+// ── Auto-tune (Phase 3a) — wire-once event handlery ──────────────────────
+function _wireAutoTunePanelOnce() {
+  const panel = document.getElementById('cl-auto-tune');
+  if (!panel) return;
+
+  // Initial template preview render
+  _atRenderTemplatePreview();
+
+  // Template change → preview update
+  const tplSelect = document.getElementById('cl-at-template');
+  if (tplSelect) {
+    tplSelect.addEventListener('change', () => {
+      _atState.template = tplSelect.value;
+      _atRenderTemplatePreview();
+    });
+  }
+
+  // Re-render preview when panel opens (in case it was hidden during init)
+  panel.addEventListener('toggle', () => {
+    if (panel.open) _atRenderTemplatePreview();
+  });
+
+  // Start AUTO-TUNE
+  const startBtn = document.getElementById('cl-at-start');
+  if (startBtn) {
+    startBtn.addEventListener('click', () => {
+      // Validace: musí být _lastTesterResult (znamená že tester běžel — _ptInitColumns
+      // v iframe game.js je čerstvé). Bez toho by SA pracovala s nedefinovaným baselinem.
+      if (!_lastTesterResult) {
+        alert('Spusť ▶ Analyzovat nejdřív — auto-tune potřebuje aktuální baseline trace.');
+        return;
+      }
+      const frame = document.getElementById('preview-frame');
+      if (!frame || !frame.contentWindow) return;
+      const tplEl = document.getElementById('cl-at-template');
+      const tgtEl = document.getElementById('cl-at-target');
+      const budgetEl = document.getElementById('cl-at-budget');
+      const beamEl = document.getElementById('cl-at-eval-beam');
+      const opts = {
+        template: tplEl ? tplEl.value : 'FLAT',
+        applyTarget: tgtEl ? tgtEl.value : 'all',
+        timeBudgetMs: budgetEl ? +budgetEl.value : 30000,
+        evalMode: (beamEl && beamEl.checked) ? 'beam' : 'greedy',
+      };
+      // Zapamatovat baseline score (z aktuálního testeru) — pro regression warning po SA.
+      // Aproximace: použijeme L2 distanci current curves vs target jako baseline score.
+      _atState.lastBaselineScore = _atEstimateBaselineScore(opts);
+      _atState.template = opts.template;
+      _atState.applyTarget = opts.applyTarget;
+      _atState.budget = opts.timeBudgetMs;
+      _atState.evalMode = opts.evalMode;
+      _atState.running = true;
+      _atState.result = null;
+      _atState.progress = null;
+      // UI: hide start, show stop, show monitor, hide previous result
+      startBtn.hidden = true;
+      const stopBtn = document.getElementById('cl-at-stop');
+      if (stopBtn) stopBtn.hidden = false;
+      const monitorEl = document.getElementById('cl-at-monitor');
+      if (monitorEl) monitorEl.hidden = false;
+      const resultEl = document.getElementById('cl-at-result');
+      if (resultEl) { resultEl.hidden = true; resultEl.innerHTML = ''; }
+      frame.contentWindow.postMessage({ type: 'balloonbelt:auto-tune-start', opts }, '*');
+    });
+  }
+
+  // Stop AUTO-TUNE
+  const stopBtn = document.getElementById('cl-at-stop');
+  if (stopBtn) {
+    stopBtn.addEventListener('click', () => {
+      const frame = document.getElementById('preview-frame');
+      if (frame && frame.contentWindow) {
+        frame.contentWindow.postMessage({ type: 'balloonbelt:auto-tune-stop' }, '*');
+      }
+      // game iframe pošle auto-tune-result s aborted=true → handler reset UI
+    });
+  }
+
+  // Manual cleanup ineffective `?` flagy — pro existující stav z minulých Apply.
+  const cleanupBtn = document.getElementById('cl-at-cleanup-hidden');
+  if (cleanupBtn) {
+    cleanupBtn.addEventListener('click', () => {
+      const lvl = beCurrentLvl();
+      const variant = clActiveVariant(lvl);
+      if (!variant) { alert('Není načtený žádný variant.'); return; }
+      histPush(lvl, 'cl-cleanup-hidden-' + Date.now());
+      const cleaned = _clClearIneffectiveHiddenFlags(variant);
+      if (cleaned > 0) {
+        markDirty();
+        clRenderGrid(variant);
+        setLastAction('🧹 Vyčištěno ' + cleaned + ' ineffective `?` flagů.');
+      } else {
+        setLastAction('✓ Žádné ineffective `?` flagy nenalezeny.');
+      }
+    });
+  }
+
+  // Result actions: Apply / Try again / Discard (delegated)
+  const resultEl = document.getElementById('cl-at-result');
+  if (resultEl) {
+    resultEl.addEventListener('click', (ev) => {
+      const lvl = beCurrentLvl();
+      const variant = clActiveVariant(lvl);
+      if (!variant) return;
+
+      if (ev.target.classList.contains('cl-at-apply')) {
+        const r = _atState.result;
+        if (!r || !r.best || !Array.isArray(r.best.mutations) || !r.best.mutations.length) {
+          alert('Žádné akceptované mutace — auto-tune nenašel zlepšení.');
+          return;
+        }
+        // Single histPush snapshot — Cmd+Z vrátí celou sekvenci jedním krokem.
+        histPush(lvl, 'cl-auto-tune-apply-' + Date.now());
+        _atApplyMutationsToVariant(variant, r.best.mutations);
+        // Post-SA repair pro safety — fitness penalty by měla unreachable layout odmítnout,
+        // ale v okrajových případech (race conditions) může zbýt drobná díra.
+        if (typeof clRepairUnreachable === 'function') clRepairUnreachable(variant);
+        if (typeof clRepairPostGarageUnreachable === 'function') clRepairPostGarageUnreachable(variant);
+        // SA SWAP_CELLS mohla přesunout hidden carriery vedle tunelu → cleanup ineffective `?`.
+        const cleaned = _clClearIneffectiveHiddenFlags(variant);
+        if (cleaned > 0) console.log('[auto-tune] cleaned', cleaned, 'ineffective `?` flags');
+        markDirty();
+        clRenderGrid(variant);
+        // Reset auto-tune state + skrýt result
+        _atState.result = null;
+        _atRenderResult();
+        // Re-analyze to confirm new curve
+        const frame = document.getElementById('preview-frame');
+        if (frame && frame.contentWindow) {
+          const farSighted = !!(document.getElementById('cl-far-sighted') && document.getElementById('cl-far-sighted').checked);
+          frame.contentWindow.postMessage({ type: 'balloonbelt:analyze-level', farSighted }, '*');
+        }
+        return;
+      }
+
+      if (ev.target.classList.contains('cl-at-retry')) {
+        // Spustit znovu se stejnými opts (jiný random seed)
+        if (startBtn) startBtn.click();
+        return;
+      }
+
+      if (ev.target.classList.contains('cl-at-discard')) {
+        _atState.result = null;
+        _atRenderResult();
+        return;
+      }
+    });
+  }
+}
+
+// Estimuje baseline fitness score z aktuálního _lastTesterResult — pro regression warning.
+// Spočítá target curve z opts.template a porovná s primary trace dimenzemi.
+function _atEstimateBaselineScore(opts) {
+  if (!_lastTesterResult || !_lastTesterResult.traces) return undefined;
+  const primary = _lastTesterResult.traces.beam || _lastTesterResult.traces.fullUse || _lastTesterResult.traces.maxGain;
+  if (!primary || !primary.length) return undefined;
+  const maxStep = primary.length - 1;
+  const target = _atExpandTemplate(opts.template, maxStep);
+  const w = (opts.applyTarget === 'choice') ? {choice:1,pressure:0,progress:0}
+          : (opts.applyTarget === 'pressure') ? {choice:0,pressure:1,progress:0}
+          : (opts.applyTarget === 'progress') ? {choice:0,pressure:0,progress:1}
+          : {choice:0.4,pressure:0.4,progress:0.2};
+  let sumC = 0, sumP = 0, sumG = 0;
+  const N = Math.min(primary.length, target.length);
+  for (let i = 0; i < N; i++) {
+    const t = primary[i], g = target[i];
+    const choice   = t.activeCount > 0 ? t.beneficial / t.activeCount : 0;
+    const pressure = t.beltLoad / (_lastTesterResult.BELT_CAP || 14);
+    const progress = t.remainingPx > 0 ? t.pickedGain / (t.remainingPx + t.pickedGain) : 0;
+    sumC += Math.pow(choice - g.choice, 2);
+    sumP += Math.pow(pressure - g.pressure, 2);
+    sumG += Math.pow(progress - g.progress, 2);
+  }
+  return w.choice * Math.sqrt(sumC) + w.pressure * Math.sqrt(sumP) + w.progress * Math.sqrt(sumG);
 }
 
 // ─── Difficulty score — label klasifikace + expandable breakdown

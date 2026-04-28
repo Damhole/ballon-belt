@@ -3216,21 +3216,61 @@ function _ptBuildFocusRegion(trace,s0,s1,numCols){
 }
 
 // Výběr náhodné mutace, s preferencí pro focus region.
-function _ptPickRandomMutation(cols,focusRegion){
+// Vrátí seznam null cells (tunelů) — pro INSERT_WALL v non-destructive režimu.
+function _ptListNullCells(cols){
+  const out=[];
+  for(let col=0;col<cols.length;col++){
+    const c=cols[col];if(!c)continue;
+    for(let row=0;row<c.length;row++){
+      if(c[row]===null)out.push({col,row});
+    }
+  }
+  return out;
+}
+
+// Vrátí všechny non-null cells (carriery + zdi + garáže + rakety) — pro SWAP_CELLS,
+// aby SA mohla přesouvat i zdi mezi pozicemi (ne jen carriery).
+function _ptListNonNullCells(cols){
+  const out=[];
+  for(let col=0;col<cols.length;col++){
+    const c=cols[col];if(!c)continue;
+    for(let row=0;row<c.length;row++){
+      if(c[row]!==null&&c[row]!==undefined)out.push({col,row});
+    }
+  }
+  return out;
+}
+
+// opts.nonDestructive: pokud true (default false pro Phase 2 zpětná kompatibilita),
+//   INSERT_WALL pouze na null cells (ne na carriery), REMOVE_WALL beze změny.
+//   Tím se zabrání trvalé ztrátě carrierů při iterativním SA — bez non-destructive modu
+//   sekvence INSERT_WALL na carrier + pozdější REMOVE_WALL by carrier nahradil tunelem.
+function _ptPickRandomMutation(cols,focusRegion,opts){
+  opts=opts||{};
+  const nonDestructive=!!opts.nonDestructive;
   const allCells=_ptListCells(cols);
   const allWalls=_ptListWalls(cols);
+  const allNulls=nonDestructive?_ptListNullCells(cols):null;
   if(allCells.length<2)return null;
 
-  // Váhy typů mutací
+  // Váhy typů mutací — v non-destructive modu posuneme váhu od INSERT_WALL pryč
+  // (INSERT_WALL on null cells je vzácnější, protože většina layoutu jsou carriery).
+  // TOGGLE_HIDDEN má v non-destructive (=SA) váhu 0 — solver totiž vidí pravou barvu
+  // bez ohledu na hidden flag, takže TOGGLE_HIDDEN je noop pro fitness (delta=0).
+  // SA pak `accept = delta<0 || random<exp(-0/T) = random<1` → **vždy accept**, takže
+  // za pár iterací by každý carrier byl hidden. V Phase 2 Suggest má smysl (jednorázová
+  // mutace měnící hru pro hráče), tam hodnotu necháme.
   const types=['SWAP_CELLS','SWAP_COLORS','TOGGLE_HIDDEN','REMOVE_WALL','INSERT_WALL'];
-  const weights=[40,30,15,10,5];
+  const weights=nonDestructive?[65,30,0,3,2]:[40,30,15,10,5];
   const totalW=weights.reduce((a,b)=>a+b,0);
   let rnd=Math.random()*totalW;
   let type=types[types.length-1];
   for(let i=0;i<types.length;i++){rnd-=weights[i];if(rnd<=0){type=types[i];break;}}
 
-  // Výběr z focus region pokud dostupné (70 % šance), jinak globální
-  const useFocus=focusRegion.length>=2&&Math.random()<0.7;
+  // Výběr z focus region pokud dostupné (70 % šance), jinak globální.
+  // Pool BEZ zdí používá většina mutací (SWAP_COLORS, TOGGLE_HIDDEN), protože tyhle
+  // operace se zdmi nemají smysl (zeď nemá color/hidden flag).
+  const useFocus=focusRegion&&focusRegion.length>=2&&Math.random()<0.7;
   const pool=useFocus
     ?focusRegion.filter(({col,row})=>{const s=cols[col]&&cols[col][row];return s&&!s.wall;})
     :allCells;
@@ -3239,7 +3279,19 @@ function _ptPickRandomMutation(cols,focusRegion){
   const pick=arr=>arr[Math.floor(Math.random()*arr.length)];
 
   switch(type){
-    case'SWAP_CELLS':
+    case'SWAP_CELLS':{
+      // SWAP_CELLS pool ZAHRNUJE i zdi — SA může přesouvat zdi mezi pozicemi pro
+      // skutečný layout reshuffle. Validita (žádné unreachable carriery) se kontroluje
+      // ve fitness penalizaci přes _ptCheckLayoutValid.
+      const swapPool=useFocus
+        ?focusRegion.filter(({col,row})=>{const s=cols[col]&&cols[col][row];return s!==null&&s!==undefined;})
+        :_ptListNonNullCells(cols);
+      if(swapPool.length<2)return null;
+      const a=pick(swapPool);
+      let b;
+      do{b=pick(swapPool);}while(b.col===a.col&&b.row===a.row);
+      return{type,a,b};
+    }
     case'SWAP_COLORS':{
       if(pool.length<2)return null;
       const a=pick(pool);
@@ -3248,7 +3300,24 @@ function _ptPickRandomMutation(cols,focusRegion){
       return{type,a,b};
     }
     case'TOGGLE_HIDDEN':{
-      const a=pick(pool);
+      // Hra renderuje `?` pouze na **inactive** carrier (game.js isCarrierActive:4586).
+      // Active = row===0 OR má null souseda (tunel) ortogonálně. Pokud je active,
+      // renderuje se jako normální color carrier (i s hidden:true) protože hráč ho
+      // vidí. TOGGLE_HIDDEN tedy musíme cílit na inactive cells, jinak je `?` flag
+      // visual noop a v editoru/preview vznikne nekonzistence (editor ukazuje `?`,
+      // hra rendruje barvu).
+      const numCols=cols.length;
+      const isInactive=(c,r)=>{
+        if(r===0)return false;
+        if(cols[c]&&cols[c][r-1]===null)return false;
+        if(cols[c]&&r+1<cols[c].length&&cols[c][r+1]===null)return false;
+        if(c>0&&cols[c-1]&&r<cols[c-1].length&&cols[c-1][r]===null)return false;
+        if(c+1<numCols&&cols[c+1]&&r<cols[c+1].length&&cols[c+1][r]===null)return false;
+        return true;
+      };
+      const effective=pool.filter(({col,row})=>isInactive(col,row));
+      if(!effective.length)return null;
+      const a=pick(effective);
       return{type,a};
     }
     case'REMOVE_WALL':{
@@ -3256,10 +3325,12 @@ function _ptPickRandomMutation(cols,focusRegion){
       return{type,a:pick(allWalls)};
     }
     case'INSERT_WALL':{
-      // Bezpečná místa: nesmí blokovat buňky níže
-      const safe=allCells.filter(({col,row})=>_ptInsertWallSafe(cols,col,row));
-      if(!safe.length)return null;
-      return{type,a:pick(safe)};
+      // Non-destructive: jen na null cells (zachová carriery). Default: cell pool, ale check safety.
+      const candidates=nonDestructive
+        ?(allNulls||[])
+        :allCells.filter(({col,row})=>_ptInsertWallSafe(cols,col,row));
+      if(!candidates.length)return null;
+      return{type,a:pick(candidates)};
     }
     default: return null;
   }
@@ -3394,6 +3465,250 @@ function ptSuggestMutations(pin){
     baseCurves,
     newCurves:_ptBuildMiniCurves(c.trace),
   }));
+}
+
+// ── Auto-tune (Phase 3a) ──────────────────────────────────────────────────
+// Simulated annealing přes mutation pool — designer vybere template (target curve shape)
+// a SA přerovná carrier layout aby aktuální křivka odpovídala targetu.
+
+// Šest preset shapes — každý template = funkce (s, ms) → {choice, pressure, progress} v 0..1.
+const AUTOTUNE_TEMPLATES={
+  FLAT:{label:'FLAT — konstantní obtížnost',fn:(s,ms)=>({choice:0.5,pressure:0.5,progress:0.5})},
+  STAIRCASE:{label:'STAIRCASE — postupný nárůst',fn:(s,ms)=>{
+    const t=s/Math.max(1,ms);
+    const stage=Math.floor(t*3)/2; // 0, 0.5, 1
+    return{choice:stage,pressure:stage*0.7,progress:0.6};
+  }},
+  WARMUP_CLIMAX_COOLDOWN:{label:'WARMUP-CLIMAX-COOLDOWN ╱─╲',fn:(s,ms)=>{
+    const t=s/Math.max(1,ms);
+    const peak=1-Math.abs(t-0.6)*2.5;
+    return{choice:Math.max(0.2,peak),pressure:Math.max(0.3,peak*0.8),progress:0.5};
+  }},
+  EARLY_HOOK:{label:'EARLY HOOK — strmý začátek + plateau',fn:(s,ms)=>{
+    const t=s/Math.max(1,ms);
+    const early=t<0.25?t*4:1;
+    return{choice:0.7,pressure:early*0.8,progress:0.4+early*0.4};
+  }},
+  ENDGAME_PUZZLE:{label:'ENDGAME PUZZLE — easy → spike na konci',fn:(s,ms)=>{
+    const t=s/Math.max(1,ms);
+    const spike=t>0.7?(t-0.7)/0.3:0;
+    return{choice:0.3+spike*0.6,pressure:0.2+spike*0.7,progress:0.7-spike*0.3};
+  }},
+  DOUBLE_PEAK:{label:'DOUBLE PEAK ╱╲╱╲',fn:(s,ms)=>{
+    const t=s/Math.max(1,ms);
+    const peak1=Math.exp(-Math.pow((t-0.3)*4,2));
+    const peak2=Math.exp(-Math.pow((t-0.75)*4,2));
+    const v=Math.max(peak1,peak2);
+    return{choice:0.3+v*0.6,pressure:0.3+v*0.5,progress:0.5};
+  }},
+};
+
+// Rozbalí template na pole [{step, choice, pressure, progress}] pro daný maxStep.
+function _ptExpandTemplate(templateKey,maxStep){
+  const tpl=AUTOTUNE_TEMPLATES[templateKey];
+  if(!tpl)return null;
+  const out=[];
+  const ms=Math.max(1,maxStep|0);
+  for(let s=0;s<=ms;s++){
+    const v=tpl.fn(s,ms);
+    out.push({step:s,choice:v.choice,pressure:v.pressure,progress:v.progress});
+  }
+  return out;
+}
+
+// Mapuje applyTarget na váhy dimenzí ve fitness funkci.
+function _ptResolveWeights(applyTarget){
+  switch(applyTarget){
+    case'choice':   return{choice:1,pressure:0,progress:0};
+    case'pressure': return{choice:0,pressure:1,progress:0};
+    case'progress': return{choice:0,pressure:0,progress:1};
+    case'all':
+    default:        return{choice:0.4,pressure:0.4,progress:0.2};
+  }
+}
+
+// Vážená L2 distance mezi trace a target curve. Trace musí být z greedy/beam, target z _ptExpandTemplate.
+function _ptComputeFitness(trace,targetCurve,weights){
+  if(!trace||!trace.length||!targetCurve||!targetCurve.length)return 1e9;
+  // Trace má {activeCount, beneficial, beltLoad, pickedGain, remainingPx}
+  // Target má {choice, pressure, progress}
+  // Zarovnávat budeme podle indexu (oba mají maxStep délku, target generován z trace.length-1).
+  const N=Math.min(trace.length,targetCurve.length);
+  let sumChoice=0,sumPressure=0,sumProgress=0;
+  for(let i=0;i<N;i++){
+    const t=trace[i],g=targetCurve[i];
+    const choice=t.activeCount>0?t.beneficial/t.activeCount:0;
+    const pressure=t.beltLoad/14;
+    const progress=t.remainingPx>0?t.pickedGain/(t.remainingPx+t.pickedGain):0;
+    sumChoice  +=Math.pow(choice  -g.choice  ,2);
+    sumPressure+=Math.pow(pressure-g.pressure,2);
+    sumProgress+=Math.pow(progress-g.progress,2);
+  }
+  // L2 per dimenzi (sqrt sumy čtverců) × váha
+  return weights.choice  *Math.sqrt(sumChoice)
+        +weights.pressure*Math.sqrt(sumPressure)
+        +weights.progress*Math.sqrt(sumProgress);
+}
+
+// Reachability check — BFS z prvního řádku skrz non-wall cells. Layout valid pokud
+// všechny carrier/garage/rocket sloty jsou dosažitelné. Používá se ve fitness penalty.
+function _ptCheckLayoutValid(cols){
+  if(!cols||!cols.length)return true;
+  const numCols=cols.length;
+  const numRows=Math.max(...cols.map(c=>c?c.length:0));
+  const visited=new Set();
+  const key=(c,r)=>c*1000+r;
+  const queue=[];
+  // Start: top row (r=0) všechny non-wall sloty
+  for(let c=0;c<numCols;c++){
+    const slot=cols[c]&&cols[c][0];
+    if(slot===undefined)continue;
+    if(slot&&slot.wall)continue;
+    visited.add(key(c,0));
+    queue.push([c,0]);
+  }
+  while(queue.length){
+    const[c,r]=queue.shift();
+    for(const[dc,dr] of[[1,0],[-1,0],[0,1],[0,-1]]){
+      const nc=c+dc,nr=r+dr;
+      if(nc<0||nc>=numCols||nr<0)continue;
+      const ncol=cols[nc];if(!ncol||nr>=ncol.length)continue;
+      const slot=ncol[nr];
+      if(slot&&slot.wall)continue; // wall blokuje
+      const k=key(nc,nr);
+      if(visited.has(k))continue;
+      visited.add(k);
+      queue.push([nc,nr]);
+    }
+  }
+  // Validace: každý non-wall slot (carrier/garage/rocket/null tunel) musí být visited.
+  // Konkrétně nás zajímají slots s type carrier/garage/rocket — tunely (null) jsou triviálně OK.
+  for(let c=0;c<numCols;c++){
+    const col=cols[c];if(!col)continue;
+    for(let r=0;r<col.length;r++){
+      const slot=col[r];
+      if(!slot)continue; // null tunel
+      if(slot.wall)continue; // wall doesn't need to be reachable
+      if(slot.type==='carrier'||slot.type==='garage'||slot.type==='rocket'||typeof slot.color==='number'){
+        if(!visited.has(key(c,r)))return false;
+      }
+    }
+  }
+  return true;
+}
+
+// Hlavní async SA loop. Volaná z postMessage handleru. abortSignal = {aborted: bool, abort()}.
+async function ptAutoTuneAsync(opts,progressCb,abortSignal){
+  if(!_ptInitGrid||!_ptInitColumns)return null;
+  opts=opts||{};
+  const evalMode=opts.evalMode==='beam'?'beam':'greedy';
+  const timeBudgetMs=Math.max(5000,opts.timeBudgetMs||30000);
+  const templateKey=opts.template||'FLAT';
+  const applyTarget=opts.applyTarget||'all';
+  const weights=_ptResolveWeights(applyTarget);
+
+  // Baseline run
+  const base=_ptEvalMutation(_ptInitGrid,_ptInitColumns,evalMode);
+  if(!base.trace||!base.trace.length)return null;
+  const maxStep=base.trace.length-1;
+  const targetCurve=_ptExpandTemplate(templateKey,maxStep);
+  if(!targetCurve)return null;
+
+  let T=1.0;
+  const coolingRate=0.997;
+  let current=_ptInitColumns;
+  let currentScore=_ptComputeFitness(base.trace,targetCurve,weights);
+  let best=current;
+  let bestScore=currentScore;
+  let bestTrace=base.trace;
+  const acceptedMutations=[];
+  let iter=0,accepted=0;
+  const t0=performance.now();
+
+  // Mini curves konstrukce — pomáhá UI overlay-i během SA běhu.
+  const baselineCurves=_ptBuildMiniCurves(base.trace);
+  // Mini curves z target shape (pro SVG overlay v editoru).
+  const targetCurvesMini=targetCurve.map(p=>({step:p.step,choice:p.choice,pressure:p.pressure,progress:p.progress}));
+
+  // Snapshot helper — kompaktní columns pro UI mini grid (sdílí formát s tester initColumns).
+  const snapshotColumns=(C)=>C.map(col=>col.map(s=>{
+    if(s===null||s===undefined)return null;
+    if(s.wall)return{wall:true};
+    if(s.type==='garage')return{type:'garage',queueLen:(s.queue||[]).length};
+    if(s.type==='rocket')return{type:'rocket',color:s.color};
+    return{color:s.color,projectiles:s.projectiles||0,hidden:!!s.hidden};
+  }));
+  const baselineColumns=snapshotColumns(_ptInitColumns);
+  let bestColumns=baselineColumns;
+  let bestImproved=false; // flag pro emit progress only when changed
+
+  while(true){
+    if(abortSignal&&abortSignal.aborted)break;
+    if((performance.now()-t0)>=timeBudgetMs)break;
+    // SA běží v non-destructive modu — INSERT_WALL pouze na tunely, aby SA neničila
+    // carriery skrz INSERT_WALL→pozdější REMOVE_WALL→null sekvenci (carrier permanent loss bug).
+    const mut=_ptPickRandomMutation(current,[],{nonDestructive:true});
+    if(!mut){iter++;continue;}
+    const candidate=_ptApplyMutation(current,mut);
+    if(!candidate){iter++;continue;}
+    let validityPenalty=0;
+    if(!_ptCheckLayoutValid(candidate))validityPenalty=1000;
+    const r=_ptEvalMutation(_ptInitGrid,candidate,evalMode);
+    if(!r.trace||!r.trace.length){iter++;continue;}
+    const candidateScore=_ptComputeFitness(r.trace,targetCurve,weights)+validityPenalty;
+    const delta=candidateScore-currentScore;
+    const accept=delta<0||Math.random()<Math.exp(-delta/T);
+    if(accept){
+      current=candidate;
+      currentScore=candidateScore;
+      acceptedMutations.push(mut);
+      accepted++;
+      if(candidateScore<bestScore){
+        best=candidate;
+        bestScore=candidateScore;
+        bestTrace=r.trace;
+        bestColumns=snapshotColumns(best);
+        bestImproved=true;
+      }
+    }
+    T*=coolingRate;
+    iter++;
+    if(iter%5===0){
+      if(progressCb)progressCb({
+        iter,accepted,
+        elapsed:performance.now()-t0,
+        budget:timeBudgetMs,
+        bestScore:Math.round(bestScore*1000)/1000,
+        bestCurves:_ptBuildMiniCurves(bestTrace),
+        targetCurves:targetCurvesMini,
+        baselineCurves,
+        // Posíláme bestColumns jen když se změnilo (jinak by každý progress payload měl
+        // zbytečných ~5 KB JSON pro nezměněný snapshot).
+        bestColumns:bestImproved?bestColumns:null,
+        T:Math.round(T*1000)/1000,
+      });
+      bestImproved=false;
+      await new Promise(rs=>setTimeout(rs,0));
+    }
+  }
+
+  return{
+    baseline:{curves:baselineCurves,trace:base.trace},
+    best:{
+      columns:best,
+      curves:_ptBuildMiniCurves(bestTrace),
+      trace:bestTrace,
+      score:Math.round(bestScore*1000)/1000,
+      mutations:acceptedMutations,
+    },
+    targetCurves:targetCurvesMini,
+    template:templateKey,
+    applyTarget,
+    iter,
+    accepted,
+    aborted:!!(abortSignal&&abortSignal.aborted),
+    valid:_ptCheckLayoutValid(best),
+  };
 }
 
 function ptAnalyzeCurrentLevel(analyzeOpts){
@@ -5743,5 +6058,31 @@ function initGame(){
     }).catch(err=>{
       try{window.parent.postMessage({type:'balloonbelt:mutation-suggestions',suggestions:[],error:String(err),evalMode},'*');}catch(e){}
     });
+  });
+
+  // Auto-tune (Phase 3a): editor pošle auto-tune-start s opts, posíláme progress + result.
+  // auto-tune-stop kdykoli během běhu = abort.
+  let _autoTuneAbort=null;
+  window.addEventListener('message',function(ev){
+    const m=ev.data;
+    if(!m)return;
+    if(m.type==='balloonbelt:auto-tune-start'){
+      if(_autoTuneAbort)_autoTuneAbort.aborted=true; // přerušit předchozí běh pokud nedoběhl
+      _autoTuneAbort={aborted:false};
+      const progressCb=(p)=>{
+        try{window.parent.postMessage(Object.assign({type:'balloonbelt:auto-tune-progress'},p),'*');}catch(e){}
+      };
+      ptAutoTuneAsync(m.opts||{},progressCb,_autoTuneAbort).then(result=>{
+        try{window.parent.postMessage({type:'balloonbelt:auto-tune-result',result},'*');}catch(e){}
+        _autoTuneAbort=null;
+      }).catch(err=>{
+        try{window.parent.postMessage({type:'balloonbelt:auto-tune-result',result:null,error:String(err)},'*');}catch(e){}
+        _autoTuneAbort=null;
+      });
+      return;
+    }
+    if(m.type==='balloonbelt:auto-tune-stop'){
+      if(_autoTuneAbort)_autoTuneAbort.aborted=true;
+    }
   });
 }

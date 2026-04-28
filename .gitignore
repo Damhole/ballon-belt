@@ -2,3 +2,15 @@
 .claude/
 *.zip
 /tmp/
+
+# Stray copies — Browser download „(1)" + macOS Finder „Keep Both"/Duplicate.
+# Vznikají manuálním kopírováním souborů (ne editorem). Riziko: designer omylem
+# přepíše ten nesprávný levels.js. Smazáno; pravidla zde brání reaparenci v git status.
+editor/levels (*).json
+editor/levels [0-9]*.json
+gamee/js/levels (*).js
+gamee/js/levels [0-9]*.js
+
+# Rotating backups (editor zapisuje před každým autosave/publish do .bak/)
+editor/.bak/
+gamee/js/.bak/

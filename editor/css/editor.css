@@ -1311,6 +1311,16 @@ body {
   text-shadow: 0 1px 2px rgba(0,0,0,0.8), 0 0 3px rgba(224,166,62,0.9);
   pointer-events: none;
 }
+/* `?` flag je v datech, ale hra ho nerendruje (carrier je active = row 0 nebo
+   tunel-soused). Slabá opacity + dashed underline = visual cue: „flag set, ale
+   ineffective". Tooltip vysvětlí (mouseover na ?). */
+.cl-cell .cl-cell-hidden.cl-cell-hidden-ineffective {
+  opacity: 0.35;
+  text-shadow: none;
+  text-decoration: underline dashed;
+  pointer-events: auto;
+  cursor: help;
+}
 
 .cl-insp-hidden {
   display: flex;
@@ -2247,4 +2257,179 @@ body {
   height: 100%;
   background: #7c3aed;
   transition: width 0.15s ease-out;
+}
+
+/* ── Auto-tune (Phase 3a) ───────────────────────────────────────────────── */
+.cl-auto-tune {
+  background: var(--bg-1, #1a1a1c);
+  border: 1px solid var(--border, #3a3a3e);
+  border-radius: 5px;
+  margin-top: 8px;
+}
+.cl-auto-tune > summary {
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.cl-auto-tune-body {
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cl-at-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cl-at-control-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.cl-at-label {
+  flex-shrink: 0;
+  width: 90px;
+  color: var(--text-2, #a0a0b0);
+}
+.cl-at-controls select {
+  flex: 1;
+  font-size: 11px;
+  padding: 3px 6px;
+  background: var(--bg-2, #242428);
+  color: var(--text-1, #e0e0e8);
+  border: 1px solid var(--border, #3a3a3e);
+  border-radius: 3px;
+}
+.cl-at-template-preview {
+  width: 100%;
+  height: 50px;
+  background: rgba(0,0,0,0.25);
+  border-radius: 3px;
+  position: relative;
+  overflow: hidden;
+}
+.cl-at-template-preview svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.cl-at-actions {
+  margin-top: 4px;
+}
+.cl-at-actions button {
+  flex: 1;
+}
+.cl-at-monitor {
+  background: var(--bg-2, #242428);
+  border-radius: 4px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cl-at-stats {
+  display: flex;
+  gap: 14px;
+  font-size: 10px;
+  color: var(--text-2, #a0a0b0);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  flex-wrap: wrap;
+}
+.cl-at-stats b {
+  color: var(--text-1, #e0e0e8);
+}
+.cl-at-monitor-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+#cl-at-monitor-svg-wrap {
+  flex: 1;
+  height: 160px;
+  background: rgba(0,0,0,0.3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+#cl-at-monitor-svg-wrap svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.cl-at-mini-grid-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.cl-at-mini-grid-label {
+  font-size: 9px;
+  text-align: center;
+  color: var(--text-2, #a0a0b0);
+}
+#cl-at-mini-grid {
+  display: block;
+  background: #0a0a0a;
+  border-radius: 3px;
+}
+.cl-at-result {
+  background: var(--bg-2, #242428);
+  border-radius: 4px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cl-at-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+}
+.cl-at-result-svg-wrap {
+  height: 90px;
+  background: rgba(0,0,0,0.3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.cl-at-result-svg-wrap svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.cl-at-result-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 10px;
+  color: var(--text-2, #a0a0b0);
+}
+.cl-at-result-stats b { color: var(--text-1, #e0e0e8); }
+.cl-at-result-actions {
+  display: flex;
+  gap: 6px;
+}
+.cl-at-result-actions button {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 11px;
+  border-radius: 3px;
+  border: 1px solid var(--border, #3a3a3e);
+  background: var(--bg-2, #242428);
+  color: var(--text-1, #e0e0e8);
+  cursor: pointer;
+}
+.cl-at-result-actions .cl-at-apply { background: #1d4ed8; border-color: #1d4ed8; color: white; }
+.cl-at-result-actions .cl-at-apply:hover { background: #1e40af; }
+.cl-at-result-actions .cl-at-retry:hover  { background: #2e2e3a; }
+.cl-at-result-actions .cl-at-discard:hover { background: rgba(239,68,68,0.15); border-color: #ef4444; color: #ef4444; }
+.cl-at-warn {
+  background: rgba(239,68,68,0.12);
+  color: #ff8a8a;
+  border-left: 3px solid #ef4444;
+  padding: 6px 8px;
+  font-size: 10px;
+  border-radius: 3px;
 }
