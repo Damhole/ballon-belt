@@ -314,6 +314,7 @@ body {
   white-space: nowrap;
 }
 .diff-badge.diff-relaxing { background: rgba(100,200,100,0.15); color: #7defa0; border-color: #4a9e62; }
+.diff-badge.diff-easy     { background: rgba(80,170,255,0.18);  color: #7fc1ff; border-color: #3a78b5; }
 .diff-badge.diff-medium   { background: rgba(240,200,80,0.15); color: #f5d800; border-color: #9e8a1f; }
 .diff-badge.diff-hard     { background: rgba(240,140,70,0.18); color: #ffaa5e; border-color: #b06a2a; }
 .diff-badge.diff-hardcore { background: rgba(230,70,70,0.2);   color: #ff7070; border-color: #a03030; }
@@ -1139,6 +1140,25 @@ body {
   padding: 0 3px;
   pointer-events: none;
 }
+/* Carrier text: velký projectile count uprostřed + color index v pravém horním rohu */
+.cl-cell .cl-cell-proj {
+  font-size: 18px;
+  font-weight: 700;
+  color: rgba(0,0,0,0.85);
+  text-shadow: 0 1px 2px rgba(255,255,255,0.4);
+  line-height: 1;
+  pointer-events: none;
+}
+.cl-cell .cl-cell-color-idx {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(0,0,0,0.7);
+  text-shadow: 0 1px 2px rgba(255,255,255,0.35);
+  pointer-events: none;
+}
 
 .cl-palette-wrap {
   flex: 0 0 auto;
@@ -1283,9 +1303,9 @@ body {
 }
 .cl-cell .cl-cell-hidden {
   position: absolute;
-  top: 1px;
-  left: 3px;
-  font-size: 11px;
+  top: 2px;
+  left: 4px;
+  font-size: 14px;
   font-weight: 700;
   color: #fff;
   text-shadow: 0 1px 2px rgba(0,0,0,0.8), 0 0 3px rgba(224,166,62,0.9);
@@ -1964,4 +1984,92 @@ body {
   font-size: 10px;
   color: #f59e0b;
   margin-top: 4px;
+}
+
+/* Replay (Úr. 1.5) — mini canvas carrier grid + image grid + timeline */
+.cl-replay {
+  margin-top: 10px;
+  padding: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.cl-replay-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.cl-replay-spacer { flex: 1; }
+.cl-replay-head select {
+  font-size: 10px;
+  padding: 2px 5px;
+  background: var(--bg-1);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+.cl-replay-canvases {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.cl-replay-canvas-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cl-replay-canvas-wrap canvas {
+  background: #0a0a0a;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  display: block;
+  cursor: crosshair;
+}
+.cl-replay-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cl-replay-controls button {
+  background: var(--bg-1);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 3px 7px;
+  font-size: 11px;
+  cursor: pointer;
+  min-width: 28px;
+}
+.cl-replay-controls button:hover { background: var(--bg-3, #2a2a2a); }
+.cl-replay-controls button.is-playing { background: #a855f7; color: white; border-color: #a855f7; }
+.cl-replay-controls input[type="range"] {
+  flex: 1;
+  min-width: 100px;
+  accent-color: #a855f7;
+  cursor: pointer;
+}
+.cl-replay-controls select {
+  font-size: 10px;
+  padding: 2px 4px;
+  background: var(--bg-1);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+.cl-replay-controls #cl-replay-step-num {
+  min-width: 56px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.cl-replay-info {
+  margin-top: 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, monospace;
 }

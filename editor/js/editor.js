@@ -6,7 +6,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 const IMAGE_SOURCES = ['smiley', 'moon', 'starwars', 'frog', 'mondrian'];
-const LEVEL_TYPES = ['relaxing', 'medium', 'hard', 'hardcore'];
+const LEVEL_TYPES = ['relaxing', 'easy', 'medium', 'hard', 'hardcore'];
 
 // Musí odpovídat gamee/js/game.js (GW=36, GH=31, IMG_GH=27, COLORS[]).
 const BE_GW = 36;
@@ -664,6 +664,7 @@ function _resolveDuplicateKeys(levels) {
 // Relaxing, protože rank byl hardcoded 3). Teď čteme lvl.type napřímo.
 const TYPE_META = {
   relaxing: { key: 'relaxing', label: 'Relaxing' },
+  easy:     { key: 'easy',     label: 'Easy' },
   medium:   { key: 'medium',   label: 'Medium' },
   hard:     { key: 'hard',     label: 'Hard' },
   hardcore: { key: 'hardcore', label: 'Hard-core' },
@@ -2024,11 +2025,14 @@ function clGenerateLayout(variant, pxCounts, mode, lvl) {
   };
 
   if (diff === 'easy') {
-    // Weights: linear 1..N, top nejvyšší (např. 7 rows → [7,6,5,4,3,2,1])
+    // Weights: linear 1..N, top nejvyšší (např. 7 rows → [7,6,5,4,3,2,1]).
+    // Frequent barvy nahoru, hráč má rovnou hodně k dispozici → snadná hra.
     allocateByWeights(rowKeys.map((_, i) => rowKeys.length - i));
   } else if (diff === 'hard') {
-    // Rovnoměrně = stejná weight per řada. Rare barvy (konec queue) přistanou dole.
-    allocateByWeights(rowKeys.map(() => 1));
+    // Bottom-heavy weights [1,2,...,N]: top má málo (rare/mid) carrierů, bottom
+    // dostane hodně frequent. Hráč musí prokopat dolů, aby se dostal k frekventním
+    // barvám potřebným pro vyčištění obrazu — výrazný bottleneck.
+    allocateByWeights(rowKeys.map((_, i) => i + 1));
   } else {
     // medium: rovnoměrně + jitter (každá řada dostane +-1 náhodně)
     allocateByWeights(rowKeys.map(() => 1 + Math.random() * 0.4));
@@ -2114,11 +2118,10 @@ function clGenerateLayout(variant, pxCounts, mode, lvl) {
     const baseCount = parseInt(($('cl-spec-garage-count') || {}).value || '2', 10);
     const doRandom  = !!($('cl-spec-garage-random') && $('cl-spec-garage-random').checked);
 
-    // Efektivní počet: základ + ±1 náhoda + škálování podle difficulty
+    // Efektivní počet: přesně tolik kolik říká slider, případně ±1 náhoda.
+    // Žádné automatické škálování podle difficulty — designer rozhoduje.
     let numGar = baseCount;
     if (doRandom) numGar += Math.floor(Math.random() * 3) - 1; // -1, 0, nebo +1
-    if (diff === 'easy')       numGar = Math.max(0, numGar - 1);
-    else if (diff === 'hard')  numGar = Math.min(6, numGar + 1);
     numGar = Math.max(0, Math.min(6, numGar));
 
     // Počet nosičů v queue per garáž (čím těžší, tím víc "uvnitř")
@@ -2156,7 +2159,11 @@ function clGenerateLayout(variant, pxCounts, mode, lvl) {
         return n.r >= garDepthMin && n.r <= garDepthMax;
       });
       const outRange = newCarriers.map((n, i) => i).filter(i => !inRange.includes(i));
-      if (diff === 'hard') outRange.reverse(); // hard preferuje hlubší
+      if (diff === 'hard') {
+        // Hard: prioritizuj nejhlubší pozice (uvnitř i mimo range).
+        inRange.reverse();
+        outRange.reverse();
+      }
       const candidateIdxs = [...inRange, ...outRange];
 
       // Najdi první kandidáta, jehož permanentní přítomnost (jako zeď) nezablokuje
@@ -2173,9 +2180,13 @@ function clGenerateLayout(variant, pxCounts, mode, lvl) {
 
       const garSlot = newCarriers.splice(garIdx, 1)[0];
 
-      // Vezmi queue nosiče (queueSize - 1 extra, protože garSlot.color je první položka):
-      //   hard:   z konce pole (rare/hluboké barvy → hodně "zakopané")
-      //   easy:   ze začátku (frekventované → lehčí přístup)
+      // Vezmi queue nosiče (queueSize - 1 extra, protože garSlot.color je první položka).
+      // Logika: u vyšší complexity dáváme do garage queue FREKVENTNÍ barvy
+      // (carriery z bottom-rows v newCarriers — díky bottom-heavy weights tam padly
+      // nejvíc-frekventní). Tím vznikne dvojitý bottleneck: frekventní barvy jsou
+      // "zakopané" v bottom rows + některé jsou navíc v garage queue (gated dispense).
+      //   hard:   z konce pole (bottom-row carriers = frekventní → garage bottleneck)
+      //   easy:   ze začátku pole (top-row carriers = endgame barvy → menší dopad)
       //   medium: mix – z obou konců střídavě
       const queueColors = [];
       for (let q = 0; q < queueSize - 1 && newCarriers.length > 0; q++) {
@@ -2472,6 +2483,61 @@ function clCountUnreachable(variant) {
   return count;
 }
 
+// Spočítá per-(c,r) projectile count pro carriery v dané variantě.
+// Primární zdroj: tester histories (přesné hodnoty pro carriery, na které solver
+// klikl). Fallback: aproximace pxCounts[color] / numCarriers[color] (uniform
+// distribuce — match s game's buildColsFromLayout logic, jen bez remainderu).
+function _clBuildProjMap(lvl, variant) {
+  const map = new Map();
+  // 1) Z tester histories (pokud máme analýzu)
+  if (_lastTesterResult && _lastTesterResult.histories) {
+    const h = _lastTesterResult.histories;
+    const histories = [h.beam, h.fullUse, h.maxGain].filter(Boolean);
+    for (const hist of histories) {
+      for (const ev of hist) {
+        if (typeof ev.c !== 'number' || typeof ev.r !== 'number') continue;
+        if (typeof ev.proj !== 'number') continue;
+        const k = ev.c + ',' + ev.r;
+        if (!map.has(k)) map.set(k, ev.proj);
+      }
+    }
+  }
+  // 2) Aproximace z totals pro carriery bez tester data
+  if (variant && variant.grid) {
+    const projCounts = (typeof clGetProjCountsForCurrent === 'function')
+      ? clGetProjCountsForCurrent(lvl) : null;
+    const pxCounts = (typeof clGetStatsForCurrent === 'function')
+      ? clGetStatsForCurrent(lvl) : null;
+    const totals = projCounts || pxCounts;
+    if (totals) {
+      const counts = new Array(BE_COLORS.length).fill(0);
+      for (const row of variant.grid) {
+        if (!Array.isArray(row)) continue;
+        for (const t of row) {
+          if (!t) continue;
+          if (t.type === 'carrier' && typeof t.color === 'number') counts[t.color]++;
+          else if (t.type === 'garage' && Array.isArray(t.queue)) {
+            for (const q of t.queue) if (q && typeof q.color === 'number') counts[q.color]++;
+          }
+        }
+      }
+      for (let r = 0; r < variant.grid.length; r++) {
+        const row = variant.grid[r] || [];
+        for (let c = 0; c < clGetCols(variant); c++) {
+          const t = row[c];
+          if (!t || t.type !== 'carrier' || typeof t.color !== 'number') continue;
+          const k = c + ',' + r;
+          if (map.has(k)) continue;
+          const total = totals[t.color] || 0;
+          const num = counts[t.color] || 1;
+          if (total > 0) map.set(k, Math.floor(total / num));
+        }
+      }
+    }
+  }
+  return map;
+}
+
 function clRenderGrid(variant) {
   const g = $('cl-grid');
   if (!g) return;
@@ -2487,6 +2553,7 @@ function clRenderGrid(variant) {
 
   const sel = state.clSelCell;
   const reach = clReachability(variant);
+  const projMap = _clBuildProjMap(beCurrentLvl(), variant);
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -2501,7 +2568,14 @@ function clRenderGrid(variant) {
         btn.style.background = BE_COLORS[t.color];
       }
       if (t && t.type === 'carrier') {
-        btn.textContent = String(t.color);
+        const proj = projMap.get(c + ',' + r);
+        if (typeof proj === 'number') {
+          // Primární obsah = počet projektilů. Color index → tooltip + malá patička.
+          btn.innerHTML = `<span class="cl-cell-proj">${proj}</span><span class="cl-cell-color-idx">b${t.color}</span>`;
+          btn.title = `barva ${t.color} · ${proj} projektilů`;
+        } else {
+          btn.textContent = String(t.color);
+        }
       }
       if (t && (t.type === 'carrier' || t.type === 'rocket') && t.hidden === true) {
         btn.classList.add('tile-hidden');
@@ -2988,6 +3062,7 @@ function wireCarrierLayout() {
 
   // Difficulty Curve panel — wire jednou
   if (typeof _wireCurvesPanelOnce === 'function') _wireCurvesPanelOnce();
+  if (typeof _wireReplayPanelOnce === 'function') _wireReplayPanelOnce();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -5274,9 +5349,20 @@ function renderTesterResults(r) {
   _lastTesterResult = r;
   // Difficulty Curve panel — invalidace cache + re-render
   _curveCache = null;
+  // Replay panel — invalidace cache + re-render
+  if (_replayState) {
+    _replayPause && _replayPause();
+    _replayState.history = null;
+    _replayState.gridCache = null;
+    _replayState.step = 0;
+  }
   try {
     const lvl = beCurrentLvl();
-    renderCurvesPanel(lvl, clActiveVariant(lvl));
+    const variant = clActiveVariant(lvl);
+    renderCurvesPanel(lvl, variant);
+    renderReplayPanel && renderReplayPanel();
+    // Re-render carrier grid — projectile counts (z tester history) jsou teď k dispozici
+    if (variant) clRenderGrid(variant);
   } catch (e) { /* panel může být neinicializovaný při prvním loadu */ }
   const body = $('cl-tester-body');
   if (!body) return;
@@ -6064,6 +6150,485 @@ function _wireCurvesPanelOnce() {
       }
     });
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Replay & Scrub (Úr. 1.5) — mini canvas přehrávač průchodu solverem
+// ═══════════════════════════════════════════════════════════════════════
+let _replayState = {
+  strategy: 'beam',     // 'beam' | 'fullUse' | 'maxGain'
+  step: 0,
+  isPlaying: false,
+  speed: 200,           // ms per krok
+  rafTimer: null,
+  // Cached při Analyzovat / strategy switch:
+  history: null,        // [{step, c, r, color, gain, proj, beltLoad, clearedPixels}]
+  initGrid: null,       // 2D pixel grid (deep copy)
+  initColumns: null,    // compact carrier columns snapshot
+  // Per-step prebuilt pixel grid (lazy)
+  gridCache: null,      // index = step (po N kliků), value = 2D grid
+};
+
+function _replayBuildGridCache() {
+  // Postaví pole gridů: gridCache[0] = init, gridCache[N] = po N kliků.
+  if (!_replayState.initGrid || !_replayState.history) return null;
+  const cache = [];
+  let g = _replayState.initGrid.map(r => r.slice());
+  cache.push(g.map(r => r.slice()));
+  for (const ev of _replayState.history) {
+    g = g.map(r => r.slice());
+    if (Array.isArray(ev.clearedPixels)) {
+      for (const px of ev.clearedPixels) {
+        if (g[px.y]) g[px.y][px.x] = -1;
+      }
+    }
+    cache.push(g);
+  }
+  _replayState.gridCache = cache;
+  return cache;
+}
+
+function _replayLoadFromResult(r) {
+  if (!r || !r.histories || !r.initGrid || !r.initColumns) {
+    _replayState.history = null;
+    _replayState.initGrid = null;
+    _replayState.initColumns = null;
+    _replayState.initBlocks = null;
+    _replayState.gridCache = null;
+    return false;
+  }
+  _replayState.initGrid = r.initGrid;
+  _replayState.initColumns = r.initColumns;
+  _replayState.initBlocks = r.initBlocks || [];
+  _replayState.GW = r.GW || 36;
+  _replayState.IMG_GH = r.IMG_GH || 27;
+  _replayState.COLS = r.COLS || 7;
+  _replaySetStrategy(_replayState.strategy, r);
+  return true;
+}
+
+// Reconstruuj stav bloků (HP) po N kroků: aplikuj postupně blockHits na clone _ptInitBlocks.
+// Vrátí pole {kind, x, y, w, h, color, hp, maxHp, _mask} (mask spočítán lokálně z shape).
+function _replayBuildBlocksAt(step) {
+  if (!_replayState.initBlocks) return [];
+  const blocks = _replayState.initBlocks.map(b => ({ ...b, _mask: beBlockMask(b.shape || 'rect', b.w, b.h, 0) }));
+  if (!_replayState.history) return blocks;
+  for (let i = 0; i < step && i < _replayState.history.length; i++) {
+    const ev = _replayState.history[i];
+    if (!Array.isArray(ev.blockHits)) continue;
+    for (const bh of ev.blockHits) {
+      // Najdi blok podle pozice (x, y) — initBlocks indexy nejsou stable, ale pozice jsou unique
+      const target = blocks.find(b => b.x === bh.x && b.y === bh.y && b.color === bh.color);
+      if (!target) continue;
+      target.hp = bh.hpAfter;
+    }
+  }
+  return blocks;
+}
+
+function _replaySetStrategy(strategy, result) {
+  const r = result || _lastTesterResult;
+  if (!r || !r.histories) return;
+  const hist = r.histories[strategy] || r.histories.beam || r.histories.fullUse || r.histories.maxGain;
+  if (!hist) return;
+  _replayState.strategy = strategy;
+  _replayState.history = hist;
+  // Initial dispense events (před prvním klikem) — per strategie, fallback na cokoliv
+  const initDisp = r.initialDispenses || {};
+  _replayState.initialDispenses = initDisp[strategy] || initDisp.beam || initDisp.fullUse || initDisp.maxGain || [];
+  _replayState.gridCache = null; // lazy rebuild
+  _replayState.step = 0;
+}
+
+// Reconstruuj stav carrier columns po N kroků (s dispense events).
+// Začneme initColumns + initialDispenses, pak postupně history events do step.
+function _replayBuildColsAt(step) {
+  if (!_replayState.initColumns) return null;
+  // Deep clone (garáže mají mutable queue)
+  const C = _replayState.initColumns.map(col => col.map(s => {
+    if (!s) return null;
+    if (s.type === 'garage') return { ...s, queueLen: s.queueLen || 0 };
+    return { ...s };
+  }));
+
+  const applyDispenses = (dispenses) => {
+    for (const d of dispenses) {
+      if (d.emptied) {
+        // Garáž došla a vydala se → null
+        if (C[d.from.c]) C[d.from.c][d.from.r] = null;
+        continue;
+      }
+      if (!d.to) continue;
+      // Garáž vydala carrier do d.to, sníží queueLen
+      const gar = C[d.from.c] && C[d.from.c][d.from.r];
+      if (gar && gar.type === 'garage') {
+        gar.queueLen = Math.max(0, (gar.queueLen || 0) - 1);
+      }
+      if (C[d.to.c]) {
+        C[d.to.c][d.to.r] = { color: d.color, projectiles: d.projectiles || 0 };
+      }
+    }
+  };
+
+  // Initial dispenses (před prvním klikem)
+  if (_replayState.initialDispenses && _replayState.initialDispenses.length) {
+    applyDispenses(_replayState.initialDispenses);
+  }
+
+  if (_replayState.history) {
+    for (let i = 0; i < step && i < _replayState.history.length; i++) {
+      const ev = _replayState.history[i];
+      // Pop carrier
+      if (typeof ev.c === 'number' && typeof ev.r === 'number') {
+        if (C[ev.c]) C[ev.c][ev.r] = null;
+      }
+      // Dispenses po kliku
+      if (Array.isArray(ev.dispenses)) applyDispenses(ev.dispenses);
+    }
+  }
+  return C;
+}
+
+function _replayDrawCarrier(step) {
+  const canvas = document.getElementById('cl-replay-carrier');
+  if (!canvas || !_replayState.initColumns) return;
+  const cols = _replayBuildColsAt(step);
+  if (!cols) return;
+  const COLS = cols.length;
+  const rows = Math.max(1, ...cols.map(c => c.length));
+  // Aspect-fit do canvas 200×160
+  const cellSize = Math.min(Math.floor(200 / COLS), Math.floor(160 / rows));
+  const offX = Math.floor((200 - cellSize * COLS) / 2);
+  const offY = Math.floor((160 - cellSize * rows) / 2);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(0, 0, 200, 160);
+
+  for (let c = 0; c < COLS; c++) {
+    for (let r = 0; r < cols[c].length; r++) {
+      const slot = cols[c][r];
+      const x = offX + c * cellSize;
+      const y = offY + r * cellSize;
+      const w = cellSize - 1, h = cellSize - 1;
+      if (slot === null) {
+        // Null = tunel (popnutý / dispensovaný / původně null)
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(x, y, w, h);
+        continue;
+      }
+      if (slot.wall) {
+        ctx.fillStyle = '#444';
+        ctx.fillRect(x, y, w, h);
+        continue;
+      }
+      if (slot.type === 'garage') {
+        ctx.fillStyle = '#7c4a1a';
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = '#fff';
+        ctx.font = Math.max(8, Math.floor(cellSize * 0.5)) + 'px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🏠', x + w / 2, y + h / 2 - 2);
+        // Queue length badge
+        if (slot.queueLen > 0) {
+          ctx.fillStyle = '#fff';
+          ctx.font = Math.max(7, Math.floor(cellSize * 0.3)) + 'px ui-monospace, monospace';
+          ctx.fillText(String(slot.queueLen), x + w / 2, y + h - 5);
+        }
+        continue;
+      }
+      if (slot.type === 'rocket') {
+        ctx.fillStyle = BE_COLORS[slot.color] || '#888';
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = '#fff';
+        ctx.font = Math.max(8, Math.floor(cellSize * 0.5)) + 'px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🚀', x + w / 2, y + h / 2);
+        continue;
+      }
+      // Carrier
+      ctx.fillStyle = BE_COLORS[slot.color] || '#888';
+      ctx.fillRect(x, y, w, h);
+      if (slot.hidden) {
+        ctx.fillStyle = '#000';
+        ctx.font = Math.max(8, Math.floor(cellSize * 0.5)) + 'px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('?', x + w / 2, y + h / 2);
+      }
+    }
+  }
+
+  // Aktivní pop highlight: ev na step (= příští klik) rámuj
+  if (_replayState.history && step < _replayState.history.length) {
+    const ev = _replayState.history[step];
+    if (typeof ev.c === 'number' && typeof ev.r === 'number') {
+      const x = offX + ev.c * cellSize;
+      const y = offY + ev.r * cellSize;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x + 1, y + 1, cellSize - 3, cellSize - 3);
+      ctx.strokeStyle = '#a855f7';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, y, cellSize - 1, cellSize - 1);
+    }
+  }
+
+  // Highlight dispense events právě v tomto kroku (step-1 → step)
+  if (step > 0 && _replayState.history && step <= _replayState.history.length) {
+    const prev = _replayState.history[step - 1];
+    if (prev && Array.isArray(prev.dispenses)) {
+      ctx.lineWidth = 2;
+      for (const d of prev.dispenses) {
+        if (!d.to) continue;
+        const x = offX + d.to.c * cellSize;
+        const y = offY + d.to.r * cellSize;
+        ctx.strokeStyle = '#10b981'; // zelená pro dispense
+        ctx.strokeRect(x + 1, y + 1, cellSize - 3, cellSize - 3);
+      }
+    }
+  }
+}
+
+function _replayDrawImage(step) {
+  const canvas = document.getElementById('cl-replay-image');
+  if (!canvas || !_replayState.initGrid) return;
+  if (!_replayState.gridCache) _replayBuildGridCache();
+  const cache = _replayState.gridCache;
+  if (!cache) return;
+  const idx = Math.max(0, Math.min(cache.length - 1, step));
+  const grid = cache[idx];
+  const GH = grid.length;
+  const GW = grid[0] ? grid[0].length : 36;
+  // Canvas 288×216 → 8 px per cell na 36×27
+  const cellPx = Math.min(Math.floor(288 / GW), Math.floor(216 / GH));
+  const offX = Math.floor((288 - cellPx * GW) / 2);
+  const offY = Math.floor((216 - cellPx * GH) / 2);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(0, 0, 288, 216);
+  // 1) Pixely
+  for (let y = 0; y < GH; y++) {
+    for (let x = 0; x < GW; x++) {
+      const v = grid[y][x];
+      if (v < 0) continue;
+      ctx.fillStyle = BE_COLORS[v] || '#888';
+      ctx.fillRect(offX + x * cellPx, offY + y * cellPx, cellPx, cellPx);
+    }
+  }
+  // 2) Bloky (s HP labelem) — překryjí pixely podobně jako v reálné hře
+  const blocks = _replayBuildBlocksAt(step);
+  for (const b of blocks) {
+    if (b.hp <= 0) continue;
+    const m = b._mask;
+    if (!m) continue;
+    // Vykresli pouze buňky uvnitř shape mask
+    const baseColor = b.kind === 'mystery' ? '#444' : (BE_COLORS[b.color] || '#888');
+    ctx.fillStyle = baseColor;
+    for (let dy = 0; dy < b.h; dy++) {
+      const row = m[dy];
+      if (!row) continue;
+      for (let dx = 0; dx < b.w; dx++) {
+        if (!row[dx]) continue;
+        ctx.fillRect(offX + (b.x + dx) * cellPx, offY + (b.y + dy) * cellPx, cellPx, cellPx);
+      }
+    }
+    // Tmavší okraj kolem celého bbox bloku — odliší od solid pixel oblasti
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(offX + b.x * cellPx + 0.5, offY + b.y * cellPx + 0.5, b.w * cellPx - 1, b.h * cellPx - 1);
+    // HP label
+    const cx = offX + (b.x + b.w / 2) * cellPx;
+    const cy = offY + (b.y + b.h / 2) * cellPx;
+    const fontSize = Math.max(7, Math.min(13, Math.floor(Math.min(b.w, b.h) * cellPx * 0.4)));
+    ctx.font = `bold ${fontSize}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    const label = `${b.hp}/${b.maxHp}`;
+    ctx.strokeText(label, cx, cy);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(label, cx, cy);
+  }
+  // 3) Highlight pixely + bloky právě hit v tomto kroku (step-1 → step)
+  if (step > 0 && step <= _replayState.history.length) {
+    const ev = _replayState.history[step - 1];
+    if (Array.isArray(ev.clearedPixels)) {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      for (const px of ev.clearedPixels) {
+        ctx.strokeRect(offX + px.x * cellPx + 0.5, offY + px.y * cellPx + 0.5, cellPx - 1, cellPx - 1);
+      }
+    }
+    if (Array.isArray(ev.blockHits)) {
+      ctx.lineWidth = 2;
+      for (const bh of ev.blockHits) {
+        ctx.strokeStyle = bh.destroyed ? '#10b981' : '#f59e0b';
+        ctx.strokeRect(offX + bh.x * cellPx - 0.5, offY + bh.y * cellPx - 0.5, bh.w * cellPx + 1, bh.h * cellPx + 1);
+      }
+    }
+  }
+}
+
+function _replayUpdateInfo(step) {
+  const info = document.getElementById('cl-replay-info');
+  const stepLabel = document.getElementById('cl-replay-step-label');
+  const stepNum = document.getElementById('cl-replay-step-num');
+  if (!_replayState.history) return;
+  const total = _replayState.history.length;
+  if (stepLabel) stepLabel.textContent = `(krok ${step} / ${total})`;
+  if (stepNum) stepNum.textContent = `${step} / ${total}`;
+  if (!info) return;
+  if (step === 0) {
+    info.textContent = 'začátek — žádné kliky.';
+    return;
+  }
+  const ev = _replayState.history[step - 1];
+  if (!ev) { info.textContent = ''; return; }
+  const colorSwatch = `<span style="display:inline-block;width:9px;height:9px;background:${BE_COLORS[ev.color] || '#888'};border-radius:2px;vertical-align:middle"></span>`;
+  const cleared = (ev.clearedPixels || []).length;
+  let html = `klik (${ev.c},${ev.r}) ${colorSwatch} barva ${ev.color} · ${ev.proj} proj · gain ${ev.gain}px · belt ${ev.beltLoad} · zničil ${cleared} px${ev.funnelRejected ? ' · ⚠ funnel rejected' : ''}`;
+  if (Array.isArray(ev.blockHits) && ev.blockHits.length) {
+    const hits = ev.blockHits.map(bh => {
+      const sw = `<span style="display:inline-block;width:8px;height:8px;background:${bh.kind === 'mystery' ? '#444' : (BE_COLORS[bh.color] || '#888')};border-radius:2px;vertical-align:middle"></span>`;
+      const symbol = bh.destroyed ? '💥' : '🔨';
+      return `${symbol}${sw}(${bh.x},${bh.y}) ${bh.hpBefore}→${bh.hpAfter}`;
+    }).join(', ');
+    html += `<br><span style="color:#f59e0b">↳ blok hit: ${hits}</span>`;
+  }
+  if (Array.isArray(ev.dispenses) && ev.dispenses.length) {
+    const disp = ev.dispenses.map(d => {
+      if (d.emptied) return `🏠(${d.from.c},${d.from.r})→prázdná`;
+      const sw = `<span style="display:inline-block;width:8px;height:8px;background:${BE_COLORS[d.color] || '#888'};border-radius:2px;vertical-align:middle"></span>`;
+      return `🏠(${d.from.c},${d.from.r})→(${d.to.c},${d.to.r}) ${sw}`;
+    }).join(', ');
+    html += `<br><span style="color:#10b981">↳ garáž dispens: ${disp}</span>`;
+  }
+  info.innerHTML = html;
+}
+
+function _replayRender() {
+  _replayDrawCarrier(_replayState.step);
+  _replayDrawImage(_replayState.step);
+  _replayUpdateInfo(_replayState.step);
+  const scrub = document.getElementById('cl-replay-scrub');
+  if (scrub) {
+    scrub.max = String(_replayState.history ? _replayState.history.length : 0);
+    if (+scrub.value !== _replayState.step) scrub.value = String(_replayState.step);
+  }
+}
+
+function _replaySetStep(step) {
+  if (!_replayState.history) return;
+  const max = _replayState.history.length;
+  _replayState.step = Math.max(0, Math.min(max, step));
+  _replayRender();
+}
+
+function _replayPlay() {
+  if (!_replayState.history) return;
+  if (_replayState.isPlaying) { _replayPause(); return; }
+  _replayState.isPlaying = true;
+  const btn = document.getElementById('cl-replay-play');
+  if (btn) { btn.textContent = '⏸'; btn.classList.add('is-playing'); }
+  // Pokud jsme na konci, restart od začátku
+  if (_replayState.step >= _replayState.history.length) _replayState.step = 0;
+  const tick = () => {
+    if (!_replayState.isPlaying) return;
+    if (_replayState.step >= _replayState.history.length) {
+      _replayPause();
+      return;
+    }
+    _replayState.step++;
+    _replayRender();
+    _replayState.rafTimer = setTimeout(tick, _replayState.speed);
+  };
+  _replayState.rafTimer = setTimeout(tick, _replayState.speed);
+}
+
+function _replayPause() {
+  _replayState.isPlaying = false;
+  if (_replayState.rafTimer) { clearTimeout(_replayState.rafTimer); _replayState.rafTimer = null; }
+  const btn = document.getElementById('cl-replay-play');
+  if (btn) { btn.textContent = '▶'; btn.classList.remove('is-playing'); }
+}
+
+function renderReplayPanel() {
+  const wrap = document.getElementById('cl-replay');
+  if (!wrap) return;
+  if (!_lastTesterResult || !_lastTesterResult.histories || !_lastTesterResult.initGrid) {
+    wrap.hidden = true;
+    return;
+  }
+  if (!_replayState.history || _replayState.history === null) {
+    _replayLoadFromResult(_lastTesterResult);
+  }
+  if (!_replayState.history) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  // Sync strategy dropdown
+  const stratSel = document.getElementById('cl-replay-strategy');
+  if (stratSel && stratSel.value !== _replayState.strategy) stratSel.value = _replayState.strategy;
+  const speedSel = document.getElementById('cl-replay-speed');
+  if (speedSel) speedSel.value = String(_replayState.speed);
+  _replayRender();
+}
+
+function _wireReplayPanelOnce() {
+  const stratSel = document.getElementById('cl-replay-strategy');
+  if (stratSel) stratSel.addEventListener('change', () => {
+    _replayPause();
+    _replaySetStrategy(stratSel.value);
+    _replayRender();
+  });
+  const speedSel = document.getElementById('cl-replay-speed');
+  if (speedSel) speedSel.addEventListener('change', () => {
+    _replayState.speed = +speedSel.value || 200;
+  });
+  const playBtn = document.getElementById('cl-replay-play');
+  if (playBtn) playBtn.addEventListener('click', _replayPlay);
+  const firstBtn = document.getElementById('cl-replay-first');
+  if (firstBtn) firstBtn.addEventListener('click', () => { _replayPause(); _replaySetStep(0); });
+  const lastBtn = document.getElementById('cl-replay-last');
+  if (lastBtn) lastBtn.addEventListener('click', () => {
+    _replayPause();
+    _replaySetStep(_replayState.history ? _replayState.history.length : 0);
+  });
+  const prevBtn = document.getElementById('cl-replay-prev');
+  if (prevBtn) prevBtn.addEventListener('click', () => { _replayPause(); _replaySetStep(_replayState.step - 1); });
+  const nextBtn = document.getElementById('cl-replay-next');
+  if (nextBtn) nextBtn.addEventListener('click', () => { _replayPause(); _replaySetStep(_replayState.step + 1); });
+  const scrub = document.getElementById('cl-replay-scrub');
+  if (scrub) scrub.addEventListener('input', () => {
+    _replayPause();
+    _replaySetStep(+scrub.value);
+  });
+  // Klik do carrier canvasu = jump na ten krok (najdi nejbližší klik podle (c,r))
+  const carrierCanvas = document.getElementById('cl-replay-carrier');
+  if (carrierCanvas) carrierCanvas.addEventListener('click', (ev) => {
+    if (!_replayState.history || !_replayState.initColumns) return;
+    const cols = _replayState.initColumns;
+    const COLS = cols.length;
+    const rows = Math.max(1, ...cols.map(c => c.length));
+    const cellSize = Math.min(Math.floor(200 / COLS), Math.floor(160 / rows));
+    const offX = Math.floor((200 - cellSize * COLS) / 2);
+    const offY = Math.floor((160 - cellSize * rows) / 2);
+    const rect = carrierCanvas.getBoundingClientRect();
+    const x = (ev.clientX - rect.left) * (carrierCanvas.width / rect.width);
+    const y = (ev.clientY - rect.top) * (carrierCanvas.height / rect.height);
+    const cc = Math.floor((x - offX) / cellSize);
+    const rr = Math.floor((y - offY) / cellSize);
+    // Najdi v history step, kde se klikalo na (cc, rr)
+    for (let i = 0; i < _replayState.history.length; i++) {
+      const e = _replayState.history[i];
+      if (e.c === cc && e.r === rr) {
+        _replayPause();
+        _replaySetStep(i + 1); // step = "po N kliků", takže +1
+        return;
+      }
+    }
+  });
 }
 
 // ─── Difficulty score — label klasifikace + expandable breakdown

@@ -65,6 +65,7 @@
                 <label for="f-type">Type</label>
                 <select id="f-type">
                   <option value="relaxing">relaxing</option>
+                  <option value="easy">easy</option>
                   <option value="medium">medium</option>
                   <option value="hard">hard</option>
                   <option value="hardcore">hardcore</option>
@@ -317,6 +318,43 @@
                 <div id="cl-curves-pin-popover" class="cl-curve-pin-popover" hidden></div>
                 <div id="cl-curves-empty" class="cl-curves-empty">
                   Klikni <b>▶ Analyzovat</b> v sekci playtester pro zobrazení křivek obtížnosti.
+                </div>
+                <div id="cl-replay" class="cl-replay" hidden>
+                  <div class="cl-replay-head">
+                    <span class="cl-section-title">replay <span class="hint" id="cl-replay-step-label"></span></span>
+                    <span class="cl-replay-spacer"></span>
+                    <select id="cl-replay-strategy" title="Která strategie testeru se přehrává">
+                      <option value="beam">beam search</option>
+                      <option value="fullUse">full-use heur.</option>
+                      <option value="maxGain">max-gain heur.</option>
+                    </select>
+                  </div>
+                  <div class="cl-replay-canvases">
+                    <div class="cl-replay-canvas-wrap">
+                      <div class="hint">carrier grid (klik = krok)</div>
+                      <canvas id="cl-replay-carrier" width="200" height="160"></canvas>
+                    </div>
+                    <div class="cl-replay-canvas-wrap">
+                      <div class="hint">image grid (px diff)</div>
+                      <canvas id="cl-replay-image" width="288" height="216"></canvas>
+                    </div>
+                  </div>
+                  <div class="cl-replay-controls">
+                    <button type="button" id="cl-replay-first" title="začátek">⏮</button>
+                    <button type="button" id="cl-replay-prev" title="−1 krok">◀</button>
+                    <button type="button" id="cl-replay-play" title="play / pause">▶</button>
+                    <button type="button" id="cl-replay-next" title="+1 krok">▶</button>
+                    <button type="button" id="cl-replay-last" title="konec">⏭</button>
+                    <input type="range" id="cl-replay-scrub" min="0" max="0" value="0" step="1">
+                    <span id="cl-replay-step-num" class="hint">0 / 0</span>
+                    <select id="cl-replay-speed" title="rychlost přehrávání">
+                      <option value="400">0.5×</option>
+                      <option value="200" selected>1×</option>
+                      <option value="100">2×</option>
+                      <option value="50">4×</option>
+                    </select>
+                  </div>
+                  <div id="cl-replay-info" class="cl-replay-info hint"></div>
                 </div>
               </div>
             </details>

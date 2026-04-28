@@ -591,6 +591,7 @@ _Sem házej všechno, co tě napadne. Při příští session to společně rozt
 ### 👀 Sleduj v provozu
 
 - **Bouncing-aware `simulateShotReaches` (v50 dev)** — simulate teď modeluje odraz od wrong-color pixelů, wrong-color bloků a non-target mystery (`BOUNCE_CAP=4`). Cannon detekuje cesty přes 1-4 odrazy. Riziko: false positives (simulate.true ale particle nedoletí) kvůli numerické divergenci vůči `±0.06 rad` spread na fire angle. **Když uvidíš, že cannon vystřelí a koule nedorazí na cíl** (zamrzne, popne se naprázdno) → snížit cap na 2-3 nebo doladit physics. Nezatím necommitováno do verze.
+- **Cannon vystřelí všech 40 projektilů i když je dostupných jen 20 pixelů** (v64 podezření) — `hasAnyTargetForColor(ci)` v real-game cannon dispatch (game.js:421) testuje, zda existuje **JAKÝKOLIV** pixel barvy `ci` v gridu (i pod blokem) NEBO živý blok. Tj. cannon palí všechny projektily i když jen část je reachable přes flood-fill. Zbývající balls bouncují, expire po 4 odrazech (visible: hodně balónků létá v gridu). **Možná správné chování** (= designed), ale user pozoroval ne-očekávané. Možná oprava: použít `hasReachableTargetForColor(ci)` (game.js:435) místo, který bere jen flood-fill exposed. Trade-off: ale strict reachable check by mohl rychleji zablokovat belt u uzamčených barev (real-game: cannon by tiše čekal). Před změnou ověřit dopad na existing levely.
 
 ---
 

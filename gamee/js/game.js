@@ -234,7 +234,7 @@ function computeTotalDifficulty(imgDiff,carrDiff){
   return{key:'hardcore',label:'Hard-core'};
 }
 let grid,belt,pending,columns,score,loops,running,difficulty='easy',gravityOn=false,rocketsOn=false,garageMode='off',currentLevel='smiley';
-let _ptInitGrid=null,_ptInitColumns=null,_ptInitPxCounts=null; // playtester snapshot při startu levelu
+let _ptInitGrid=null,_ptInitColumns=null,_ptInitPxCounts=null,_ptInitBlocks=null; // playtester snapshot při startu levelu
 // True když makeColumns postavil grid z `level.carrierLayouts[...]` (layout-based).
 // startLevel podle toho ví, že má PŘESKOČIT rocket + garage injekci (layout už má
 // rakety/garáž embedded jako tiles). False = auto-generovaný grid = injekce jede jako dřív.
@@ -2203,52 +2203,319 @@ function _ptEstimateBeltPeak(history){
 }
 // Block-free exposure check for simulation — ignores currentBlocks (live state),
 // so mystery-block-covered pixels are treated as reachable in the sim grid.
-function _ptGetExposed(g,color){
-  const open=getOpenEmptyCells(g);
+// Block-aware helper: vrátí Set buněk uvnitř ŽIVÉHO bloku (HP > 0). Tester to používá
+// jako bariéru pro flood-fill + jako filtr pro accessibility pixelů a bloků.
+function _ptBlockedCells(blocks){
+  const blocked=new Set();
+  if(!blocks||!blocks.length)return blocked;
+  for(const b of blocks){
+    if(b.hp<=0)continue;
+    const m=b._mask;
+    if(!m)continue;
+    for(let dy=0;dy<b.h;dy++){
+      const row=m[dy];if(!row)continue;
+      for(let dx=0;dx<b.w;dx++){
+        if(!row[dx])continue;
+        const x=b.x+dx,y=b.y+dy;
+        if(x<0||x>=GW||y<0||y>=GH)continue;
+        blocked.add(y*GW+x);
+      }
+    }
+  }
+  return blocked;
+}
+// Block-aware varianta getOpenEmptyCells: flood-fill skrz pixely co jsou -1, ale
+// buňky uvnitř živého bloku NEJSOU "open" (blok je bariéra, i když pixely pod
+// ním jsou už -1 z clearSolidBlockFootprints).
+function _ptGetOpenEmptyCells(g,blocks){
+  const blocked=_ptBlockedCells(blocks);
+  const open=new Set();
+  const stack=[];
+  const push=(x,y)=>{
+    const k=y*GW+x;
+    if(open.has(k))return;
+    if(g[y][x]!==-1)return;
+    if(blocked.has(k))return;
+    open.add(k);stack.push([x,y]);
+  };
+  for(let x=0;x<GW;x++)push(x,GH-1);
+  while(stack.length){
+    const [x,y]=stack.pop();
+    if(x>0)push(x-1,y);
+    if(x<GW-1)push(x+1,y);
+    if(y>0)push(x,y-1);
+    if(y<GH-1)push(x,y+1);
+  }
+  return open;
+}
+// Block accessible iff alespoň jedna jeho cell má neighbor v open zóně.
+// Mystery blok přijímá libovolnou barvu, solid jen matching color.
+function _ptAccessibleBlocks(blocks,g,color){
+  if(!blocks||!blocks.length)return [];
+  const open=_ptGetOpenEmptyCells(g,blocks);
   const out=[];
-  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
-    if(g[y][x]!==color)continue;
-    let exp=false;
-    if(y>0&&open.has((y-1)*GW+x))exp=true;
-    else if(y<GH-1&&open.has((y+1)*GW+x))exp=true;
-    else if(x>0&&open.has(y*GW+(x-1)))exp=true;
-    else if(x<GW-1&&open.has(y*GW+(x+1)))exp=true;
-    if(exp)out.push({x,y});
+  for(const b of blocks){
+    if(b.hp<=0)continue;
+    if(b.kind!=='mystery'&&b.color!==color)continue;
+    const m=b._mask;if(!m)continue;
+    let touches=false;
+    for(let dy=0;dy<b.h&&!touches;dy++){
+      const row=m[dy];if(!row)continue;
+      for(let dx=0;dx<b.w&&!touches;dx++){
+        if(!row[dx])continue;
+        const x=b.x+dx,y=b.y+dy;
+        const neigh=[[x,y-1],[x,y+1],[x-1,y],[x+1,y]];
+        for(const [nx,ny] of neigh){
+          if(nx<0||nx>=GW||ny<0||ny>=GH)continue;
+          if(m[ny-b.y]&&m[ny-b.y][nx-b.x])continue; // soused uvnitř bloku
+          if(open.has(ny*GW+nx)){touches=true;break;}
+        }
+      }
+    }
+    if(touches)out.push(b);
   }
   return out;
 }
-// Expand garage slots into regular carrier slots so the greedy/random simulation
-// can model carriers dispensed by garages (placed after the garage position).
-function _ptExpandGarages(cols){
-  return cols.map(col=>{
-    const out=[];
-    for(const slot of col){
-      if(!slot||slot.wall){out.push(slot);continue;}
-      if(slot.type==='garage'){
-        out.push(null); // garage slot consumed (its physical position becomes empty)
-        for(const item of(slot.queue||[]))out.push({color:item.color,projectiles:item.projectiles||UPC*PPU});
-        continue;
+// Cannon-aware exposure — varianta A (flood-fill from bottom edge).
+// Pixel exposed iff má alespoň 1 ortogonálního souseda v open zóně.
+// Open zóna = flood-fill empty cells (-1) z celého bottom edge, bloky bariéry.
+// Drain: bottom-first batch (`exp.sort((a,b) => b.y - a.y)`), žádné jittery
+// ani per-projectile. To je původní model, který se osvědčil před experimenty
+// s LoS / bouncing / nearest-from-cannon.
+
+// Vrátí Set buněk uvnitř živých bloků (HP > 0). Slouží jako bariéra pro flood-fill.
+function _ptBlockedCells(blocks){
+  const blocked=new Set();
+  if(!blocks||!blocks.length)return blocked;
+  for(const b of blocks){
+    if(b.hp<=0)continue;
+    const m=b._mask;if(!m)continue;
+    for(let dy=0;dy<b.h;dy++){
+      const row=m[dy];if(!row)continue;
+      for(let dx=0;dx<b.w;dx++){
+        if(!row[dx])continue;
+        const x=b.x+dx,y=b.y+dy;
+        if(x<0||x>=GW||y<0||y>=GH)continue;
+        blocked.add(y*GW+x);
       }
-      out.push(slot);
     }
-    return out;
-  });
+  }
+  return blocked;
+}
+
+// Flood-fill empty cells (-1) od bottom edge. Bloky jsou bariéra (i když jsou
+// pixely pod nimi -1, blok je obstacle).
+function _ptGetOpenEmptyCells(g,blocks){
+  const blocked=_ptBlockedCells(blocks);
+  const open=new Set();
+  const stack=[];
+  const push=(x,y)=>{
+    if(x<0||x>=GW||y<0||y>=GH)return;
+    const k=y*GW+x;
+    if(open.has(k))return;
+    if(g[y][x]!==-1)return;
+    if(blocked.has(k))return;
+    open.add(k);stack.push([x,y]);
+  };
+  for(let x=0;x<GW;x++)push(x,GH-1);
+  while(stack.length){
+    const [x,y]=stack.pop();
+    if(x>0)push(x-1,y);
+    if(x<GW-1)push(x+1,y);
+    if(y>0)push(x,y-1);
+    if(y<GH-1)push(x,y+1);
+  }
+  return open;
+}
+
+// Pixel exposed iff má alespoň 1 ortogonálního souseda v open zóně.
+function _ptGetExposed(g,color,blocks){
+  const open=_ptGetOpenEmptyCells(g,blocks);
+  const out=[];
+  for(let y=0;y<GH;y++){
+    for(let x=0;x<GW;x++){
+      if(g[y][x]!==color)continue;
+      let exp=false;
+      if(y>0&&open.has((y-1)*GW+x))exp=true;
+      else if(y<GH-1&&open.has((y+1)*GW+x))exp=true;
+      else if(x>0&&open.has(y*GW+(x-1)))exp=true;
+      else if(x<GW-1&&open.has(y*GW+(x+1)))exp=true;
+      if(exp)out.push({x,y});
+    }
+  }
+  return out;
+}
+// Block-aware check: jsou ještě cíle k zničení? Pixely v gridu NEBO živý blok.
+// Tester předtím používal jen `anyLeft(g)` který blocky ignoruje → solver myslel
+// že hra je hotová i když bloky zůstaly stát.
+function _ptAnyTargetLeft(g,blocks){
+  if(blocks&&blocks.length){
+    for(const b of blocks)if(b.hp>0)return true;
+  }
+  return anyLeft(g);
+}
+// Sum HP of live blocks (= "remaining block damage" pro tolerance/solved check).
+function _ptBlockHpSum(blocks){
+  if(!blocks||!blocks.length)return 0;
+  let s=0;
+  for(const b of blocks)if(b.hp>0)s+=b.hp;
+  return s;
+}
+// Spočítá zbývající "živé" sloty v sim columns: pixel/rocket carriery + queue
+// items v garážích. Když vrátí 0, znamená to, že tester (hráč) vyčerpal všechny
+// dostupné nosiče. V tom případě považujeme run za výhru i když pixely zbývají
+// (= problém s dopočty layoutu, ne hráče).
+function _ptCountRemainingSlots(C){
+  let n=0;
+  for(const col of C){
+    for(const slot of col){
+      if(!slot||slot.wall)continue;
+      if(slot.type==='garage'){n+=(slot.queue||[]).length;}
+      else n++;
+    }
+  }
+  return n;
+}
+// Deep-clone bloků (HP mutuje per simulace — clone na začátku každého runu).
+// `_mask` je readonly 2D bool array → sdílí reference (žádný side effect).
+function _ptDeepCloneBlocks(blocks){
+  if(!blocks||!blocks.length)return [];
+  return blocks.map(b=>({
+    kind:b.kind, shape:b.shape, x:b.x, y:b.y, w:b.w, h:b.h,
+    color:b.color, hp:b.hp, maxHp:b.maxHp, _mask:b._mask
+  }));
+}
+// Deep-clone columns pro tester sim — kritické pro garáže (queue.shift mutuje pole).
+// Carriery jsou imutable v simulaci (slot → null po pop), takže ty stačí shallow.
+function _ptDeepCloneCols(cols){
+  return cols.map(col=>col.map(slot=>{
+    if(slot&&slot.type==='garage'){
+      return {
+        type:'garage',
+        directions:slot.directions?slot.directions.slice():['N'],
+        queue:(slot.queue||[]).map(q=>({color:q.color,projectiles:q.projectiles})),
+        destroyable:!!slot.destroyable,
+      };
+    }
+    return slot;
+  }));
+}
+
+// Dynamic garage update — port real-game updateGarages() na simulační columns.
+// Pro každou garáž: najdi null souseda v povolených směrech, vydej queue.shift()
+// do něj jako carrier slot. Když queue empty + free neighbor → garáž → null.
+// Vrací pole dispense events: [{from:{c,r}, to:{c,r}, color, projectiles}].
+function _ptUpdateGarages(C){
+  const dispenses=[];
+  for(let c=0;c<C.length;c++){
+    for(let r=0;r<C[c].length;r++){
+      const slot=C[c][r];
+      if(!slot||slot.type!=='garage')continue;
+      const dirs=slot.directions||['N'];
+      let freeNeighbor=null;
+      for(const d of dirs){
+        const [dc,dr]=GAR_DIR_VEC[d]||[0,0];
+        const nc=c+dc,nr=r+dr;
+        if(nc<0||nc>=C.length||nr<0)continue;
+        const ncol=C[nc];
+        if(!ncol||nr>=ncol.length)continue;
+        if(ncol[nr]===null){freeNeighbor=[nc,nr];break;}
+      }
+      if(!freeNeighbor)continue;
+      if(slot.queue&&slot.queue.length){
+        const next=slot.queue.shift();
+        const [nc,nr]=freeNeighbor;
+        C[nc][nr]={color:next.color,projectiles:next.projectiles||UPC*PPU};
+        dispenses.push({from:{c,r},to:{c:nc,r:nr},color:next.color,projectiles:next.projectiles||UPC*PPU});
+      } else {
+        C[c][r]=null;
+        dispenses.push({from:{c,r},to:null,color:null,projectiles:0,emptied:true});
+      }
+    }
+  }
+  return dispenses;
 }
 // Vrací {cleared, wasted} — kolik pixelů barvy bylo vyčištěno (chain) a kolik
 // projektilů zbylo nevyužitých (= waste). Důležité pro beam scoring: penalizujeme
 // stavy, kde solver pálil carriery dřív, než byly všechny pixely barvy vystavené.
-function _ptApplyColor(g,color,proj){
+// Batch drain — bottom-first, žádné jittery ani per-projectile. Původní
+// model varianty A: re-eval exposed v každé drain round, vezmi nejvíc
+// `take = min(td, exp.length)` pixelů z bottom-up sort, opakuj.
+function _ptApplyColor(g,color,proj,blocks){
   let td=proj;
+  const cleared=[]; // {x,y} pixely zničené — pro replay diff
+  const blockHits=[]; // {kind, color, x, y, hpBefore, hpAfter, destroyed}
+  const blockHitMap=new Map(); // blockRef → {block, hpBefore, hits:0}
   while(td>0){
-    const exp=_ptGetExposed(g,color); // block-free: works on sim grid only
-    if(!exp.length)break;
-    exp.sort((a,b)=>b.y-a.y);
+    // 1) Bloky matching color (sort by smallest HP = quickly remove barriers)
+    const accBlocks=_ptAccessibleBlocks(blocks,g,color);
+    if(accBlocks.length){
+      accBlocks.sort((a,b)=>a.hp-b.hp);
+      const b=accBlocks[0];
+      const take=Math.min(td,b.hp);
+      if(!blockHitMap.has(b))blockHitMap.set(b,{block:b,hpBefore:b.hp,hits:0});
+      const rec=blockHitMap.get(b);
+      b.hp-=take;
+      rec.hits+=take;
+      td-=take;
+      continue;
+    }
+    // 2) Pixely — bottom-first s "bite ahead" efektem. Pixel z upper rows
+    //    dostává s určitou pravděpodobností NEGATIVNÍ bonus (= jeho sort key
+    //    klesne pod default bottom row → ničí se dřív).
+    //
+    // Adaptivní intenzita: pokud je current bottom řada ÚZKÁ (málo pixelů),
+    // projektily se víc rozlejou do řad nad — cannon spread + missed targets.
+    // Široká řada → mírnější bite (většina projektilů najde cíl ve své řadě).
+    const exp=_ptGetExposed(g,color,blocks);
+    if(!exp.length)break; // wasted: td zbylých projektilů → belt residue
+    // Detekce úzké spodní řady
+    let maxY=0;
+    for(const p of exp)if(p.y>maxY)maxY=p.y;
+    let bottomCount=0;
+    for(const p of exp)if(p.y===maxY)bottomCount++;
+    // narrow: 0 (≥10 pixelů v bottom = široko) → 1 (≤2 pixely = úzko)
+    const narrow=Math.max(0,Math.min(1,(10-bottomCount)/8));
+    // Cumulative thresholds — base (wide) + narrow boost.
+    //   wide:   62% default, 21% bite-1, 8% bite-2, 5% bite-3, 4% bite-4
+    //   narrow: 40% default, 7% bite-1, 20% bite-2, 19% bite-3, 14% bite-4
+    const t4=0.04+narrow*0.10;
+    const t3=t4 +0.05+narrow*0.12;
+    const t2=t3 +0.08+narrow*0.12;
+    const t1=t2 +0.21+narrow*0.06;
+    // Burst column — místo kde cannon začíná pálit a padne tam o 1-2 projektily víc
+    // (focal point). Random sloupec z exp pool, pixely v něm nad bottom row dostanou
+    // extra -1.5 bonus → bite zachází hlouběji v této column.
+    const burstX=exp[Math.floor(Math.random()*exp.length)].x;
+    exp.forEach(p=>{
+      let k=-p.y;
+      const r=Math.random();
+      if(r<t4)k-=4;
+      else if(r<t3)k-=3;
+      else if(r<t2)k-=2;
+      else if(r<t1)k-=1;
+      // Burst boost: pixely v burst column NAD bottom row dostanou extra promo
+      if(p.x===burstX&&p.y<maxY)k-=1.5;
+      p._k=k+Math.random()*0.001;
+    });
+    exp.sort((a,b)=>a._k-b._k);
     const take=Math.min(td,exp.length);
-    for(let i=0;i<take;i++)g[exp[i].y][exp[i].x]=-1;
+    for(let i=0;i<take;i++){
+      g[exp[i].y][exp[i].x]=-1;
+      cleared.push({x:exp[i].x,y:exp[i].y});
+    }
     td-=take;
     if(gravityOn)applyGravityTo(g);
   }
-  return {cleared: proj - td, wasted: td};
+  // Flush block hits jako history events (jeden záznam per blok)
+  for(const rec of blockHitMap.values()){
+    const b=rec.block;
+    blockHits.push({
+      kind:b.kind, color:b.color, x:b.x, y:b.y, w:b.w, h:b.h,
+      hpBefore:rec.hpBefore, hpAfter:b.hp, destroyed:b.hp<=0
+    });
+  }
+  return {cleared:proj-td, wasted:td, clearedPixels:cleared, blockHits};
 }
 // Belt-queue simulace jednoho kliku: přidá UPC balónků na pás (rozdělené projektily),
 // pak drain — pálí balónky, jejichž barva má vystavené pixely. Stuck balls (color
@@ -2256,7 +2523,7 @@ function _ptApplyColor(g,color,proj){
 // Vrací { gain, beltLoad } — gain = pixely vyčištěné v tomto kroku, beltLoad = velikost
 // fronty po drainu. Tohle nahrazuje původní _ptApplyColor v simulaci, protože reálná
 // hra balónky NEZTRÁCÍ — cyklují, dokud nenajdou cíl nebo dokud nedojde k belt overflow.
-function _ptSimulateClick(g, beltQueue, color, proj){
+function _ptSimulateClick(g, beltQueue, color, proj, blocks){
   // Funnel rejection check: v reálné hře by tento klik nešel, kdyby pending > 12.
   // Modelujeme to flagem (klikneme i tak, ale poznamenáme si, že by hra řekla NE).
   const funnelRejected=beltQueue.length>=PENDING_DISPENSE_THRESHOLD;
@@ -2267,22 +2534,32 @@ function _ptSimulateClick(g, beltQueue, color, proj){
   // 2) Drain loop — opakovaně palí balónky, dokud někdo může vystřelit.
   const before=_ptCountPixels(g);
   let totalWasted=0;
+  const allCleared=[]; // pro replay: všechny pixely zničené v rámci tohoto kliku (across drain rounds)
+  const allBlockHits=[]; // pro replay: bloky hitnuté v rámci tohoto kliku
   let progress=true;
   while(progress){
     progress=false;
     for(let i=0;i<beltQueue.length;i++){
       const b=beltQueue[i];
       if(!b||b.ammo<=0){beltQueue.splice(i,1);i--;continue;}
-      const exp=_ptGetExposed(g,b.color);
-      if(!exp.length)continue;
-      const r=_ptApplyColor(g,b.color,b.ammo);
+      // Balónek může vystřelit pokud existují accessible pixely jeho barvy NEBO accessible bloky
+      const exp=_ptGetExposed(g,b.color,blocks);
+      const accBlocks=_ptAccessibleBlocks(blocks,g,b.color);
+      if(!exp.length&&!accBlocks.length)continue;
+      const r=_ptApplyColor(g,b.color,b.ammo,blocks);
       totalWasted+=r.wasted;
+      if(r.clearedPixels&&r.clearedPixels.length){
+        for(const px of r.clearedPixels) allCleared.push({x:px.x,y:px.y,color:b.color});
+      }
+      if(r.blockHits&&r.blockHits.length){
+        for(const bh of r.blockHits) allBlockHits.push(bh);
+      }
       beltQueue.splice(i,1);
       i--;
       progress=true;
     }
   }
-  return {gain: before - _ptCountPixels(g), beltLoad: beltQueue.length, waste: totalWasted, funnelRejected};
+  return {gain: before - _ptCountPixels(g), beltLoad: beltQueue.length, waste: totalWasted, funnelRejected, clearedPixels: allCleared, blockHits: allBlockHits};
 }
 // Greedy s vyběrem podle strategie:
 //   'max-gain' — vyber carrier s nejvíc vystavenými pixely (max immediate progress)
@@ -2298,7 +2575,9 @@ function ptRunGreedy(grid,cols,strategy,opts){
   opts=opts||{};
   const wantTrace=!!opts.trace;
   const g=grid.map(r=>r.slice());
-  const C=_ptExpandGarages(cols.map(col=>col.slice()));
+  const C=_ptDeepCloneCols(cols);
+  const blocks=_ptDeepCloneBlocks(_ptInitBlocks);
+  const initialDispenses=_ptUpdateGarages(C); // garáže s free neighbours vydají carrier hned
   const beltQueue=[];
   let beltOverflow=false;
   let clicks=0,totalChoices=0,choiceSteps=0,totalWaste=0,funnelRejectedCount=0;
@@ -2306,7 +2585,7 @@ function ptRunGreedy(grid,cols,strategy,opts){
   const history=[];
   const trace=wantTrace?[]:null;
   let sf=500;
-  while(anyLeft(g)&&sf-->0){
+  while(_ptAnyTargetLeft(g,blocks)&&sf-->0){
     const act=_ptListActive(C);
     if(!act.length)break;
     // Spočítej queued ammo per barva — kolik balónků čeká na cíl té barvy.
@@ -2315,9 +2594,11 @@ function ptRunGreedy(grid,cols,strategy,opts){
     const stats=act.map(([c,r])=>{
       const slot=C[c][r];
       const proj=slot.projectiles||0;
-      const exposed=_ptGetExposed(g,slot.color).length;
+      const accBlocks=_ptAccessibleBlocks(blocks,g,slot.color);
+      const blockHp=accBlocks.reduce((s,b)=>s+b.hp,0);
+      const exposed=_ptGetExposed(g,slot.color,blocks).length+blockHp; // capacity = pixely + accessible block HP
       const queued=queuedAmmo[slot.color]||0;
-      const potential=Math.max(0,exposed-queued); // co reálně přibude (queue nejdřív utratí exposed)
+      const potential=Math.max(0,exposed-queued);
       return{exposed,queued,potential,proj,fullUse:potential>0&&potential>=proj};
     });
     const beneficialCount=stats.filter(s=>s.potential>0).length;
@@ -2353,14 +2634,18 @@ function ptRunGreedy(grid,cols,strategy,opts){
     const pickedProj=slot.projectiles||0;
     if(colorFirstSeen[slot.color]===undefined)colorFirstSeen[slot.color]=clicks;
     // Reálná simulace: balónky na pás + drain.
-    const sim=_ptSimulateClick(g,beltQueue,slot.color,pickedProj);
+    const sim=_ptSimulateClick(g,beltQueue,slot.color,pickedProj,blocks);
     if(sim.beltLoad>BELT_CAP)beltOverflow=true;
     if(sim.funnelRejected)funnelRejectedCount++;
     totalWaste+=sim.waste||0;
-    history.push({step:clicks,color:slot.color,gain:sim.gain,proj:pickedProj,beltLoad:sim.beltLoad,funnelRejected:sim.funnelRejected});
-    if(trace)trace.push({step:clicks,activeCount:act.length,beneficial:beneficialCount,pickedGain:sim.gain,pickedProj,beltLoad:sim.beltLoad,remainingPx:_ptCountPixels(g)});
     C[bc][br]=null;
+    // Po pop kliku zkontroluj jestli některá garáž může dispensovat (free neighbor)
+    const dispenses=_ptUpdateGarages(C);
+    history.push({step:clicks,c:bc,r:br,color:slot.color,gain:sim.gain,proj:pickedProj,beltLoad:sim.beltLoad,funnelRejected:sim.funnelRejected,clearedPixels:sim.clearedPixels||[],blockHits:sim.blockHits||[],dispenses});
+    if(trace)trace.push({step:clicks,activeCount:act.length,beneficial:beneficialCount,pickedGain:sim.gain,pickedProj,beltLoad:sim.beltLoad,remainingPx:_ptCountPixels(g)});
     clicks++;
+    // Belt overflow = game over v reálné hře. Stop simulation.
+    if(beltOverflow)break;
   }
   // Final drain — po posledním kliku zkus ještě jednou všechno vystřelit.
   let progress=true,drainSf=20;
@@ -2369,9 +2654,10 @@ function ptRunGreedy(grid,cols,strategy,opts){
     for(let i=0;i<beltQueue.length;i++){
       const b=beltQueue[i];
       if(!b||b.ammo<=0){beltQueue.splice(i,1);i--;continue;}
-      const exp=_ptGetExposed(g,b.color);
-      if(!exp.length)continue;
-      const r=_ptApplyColor(g,b.color,b.ammo);
+      const exp=_ptGetExposed(g,b.color,blocks);
+      const accBlocks=_ptAccessibleBlocks(blocks,g,b.color);
+      if(!exp.length&&!accBlocks.length)continue;
+      const r=_ptApplyColor(g,b.color,b.ammo,blocks);
       totalWaste+=r.wasted;
       beltQueue.splice(i,1);i--;progress=true;
     }
@@ -2379,28 +2665,35 @@ function ptRunGreedy(grid,cols,strategy,opts){
   let bottleneckColor=-1,bottleneckStep=-1;
   for(const [c,s] of Object.entries(colorFirstSeen)){if(s>bottleneckStep){bottleneckStep=s;bottleneckColor=Number(c);}}
   const peakBeltLoad=history.reduce((m,h)=>Math.max(m,h.beltLoad||0),0);
-  // Solved (strict) = grid empty AND queue empty AND no belt overflow.
-  // Solved (effective) = strict OR pixely zbylé ≤ tolerance (1 carrier worth).
+  // Solved (strict) = grid empty AND no live blocks AND queue empty AND no belt overflow.
+  // Solved (effective) = strict OR pixely zbylé ≤ tolerance + bloky destroyed
+  //                      OR všechny nosiče byly vyčerpány bez overflow
+  //                      (= layout dopočet není 100%, ale hráč udělal vše co mohl).
   const remainPxFinal=_ptCountPixels(g);
-  const strictSolved=remainPxFinal===0&&beltQueue.length===0&&!beltOverflow;
-  const solved=strictSolved||(remainPxFinal<=SOLVED_TOLERANCE_PX&&!beltOverflow);
-  return{solved,strictSolved,remainPx:remainPxFinal,clicks,decisionRichness:choiceSteps>0?Math.round(totalChoices/choiceSteps*10)/10:0,bottleneckColor,colorFirstSeen,history,trace,peakBeltLoad,beltOverflow,stuckBalls:beltQueue.length,waste:totalWaste,funnelRejectedCount,remainingGrid:remainPxFinal>0?g.map(r=>r.slice()):null};
+  const blockHpFinal=_ptBlockHpSum(blocks);
+  const strictSolved=remainPxFinal===0&&blockHpFinal===0&&beltQueue.length===0&&!beltOverflow;
+  const carriersExhausted=_ptCountRemainingSlots(C)===0;
+  const solved=strictSolved
+            ||(remainPxFinal<=SOLVED_TOLERANCE_PX&&blockHpFinal===0&&!beltOverflow)
+            ||(carriersExhausted&&!beltOverflow);
+  return{solved,strictSolved,carriersExhausted,remainPx:remainPxFinal,remainBlockHp:blockHpFinal,clicks,decisionRichness:choiceSteps>0?Math.round(totalChoices/choiceSteps*10)/10:0,bottleneckColor,colorFirstSeen,history,trace,initialDispenses,peakBeltLoad,beltOverflow,stuckBalls:beltQueue.length,waste:totalWaste,funnelRejectedCount,remainingGrid:remainPxFinal>0?g.map(r=>r.slice()):null};
 }
 function ptRunRandom(grid,cols,n,opts){
   opts=opts||{};
   const collectTraces=!!opts.collectTraces;
-  const expandedCols=_ptExpandGarages(cols);
   let successes=0,totalClicks=0,closeCalls=0;
   const allTraces=collectTraces?[]:null;
   for(let i=0;i<n;i++){
     const g=grid.map(r=>r.slice());
-    const C=expandedCols.map(col=>col.slice());
+    const C=_ptDeepCloneCols(cols);
+    const blocks=_ptDeepCloneBlocks(_ptInitBlocks);
+    _ptUpdateGarages(C); // initial dispense
     const beltQueue=[];
     let beltOverflow=false;
     let clicks=0,sf=500;
     const history=[];
     const trace=collectTraces?[]:null;
-    while(anyLeft(g)&&sf-->0){
+    while(_ptAnyTargetLeft(g,blocks)&&sf-->0){
       const act=_ptListActive(C);
       if(!act.length)break;
       const queuedAmmo={};
@@ -2410,7 +2703,9 @@ function ptRunRandom(grid,cols,n,opts){
       for(let j=0;j<act.length;j++){
         const [c,r]=act[j];
         const slot=C[c][r];
-        const exposed=_ptGetExposed(g,slot.color).length;
+        const accBlocks=_ptAccessibleBlocks(blocks,g,slot.color);
+        const blockHp=accBlocks.reduce((s,b)=>s+b.hp,0);
+        const exposed=_ptGetExposed(g,slot.color,blocks).length+blockHp;
         const queued=queuedAmmo[slot.color]||0;
         const potential=Math.max(0,exposed-queued);
         if(potential>0){
@@ -2422,12 +2717,15 @@ function ptRunRandom(grid,cols,n,opts){
       const[bc,br]=pool[Math.floor(Math.random()*pool.length)];
       const slot=C[bc][br];
       const pickedProj=slot.projectiles||0;
-      const sim=_ptSimulateClick(g,beltQueue,slot.color,pickedProj);
+      const sim=_ptSimulateClick(g,beltQueue,slot.color,pickedProj,blocks);
       if(sim.beltLoad>BELT_CAP)beltOverflow=true;
-      history.push({step:clicks,color:slot.color,gain:sim.gain,proj:pickedProj,beltLoad:sim.beltLoad,funnelRejected:sim.funnelRejected});
-      if(trace)trace.push({step:clicks,activeCount:act.length,beneficial:beneficialCount,pickedGain:sim.gain,pickedProj,beltLoad:sim.beltLoad,remainingPx:_ptCountPixels(g)});
       C[bc][br]=null;
+      const dispenses=_ptUpdateGarages(C);
+      history.push({step:clicks,c:bc,r:br,color:slot.color,gain:sim.gain,proj:pickedProj,beltLoad:sim.beltLoad,funnelRejected:sim.funnelRejected,clearedPixels:sim.clearedPixels||[],blockHits:sim.blockHits||[],dispenses});
+      if(trace)trace.push({step:clicks,activeCount:act.length,beneficial:beneficialCount,pickedGain:sim.gain,pickedProj,beltLoad:sim.beltLoad,remainingPx:_ptCountPixels(g)});
       clicks++;
+      // Belt overflow = game over. Stop simulation (real game by se zaseklo, balónky se hromadily).
+      if(beltOverflow)break;
     }
     // Final drain
     let progress=true,drainSf=20;
@@ -2435,15 +2733,20 @@ function ptRunRandom(grid,cols,n,opts){
       progress=false;
       for(let k=0;k<beltQueue.length;k++){
         const b=beltQueue[k];if(!b||b.ammo<=0){beltQueue.splice(k,1);k--;continue;}
-        const exp=_ptGetExposed(g,b.color);if(!exp.length)continue;
-        _ptApplyColor(g,b.color,b.ammo);beltQueue.splice(k,1);k--;progress=true;
+        const exp=_ptGetExposed(g,b.color,blocks);
+        const accBlocks=_ptAccessibleBlocks(blocks,g,b.color);
+        if(!exp.length&&!accBlocks.length)continue;
+        _ptApplyColor(g,b.color,b.ammo,blocks);beltQueue.splice(k,1);k--;progress=true;
       }
     }
-    // Random success counted as effective solve (tolerance respected).
+    // Random success: tolerance s bloky destroyed, OR carriers exhausted bez overflow.
     const remPx=_ptCountPixels(g);
-    if(remPx<=SOLVED_TOLERANCE_PX&&!beltOverflow){successes++;totalClicks+=clicks;}
-    // Close-call: pixely zbylé v rozšířené zóně (do 2× tolerance) = "skoro by to klaplo"
-    else if(remPx<=SOLVED_TOLERANCE_PX*2.5&&!beltOverflow){closeCalls++;}
+    const blockHp=_ptBlockHpSum(blocks);
+    const carriersExhausted=_ptCountRemainingSlots(C)===0;
+    if(carriersExhausted&&!beltOverflow){successes++;totalClicks+=clicks;if(allTraces)allTraces.push(trace);continue;}
+    if(remPx<=SOLVED_TOLERANCE_PX&&blockHp===0&&!beltOverflow){successes++;totalClicks+=clicks;}
+    // Close-call: pixely zbylé v rozšířené zóně (do 2× tolerance) + bloky destroyed
+    else if(remPx<=SOLVED_TOLERANCE_PX*2.5&&blockHp===0&&!beltOverflow){closeCalls++;}
     if(allTraces)allTraces.push(trace);
   }
   // Spočítat envelope (p10, p50, p90) z kompozitního skóre per krok.
@@ -2486,9 +2789,13 @@ function ptRunBeamSearch(grid,cols,opts){
   const maxDepth=opts.maxDepth||80;
   const wantTrace=!!opts.trace;
   const t0=(typeof performance!=='undefined'?performance:Date).now();
+  const initC=_ptDeepCloneCols(cols);
+  const initBlocks=_ptDeepCloneBlocks(_ptInitBlocks);
+  const initialDispenses=_ptUpdateGarages(initC);
   const init={
     g:grid.map(r=>r.slice()),
-    C:_ptExpandGarages(cols.map(col=>col.slice())),
+    C:initC,
+    blocks:initBlocks,
     beltQueue:[],
     beltOverflow:false,
     clicks:0,
@@ -2504,7 +2811,7 @@ function ptRunBeamSearch(grid,cols,opts){
     if(!beam.length)break;
     const next=[];
     for(const s of beam){
-      if(!anyLeft(s.g)&&s.beltQueue.length===0&&!s.beltOverflow){
+      if(!_ptAnyTargetLeft(s.g,s.blocks)&&s.beltQueue.length===0&&!s.beltOverflow){
         if(!bestSolved||s.clicks<bestSolved.clicks||(s.clicks===bestSolved.clicks&&s.waste<bestSolved.waste))bestSolved=s;
         continue;
       }
@@ -2515,7 +2822,9 @@ function ptRunBeamSearch(grid,cols,opts){
       for(const b of s.beltQueue) queuedAmmo[b.color]=(queuedAmmo[b.color]||0)+b.ammo;
       const stats=act.map(([c,r])=>{
         const slot=s.C[c][r];
-        const exposed=_ptGetExposed(s.g,slot.color).length;
+        const accBlocks=_ptAccessibleBlocks(s.blocks,s.g,slot.color);
+        const blockHp=accBlocks.reduce((sum,b)=>sum+b.hp,0);
+        const exposed=_ptGetExposed(s.g,slot.color,s.blocks).length+blockHp;
         return{exposed,queued:queuedAmmo[slot.color]||0,proj:slot.projectiles||0};
       });
       const beneficialCount=stats.filter(x=>Math.max(0,x.exposed-x.queued)>0).length;
@@ -2544,7 +2853,8 @@ function ptRunBeamSearch(grid,cols,opts){
         const slot=s.C[c][r];
         const child={
           g:s.g.map(row=>row.slice()),
-          C:s.C.map(col=>col.slice()),
+          C:_ptDeepCloneCols(s.C), // deep clone — garáže mají mutable queue
+          blocks:_ptDeepCloneBlocks(s.blocks), // deep clone — bloky mají mutable HP
           beltQueue:s.beltQueue.map(b=>({color:b.color,ammo:b.ammo})),
           beltOverflow:s.beltOverflow,
           clicks:s.clicks+1,
@@ -2555,13 +2865,14 @@ function ptRunBeamSearch(grid,cols,opts){
           colorFirstSeen:Object.assign({},s.colorFirstSeen),
         };
         if(child.colorFirstSeen[slot.color]===undefined)child.colorFirstSeen[slot.color]=s.clicks;
-        const sim=_ptSimulateClick(child.g,child.beltQueue,slot.color,slot.projectiles||0);
+        const sim=_ptSimulateClick(child.g,child.beltQueue,slot.color,slot.projectiles||0,child.blocks);
         if(sim.beltLoad>BELT_CAP)child.beltOverflow=true;
         if(sim.funnelRejected)child.funnelRejectedCount++;
         child.waste+=sim.waste||0;
-        child.history.push({step:s.clicks,color:slot.color,gain:sim.gain,proj:slot.projectiles||0,beltLoad:sim.beltLoad,funnelRejected:sim.funnelRejected});
-        if(wantTrace)child.trace.push({step:s.clicks,activeCount:act.length,beneficial:beneficialCount,pickedGain:sim.gain,pickedProj:slot.projectiles||0,beltLoad:sim.beltLoad,remainingPx:_ptCountPixels(child.g)});
         child.C[c][r]=null;
+        const dispenses=_ptUpdateGarages(child.C);
+        child.history.push({step:s.clicks,c:c,r:r,color:slot.color,gain:sim.gain,proj:slot.projectiles||0,beltLoad:sim.beltLoad,funnelRejected:sim.funnelRejected,clearedPixels:sim.clearedPixels||[],blockHits:sim.blockHits||[],dispenses});
+        if(wantTrace)child.trace.push({step:s.clicks,activeCount:act.length,beneficial:beneficialCount,pickedGain:sim.gain,pickedProj:slot.projectiles||0,beltLoad:sim.beltLoad,remainingPx:_ptCountPixels(child.g)});
         next.push(child);
       }
     }
@@ -2585,16 +2896,22 @@ function ptRunBeamSearch(grid,cols,opts){
     progress=false;
     for(let k=0;k<result.beltQueue.length;k++){
       const b=result.beltQueue[k];if(!b||b.ammo<=0){result.beltQueue.splice(k,1);k--;continue;}
-      const exp=_ptGetExposed(result.g,b.color);if(!exp.length)continue;
-      const r=_ptApplyColor(result.g,b.color,b.ammo);
+      const exp=_ptGetExposed(result.g,b.color,result.blocks);
+      const accBlocks=_ptAccessibleBlocks(result.blocks,result.g,b.color);
+      if(!exp.length&&!accBlocks.length)continue;
+      const r=_ptApplyColor(result.g,b.color,b.ammo,result.blocks);
       result.waste=(result.waste||0)+r.wasted;
       result.beltQueue.splice(k,1);k--;progress=true;
     }
   }
   const peakBeltLoad=result.history.reduce((m,h)=>Math.max(m,h.beltLoad||0),0);
   const remainPxFinal=_ptCountPixels(result.g);
-  const strictSolved=remainPxFinal===0&&result.beltQueue.length===0&&!result.beltOverflow;
-  const solved=strictSolved||(remainPxFinal<=SOLVED_TOLERANCE_PX&&!result.beltOverflow);
+  const blockHpFinal=_ptBlockHpSum(result.blocks);
+  const strictSolved=remainPxFinal===0&&blockHpFinal===0&&result.beltQueue.length===0&&!result.beltOverflow;
+  const carriersExhausted=_ptCountRemainingSlots(result.C)===0;
+  const solved=strictSolved
+            ||(remainPxFinal<=SOLVED_TOLERANCE_PX&&blockHpFinal===0&&!result.beltOverflow)
+            ||(carriersExhausted&&!result.beltOverflow);
   let bottleneckColor=-1,bottleneckStep=-1;
   for(const [c,s] of Object.entries(result.colorFirstSeen||{})){
     if(s>bottleneckStep){bottleneckStep=s;bottleneckColor=Number(c);}
@@ -2602,12 +2919,14 @@ function ptRunBeamSearch(grid,cols,opts){
   return{
     solved,
     strictSolved,
+    carriersExhausted,
     remainPx:remainPxFinal,
     clicks:result.clicks,
     waste:result.waste||0,
     funnelRejectedCount:result.funnelRejectedCount||0,
     history:result.history,
     trace:result.trace,
+    initialDispenses,
     decisionRichness:0,
     bottleneckColor,
     colorFirstSeen:result.colorFirstSeen||{},
@@ -2758,6 +3077,22 @@ function ptAnalyzeCurrentLevel(){
     diffInputs,
     colorDetails,
     traces:{maxGain:gA.trace,fullUse:gB.trace,beam:gC.trace},
+    histories:{maxGain:gA.history,fullUse:gB.history,beam:gC.history},
+    initialDispenses:{maxGain:gA.initialDispenses||[],fullUse:gB.initialDispenses||[],beam:gC.initialDispenses||[]},
+    initGrid:_ptInitGrid?_ptInitGrid.map(r=>r.slice()):null, // pro replay reconstrukci pixel gridu
+    initBlocks:_ptInitBlocks?_ptInitBlocks.map(b=>({
+      kind:b.kind,shape:b.shape,x:b.x,y:b.y,w:b.w,h:b.h,color:b.color,hp:b.hp,maxHp:b.maxHp
+      // _mask se nepřenáší — editor si ho pře-spočítá z shape/w/h/rot pokud potřeba
+    })):null,
+    initColumns:_ptInitColumns?_ptInitColumns.map(col=>col.map(s=>{
+      // Compact snapshot pro mini carrier grid renderer v editoru.
+      if(s===null)return null;
+      if(s.wall)return {wall:true};
+      if(s.type==='garage')return {type:'garage',queueLen:(s.queue||[]).length};
+      if(s.type==='rocket')return {type:'rocket',color:s.color};
+      return {color:s.color,projectiles:s.projectiles||0,hidden:!!s.hidden};
+    })):null,
+    GW,IMG_GH,COLS, // dimenze pro mini-grid renderer v editoru
     randomEnvelope:rnd.envelope,
     remainingGrid:best.r.solved?null:best.r.remainingGrid,
     peakBeltLoad,
@@ -4213,6 +4548,12 @@ function startLevel(){
     const copy={...s};
     if(Array.isArray(s.queue))copy.queue=s.queue.map(q=>({...q}));
     return copy;
+  }));
+  // Snapshot bloků (HP/maxHP, kind, x/y/w/h, _mask) — tester potřebuje pro accuracy
+  // (bloky jsou bariéry pro flood-fill + absorbují HP projektilů matching barvy).
+  _ptInitBlocks=currentBlocks.map(b=>({
+    kind:b.kind, shape:b.shape, x:b.x, y:b.y, w:b.w, h:b.h,
+    color:b.color, hp:b.hp, maxHp:b.maxHp, _mask:b._mask
   }));
   // Editor hook: columns už jsou po injekcích (rakety/garáž) finální → pošleme
   // nadřazenému oknu stats s pxCounts (need) + projCounts (have per barva),
