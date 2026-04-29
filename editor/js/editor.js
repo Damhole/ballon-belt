@@ -1383,24 +1383,21 @@ function renderCarrierLayout(lvl) {
     colsInput.disabled = true;
   }
 
-  // Empty vs editor
+  // Empty vs editor — unified Analyze & Tune master panel místo separátních cl-tester/cl-curves/cl-auto-tune.
   const emptyEl = $('cl-empty');
   const edEl = $('cl-editor');
   const capEl = $('cl-capacity');
-  const testerEl = $('cl-tester');
+  const masterEl = document.getElementById('cl-analyze-tune');
   if (!variant) {
     emptyEl.hidden = false;
     edEl.hidden = true;
     if (capEl) capEl.hidden = true;
-    if (testerEl) testerEl.hidden = true;
+    if (masterEl) masterEl.hidden = true;
     return;
   }
   emptyEl.hidden = true;
   edEl.hidden = false;
-  if (testerEl) testerEl.hidden = false;
-  // Auto-tune panel se odhalí spolu s testerem; visible-trigger pro hot reload.
-  const autoTuneEl = document.getElementById('cl-auto-tune');
-  if (autoTuneEl) autoTuneEl.hidden = false;
+  if (masterEl) masterEl.hidden = false;
 
   // Generator tlačítka — enable jen pokud máme pxCounts pro aktuální level/diff.
   const pxForGen = clGetStatsForCurrent(lvl);
@@ -3180,6 +3177,7 @@ function wireCarrierLayout() {
   if (typeof _wireCurvesPanelOnce === 'function') _wireCurvesPanelOnce();
   if (typeof _wireReplayPanelOnce === 'function') _wireReplayPanelOnce();
   if (typeof _wireAutoTunePanelOnce === 'function') _wireAutoTunePanelOnce();
+  if (typeof _wireTuneModeToggleOnce === 'function') _wireTuneModeToggleOnce();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -6807,6 +6805,16 @@ function _wireCurvesPanelOnce() {
         _mutSuggestState.previewIdx = null;
         _mutSuggestState.progress = null;
         _mutSuggestState.evalMode = evalMode;
+        // Otevřít Ladění sekci a přepnout na Detailní mode aby designer viděl výsledky
+        // (Suggest panel je v Detailní mode body — kdyby byl Větší mode aktivní, panel
+        // by byl skrytý za hidden parent).
+        const tuneSection = document.getElementById('cl-auto-tune');
+        if (tuneSection && !tuneSection.open) tuneSection.open = true;
+        const detailRadio = document.querySelector('input[name="cl-tune-mode"][value="detail"]');
+        if (detailRadio && !detailRadio.checked) {
+          detailRadio.checked = true;
+          detailRadio.dispatchEvent(new Event('change', { bubbles: true }));
+        }
         renderMutSuggestPanel(null, null);
         _hideCurvePopover();
         frame.contentWindow.postMessage({ type: 'balloonbelt:suggest-mutations', pin, evalMode }, '*');
@@ -7946,6 +7954,28 @@ function wireSectionCollapsePersist() {
     });
   });
 }
+
+// Tune mode toggle (Detailní per-pin Suggest vs Větší template SA) — wire jednou v init.
+// Preference v localStorage. Default = 'detail'.
+window._wireTuneModeToggleOnce = function () {
+  const radios = document.querySelectorAll('input[name="cl-tune-mode"]');
+  if (!radios.length) return;
+  const detailBody = document.getElementById('cl-tune-detail');
+  const bulkBody = document.getElementById('cl-tune-bulk');
+  if (!detailBody || !bulkBody) return;
+  const applyMode = function (mode) {
+    if (mode === 'bulk') { detailBody.hidden = true; bulkBody.hidden = false; }
+    else { detailBody.hidden = false; bulkBody.hidden = true; }
+    try { localStorage.setItem('cl-tune-mode', mode); } catch (e) {}
+  };
+  let savedMode = 'detail';
+  try { savedMode = localStorage.getItem('cl-tune-mode') || 'detail'; } catch (e) {}
+  for (const r of radios) r.checked = (r.value === savedMode);
+  applyMode(savedMode);
+  for (const r of radios) {
+    r.addEventListener('change', function () { if (r.checked) applyMode(r.value); });
+  }
+};
 
 function boot() {
   if (!state.fsaSupported) {

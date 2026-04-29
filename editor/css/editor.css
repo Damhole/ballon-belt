@@ -2433,3 +2433,119 @@ body {
   font-size: 10px;
   border-radius: 3px;
 }
+
+/* ── Unified Analyze & Tune master panel ──────────────────────────────────
+   Sloučení tří původních panelů (cl-tester, cl-curves, cl-auto-tune) do
+   jednoho details kontejneru s 3 collapsible sub-sekcemi (Výsledky, Křivky,
+   Ladění) + sticky header s Analyzovat tlačítkem a far-sighted toggle. */
+.cl-analyze-tune {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+.cl-analyze-tune > .cl-analyze-tune-summary {
+  cursor: pointer;
+  list-style: none;
+  margin-bottom: 6px;
+}
+.cl-analyze-tune > .cl-analyze-tune-summary::-webkit-details-marker { display: none; }
+.cl-analyze-tune > .cl-analyze-tune-summary::before {
+  content: '▶';
+  display: inline-block;
+  width: 10px;
+  margin-right: 4px;
+  font-size: 10px;
+  transition: transform 0.15s;
+  color: var(--text-3, #888);
+}
+.cl-analyze-tune[open] > .cl-analyze-tune-summary::before { transform: rotate(90deg); }
+.cl-at-master-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 6px 0 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  margin-bottom: 8px;
+}
+.cl-at-section {
+  margin-top: 8px;
+  padding: 6px 0;
+  border-top: 1px solid rgba(255,255,255,0.04);
+}
+.cl-at-section:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+.cl-at-section-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+.cl-at-section-summary::-webkit-details-marker { display: none; }
+.cl-at-section-summary::before {
+  content: '▶';
+  display: inline-block;
+  width: 10px;
+  font-size: 10px;
+  transition: transform 0.15s;
+  color: var(--text-3, #888);
+}
+.cl-at-section[open] > .cl-at-section-summary::before { transform: rotate(90deg); }
+.cl-section-subtitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2, #a0a0b0);
+  letter-spacing: 0.02em;
+}
+
+/* Tune mode radio toggle (Detailní / Větší) */
+.cl-tune-mode-row {
+  display: flex;
+  gap: 10px;
+  padding: 8px 0 6px;
+  font-size: 11px;
+}
+.cl-tune-mode-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  padding: 3px 8px;
+  border: 1px solid var(--border, #3a3a3e);
+  border-radius: 4px;
+  background: var(--bg-2, #242428);
+  color: var(--text-2, #a0a0b0);
+  user-select: none;
+  transition: background 0.1s, color 0.1s;
+}
+.cl-tune-mode-radio:hover { background: var(--bg-3, #2e2e34); }
+.cl-tune-mode-radio:has(input:checked) {
+  background: rgba(124,58,237,0.18);
+  border-color: #7c3aed;
+  color: var(--text-1, #e0e0e8);
+}
+.cl-tune-mode-row input[type="radio"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.cl-tune-mode-body {
+  margin-top: 6px;
+}
+.cl-tune-hint {
+  font-size: 11px;
+  color: var(--text-2, #a0a0b0);
+  background: rgba(255,255,255,0.03);
+  padding: 8px 10px;
+  border-radius: 4px;
+  border-left: 2px solid rgba(124,58,237,0.5);
+  line-height: 1.4;
+  margin-bottom: 6px;
+}

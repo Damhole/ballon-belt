@@ -273,6 +273,181 @@
               Žádná varianta pro tuto complexity. Klikni <b>+ nová</b> pro vytvoření.
               Levely bez varianty pro danou complexity se auto-generují jako dnes.
             </div>
+            <details id="cl-analyze-tune" class="cl-analyze-tune" hidden open>
+              <summary class="cl-analyze-tune-summary">
+                <span class="cl-section-title">⚡ Analyze &amp; Tune <span class="hint">(playtester + křivky obtížnosti + ladění)</span></span>
+              </summary>
+              <div class="cl-at-master-header">
+                <label class="cl-far-sighted-label" title="Far-sighted beam (Fáze 2.5): vidí investiční tahy (rozbití bariér, uvolnění garáže) a hodnotí cascade efekty. Defaultně vypnuto — porovnej oba režimy ručně.">
+                  <input type="checkbox" id="cl-far-sighted"> 🔭 prozřetelný beam
+                </label>
+                <button type="button" id="cl-analyze-btn" class="btn btn-small">▶ Analyzovat</button>
+              </div>
+
+              <details id="cl-at-results" class="cl-at-section" open>
+                <summary class="cl-at-section-summary">
+                  <span class="cl-section-subtitle">📊 Výsledky <span class="hint">(greedy optimal + 50× náhoda)</span></span>
+                </summary>
+                <div id="cl-tester-body" class="cl-tester-body">
+                  <div class="cl-tester-idle">Klikni ▶ Analyzovat pro simulaci aktuálního layoutu.</div>
+                </div>
+              </details>
+
+              <details id="cl-curves" class="cl-at-section cl-curves" open>
+                <summary class="cl-at-section-summary cl-curves-head">
+                  <span class="cl-section-subtitle">📈 Křivky <span class="hint">(per-step trace, 4 dimenze)</span></span>
+                  <span id="cl-curves-status" class="cl-curves-status hint"></span>
+                </summary>
+                <div class="cl-curves-body">
+                  <div class="cl-curves-controls">
+                    <label title="Choice = beneficial / active per krok. Vyšší = víc smysluplných voleb pro hráče.">
+                      <input type="checkbox" data-curve-dim="choice" checked>
+                      <span class="cl-curve-sw" style="background:#3b82f6"></span> Choice
+                    </label>
+                    <label title="Pressure = beltLoad / BELT_CAP per krok. Vyšší = blíž overflow (nervóznější krok).">
+                      <input type="checkbox" data-curve-dim="pressure" checked>
+                      <span class="cl-curve-sw" style="background:#ef4444"></span> Pressure
+                    </label>
+                    <label title="Progress = pickedGain / remainingPx_before. Vyšší = velký kus pixelů smetl jedním klikem.">
+                      <input type="checkbox" data-curve-dim="progress" checked>
+                      <span class="cl-curve-sw" style="background:#10b981"></span> Progress
+                    </label>
+                    <label title="Solver gap = kolik z 3 strategií ještě běží. Vyšší = jen lepší solver projde (tricky kroky).">
+                      <input type="checkbox" data-curve-dim="solverGap" checked>
+                      <span class="cl-curve-sw" style="background:#f59e0b"></span> Solver gap
+                    </label>
+                  </div>
+                  <div id="cl-curves-svg-wrap"></div>
+                  <div id="cl-curves-pin-popover" class="cl-curve-pin-popover" hidden></div>
+                  <div id="cl-curves-empty" class="cl-curves-empty">
+                    Klikni <b>▶ Analyzovat</b> nahoře pro zobrazení křivek obtížnosti.
+                  </div>
+                  <div id="cl-replay" class="cl-replay" hidden>
+                    <div class="cl-replay-head">
+                      <span class="cl-section-title">replay <span class="hint" id="cl-replay-step-label"></span></span>
+                      <span class="cl-replay-spacer"></span>
+                      <select id="cl-replay-strategy" title="Která strategie testeru se přehrává">
+                        <option value="beam">beam search</option>
+                        <option value="fullUse">full-use heur.</option>
+                        <option value="maxGain">max-gain heur.</option>
+                      </select>
+                    </div>
+                    <div class="cl-replay-canvases">
+                      <div class="cl-replay-canvas-wrap">
+                        <div class="hint">carrier grid (klik = krok)</div>
+                        <canvas id="cl-replay-carrier" width="200" height="160"></canvas>
+                      </div>
+                      <div class="cl-replay-canvas-wrap">
+                        <div class="hint">image grid (px diff)</div>
+                        <canvas id="cl-replay-image" width="288" height="216"></canvas>
+                      </div>
+                    </div>
+                    <div class="cl-replay-controls">
+                      <button type="button" id="cl-replay-first" title="začátek">⏮</button>
+                      <button type="button" id="cl-replay-prev" title="−1 krok">◀</button>
+                      <button type="button" id="cl-replay-play" title="play / pause">▶</button>
+                      <button type="button" id="cl-replay-next" title="+1 krok">▶</button>
+                      <button type="button" id="cl-replay-last" title="konec">⏭</button>
+                      <input type="range" id="cl-replay-scrub" min="0" max="0" value="0" step="1">
+                      <span id="cl-replay-step-num" class="hint">0 / 0</span>
+                      <select id="cl-replay-speed" title="rychlost přehrávání">
+                        <option value="400">0.5×</option>
+                        <option value="200" selected>1×</option>
+                        <option value="100">2×</option>
+                        <option value="50">4×</option>
+                      </select>
+                    </div>
+                    <div id="cl-replay-info" class="cl-replay-info hint"></div>
+                  </div>
+                </div>
+              </details>
+
+              <details id="cl-auto-tune" class="cl-at-section">
+                <summary class="cl-at-section-summary">
+                  <span class="cl-section-subtitle">🎯 Ladění <span class="hint">(úpravy carrierů — detailní per-pin nebo větší auto-tune)</span></span>
+                </summary>
+                <div class="cl-tune-mode-row" role="radiogroup" aria-label="Mód ladění">
+                  <label class="cl-tune-mode-radio" title="Detailní: klikni na pin v Křivkách → mutation suggestions cílené na ten step range.">
+                    <input type="radio" name="cl-tune-mode" value="detail" checked> Detailní (per-pin Suggest)
+                  </label>
+                  <label class="cl-tune-mode-radio" title="Větší: vyber target shape, SA přes mutation pool přerovná carriery aby křivka odpovídala templatu.">
+                    <input type="radio" name="cl-tune-mode" value="bulk"> Větší (template + auto-tune)
+                  </label>
+                </div>
+
+                <div id="cl-tune-detail" class="cl-tune-mode-body">
+                  <div class="cl-tune-hint">
+                    Klikni na pin v sekci <b>Křivky</b> a v popoveru zvol <b>⚙ Suggest</b>.
+                    Top 3 mutation kandidáti se objeví zde.
+                  </div>
+                  <div id="cl-mut-suggest-panel" class="cl-mut-suggest-panel" hidden></div>
+                </div>
+
+                <div id="cl-tune-bulk" class="cl-tune-mode-body" hidden>
+                  <div class="cl-at-controls">
+                    <div class="cl-at-control-row">
+                      <label class="cl-at-label" title="Target shape — SA bude SA optimalizovat carrier layout, aby aktuální křivka co nejlépe odpovídala této shape.">Template:</label>
+                      <select id="cl-at-template">
+                        <option value="FLAT">FLAT — konstantní obtížnost</option>
+                        <option value="STAIRCASE">STAIRCASE — postupný nárůst</option>
+                        <option value="WARMUP_CLIMAX_COOLDOWN">WARMUP-CLIMAX-COOLDOWN ╱─╲</option>
+                        <option value="EARLY_HOOK">EARLY HOOK — strmý začátek</option>
+                        <option value="ENDGAME_PUZZLE">ENDGAME PUZZLE — spike na konci</option>
+                        <option value="DOUBLE_PEAK">DOUBLE PEAK ╱╲╱╲</option>
+                      </select>
+                    </div>
+                    <div id="cl-at-template-preview" class="cl-at-template-preview"></div>
+                    <div class="cl-at-control-row">
+                      <label class="cl-at-label" title="Která dimenze se má primárně optimalizovat. 'all' = vážený mix (choice + pressure + progress).">Apply target:</label>
+                      <select id="cl-at-target">
+                        <option value="all">Vše (vážené)</option>
+                        <option value="choice">Choice</option>
+                        <option value="pressure">Pressure</option>
+                        <option value="progress">Progress</option>
+                      </select>
+                    </div>
+                    <div class="cl-at-control-row">
+                      <label class="cl-at-label" title="Time budget pro SA. Delší = víc iterací = lepší fit. Editor je responzivní díky yieldingu.">Time budget:</label>
+                      <select id="cl-at-budget">
+                        <option value="30000" selected>30 s (rychlé)</option>
+                        <option value="120000">2 min (střední)</option>
+                        <option value="300000">5 min (důkladné)</option>
+                        <option value="600000">10 min (max)</option>
+                      </select>
+                    </div>
+                    <div class="cl-at-control-row">
+                      <label class="cl-far-sighted-label" title="beam eval = far-sighted beam místo greedy. Přesnější, ale ~5× pomalejší per iteraci → výrazně méně iterací v daném budgetu.">
+                        <input type="checkbox" id="cl-at-eval-beam"> 🎯 beam eval (přesnější, méně iterací)
+                      </label>
+                    </div>
+                    <div class="cl-at-control-row cl-at-actions">
+                      <button id="cl-at-start" class="btn btn-primary" type="button">▶ AUTO-TUNE</button>
+                      <button id="cl-at-stop" class="btn" type="button" hidden>■ STOP</button>
+                    </div>
+                    <div class="cl-at-control-row">
+                      <button id="cl-at-cleanup-hidden" class="btn btn-small" type="button" title="Smaže `?` flagy z carrierů, které jsou v hraně active (row 0 nebo tunel sousedem). Hra je beztak nevykreslí — flag je jen vizuální noise z minulých Apply.">🧹 Vyčistit ineffective `?` flagy</button>
+                    </div>
+                  </div>
+                  <div id="cl-at-monitor" class="cl-at-monitor" hidden>
+                    <div class="cl-at-stats">
+                      <span>iter: <b id="cl-at-iter">0</b></span>
+                      <span>accepted: <b id="cl-at-accepted">0</b></span>
+                      <span>best: <b id="cl-at-best">—</b></span>
+                      <span>T: <b id="cl-at-temp">1.00</b></span>
+                    </div>
+                    <div class="cl-mut-progress-bar"><div class="cl-mut-progress-fill" id="cl-at-progress-fill" style="width:0%"></div></div>
+                    <div class="cl-at-monitor-row">
+                      <div id="cl-at-monitor-svg-wrap"></div>
+                      <div class="cl-at-mini-grid-wrap">
+                        <div class="cl-at-mini-grid-label hint">live carrier layout (best)</div>
+                        <canvas id="cl-at-mini-grid" width="200" height="160"></canvas>
+                      </div>
+                    </div>
+                  </div>
+                  <div id="cl-at-result" class="cl-at-result" hidden></div>
+                </div>
+              </details>
+            </details>
             <div id="cl-capacity" class="cl-capacity" hidden>
               <div class="cl-capacity-head">
                 <span class="cl-section-title">kapacita <span class="hint">(potřeba / sloty — podle reálných dat z preview)</span></span>
@@ -281,153 +456,6 @@
               <div id="cl-capacity-body" class="cl-capacity-body"></div>
               <div id="cl-capacity-hint" class="cl-capacity-hint"></div>
             </div>
-            <div id="cl-tester" class="cl-tester" hidden>
-              <div class="cl-tester-head">
-                <span class="cl-section-title">playtester <span class="hint">(greedy optimal + 50× náhoda)</span></span>
-                <label class="cl-far-sighted-label" title="Far-sighted beam (Fáze 2.5): vidí investiční tahy (rozbití bariér, uvolnění garáže) a hodnotí cascade efekty. Defaultně vypnuto — porovnej oba režimy ručně.">
-                  <input type="checkbox" id="cl-far-sighted"> 🔭 prozřetelný beam
-                </label>
-                <button type="button" id="cl-analyze-btn" class="btn btn-small">▶ Analyzovat</button>
-              </div>
-              <div id="cl-tester-body" class="cl-tester-body">
-                <div class="cl-tester-idle">Klikni ▶ Analyzovat pro simulaci aktuálního layoutu.</div>
-              </div>
-            </div>
-            <details id="cl-curves" class="cl-curves" hidden>
-              <summary class="cl-curves-head">
-                <span class="cl-section-title">křivky obtížnosti <span class="hint">(per-step trace, 4 dimenze)</span></span>
-                <span id="cl-curves-status" class="cl-curves-status hint"></span>
-              </summary>
-              <div class="cl-curves-body">
-                <div class="cl-curves-controls">
-                  <label title="Choice = beneficial / active per krok. Vyšší = víc smysluplných voleb pro hráče.">
-                    <input type="checkbox" data-curve-dim="choice" checked>
-                    <span class="cl-curve-sw" style="background:#3b82f6"></span> Choice
-                  </label>
-                  <label title="Pressure = beltLoad / BELT_CAP per krok. Vyšší = blíž overflow (nervóznější krok).">
-                    <input type="checkbox" data-curve-dim="pressure" checked>
-                    <span class="cl-curve-sw" style="background:#ef4444"></span> Pressure
-                  </label>
-                  <label title="Progress = pickedGain / remainingPx_before. Vyšší = velký kus pixelů smetl jedním klikem.">
-                    <input type="checkbox" data-curve-dim="progress" checked>
-                    <span class="cl-curve-sw" style="background:#10b981"></span> Progress
-                  </label>
-                  <label title="Solver gap = kolik z 3 strategií ještě běží. Vyšší = jen lepší solver projde (tricky kroky).">
-                    <input type="checkbox" data-curve-dim="solverGap" checked>
-                    <span class="cl-curve-sw" style="background:#f59e0b"></span> Solver gap
-                  </label>
-                </div>
-                <div id="cl-curves-svg-wrap"></div>
-                <div id="cl-curves-pin-popover" class="cl-curve-pin-popover" hidden></div>
-                <div id="cl-mut-suggest-panel" class="cl-mut-suggest-panel" hidden></div>
-                <div id="cl-curves-empty" class="cl-curves-empty">
-                  Klikni <b>▶ Analyzovat</b> v sekci playtester pro zobrazení křivek obtížnosti.
-                </div>
-                <div id="cl-replay" class="cl-replay" hidden>
-                  <div class="cl-replay-head">
-                    <span class="cl-section-title">replay <span class="hint" id="cl-replay-step-label"></span></span>
-                    <span class="cl-replay-spacer"></span>
-                    <select id="cl-replay-strategy" title="Která strategie testeru se přehrává">
-                      <option value="beam">beam search</option>
-                      <option value="fullUse">full-use heur.</option>
-                      <option value="maxGain">max-gain heur.</option>
-                    </select>
-                  </div>
-                  <div class="cl-replay-canvases">
-                    <div class="cl-replay-canvas-wrap">
-                      <div class="hint">carrier grid (klik = krok)</div>
-                      <canvas id="cl-replay-carrier" width="200" height="160"></canvas>
-                    </div>
-                    <div class="cl-replay-canvas-wrap">
-                      <div class="hint">image grid (px diff)</div>
-                      <canvas id="cl-replay-image" width="288" height="216"></canvas>
-                    </div>
-                  </div>
-                  <div class="cl-replay-controls">
-                    <button type="button" id="cl-replay-first" title="začátek">⏮</button>
-                    <button type="button" id="cl-replay-prev" title="−1 krok">◀</button>
-                    <button type="button" id="cl-replay-play" title="play / pause">▶</button>
-                    <button type="button" id="cl-replay-next" title="+1 krok">▶</button>
-                    <button type="button" id="cl-replay-last" title="konec">⏭</button>
-                    <input type="range" id="cl-replay-scrub" min="0" max="0" value="0" step="1">
-                    <span id="cl-replay-step-num" class="hint">0 / 0</span>
-                    <select id="cl-replay-speed" title="rychlost přehrávání">
-                      <option value="400">0.5×</option>
-                      <option value="200" selected>1×</option>
-                      <option value="100">2×</option>
-                      <option value="50">4×</option>
-                    </select>
-                  </div>
-                  <div id="cl-replay-info" class="cl-replay-info hint"></div>
-                </div>
-              </div>
-            </details>
-            <details id="cl-auto-tune" class="cl-auto-tune" hidden>
-              <summary class="cl-section-title">⚙ Auto-tune <span class="hint">(SA přes mutation pool — přerovná carriery k target shape)</span></summary>
-              <div class="cl-auto-tune-body">
-                <div class="cl-at-controls">
-                  <div class="cl-at-control-row">
-                    <label class="cl-at-label" title="Target shape — SA bude SA optimalizovat carrier layout, aby aktuální křivka co nejlépe odpovídala této shape.">Template:</label>
-                    <select id="cl-at-template">
-                      <option value="FLAT">FLAT — konstantní obtížnost</option>
-                      <option value="STAIRCASE">STAIRCASE — postupný nárůst</option>
-                      <option value="WARMUP_CLIMAX_COOLDOWN">WARMUP-CLIMAX-COOLDOWN ╱─╲</option>
-                      <option value="EARLY_HOOK">EARLY HOOK — strmý začátek</option>
-                      <option value="ENDGAME_PUZZLE">ENDGAME PUZZLE — spike na konci</option>
-                      <option value="DOUBLE_PEAK">DOUBLE PEAK ╱╲╱╲</option>
-                    </select>
-                  </div>
-                  <div id="cl-at-template-preview" class="cl-at-template-preview"></div>
-                  <div class="cl-at-control-row">
-                    <label class="cl-at-label" title="Která dimenze se má primárně optimalizovat. 'all' = vážený mix (choice + pressure + progress).">Apply target:</label>
-                    <select id="cl-at-target">
-                      <option value="all">Vše (vážené)</option>
-                      <option value="choice">Choice</option>
-                      <option value="pressure">Pressure</option>
-                      <option value="progress">Progress</option>
-                    </select>
-                  </div>
-                  <div class="cl-at-control-row">
-                    <label class="cl-at-label" title="Time budget pro SA. Delší = víc iterací = lepší fit. Editor je responzivní díky yieldingu.">Time budget:</label>
-                    <select id="cl-at-budget">
-                      <option value="30000" selected>30 s (rychlé)</option>
-                      <option value="120000">2 min (střední)</option>
-                      <option value="300000">5 min (důkladné)</option>
-                      <option value="600000">10 min (max)</option>
-                    </select>
-                  </div>
-                  <div class="cl-at-control-row">
-                    <label class="cl-far-sighted-label" title="beam eval = far-sighted beam místo greedy. Přesnější, ale ~5× pomalejší per iteraci → výrazně méně iterací v daném budgetu.">
-                      <input type="checkbox" id="cl-at-eval-beam"> 🎯 beam eval (přesnější, méně iterací)
-                    </label>
-                  </div>
-                  <div class="cl-at-control-row cl-at-actions">
-                    <button id="cl-at-start" class="btn btn-primary" type="button">▶ AUTO-TUNE</button>
-                    <button id="cl-at-stop" class="btn" type="button" hidden>■ STOP</button>
-                  </div>
-                  <div class="cl-at-control-row">
-                    <button id="cl-at-cleanup-hidden" class="btn btn-small" type="button" title="Smaže `?` flagy z carrierů, které jsou v hraně active (row 0 nebo tunel sousedem). Hra je beztak nevykreslí — flag je jen vizuální noise z minulých Apply.">🧹 Vyčistit ineffective `?` flagy</button>
-                  </div>
-                </div>
-                <div id="cl-at-monitor" class="cl-at-monitor" hidden>
-                  <div class="cl-at-stats">
-                    <span>iter: <b id="cl-at-iter">0</b></span>
-                    <span>accepted: <b id="cl-at-accepted">0</b></span>
-                    <span>best: <b id="cl-at-best">—</b></span>
-                    <span>T: <b id="cl-at-temp">1.00</b></span>
-                  </div>
-                  <div class="cl-mut-progress-bar"><div class="cl-mut-progress-fill" id="cl-at-progress-fill" style="width:0%"></div></div>
-                  <div class="cl-at-monitor-row">
-                    <div id="cl-at-monitor-svg-wrap"></div>
-                    <div class="cl-at-mini-grid-wrap">
-                      <div class="cl-at-mini-grid-label hint">live carrier layout (best)</div>
-                      <canvas id="cl-at-mini-grid" width="200" height="160"></canvas>
-                    </div>
-                  </div>
-                </div>
-                <div id="cl-at-result" class="cl-at-result" hidden></div>
-              </div>
-            </details>
             <div id="cl-editor" class="cl-editor" hidden>
               <div class="cl-grid-wrap">
                 <div id="cl-grid" class="cl-grid"></div>
@@ -538,6 +566,8 @@
     </div>
   </div>
 
-  <script src="./js/editor.js"></script>
+  <!-- Cache-busting na editor.js přes inline loader (browser někdy serves stale verze
+       editor.js ze své cache i po reload(); query string vynutí fresh fetch). -->
+  <script>(function(){var s=document.createElement('script');s.src='./js/editor.js?v='+Date.now();document.body.appendChild(s);})();</script>
 </body>
 </html>
