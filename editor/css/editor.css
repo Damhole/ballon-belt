@@ -2549,3 +2549,102 @@ body {
   line-height: 1.4;
   margin-bottom: 6px;
 }
+
+.cl-at-color-chip {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin: 0 2px;
+  border: 1px solid rgba(255,255,255,0.15);
+  cursor: help;
+}
+
+/* Tester verdict — post-SA verdict zobrazuje, jestli SA layout je opravdu dohratelný. */
+.cl-at-tester-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.03);
+  border-left: 3px solid #888;
+}
+.cl-at-tester-verdict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  cursor: help;
+}
+.cl-at-tester-icon { font-size: 14px; line-height: 1; }
+.cl-at-tester-label { flex: 1; }
+.cl-at-tester-score {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  opacity: 0.7;
+  font-size: 10px;
+}
+.cl-at-tester-reason {
+  font-size: 10px;
+  color: var(--text-2, #a0a0b0);
+  line-height: 1.4;
+}
+.cl-at-tester-row:has(.cl-at-tester-verdict-robust) { border-left-color: #10b981; }
+.cl-at-tester-row:has(.cl-at-tester-verdict-tight) { border-left-color: #f59e0b; }
+.cl-at-tester-row:has(.cl-at-tester-verdict-broken) { border-left-color: #ef4444; }
+.cl-at-tester-verdict-robust { color: #10b981; }
+.cl-at-tester-verdict-tight { color: #ffc95c; }
+.cl-at-tester-verdict-broken { color: #ff8a8a; }
+
+/* Tester verdict v testeru output (Výsledky sekci) — autoritativní verdikt po Analyze. */
+.cl-tester-verdict-row {
+  border-top: 1px solid rgba(255,255,255,0.08);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.cl-tester-verdict-reason {
+  font-size: 10px;
+  padding: 2px 0 4px 0;
+  line-height: 1.4;
+  font-style: italic;
+}
+.cl-tester-row.cl-tester-verdict-verdict-robust .cl-tr-val { color: #10b981; }
+.cl-tester-row.cl-tester-verdict-verdict-tight .cl-tr-val { color: #ffc95c; }
+.cl-tester-row.cl-tester-verdict-verdict-broken .cl-tr-val { color: #ff8a8a; }
+
+/* Apply blocked — tlačítko vyžaduje confirm dialog, vizuálně varuje. */
+.cl-at-apply.cl-at-apply-blocked {
+  background: rgba(239,68,68,0.15) !important;
+  border-color: #ef4444 !important;
+  color: #ff8a8a !important;
+}
+.cl-at-apply.cl-at-apply-blocked:hover {
+  background: rgba(239,68,68,0.25) !important;
+}
+.cl-at-apply.cl-at-apply-blocked::before {
+  content: '⚠ ';
+}
+
+/* Help info icon ⓘ vedle preset selectu — hover ukáže detailní vysvětlení strategie/simulátoru. */
+.cl-at-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(124,58,237,0.15);
+  color: #c7a2ff;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: help;
+  user-select: none;
+  margin-left: 4px;
+  transition: background 0.1s;
+}
+.cl-at-help:hover {
+  background: rgba(124,58,237,0.3);
+  color: #fff;
+}

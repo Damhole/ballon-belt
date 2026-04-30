@@ -1096,7 +1096,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v68');
+          gamee.updateScore(score,playTime,'balloon-belt-v69');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -2848,6 +2848,10 @@ function ptRunBeamSearch(grid,cols,opts){
   const timeBudget=opts.timeBudgetMs||8000;
   const maxDepth=opts.maxDepth||80;
   const wantTrace=!!opts.trace;
+  // ignoreBeltOverflow (Tester math-test): když true, beam pokračuje v simulaci i když
+  // pás přeteče. Pro otázku „je level matematicky řešitelný (s nekonečným pásem)?"
+  // Default false — reálná hra cap 14.
+  const ignoreBeltOverflow=opts.ignoreBeltOverflow===true;
   const t0=(typeof performance!=='undefined'?performance:Date).now();
   const initC=_ptDeepCloneCols(cols);
   const initBlocks=_ptDeepCloneBlocks(_ptInitBlocks);
@@ -2872,11 +2876,13 @@ function ptRunBeamSearch(grid,cols,opts){
     if(!beam.length)break;
     const next=[];
     for(const s of beam){
-      if(!_ptAnyTargetLeft(s.g,s.blocks)&&s.beltQueue.length===0&&!s.beltOverflow){
+      // Solved check: ignoreBeltOverflow=true znamená že math test povoluje pokračovat
+      // i když pás přetekl, protože nás zajímá jen jestli pixely lze v teorii vyčistit.
+      if(!_ptAnyTargetLeft(s.g,s.blocks)&&s.beltQueue.length===0&&(ignoreBeltOverflow||!s.beltOverflow)){
         if(!bestSolved||s.clicks<bestSolved.clicks||(s.clicks===bestSolved.clicks&&s.waste<bestSolved.waste))bestSolved=s;
         continue;
       }
-      if(s.beltOverflow)continue;
+      if(s.beltOverflow&&!ignoreBeltOverflow)continue; // overflow stop only in real-cap mode
       const act=_ptListActive(s.C);
       if(!act.length)continue;
       const queuedAmmo={};
@@ -3597,6 +3603,227 @@ function _ptCheckLayoutValid(cols){
   return true;
 }
 
+// ── Prozřetelný SA — access-step aware mutation strategy ──────────────────
+// Rich complexity model: pro každou barvu spočítáme accessCost přes 5 dimenzí
+// (PHYSICAL_DEPTH, CLICK_DISTANCE, MYSTERY, GARAGE_QUEUE_POSITION, GARAGE_REACHABILITY).
+// SA pak váhuje mutace tak, aby pro „harder"/STAIRCASE/atd. zvyšovalo accessCost
+// kritických barev (early-needed dle baseline trace), pro „easier"/FLAT opačně.
+// Side-by-side s existujícím ptAutoTuneAsync — toggle v UI rozhoduje.
+
+// Konstanty pro vážení dimenzí v _ptColorComplexity. Lze ladit empiricky.
+const _PT_ACCESS_WEIGHTS = {
+  physicalDepth: 1.0,      // za každý row hloubky carrieru
+  clickDistance: 1.5,      // za každý klik nutný pro aktivaci (BFS)
+  mystery: 0.8,            // bonus za hidden=true (jen na inactive — game's render rule)
+  garageQueuePos: 1.2,     // za queue index v garáži (queue[3] = 3 dispense events away)
+  garageRow: 1.0,          // garage's own row depth
+};
+
+// Click distance pro carrier: kolik kliků nutno pro aktivaci.
+// Aproximace: BFS z (row 0 nebo tunelového souseda) přes non-wall cells. Vrátí počet hran
+// nejkratší cesty ke (col, row). Pokud nedosažitelný, vrátí Infinity.
+function _ptClickDistanceTo(cols, col, row) {
+  if (row === 0) return 0;
+  const numCols = cols.length;
+  const visited = new Set();
+  const key = (c, r) => c*1000+r;
+  const queue = [];
+  // Start: top row + cells adjacent to null tunnels (active carriers)
+  for (let c = 0; c < numCols; c++) {
+    if (cols[c] && cols[c][0] !== undefined) {
+      visited.add(key(c, 0));
+      queue.push({c, r: 0, d: 0});
+    }
+  }
+  // Také cells ortho-adjacent k null tunelům jsou „active" startovní
+  for (let c = 0; c < numCols; c++) {
+    const colArr = cols[c]; if (!colArr) continue;
+    for (let r = 0; r < colArr.length; r++) {
+      if (colArr[r] !== null) continue;
+      // tunel — sousedi jsou „active" → distance 0 z hlediska reachability (BFS frontier)
+      for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const nc = c+dc, nr = r+dr;
+        if (nc<0||nc>=numCols||nr<0) continue;
+        const ncol = cols[nc]; if (!ncol||nr>=ncol.length) continue;
+        const k = key(nc, nr);
+        if (!visited.has(k)) {
+          visited.add(k);
+          queue.push({c: nc, r: nr, d: 0});
+        }
+      }
+    }
+  }
+  // BFS přes non-wall cells, hrany = ortho neighbors
+  while (queue.length) {
+    const {c, r, d} = queue.shift();
+    if (c === col && r === row) return d;
+    for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const nc = c+dc, nr = r+dr;
+      if (nc<0||nc>=numCols||nr<0) continue;
+      const ncol = cols[nc]; if (!ncol||nr>=ncol.length) continue;
+      const slot = ncol[nr];
+      if (slot && slot.wall) continue;
+      const k = key(nc, nr);
+      if (visited.has(k)) continue;
+      visited.add(k);
+      queue.push({c: nc, r: nr, d: d+1});
+    }
+  }
+  return Infinity;
+}
+
+// Mirror game's isCarrierActive: true pokud cell má null souseda nebo je v row 0.
+function _ptIsActive(cols, col, row) {
+  if (row === 0) return true;
+  const numCols = cols.length;
+  const check = (c, r) => {
+    if (c < 0 || c >= numCols || r < 0) return false;
+    const ncol = cols[c]; if (!ncol || r >= ncol.length) return false;
+    return ncol[r] === null;
+  };
+  return check(col, row-1) || check(col, row+1) || check(col-1, row) || check(col+1, row);
+}
+
+// Spočítá accessCost barvy v layoutu — sumuje přes všechny instance (carriers + garage queues).
+function _ptColorComplexity(cols, color) {
+  let total = 0;
+  let count = 0;
+  const w = _PT_ACCESS_WEIGHTS;
+  for (let c = 0; c < cols.length; c++) {
+    const colArr = cols[c]; if (!colArr) continue;
+    for (let r = 0; r < colArr.length; r++) {
+      const slot = colArr[r];
+      if (!slot || slot.wall) continue;
+      // Carrier or rocket s odpovídající barvou
+      if ((slot.type === 'carrier' || slot.type === 'rocket' || typeof slot.color === 'number')
+          && slot.type !== 'garage' && slot.color === color) {
+        const dist = _ptClickDistanceTo(cols, c, r);
+        const safeDist = isFinite(dist) ? dist : 50; // unreachable = penalize jako 50
+        const mysteryBonus = (slot.hidden && !_ptIsActive(cols, c, r)) ? w.mystery : 0;
+        total += w.physicalDepth * r + w.clickDistance * safeDist + mysteryBonus;
+        count++;
+      }
+      // Garage s barvou v queue
+      if (slot.type === 'garage' && Array.isArray(slot.queue)) {
+        for (let q = 0; q < slot.queue.length; q++) {
+          if (slot.queue[q] && slot.queue[q].color === color) {
+            const dist = _ptClickDistanceTo(cols, c, r);
+            const safeDist = isFinite(dist) ? dist : 50;
+            total += w.garageRow * r + w.garageQueuePos * q + w.clickDistance * safeDist * 0.5;
+            count++;
+          }
+        }
+      }
+    }
+  }
+  return count > 0 ? total / count : 0; // průměr per instance — fair across distributions
+}
+
+// Detekuje critical colors z baseline trace. Critical = (early access) AND (hodně pixelů potřeba).
+// Vrátí array [{color, criticality}] sorted desc — top 3-5 jsou „nejdůležitější pro hru".
+function _ptCriticalColors(trace, colorFirstSeen, totalSteps) {
+  if (!trace || !trace.length) return [];
+  // Pixel demand per color z trace.pickedGain agregace
+  const pixelDemand = {};
+  for (const pt of trace) {
+    if (typeof pt.pickedGain === 'number' && pt.pickedColor !== undefined) {
+      pixelDemand[pt.pickedColor] = (pixelDemand[pt.pickedColor] || 0) + pt.pickedGain;
+    }
+  }
+  // Score per color: kombinace early-access + pixel demand
+  const scores = [];
+  const seenEntries = colorFirstSeen ? Object.entries(colorFirstSeen) : [];
+  for (const [colStr, firstStep] of seenEntries) {
+    const color = Number(colStr);
+    const accessUrgency = 1 - (firstStep / Math.max(1, totalSteps)); // 1 = první krok, 0 = poslední
+    const demand = pixelDemand[color] || 0;
+    const normDemand = demand / Math.max(1, Object.values(pixelDemand).reduce((a,b)=>Math.max(a,b),1));
+    const criticality = accessUrgency * 0.6 + normDemand * 0.4;
+    scores.push({ color, criticality, firstStep, demand });
+  }
+  scores.sort((a, b) => b.criticality - a.criticality);
+  return scores.slice(0, 5); // top 5
+}
+
+// Mismatch term: chceme aby critical colors měly vysokou complexity v hard templates,
+// nízkou v easy. Vrátí scalar penalty, vyšší = horší layout.
+// targetDirection: +1 = chceme deeper (harder), -1 = chceme shallower (easier), 0 = neutrální
+function _ptAccessStepMismatch(cols, criticalColors, targetDirection) {
+  if (!criticalColors.length || targetDirection === 0) return 0;
+  let totalMismatch = 0;
+  for (const cc of criticalColors) {
+    const complexity = _ptColorComplexity(cols, cc.color);
+    // Pro positive direction (harder): chceme high complexity, mismatch = max(0, expected - actual)
+    // Pro negative direction (easier): chceme low complexity, mismatch = max(0, actual - expected)
+    // Expected hodnota je heuristická (středu kolem 5 — odpovídá ~5 click distance / depth).
+    const expected = 5;
+    const weighted = cc.criticality * (targetDirection > 0
+      ? Math.max(0, expected - complexity)   // chceme víc, máme málo → mismatch
+      : Math.max(0, complexity - expected)); // chceme míň, máme moc → mismatch
+    totalMismatch += weighted;
+  }
+  return totalMismatch;
+}
+
+// Mapuje template → access targetDirection (+1 hard, -1 easy, 0 neutral).
+function _ptTemplateAccessDirection(templateKey) {
+  switch (templateKey) {
+    case 'FLAT':                    return 0;
+    case 'EARLY_HOOK':              return -1; // easy first → critical colors should be early
+    case 'STAIRCASE':               return +1; // harder over time → critical deep
+    case 'WARMUP_CLIMAX_COOLDOWN':  return +1;
+    case 'ENDGAME_PUZZLE':          return +1;
+    case 'DOUBLE_PEAK':             return +1;
+    default:                        return 0;
+  }
+}
+
+// Rozšířená fitness: L2 curve match + access-step mismatch term.
+function _ptComputeFitnessDeep(trace, targetCurve, weights, criticalColors, layout, targetDirection) {
+  const baseL2 = _ptComputeFitness(trace, targetCurve, weights);
+  const mismatch = _ptAccessStepMismatch(layout, criticalColors, targetDirection);
+  return baseL2 + mismatch * 0.3; // 0.3 = váha access term (laditelná)
+}
+
+// Mutation picker s biasem: preferuje mutace, které posouvají critical barvy správným směrem.
+// Padá zpět na _ptPickRandomMutation pokud bias nenajde dobrou mutaci do K pokusů.
+function _ptPickRandomMutationDeep(cols, focusRegion, opts, criticalColors, targetDirection) {
+  // Pro 70 % pokusů bias toward critical-color movement, 30 % random (exploration).
+  if (Math.random() > 0.7 || !criticalColors.length || targetDirection === 0) {
+    return _ptPickRandomMutation(cols, focusRegion, opts);
+  }
+  // Najdi mutaci která mění complexity critical color v target direction.
+  // Strategie: SWAP_CELLS pair (criticalCarrier ↔ deep/shallow target cell).
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const cc = criticalColors[Math.floor(Math.random() * criticalColors.length)];
+    const color = cc.color;
+    // Najdi 1 instance té barvy
+    const instances = [];
+    for (let c = 0; c < cols.length; c++) {
+      const colArr = cols[c]; if (!colArr) continue;
+      for (let r = 0; r < colArr.length; r++) {
+        const slot = colArr[r];
+        if (slot && !slot.wall && slot.color === color && slot.type !== 'garage') {
+          instances.push({col: c, row: r});
+        }
+      }
+    }
+    if (!instances.length) continue;
+    const a = instances[Math.floor(Math.random() * instances.length)];
+    // Cíl: pokud +1 (harder), chceme target cell s vyšším row. Pokud -1, nižším.
+    const allCells = _ptListNonNullCells(cols);
+    const candidates = allCells.filter(({col, row}) => {
+      if (col === a.col && row === a.row) return false;
+      return targetDirection > 0 ? row > a.row : row < a.row;
+    });
+    if (!candidates.length) continue;
+    const b = candidates[Math.floor(Math.random() * candidates.length)];
+    return { type: 'SWAP_CELLS', a, b };
+  }
+  // Fallback
+  return _ptPickRandomMutation(cols, focusRegion, opts);
+}
+
 // Hlavní async SA loop. Volaná z postMessage handleru. abortSignal = {aborted: bool, abort()}.
 async function ptAutoTuneAsync(opts,progressCb,abortSignal){
   if(!_ptInitGrid||!_ptInitColumns)return null;
@@ -3606,6 +3833,12 @@ async function ptAutoTuneAsync(opts,progressCb,abortSignal){
   const templateKey=opts.template||'FLAT';
   const applyTarget=opts.applyTarget||'all';
   const weights=_ptResolveWeights(applyTarget);
+  // Complexity-tab-aware faktor pro solvabilityPen (easy=full penalty, hard=ignoruje).
+  const solvFactor = ({easy:1.0, medium:0.3, hard:0.0})[opts.complexity] ?? 1.0;
+  // Anti-cooling guard: target difficulty z UI (0–100). Proxy je škálované 0–100
+  // (matches analyze diffScore), takže targetProxy = targetDiff přímo.
+  const totalPxInit = _ptCountPixels(_ptInitGrid);
+  const targetProxy = (typeof opts.targetDiff === 'number') ? opts.targetDiff : 50;
 
   // Baseline run
   const base=_ptEvalMutation(_ptInitGrid,_ptInitColumns,evalMode);
@@ -3613,6 +3846,8 @@ async function ptAutoTuneAsync(opts,progressCb,abortSignal){
   const maxStep=base.trace.length-1;
   const targetCurve=_ptExpandTemplate(templateKey,maxStep);
   if(!targetCurve)return null;
+  const baselineDiff = _ptDiffProxy(base, totalPxInit);
+  let bestDiff = baselineDiff;
 
   let T=1.0;
   const coolingRate=0.997;
@@ -3640,7 +3875,9 @@ async function ptAutoTuneAsync(opts,progressCb,abortSignal){
   }));
   const baselineColumns=snapshotColumns(_ptInitColumns);
   let bestColumns=baselineColumns;
-  let bestImproved=false; // flag pro emit progress only when changed
+  // bestImproved=true na startu — první progressCb pošle baseline snapshot, aby UI canvas
+  // nezůstal černý. Pak se resetuje na false a updatuje jen při skutečném improvement.
+  let bestImproved=true;
 
   while(true){
     if(abortSignal&&abortSignal.aborted)break;
@@ -3655,7 +3892,16 @@ async function ptAutoTuneAsync(opts,progressCb,abortSignal){
     if(!_ptCheckLayoutValid(candidate))validityPenalty=1000;
     const r=_ptEvalMutation(_ptInitGrid,candidate,evalMode);
     if(!r.trace||!r.trace.length){iter++;continue;}
-    const candidateScore=_ptComputeFitness(r.trace,targetCurve,weights)+validityPenalty;
+    // Tester fitness term: penalizace za broken layouts (overflow, stuck balls, unsolved).
+    // Tlačí SA směrem k playable — i pokud curve match je pekny, broken kandidát je zamítnut.
+    const solvabilityPen=_ptSolvabilityPenalty(r,totalPxInit,solvFactor);
+    // Difficulty penalty — kvadratická a SYMETRICKÁ: tlačí stejně silně nahoru i dolů.
+    // Pokud diff > target, SA snižuje (zjednodušuje level). Pokud < target, zvyšuje.
+    // Kalibrace: gap=12 → 1.44, gap=20 → 4.0, gap=33 → 10.9 (oproti L2 0.5–3).
+    const candidateDiff=_ptDiffProxy(r,totalPxInit);
+    const diffGap=Math.abs(targetProxy-candidateDiff);
+    const diffPenalty=diffGap*diffGap*0.01;
+    const candidateScore=_ptComputeFitness(r.trace,targetCurve,weights)+validityPenalty+solvabilityPen+diffPenalty;
     const delta=candidateScore-currentScore;
     const accept=delta<0||Math.random()<Math.exp(-delta/T);
     if(accept){
@@ -3668,10 +3914,13 @@ async function ptAutoTuneAsync(opts,progressCb,abortSignal){
         bestScore=candidateScore;
         bestTrace=r.trace;
         bestColumns=snapshotColumns(best);
+        bestDiff=candidateDiff;
         bestImproved=true;
       }
     }
-    T*=coolingRate;
+    // Cooling gate: chladíme jen když jsme blízko target (gap ≤ 10). Mimo tento pás
+    // SA drží T=1.0 a explorát mutace (oba směry — zjednodušení i ztížení).
+    if(Math.abs(bestDiff-targetProxy)<=10)T*=coolingRate;
     iter++;
     if(iter%5===0){
       if(progressCb)progressCb({
@@ -3686,11 +3935,21 @@ async function ptAutoTuneAsync(opts,progressCb,abortSignal){
         // zbytečných ~5 KB JSON pro nezměněný snapshot).
         bestColumns:bestImproved?bestColumns:null,
         T:Math.round(T*1000)/1000,
+        // Diff proxy diagnostika pro UI (anti-cooling gate stav)
+        bestDiff:Math.round(bestDiff*10)/10,
+        baselineDiff:Math.round(baselineDiff*10)/10,
+        targetProxy:Math.round(targetProxy*10)/10,
+        hot:Math.abs(bestDiff-targetProxy)>10,
       });
       bestImproved=false;
       await new Promise(rs=>setTimeout(rs,0));
     }
   }
+
+  // Tester post-SA pass: ověří že best layout je skutečně dohratelný + pod tlakem.
+  const tester = ptVerifyPlayability(_ptInitGrid, best, {
+    mathBudget: 8000, realBudget: 8000, randomN: 50, stuckThreshold: 5,
+  });
 
   return{
     baseline:{curves:baselineCurves,trace:base.trace},
@@ -3708,7 +3967,308 @@ async function ptAutoTuneAsync(opts,progressCb,abortSignal){
     accepted,
     aborted:!!(abortSignal&&abortSignal.aborted),
     valid:_ptCheckLayoutValid(best),
+    tester, // 🆕 verdict + reason + diagnostics
   };
+}
+
+// Prozřetelný SA — analogie far-sighted beam, ale pro auto-tune. Stejná struktura
+// jako ptAutoTuneAsync, ale rozšiřuje fitness o accessStepMismatch term + používá
+// `_ptPickRandomMutationDeep` který biasuje směrem na critical colors podle template.
+async function ptAutoTuneDeepAsync(opts, progressCb, abortSignal) {
+  if (!_ptInitGrid || !_ptInitColumns) return null;
+  opts = opts || {};
+  const evalMode = opts.evalMode === 'beam' ? 'beam' : 'greedy';
+  const timeBudgetMs = Math.max(5000, opts.timeBudgetMs || 30000);
+  const templateKey = opts.template || 'FLAT';
+  const applyTarget = opts.applyTarget || 'all';
+  const weights = _ptResolveWeights(applyTarget);
+  const targetDirection = _ptTemplateAccessDirection(templateKey);
+  // Complexity-tab-aware faktor pro solvabilityPen (easy=full penalty, hard=ignoruje).
+  const solvFactor = ({easy:1.0, medium:0.3, hard:0.0})[opts.complexity] ?? 1.0;
+  // Anti-cooling guard: target difficulty z UI (0–100), proxy 0–100 (1:1).
+  const totalPxInit = _ptCountPixels(_ptInitGrid);
+  const targetProxy = (typeof opts.targetDiff === 'number') ? opts.targetDiff : 50;
+
+  // Baseline run
+  const base = _ptEvalMutation(_ptInitGrid, _ptInitColumns, evalMode);
+  if (!base.trace || !base.trace.length) return null;
+  const maxStep = base.trace.length - 1;
+  const targetCurve = _ptExpandTemplate(templateKey, maxStep);
+  if (!targetCurve) return null;
+  const baselineDiff = _ptDiffProxy(base, totalPxInit);
+  let bestDiff = baselineDiff;
+
+  // Detekuj critical colors z baseline
+  const criticalColors = _ptCriticalColors(base.trace, base.colorFirstSeen, maxStep);
+
+  let T = 1.0;
+  const coolingRate = 0.997;
+  let current = _ptInitColumns;
+  let currentScore = _ptComputeFitnessDeep(base.trace, targetCurve, weights, criticalColors, current, targetDirection);
+  let best = current;
+  let bestScore = currentScore;
+  let bestTrace = base.trace;
+  const acceptedMutations = [];
+  let iter = 0, accepted = 0;
+  const t0 = performance.now();
+
+  const baselineCurves = _ptBuildMiniCurves(base.trace);
+  const targetCurvesMini = targetCurve.map(p => ({step: p.step, choice: p.choice, pressure: p.pressure, progress: p.progress}));
+
+  const snapshotColumns = (C) => C.map(col => col.map(s => {
+    if (s === null || s === undefined) return null;
+    if (s.wall) return {wall: true};
+    if (s.type === 'garage') return {type: 'garage', queueLen: (s.queue||[]).length};
+    if (s.type === 'rocket') return {type: 'rocket', color: s.color};
+    return {color: s.color, projectiles: s.projectiles||0, hidden: !!s.hidden};
+  }));
+  const baselineColumns = snapshotColumns(_ptInitColumns);
+  let bestColumns = baselineColumns;
+  // bestImproved=true na startu — první progressCb pošle baseline snapshot, aby UI canvas
+  // nezůstal černý. Pak se resetuje na false a updatuje jen při skutečném improvement.
+  let bestImproved = true;
+
+  while (true) {
+    if (abortSignal && abortSignal.aborted) break;
+    if ((performance.now() - t0) >= timeBudgetMs) break;
+    // Deep mutation picker — biasuje výběr podle critical colors a target direction.
+    const mut = _ptPickRandomMutationDeep(current, [], {nonDestructive: true}, criticalColors, targetDirection);
+    if (!mut) { iter++; continue; }
+    const candidate = _ptApplyMutation(current, mut);
+    if (!candidate) { iter++; continue; }
+    let validityPenalty = 0;
+    if (!_ptCheckLayoutValid(candidate)) validityPenalty = 1000;
+    const r = _ptEvalMutation(_ptInitGrid, candidate, evalMode);
+    if (!r.trace || !r.trace.length) { iter++; continue; }
+    // Tester fitness term: stejné jako v ptAutoTuneAsync — penalizace broken layoutů.
+    const solvabilityPen = _ptSolvabilityPenalty(r, totalPxInit, solvFactor);
+    // Difficulty penalty — kvadratická a symetrická (viz ptAutoTuneAsync pro odůvodnění).
+    const candidateDiff = _ptDiffProxy(r, totalPxInit);
+    const diffGap = Math.abs(targetProxy - candidateDiff);
+    const diffPenalty = diffGap * diffGap * 0.01;
+    const candidateScore = _ptComputeFitnessDeep(r.trace, targetCurve, weights, criticalColors, candidate, targetDirection) + validityPenalty + solvabilityPen + diffPenalty;
+    const delta = candidateScore - currentScore;
+    const accept = delta < 0 || Math.random() < Math.exp(-delta / T);
+    if (accept) {
+      current = candidate;
+      currentScore = candidateScore;
+      acceptedMutations.push(mut);
+      accepted++;
+      if (candidateScore < bestScore) {
+        best = candidate;
+        bestScore = candidateScore;
+        bestTrace = r.trace;
+        bestColumns = snapshotColumns(best);
+        bestDiff = candidateDiff;
+        bestImproved = true;
+      }
+    }
+    // Cooling gate: chladíme jen blízko target (gap ≤ 10), symetricky.
+    if (Math.abs(bestDiff - targetProxy) <= 10) T *= coolingRate;
+    iter++;
+    if (iter % 5 === 0) {
+      if (progressCb) progressCb({
+        iter, accepted,
+        elapsed: performance.now() - t0,
+        budget: timeBudgetMs,
+        bestScore: Math.round(bestScore * 1000) / 1000,
+        bestCurves: _ptBuildMiniCurves(bestTrace),
+        targetCurves: targetCurvesMini,
+        baselineCurves,
+        bestColumns: bestImproved ? bestColumns : null,
+        T: Math.round(T * 1000) / 1000,
+        // Diff proxy diagnostika pro UI (anti-cooling gate stav)
+        bestDiff: Math.round(bestDiff*10)/10,
+        baselineDiff: Math.round(baselineDiff*10)/10,
+        targetProxy: Math.round(targetProxy*10)/10,
+        hot: Math.abs(bestDiff - targetProxy) > 10,
+        // Diagnostics: top critical colors pro UI
+        criticalColors: criticalColors.map(cc => ({color: cc.color, criticality: Math.round(cc.criticality*100)/100, firstStep: cc.firstStep})),
+      });
+      bestImproved = false;
+      await new Promise(rs => setTimeout(rs, 0));
+    }
+  }
+
+  // Tester post-SA pass: stejné jako v ptAutoTuneAsync.
+  const tester = ptVerifyPlayability(_ptInitGrid, best, {
+    mathBudget: 8000, realBudget: 8000, randomN: 50, stuckThreshold: 5,
+  });
+
+  return {
+    baseline: {curves: baselineCurves, trace: base.trace},
+    best: {
+      columns: best,
+      curves: _ptBuildMiniCurves(bestTrace),
+      trace: bestTrace,
+      score: Math.round(bestScore * 1000) / 1000,
+      mutations: acceptedMutations,
+    },
+    targetCurves: targetCurvesMini,
+    template: templateKey,
+    applyTarget,
+    iter,
+    accepted,
+    aborted: !!(abortSignal && abortSignal.aborted),
+    valid: _ptCheckLayoutValid(best),
+    // Deep-specific diagnostics
+    criticalColors: criticalColors.map(cc => ({color: cc.color, criticality: Math.round(cc.criticality*100)/100, firstStep: cc.firstStep})),
+    targetDirection,
+    algorithm: 'deep', // marker pro UI/result rendering
+    tester, // 🆕 verdict + reason + diagnostics
+  };
+}
+
+// ── Tester — ověřuje že level je dohratelný i pod tlakem ───────────────────
+// Spustí 4 testy + vrátí verdikt:
+//   math: lze pixely vyčistit s ∞ pásem? (basic mathematical solvability)
+//   real: lze vyčistit s pásem cap 14? (game physics)
+//   stuck: kolik zombie balónků na konci?
+//   pressure: zvládne i Greedy + Random hráč? (chyba-tolerance)
+//
+// Verdict tree:
+//   !math.solved             → 'broken-math'   (žádná posloupnost nefunguje)
+//   real.beltOverflow        → 'broken-overflow' (math OK ale pás přeteče)
+//   real.stuckBalls > 5      → 'broken-zombies'  (zombie balónky tlačí pás k overflow)
+//   !real.solved             → 'broken-physical' (math OK ale solver to nestihl)
+//   !greedy.solved           → 'tight-expert'    (jen optimální Beam projde)
+//   random.successRate < 5%  → 'tight-fragile'   (žádná tolerance pro chybu)
+//   else                     → 'robust'          (plně dohratelný i suboptimálně)
+function ptVerifyPlayability(grid, cols, opts) {
+  opts = opts || {};
+  // Budgety match Analyze (8 s) — méně false positives z budget timeoutu.
+  // 1. Math test — beam s nekonečným pásem (ignoreBeltOverflow=true)
+  const math = ptRunBeamSearch(grid, cols, {
+    farSighted: true,
+    timeBudgetMs: opts.mathBudget || 8000,
+    maxDepth: 100,
+    ignoreBeltOverflow: true,
+  });
+  // Relaxováno: stačí carriersExhausted (všechny carriery spotřebované) — pokud carriery
+  // dojdou s ∞ pásem, level matematicky končí. Zbývající pixely/blockHp nejsou důvod
+  // označit jako broken-math (mohou být fill-up reziduum, ne fundamental nemožnost).
+  const mathSolvable = math.carriersExhausted;
+  const mathHitBudget = !!math.hitTimeBudget;
+
+  // 2. Real test — beam s reálnou cap 14
+  const real = ptRunBeamSearch(grid, cols, {
+    farSighted: true,
+    timeBudgetMs: opts.realBudget || 8000,
+    maxDepth: 100,
+  });
+  const realHitBudget = !!real.hitTimeBudget;
+
+  // 3. Pressure tests — Greedy a Random
+  const greedy = ptRunGreedy(grid, cols, 'full-use', {});
+  const random = ptRunRandom(grid, cols, opts.randomN || 50, {});
+
+  // Stuck balls threshold: > 5 znamená že pás je zaplněn zombíky
+  const stuckTooMany = real.stuckBalls > (opts.stuckThreshold || 5);
+
+  let verdict, reason;
+  if (!mathSolvable && !mathHitBudget) {
+    // Math test selhal a ne kvůli budgetu — skutečně nedohratelné
+    verdict = 'broken-math';
+    reason = 'Matematicky nedohratelný — beam s ∞ pásem nedokázal spotřebovat všechny carriery (zbývají v gridu)';
+  } else if (real.beltOverflow) {
+    verdict = 'broken-overflow';
+    reason = 'Pás přeteče — pixely lze v teorii vyčistit, ale fyzicky nezvládneš (peak belt ' + real.peakBeltLoad + '/14)';
+  } else if (stuckTooMany) {
+    verdict = 'broken-zombies';
+    reason = 'Příliš mnoho zombie balónků (' + real.stuckBalls + ') — pás se zaplní zbytečnou barvou bez cíle';
+  } else if (!real.solved && !realHitBudget) {
+    // Real test selhal a ne kvůli budgetu — skutečně broken
+    verdict = 'broken-physical';
+    reason = 'Solver nedořešil — zbylo ' + real.remainPx + ' px (timing-sensitive nebo blocked)';
+  } else if (!real.solved && realHitBudget) {
+    // Beam timed out — ne broken, jen tight (kvalita verdiktu omezená budgetem)
+    verdict = 'tight-budget';
+    reason = 'Beam vypršel time budget (' + Math.round((opts.realBudget || 8000)/1000) + 's). Možná dohratelné s víc časem nebo po Apply (clRepair opens walls + makeColumns normalizuje). Definitivní verdict v Analyze sekci po Apply.';
+  } else if (!greedy.solved) {
+    verdict = 'tight-expert';
+    reason = 'Beam dořeší, ale Greedy selhává — vyžaduje optimální cestu (level je expert-only)';
+  } else if (random.successRate < 0.05) {
+    verdict = 'tight-fragile';
+    reason = 'Žádná tolerance pro chybu — Random hráč 0/50 dořešil, level vyžaduje precizní plán';
+  } else {
+    verdict = 'robust';
+    reason = 'Plně dohratelný i pod tlakem (Beam ✓, Greedy ✓, Random ' + Math.round(random.successRate * 100) + '%)';
+  }
+
+  // Score 0-1
+  const score = (
+    (mathSolvable ? 0.3 : 0)
+    + (!real.beltOverflow ? 0.2 : 0)
+    + (real.stuckBalls === 0 ? 0.1 : real.stuckBalls < 3 ? 0.05 : 0)
+    + (real.solved ? 0.15 : 0)
+    + (greedy.solved ? 0.1 : 0)
+    + (random.successRate >= 0.05 ? 0.15 : random.successRate * 3) // partial credit
+  );
+
+  return {
+    verdict,
+    reason,
+    score: Math.round(score * 100) / 100,
+    diagnostics: {
+      mathSolvable,
+      mathRemainPx: math.remainPx,
+      realSolved: real.solved,
+      realPeakBeltLoad: real.peakBeltLoad,
+      realBeltOverflow: real.beltOverflow,
+      realStuckBalls: real.stuckBalls,
+      realFunnelRejected: real.funnelRejectedCount || 0,
+      realRemainPx: real.remainPx,
+      greedySolved: greedy.solved,
+      randomSuccessRate: Math.round(random.successRate * 100),
+    },
+  };
+}
+
+// Diff proxy z trace — cheap odhad difficulty pro SA anti-cooling guard.
+// Pokrývá VŠECHNY 6 faktorů z ptAnalyzeCurrentLevel (max 100), ale risk + solverNeed
+// jsou aproximovány z jediné greedy trace (bez random×50 a 3-solver ensemblu, který by
+// byl příliš drahý pro SA loop). Pro SA porovnání baseline vs. target stačí.
+function _ptDiffProxy(r, totalPx) {
+  if (!r) return 0;
+  // Native faktory (z greedy trace přímo)
+  const lengthF = Math.min(1, (r.clicks || 0) / 40);
+  const complexityF = Math.min(1, (r.decisionRichness || 0) / 5);
+  const beltF = Math.min(1, (r.peakBeltLoad || 0) / 14);
+  const solverF = r.solved ? 0 : Math.min(1, 0.3 + ((r.remainPx || 0) / Math.max(1, totalPx)) * 0.7);
+  // Aproximace solverNeed (3-solver ensemble): pokud greedy nezvládl, tlak je vysoký.
+  let solverNeedF = 0;
+  if (!r.solved) solverNeedF = 1;
+  else if (r.beltOverflow) solverNeedF = 0.5;
+  // Aproximace risk (random×50 fail rate): proxy přes belt headroom + stuck balls.
+  // Když greedy projde s belt blízko cap, random hra má vysokou šanci přetečení.
+  let riskF = 0;
+  if (!r.solved) riskF = 0.6;
+  else {
+    const beltRiskF = Math.max(0, ((r.peakBeltLoad || 0) - 8) / 6);  // 0 @ belt≤8, 1 @ belt 14
+    const stuckRiskF = Math.min(1, (r.stuckBalls || 0) / 5);
+    riskF = Math.max(beltRiskF, stuckRiskF);
+  }
+  return 20*lengthF + 15*complexityF + 15*beltF + 10*solverF + 25*solverNeedF + 15*riskF;
+}
+
+// Solvability penalty pro fitness — používá _ptComputeFitness a _ptComputeFitnessDeep.
+// Vrací nezáporný scalar — 0 = perfectly playable, vyšší = horší layout.
+function _ptSolvabilityPenalty(r, totalPx, factor) {
+  // Penalty weights snížené 20× (29.4.2026) — původní 1000/500/50/30 dominovaly fitness
+  // (L2 distance je typicky 0.5–3) a tlačily SA k Easy layoutům i pro Hardcore template.
+  // Tight belt + zombíci + funnel friction jsou ALE pro Hardcore template ZÁMĚR DESIGNU.
+  // Soft signal stačí — SA si všimne broken, ale nesutíkne automaticky pryč. BFS validity
+  // (1000) zůstává jako jediná hard constraint (struktura, ne difficulty).
+  // factor: complexity-tab-aware multiplikátor (easy=1.0, medium=0.3, hard=0.0).
+  // Hard tab → solvability se ignoruje, SA volně exploruje hardcore layouty.
+  if (factor === 0) return 0;
+  const f = (factor === undefined) ? 1 : factor;
+  let p = 0;
+  if (r.beltOverflow) p += 50;                                                    // bylo 1000
+  if (!r.solved) p += 25 * Math.min(1, (r.remainPx || 0) / Math.max(1, totalPx)); // bylo 500
+  if (r.stuckBalls > 0) p += 5 * r.stuckBalls;                                    // bylo 50
+  if (r.funnelRejectedCount > 0) p += 3 * r.funnelRejectedCount;                  // bylo 30
+  return p * f;
 }
 
 function ptAnalyzeCurrentLevel(analyzeOpts){
@@ -3828,6 +4388,76 @@ function ptAnalyzeCurrentLevel(analyzeOpts){
     solver:Math.round(10*solverFactor),
   };
   const diffScore=diffBreakdown.length+diffBreakdown.risk+diffBreakdown.complexity+diffBreakdown.belt+diffBreakdown.solverNeed+diffBreakdown.solver;
+
+  // ── Tester verdict — derivovaný z již spočítaných solver výsledků (no extra runs).
+  // Toto je AUTORITATIVNÍ verdikt na aktuální game state (post-Apply, post-makeColumns).
+  // Auto-tune má svůj pre-Apply Tester pro fitness, ale visible truth je tady.
+  const totalPxAll = pxNeed.reduce((a,b)=>a+(b||0),0);
+  const anySolved = cands.some(c => c.r.solved);
+  const allSolved = cands.every(c => c.r.solved);
+  const remainPxAnalyze = best.r.remainingGrid ? _ptCountPixels(best.r.remainingGrid) : 0;
+  const stuckTooManyAnalyze = (best.r.stuckBalls || 0) > 5;
+  // Overflow pro Tester verdict — konzistentní s peakBeltLoad (best.r), ne any-strategy.
+  // Peak je z best.r.peakBeltLoad, takže overflow = peak > cap. Pokud jiný (ne-best)
+  // solver měl overflow, není relevantní pro „dohratelnost" (best ho zvládl).
+  const overflowAnalyze = peakBeltLoad > BELT_CAP;
+  let testerVerdict, testerReason;
+  if (!anySolved && remainPxAnalyze > totalPxAll * 0.5) {
+    testerVerdict = 'broken-math';
+    testerReason = 'Žádný ze 3 solverů nedořešil — zbylo ' + remainPxAnalyze + ' px (extrémně tight nebo unsolvable)';
+  } else if (overflowAnalyze) {
+    testerVerdict = 'broken-overflow';
+    testerReason = 'Pás přeteče (peak ' + peakBeltLoad + '/' + BELT_CAP + ') — game-over scénář v reálné hře';
+  } else if (stuckTooManyAnalyze) {
+    testerVerdict = 'broken-zombies';
+    testerReason = 'Příliš mnoho zombie balónků (' + best.r.stuckBalls + ') — pás se zaplní zbytečnou barvou';
+  } else if (!best.r.solved) {
+    testerVerdict = 'broken-physical';
+    testerReason = 'Best solver nedořešil — zbylo ' + (best.r.remainPx||remainPxAnalyze) + ' px';
+  } else if (rnd.successRate < 0.05 && !allSolved) {
+    // Greedy heuristiky selhaly A Random málo úspěšný = skutečně expert-only level
+    testerVerdict = 'tight-expert';
+    testerReason = 'Jen ' + solversSolved + '/3 algoritmů projde a Random ' + (rnd.successes||0) + '/50 — vyžaduje precizní optimální cestu (level je expert-only)';
+  } else if (rnd.successRate < 0.05) {
+    // Všichni algoritmy solved, ale Random selhává = fragile (precizní timing)
+    testerVerdict = 'tight-fragile';
+    testerReason = 'Algoritmy projdou, ale Random ' + (rnd.successes||0) + '/50 (' + Math.round(rnd.successRate*100) + '%) — žádná tolerance pro chybu';
+  } else if (!allSolved && rnd.successRate < 0.3) {
+    // Greedy heuristiky selhávají, Random střední úspěšnost = level je non-trivial ale ne expert
+    testerVerdict = 'tight-fragile';
+    testerReason = 'Jen ' + solversSolved + '/3 algoritmů projde, Random ' + Math.round(rnd.successRate*100) + '% — non-trivial level (tolerance jen střední)';
+  } else {
+    // Best solver projde A Random ≥ 30 % = pressure-tolerant level
+    // (greedy ensemble nemusí všichni projít — greedy je hloupě deterministická,
+    //  ale Random úspěšnost je lepší signál real-human-play tolerance)
+    testerVerdict = 'robust';
+    const algoCount = solversSolved + '/3 algoritmů';
+    testerReason = 'Plně dohratelný (' + algoCount + ' ✓, Random ' + Math.round(rnd.successRate*100) + '% — pressure-tolerant)';
+  }
+  const testerScore = (
+    (anySolved ? 0.3 : 0)
+    + (!overflowAnalyze ? 0.2 : 0)
+    + ((best.r.stuckBalls||0) === 0 ? 0.1 : (best.r.stuckBalls||0) < 3 ? 0.05 : 0)
+    + (best.r.solved ? 0.15 : 0)
+    + (allSolved ? 0.1 : 0)
+    + (rnd.successRate >= 0.05 ? 0.15 : rnd.successRate * 3)
+  );
+  const tester = {
+    verdict: testerVerdict,
+    reason: testerReason,
+    score: Math.round(testerScore * 100) / 100,
+    diagnostics: {
+      solversSolved,
+      solversTotal: 3,
+      bestSolved: !!best.r.solved,
+      peakBeltLoad: peakBeltLoad || 0,
+      beltOverflow: overflowAnalyze,
+      stuckBalls: best.r.stuckBalls || 0,
+      remainPx: remainPxAnalyze,
+      randomSuccessRate: Math.round(rnd.successRate * 100),
+    },
+  };
+
   // Inputs pro UI breakdown panel — surová data, aby UI mohlo vysvětlit "proč N bodů".
   const diffInputs={
     clicks:best.r.clicks||0,
@@ -3893,6 +4523,7 @@ function ptAnalyzeCurrentLevel(analyzeOpts){
     funnelFrictionPct:best.r.clicks?Math.round((best.r.funnelRejectedCount||0)/best.r.clicks*100):0,
     PENDING_DISPENSE_THRESHOLD,
     BELT_CAP,
+    tester, // 🆕 playability verdict derivovaný z 3-solver ensemble + Random×50
   };
 }
 // ────────────────────────────────────────────────────────────────────────────
@@ -5100,7 +5731,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v68');
+    gamee.updateScore(score,playTime,'balloon-belt-v69');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -5218,7 +5849,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v68');
+  gamee.updateScore(score,playTime,'balloon-belt-v69');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -6028,7 +6659,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v68');
+      gamee.updateScore(score,playTime,'balloon-belt-v69');
       event.detail.callback();
     });
 
@@ -6072,7 +6703,9 @@ function initGame(){
       const progressCb=(p)=>{
         try{window.parent.postMessage(Object.assign({type:'balloonbelt:auto-tune-progress'},p),'*');}catch(e){}
       };
-      ptAutoTuneAsync(m.opts||{},progressCb,_autoTuneAbort).then(result=>{
+      // m.algorithm: 'classic' (default) → ptAutoTuneAsync, 'deep' → ptAutoTuneDeepAsync (Prozřetelný SA)
+      const runner = (m.algorithm === 'deep') ? ptAutoTuneDeepAsync : ptAutoTuneAsync;
+      runner(m.opts||{},progressCb,_autoTuneAbort).then(result=>{
         try{window.parent.postMessage({type:'balloonbelt:auto-tune-result',result},'*');}catch(e){}
         _autoTuneAbort=null;
       }).catch(err=>{

@@ -2148,7 +2148,10 @@ function clGenerateLayout(variant, pxCounts, mode, lvl) {
   //    (game.js:1799 hr: easy=0, medium=0.45, hard=0.8), skip top row. Tím je editor
   //    deterministický — designer vidí přesně, které buňky budou `?`, a může je
   //    přepnout ručně v inspectoru.
-  const hiddenRate = diff === 'hard' ? 0.8 : diff === 'medium' ? 0.45 : 0;
+  // Hard zmírněno z 0.8 → 0.65 (2026-04-30): 80% hidden ztrácelo info pro plánování
+  // a layouty často vycházely nedohratelné. 65% pořád dost překvapení, ale 35%
+  // viditelných nosičů dá hráči cestu k akčnímu pláu.
+  const hiddenRate = diff === 'hard' ? 0.65 : diff === 'medium' ? 0.45 : 0;
   const placedKeys = new Set();
   for (const p of placements) {
     const carrier = { type: 'carrier', color: p.color };
@@ -3169,7 +3172,7 @@ function wireCarrierLayout() {
     if (!frame || !frame.contentWindow) return;
     const body = $('cl-tester-body');
     if (body) body.innerHTML = '<div class="cl-tester-running">Analyzuji…</div>';
-    const farSighted = !!($('cl-far-sighted') && $('cl-far-sighted').checked);
+    const farSighted = _isBeamFarSighted();
     frame.contentWindow.postMessage({ type: 'balloonbelt:analyze-level', farSighted }, '*');
   });
 
@@ -5543,6 +5546,7 @@ let _atState = {
   applyTarget: 'all',
   budget: 30000,
   evalMode: 'greedy',
+  algorithm: 'classic', // 'classic' | 'deep' (Prozřetelný SA s access-step awareness)
   progress: null,    // poslední progress event z game iframe
   result: null,      // final výsledek po dokončení
 };
@@ -5607,9 +5611,14 @@ function renderTesterResults(r) {
   let beltRow = '';
   if (typeof r.peakBeltLoad === 'number') {
     const cap = r.BELT_CAP || 14;
-    const beltCls = r.beltOverflow ? 'val-overflow' : (r.beltDeadlockRisk ? 'val-warn' : '');
-    const beltIcon = r.beltOverflow ? '🚫 ' : (r.beltDeadlockRisk ? '⚠ ' : '');
-    const beltTitle = `Maximální zatížení pásu během simulace (max ${cap}). Nad 12 = funnel deadlock risk (klik na carrier odmítnut), nad 14 = belt overflow / game-over scénář. Odhad: lookback 8 kliků × no-match kuličky (proj−gain) na pásu.`;
+    // Ikonka konzistentní s číslem — vychází z BEST solveru (peakBeltLoad), ne z any-strategy
+    // overflow flagu (r.beltOverflow zahrnuje i non-best strategie). Designer vidí
+    // best-case měření a nemate ho icon z jiné strategie která navíc nepoužila.
+    const bestOverflow = r.peakBeltLoad > cap;
+    const bestDeadlockRisk = r.peakBeltLoad > 12 && r.peakBeltLoad <= cap;
+    const beltCls = bestOverflow ? 'val-overflow' : (bestDeadlockRisk ? 'val-warn' : '');
+    const beltIcon = bestOverflow ? '🚫 ' : (bestDeadlockRisk ? '⚠ ' : '');
+    const beltTitle = `Maximální zatížení pásu během simulace BEST solveru (cap ${cap}). Nad 12 = funnel deadlock risk (klik na carrier odmítnut), nad 14 = belt overflow / game-over scénář. Pozn.: pokud jiný (ne-best) solver měl overflow, je to vidět v sekci "Použitý solver" jako budget warning.`;
     beltRow = `<div class="cl-tester-row"><span class="cl-tr-label" title="${beltTitle}">Peak belt load</span><span class="cl-tr-val ${beltCls}">${beltIcon}${r.peakBeltLoad} / ${cap}</span></div>`;
   }
   // Solver used — ukázat která strategie zvítězila + tolerance + budget warning + belt overflow
@@ -5671,6 +5680,7 @@ function renderTesterResults(r) {
     ${funnelRow}
     ${solverUsedRow}
     <div class="cl-tester-row"><span class="cl-tr-label" title="Orientační skóre 0–100. Vždy spočítáno (i pro neřešené levely). Vedle čísla je doporučený label.">Difficulty score</span><span class="cl-tr-val">${diffScoreVal}</span></div>
+    ${_renderTesterVerdict(r.tester)}
     ${_renderDifficultyBreakdown(r)}
     ${solverNote}
     ${_renderColorDetailsTable(r.colorDetails)}
@@ -6482,6 +6492,13 @@ function _atRenderMonitor() {
   setText('cl-at-accepted', p.accepted);
   setText('cl-at-best', p.bestScore);
   setText('cl-at-temp', (p.T || 1).toFixed(3));
+  // Diff proxy badge — proxy 0–100 (matches analyze diffScore přímo, žádná konverze).
+  // Hot flag = SA daleko od targetu (gap > 10), buď nahoru nebo dolů.
+  if (typeof p.bestDiff === 'number' && typeof p.targetProxy === 'number') {
+    setText('cl-at-diff', Math.round(p.bestDiff) + ' / ' + Math.round(p.targetProxy));
+    const hotEl = document.getElementById('cl-at-hot-flag');
+    if (hotEl) hotEl.textContent = p.hot ? '🔥' : '❄';
+  }
   const svgWrap = document.getElementById('cl-at-monitor-svg-wrap');
   if (svgWrap) {
     svgWrap.innerHTML = _atBuildOverlaySvg(p.targetCurves, p.baselineCurves, p.bestCurves, { width: 360, height: 160 });
@@ -6507,9 +6524,50 @@ function _atRenderResult() {
     ? `<div class="cl-at-warn">⚠ Final layout obsahuje unreachable carriery. clRepair se spustí při Apply, ale výsledek nemusí přesně odpovídat preview.</div>`
     : '';
   const abortedNote = r.aborted ? ' <span style="color:#ffc95c">(STOP)</span>' : '';
+  // Deep algorithm — show critical colors that drove the bias
+  let criticalRow = '';
+  if (r.algorithm === 'deep' && Array.isArray(r.criticalColors) && r.criticalColors.length) {
+    const colorChip = (cc) => `<span class="cl-at-color-chip" style="background:${BE_COLORS[cc.color]||'#888'}" title="barva ${cc.color} · criticality ${cc.criticality} · first seen step ${cc.firstStep}"></span>`;
+    criticalRow = `<div class="cl-at-result-stats"><span style="opacity:0.7">🔭 critical colors (drove bias):</span> ${r.criticalColors.map(colorChip).join('')}</div>`;
+  }
+
+  // Tester verdict — ověření že best layout je skutečně dohratelný i pod tlakem.
+  let testerRow = '';
+  let applyBlocked = false;
+  if (r.tester) {
+    const t = r.tester;
+    const d = t.diagnostics || {};
+    const verdictMeta = {
+      'robust':           { icon: '🟢', cls: 'verdict-robust',   label: 'Robust' },
+      'tight-expert':     { icon: '🟡', cls: 'verdict-tight',    label: 'Hraniční (Expert)' },
+      'tight-fragile':    { icon: '🟡', cls: 'verdict-tight',    label: 'Hraniční (Fragile)' },
+      'tight-budget':     { icon: '🟡', cls: 'verdict-tight',    label: 'Time budget hit (nepřesné)' },
+      'broken-physical':  { icon: '🔴', cls: 'verdict-broken',   label: 'Broken (Physical)' },
+      'broken-zombies':   { icon: '🔴', cls: 'verdict-broken',   label: 'Broken (Zombie balls)' },
+      'broken-overflow':  { icon: '🔴', cls: 'verdict-broken',   label: 'Broken (Belt overflow)' },
+      'broken-math':      { icon: '🔴', cls: 'verdict-broken',   label: 'Broken (Math)' },
+    }[t.verdict] || { icon: '⚪', cls: 'verdict-unknown', label: t.verdict };
+    // Apply blokuju jen pro skutečně broken verdikty, ne pro tight-budget (možná false positive)
+    applyBlocked = String(t.verdict).startsWith('broken-');
+    const diagDetail = `Math: ${d.mathSolvable ? '✓' : '✗ zbylo '+d.mathRemainPx+'px'}
+ · Real: ${d.realSolved ? '✓' : '✗'} (peak belt ${d.realPeakBeltLoad}/14${d.realBeltOverflow ? ' overflow' : ''}, stuck ${d.realStuckBalls}, funnel reject ${d.realFunnelRejected})
+ · Greedy: ${d.greedySolved ? '✓' : '✗'} · Random: ${d.randomSuccessRate}%`;
+    testerRow = `<div class="cl-at-tester-row">
+      <div class="cl-at-tester-verdict cl-at-tester-${verdictMeta.cls}" title="${diagDetail.replace(/\s+/g, ' ')}">
+        <span class="cl-at-tester-icon">${verdictMeta.icon}</span>
+        <span class="cl-at-tester-label"><b>Tester:</b> ${verdictMeta.label}</span>
+        <span class="cl-at-tester-score" title="Playability score 0–1: math 0.3 + no-overflow 0.2 + no-stuck 0.1 + real-solved 0.15 + greedy-solved 0.1 + random-tolerance 0.15">score ${t.score}</span>
+      </div>
+      <div class="cl-at-tester-reason">${t.reason}</div>
+      <div class="cl-at-tester-note hint" title="Tester běží na SA's snapshot PŘED Apply. Po Apply běží: clRepairUnreachable (otevírá walls k unreachable carriers) + makeColumns (re-distribuce projektilů, garage queues). Tato post-processing může level UDĚLAT EASIER. Definitivní verdikt je v Analyze sekci po Apply, kde se hodnotí finální game state.">ⓘ Verdikt je na SA snapshot. Po Apply se layout ještě upraví (clRepair + normalizace) — finální verdikt vidíš v Analyze sekci.</div>
+    </div>`;
+  }
+  const algoBadge = r.algorithm === 'deep'
+    ? '<span style="font-size:9px;background:rgba(124,58,237,0.2);color:#c7a2ff;padding:1px 5px;border-radius:9px;margin-left:6px" title="Reorganizátor: Architect — SA s access-step awareness (5 dimenzí critical color placement)">🏗 Architect</span>'
+    : '<span style="font-size:9px;background:rgba(255,255,255,0.08);color:#a0a0b0;padding:1px 5px;border-radius:9px;margin-left:6px" title="Reorganizátor: Sketcher — SA s curve fitting only (L2 distance)">✏ Sketcher</span>';
   resultEl.innerHTML = `
     <div class="cl-at-result-head">
-      <span>Výsledek auto-tune${abortedNote}</span>
+      <span>Výsledek auto-tune${algoBadge}${abortedNote}</span>
       <span style="font-size:10px;color:#a0a0b0">${r.iter} iterací · ${r.accepted} accepted</span>
     </div>
     <div class="cl-at-result-svg-wrap">${_atBuildOverlaySvg(r.targetCurves, r.baseline ? r.baseline.curves : null, r.best ? r.best.curves : null, { width: 360, height: 90 })}</div>
@@ -6519,14 +6577,23 @@ function _atRenderResult() {
       <span>best score: <b>${r.best ? r.best.score : '—'}</b></span>
       <span>mutations: <b>${r.best && r.best.mutations ? r.best.mutations.length : 0}</b></span>
     </div>
+    ${criticalRow}
+    ${testerRow}
     ${regressionWarn}
     ${validityWarn}
     <div class="cl-at-result-actions">
-      <button type="button" class="cl-at-apply">✓ Apply</button>
+      <button type="button" class="cl-at-apply${applyBlocked ? ' cl-at-apply-blocked' : ''}"${applyBlocked ? ' data-blocked="1" title="Tester označil layout jako broken — Apply vyžaduje ruční potvrzení v dialogu."' : ''}>✓ Apply</button>
       <button type="button" class="cl-at-retry">↻ Try again</button>
       <button type="button" class="cl-at-discard">✕ Discard</button>
     </div>
   `;
+}
+
+// Beam mode helper — segmented switch (radio) v Analyze headeru. Default 'far' (Dalekozraký).
+// Volaná z 3 míst: ▶ Analyzovat (manuál), Apply re-analyze (Phase 2), Apply re-analyze (Phase 3a).
+function _isBeamFarSighted() {
+  const checked = document.querySelector('input[name="cl-beam-mode"]:checked');
+  return !checked || checked.value === 'far'; // default = far
 }
 
 // Aplikuje sequence of mutations na variant.grid — používá Phase 2 applyMutationToVariant per mutation.
@@ -6878,7 +6945,7 @@ function _wireCurvesPanelOnce() {
         // Trigger re-analýzy
         const frame = document.getElementById('preview-frame');
         if (frame && frame.contentWindow) {
-          const farSighted = !!(document.getElementById('cl-far-sighted') && document.getElementById('cl-far-sighted').checked);
+          const farSighted = _isBeamFarSighted();
           frame.contentWindow.postMessage({ type: 'balloonbelt:analyze-level', farSighted }, '*');
         }
         return;
@@ -7403,12 +7470,22 @@ function _wireAutoTunePanelOnce() {
       const tplEl = document.getElementById('cl-at-template');
       const tgtEl = document.getElementById('cl-at-target');
       const budgetEl = document.getElementById('cl-at-budget');
-      const beamEl = document.getElementById('cl-at-eval-beam');
+      const presetEl = document.getElementById('cl-at-preset');
+      // Preset → derivuje algorithm + evalMode (skryje 4. zbytečnou kombinaci):
+      //   fast     = klasický + greedy  (default, baseline)
+      //   smart    = prozřetelný + greedy  (chytrá strategie, rychlé)
+      //   thorough = prozřetelný + beam   (chytrá strategie + přesná simulace, nejpomalejší)
+      const preset = presetEl ? presetEl.value : 'fast';
+      const algorithm = (preset === 'fast') ? 'classic' : 'deep';
+      const evalMode = (preset === 'thorough') ? 'beam' : 'greedy';
+      const targetDiffEl = document.getElementById('cl-at-target-diff');
       const opts = {
         template: tplEl ? tplEl.value : 'FLAT',
         applyTarget: tgtEl ? tgtEl.value : 'all',
         timeBudgetMs: budgetEl ? +budgetEl.value : 30000,
-        evalMode: (beamEl && beamEl.checked) ? 'beam' : 'greedy',
+        evalMode,
+        complexity: state.clActiveDiff || 'easy',
+        targetDiff: targetDiffEl ? +targetDiffEl.value : 50,
       };
       // Zapamatovat baseline score (z aktuálního testeru) — pro regression warning po SA.
       // Aproximace: použijeme L2 distanci current curves vs target jako baseline score.
@@ -7417,6 +7494,7 @@ function _wireAutoTunePanelOnce() {
       _atState.applyTarget = opts.applyTarget;
       _atState.budget = opts.timeBudgetMs;
       _atState.evalMode = opts.evalMode;
+      _atState.algorithm = algorithm;
       _atState.running = true;
       _atState.result = null;
       _atState.progress = null;
@@ -7428,7 +7506,7 @@ function _wireAutoTunePanelOnce() {
       if (monitorEl) monitorEl.hidden = false;
       const resultEl = document.getElementById('cl-at-result');
       if (resultEl) { resultEl.hidden = true; resultEl.innerHTML = ''; }
-      frame.contentWindow.postMessage({ type: 'balloonbelt:auto-tune-start', opts }, '*');
+      frame.contentWindow.postMessage({ type: 'balloonbelt:auto-tune-start', opts, algorithm }, '*');
     });
   }
 
@@ -7477,6 +7555,12 @@ function _wireAutoTunePanelOnce() {
           alert('Žádné akceptované mutace — auto-tune nenašel zlepšení.');
           return;
         }
+        // Tester verdict gate: pokud je layout označen jako broken, vyžaduj confirm.
+        if (ev.target.dataset.blocked === '1') {
+          const t = r.tester;
+          const msg = `⚠ Tester označil tento layout jako BROKEN.\n\nVerdikt: ${t.verdict}\nDůvod: ${t.reason}\n\nApply tento layout přesto?`;
+          if (!confirm(msg)) return;
+        }
         // Single histPush snapshot — Cmd+Z vrátí celou sekvenci jedním krokem.
         histPush(lvl, 'cl-auto-tune-apply-' + Date.now());
         _atApplyMutationsToVariant(variant, r.best.mutations);
@@ -7495,7 +7579,7 @@ function _wireAutoTunePanelOnce() {
         // Re-analyze to confirm new curve
         const frame = document.getElementById('preview-frame');
         if (frame && frame.contentWindow) {
-          const farSighted = !!(document.getElementById('cl-far-sighted') && document.getElementById('cl-far-sighted').checked);
+          const farSighted = _isBeamFarSighted();
           frame.contentWindow.postMessage({ type: 'balloonbelt:analyze-level', farSighted }, '*');
         }
         return;
@@ -7558,6 +7642,34 @@ function _difficultyMeta(score) {
   if (score >= 40) return { key: 'medium', name: 'Medium', icon: '🟡', cls: 'score-medium' };
   if (score >= 20) return { key: 'easy', name: 'Easy', icon: '🔵', cls: 'score-easy' };
   return { key: 'relax', name: 'Relaxing', icon: '🟢', cls: 'score-relax' };
+}
+
+// Tester verdict row v Výsledky sekci. Authoritative truth — derivovaný z 3 solver
+// runů + Random×50, ne ze SA's pre-Apply snapshotu (ten může divergovat kvůli
+// makeColumns normalizaci po Apply).
+function _renderTesterVerdict(t) {
+  if (!t) return '';
+  const verdictMeta = {
+    'robust':           { icon: '🟢', cls: 'verdict-robust',   label: 'Robust (plně dohratelný)' },
+    'tight-expert':     { icon: '🟡', cls: 'verdict-tight',    label: 'Hraniční (Expert-only)' },
+    'tight-fragile':    { icon: '🟡', cls: 'verdict-tight',    label: 'Hraniční (Fragile)' },
+    'broken-physical':  { icon: '🔴', cls: 'verdict-broken',   label: 'Broken (Physical)' },
+    'broken-zombies':   { icon: '🔴', cls: 'verdict-broken',   label: 'Broken (Zombie balls)' },
+    'broken-overflow':  { icon: '🔴', cls: 'verdict-broken',   label: 'Broken (Belt overflow)' },
+    'broken-math':      { icon: '🔴', cls: 'verdict-broken',   label: 'Broken (Math unsolvable)' },
+  }[t.verdict] || { icon: '⚪', cls: 'verdict-unknown', label: t.verdict };
+  const d = t.diagnostics || {};
+  const diagDetail = `Solvers: ${d.solversSolved}/${d.solversTotal} solved · Best: ${d.bestSolved ? '✓' : '✗'} · Peak belt: ${d.peakBeltLoad}/14${d.beltOverflow ? ' OVERFLOW' : ''} · Stuck: ${d.stuckBalls} · Random: ${d.randomSuccessRate}% · Remain: ${d.remainPx}px`;
+  return `
+    <div class="cl-tester-row cl-tester-verdict-row cl-tester-verdict-${verdictMeta.cls}">
+      <span class="cl-tr-label" title="Tester verdikt — derivovaný z 3-solver ensemble + Random×50. Authoritative pro aktuální post-Apply game state. Pre-Apply Tester (v auto-tune result) může divergovat kvůli makeColumns normalizaci.">Tester verdikt</span>
+      <span class="cl-tr-val" title="${diagDetail}">
+        ${verdictMeta.icon} <b>${verdictMeta.label}</b>
+        <span style="font-size:10px;opacity:0.7;margin-left:6px;font-family:ui-monospace,monospace">score ${t.score}</span>
+      </span>
+    </div>
+    <div class="cl-tester-verdict-reason hint">${t.reason}</div>
+  `;
 }
 
 function _renderDifficultyBreakdown(r) {

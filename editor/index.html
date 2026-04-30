@@ -278,10 +278,15 @@
                 <span class="cl-section-title">⚡ Analyze &amp; Tune <span class="hint">(playtester + křivky obtížnosti + ladění)</span></span>
               </summary>
               <div class="cl-at-master-header">
-                <label class="cl-far-sighted-label" title="Far-sighted beam (Fáze 2.5): vidí investiční tahy (rozbití bariér, uvolnění garáže) a hodnotí cascade efekty. Defaultně vypnuto — porovnej oba režimy ručně.">
-                  <input type="checkbox" id="cl-far-sighted"> 🔭 prozřetelný beam
-                </label>
-                <button type="button" id="cl-analyze-btn" class="btn btn-small">▶ Analyzovat</button>
+                <div class="cl-tune-mode-row cl-beam-mode-row" role="radiogroup" aria-label="Beam mode" title="Solver: Beam má 2 vision módy:&#10;&#10;&#9679; Beam &mdash; Kr&aacute;tkozrak&yacute; &mdash; klasick&yacute; beam, vid&iacute; n&aelig;kolik tah&ucirc; dop&rcaron;edu, ale nevyhodnocuje invest. tahy&#10;&#9679; Beam &mdash; Dalekozrak&yacute; (default) &mdash; far-sighted: vid&iacute; investi&ccaron;n&iacute; tahy (rozbit&iacute; bari&eacute;r, uvoln&aelig;n&iacute; gar&aacute;&zcaron;&iacute;) + cascade efekty + future potential&#10;&#10;Default je &#128301; Dalekozrak&yacute; &mdash; obvykle d&aacute;v&aacute; lep&scaron;&iacute; v&yacute;sledky.">
+                  <label class="cl-tune-mode-radio" title="Beam — Krátkozraký: klasický beam search. Vidí několik tahů dopředu, ale nevyhodnocuje investiční tahy.">
+                    <input type="radio" name="cl-beam-mode" value="short" id="cl-beam-mode-short"> 👓 Krátkozraký
+                  </label>
+                  <label class="cl-tune-mode-radio" title="Beam — Dalekozraký: far-sighted beam. Vidí investiční tahy + cascade efekty + future potential. Doporučeno.">
+                    <input type="radio" name="cl-beam-mode" value="far" id="cl-beam-mode-far" checked> 🔭 Dalekozraký
+                  </label>
+                </div>
+                <button type="button" id="cl-analyze-btn" class="btn btn-primary btn-small">▶ Analyzovat</button>
               </div>
 
               <details id="cl-at-results" class="cl-at-section" open>
@@ -407,6 +412,11 @@
                       </select>
                     </div>
                     <div class="cl-at-control-row">
+                      <label class="cl-at-label" title="Cílová obtížnost (0–100). SA drží temperature hot dokud bestDiff nedosáhne targetu. Default 50 = medium. Vyšší = SA tlačí mutace agresivněji, dokud level není dostatečně obtížný.">Cíl obtížnosti:</label>
+                      <input id="cl-at-target-diff" type="number" min="0" max="100" step="5" value="50" style="width: 70px;">
+                      <span class="cl-at-help" tabindex="0" title="Stupnice odpovídá diffScore z Analyzovat sekce (0–100). 30=Easy, 55=Medium, 75=Hard, 90=Hardcore. SA chladne až po dosažení targetu.">/ 100</span>
+                    </div>
+                    <div class="cl-at-control-row">
                       <label class="cl-at-label" title="Time budget pro SA. Delší = víc iterací = lepší fit. Editor je responzivní díky yieldingu.">Time budget:</label>
                       <select id="cl-at-budget">
                         <option value="30000" selected>30 s (rychlé)</option>
@@ -416,9 +426,13 @@
                       </select>
                     </div>
                     <div class="cl-at-control-row">
-                      <label class="cl-far-sighted-label" title="beam eval = far-sighted beam místo greedy. Přesnější, ale ~5× pomalejší per iteraci → výrazně méně iterací v daném budgetu.">
-                        <input type="checkbox" id="cl-at-eval-beam"> 🎯 beam eval (přesnější, méně iterací)
-                      </label>
+                      <label class="cl-at-label" title="Re&#382;im = kombinace REORGANIZ&Aacute;TORU + SOLVERU. Ka&zcaron;d&yacute; preset n&iacute;&zcaron;e si to nastav&iacute; za tebe.&#10;&#10;REORGANIZ&Aacute;TOR (kdo p&rcaron;erov&aacute;v&aacute; layout, co povazuje za lep&scaron;&iacute;):&#10;  &middot; Sketcher &mdash; jen tvar k&rcaron;ivky (L2 distance vs target template)&#10;  &middot; Architect &mdash; tvar + access cost critical barev v 5 dimenz&iacute;ch (row depth, click distance, mystery flag, garage queue position, garage row)&#10;&#10;SOLVER (kdo hraje level pro v&yacute;po&ccaron;et trace ka&zcaron;d&eacute;ho kandid&aacute;ta):&#10;  &middot; Greedy &mdash; rychl&aacute; heuristika max-gain (~5 ms / iter)&#10;  &middot; Beam &mdash; Kr&aacute;tkozrak&yacute; (default beam, n&aelig;kolik tah&ucirc; dop&rcaron;edu)&#10;  &middot; Beam &mdash; Dalekozrak&yacute; (far-sighted, ~600 ms / iter, vid&iacute; investi&ccaron;n&iacute; tahy + cascade)&#10;&#10;PRESETY (Reorganiz&aacute;tor &times; Solver):&#10;  &#9889; Rychl&yacute;     = Sketcher  + Greedy              &mdash; ~6000 iter / 30s, baseline&#10;  &#129504; Chytr&yacute;     = Architect + Greedy              &mdash; ~6000 iter / 30s, smart reorganiz&aacute;tor&#10;  &#128301; D&ucirc;kladn&yacute;  = Architect + Beam Dalekozrak&yacute;  &mdash; ~50 iter / 30s, max kvalita">Režim:</label>
+                      <select id="cl-at-preset">
+                        <option value="fast" selected title="Reorganizátor: Sketcher (jen tvar křivky) + Solver: Greedy (~5 ms/iter). ~6000 iterací v 30 s. Baseline preset.">⚡ Rychlý (Sketcher + Greedy)</option>
+                        <option value="smart" title="Reorganizátor: Architect (tvar + access cost 5 dimenzí critical barev) + Solver: Greedy (~5 ms/iter). ~6000 iterací v 30 s. Smart reorganizátor, rychlý solver.">🧠 Chytrý (Architect + Greedy)</option>
+                        <option value="thorough" title="Reorganizátor: Architect + Solver: Beam — Dalekozraký (~600 ms/iter, vidí investiční tahy). ~50 iterací v 30 s. Max kvalita, pomalý.">🔭 Důkladný (Architect + Beam — Dalekozraký)</option>
+                      </select>
+                      <span class="cl-at-help" tabindex="0" title="REORGANIZ&Aacute;TOR (kdo p&rcaron;erov&aacute;v&aacute; layout) &times; SOLVER (kdo testuje kandid&aacute;ty)&#10;&#10;REORGANIZ&Aacute;TOR je strategie SA:&#10;  &#9679; Sketcher &mdash; jen tvar k&rcaron;ivky shoduj&iacute;c&iacute; s target&#10;  &#9679; Architect &mdash; tvar + critical barvy ulo&zcaron;en&eacute; v hloubce (5 dimenz&iacute;: depth, click distance, mystery flag, garage queue, garage row)&#10;&#10;SOLVER je hr&aacute;&ccaron; co hraje level pro hodnocen&iacute;:&#10;  &#9679; Greedy &mdash; rychl&aacute; heuristika (~5 ms)&#10;  &#9679; Beam &mdash; Kr&aacute;tkozrak&yacute; (default, n&aelig;kolik tah&ucirc; dop&rcaron;edu)&#10;  &#9679; Beam &mdash; Dalekozrak&yacute; (far-sighted, vid&iacute; investi&ccaron;n&iacute; tahy)&#10;&#10;Trade-off: r&yacute;chlost (v&iacute;c iter) vs kvalita (smyslupln&eacute; iter). Default &#9889; Rychl&yacute; pro v&aelig;t&scaron;inu pr&aacute;cu.">ⓘ</span>
                     </div>
                     <div class="cl-at-control-row cl-at-actions">
                       <button id="cl-at-start" class="btn btn-primary" type="button">▶ AUTO-TUNE</button>
@@ -430,10 +444,11 @@
                   </div>
                   <div id="cl-at-monitor" class="cl-at-monitor" hidden>
                     <div class="cl-at-stats">
-                      <span>iter: <b id="cl-at-iter">0</b></span>
-                      <span>accepted: <b id="cl-at-accepted">0</b></span>
-                      <span>best: <b id="cl-at-best">—</b></span>
-                      <span>T: <b id="cl-at-temp">1.00</b></span>
+                      <span title="ITER &mdash; po&ccaron;et iterac&iacute; (= testů mutac&iacute;) co SA spustil. Ka&zcaron;d&aacute; iterace = pick mutation → apply → simulate → score. V Greedy modu ~200 iter/s, v Beam modu ~1.7 iter/s.">iter: <b id="cl-at-iter">0</b></span>
+                      <span title="ACCEPTED &mdash; kolik iterac&iacute; SA p&rcaron;ijal jako lep&scaron;&iacute; (delta &lt; 0) nebo n&aacute;hodn&aacute; akceptace (random &lt; exp(-delta/T)). Vy&scaron;&scaron;&iacute; T = v&iacute;c accepted i hor&scaron;&iacute;ch. Postupem cooling klesne accept rate.">accepted: <b id="cl-at-accepted">0</b></span>
+                      <span title="BEST SCORE &mdash; nejlep&scaron;&iacute; fitness dosazen&yacute; doposud. Slo&zcaron;eno z: L2 distance v&ucirc;či target křivce + accessStepMismatch (pokud Architect) + solvabilityPenalty (zeč Tester logiky &mdash; +1000 overflow, +500 unsolved, +50&times;stuck, +30&times;funnel reject). Nižš&iacute; = lep&scaron;&iacute;. Po dokon&ccaron;en&iacute; SA se Tester spust&iacute; samostatn&aelig; pro final verdikt.">best: <b id="cl-at-best">—</b></span>
+                      <span title="T (TEPLOTA) &mdash; SA cooling parametr. Za&ccaron;&iacute;n&aacute; na 1.0, ka&zcaron;d&aacute; iter klesne &times; 0.997. Vyšš&iacute; T = v&iacute;c probability p&rcaron;ijmout horsi mutaci (exploration), nižš&iacute; T = jen lepš&iacute; (exploitation). Po ~700 iter T &asymp; 0.1, SA hledá jen lokálni optima.">T: <b id="cl-at-temp">1.00</b></span>
+                      <span title="DIFF (current/target) &mdash; current best difficulty (proxy z trace, p&rcaron;eveden&yacute; na 0&ndash;100 stupnici) / target z UI inputu. SA chladne T jen po dosa&zcaron;en&iacute; targetu. 🔥 = SA hot, st&aacute;le tla&ccaron;&iacute; mutace; ❄ = target dosa&zcaron;en, SA chladne k jemn&yacute;m &uacute;prav&aacute;m k&rcaron;ivky.">diff: <b id="cl-at-diff">—</b> <b id="cl-at-hot-flag" style="margin-left:4px">🔥</b></span>
                     </div>
                     <div class="cl-mut-progress-bar"><div class="cl-mut-progress-fill" id="cl-at-progress-fill" style="width:0%"></div></div>
                     <div class="cl-at-monitor-row">

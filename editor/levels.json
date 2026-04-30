@@ -4687,7 +4687,7 @@
   {
     "key": "new-level-10",
     "label": "Nový level",
-    "type": "relaxing",
+    "type": "easy",
     "image": {
       "source": "custom",
       "pixels": [
@@ -6063,7 +6063,7 @@
   {
     "key": "new-level-13",
     "label": "Nový level",
-    "type": "relaxing",
+    "type": "easy",
     "image": {
       "source": "custom",
       "pixels": [
@@ -7108,7 +7108,7 @@
     ],
     "blocks": [],
     "rocketTargets": null,
-    "garage": null,
+    "garage": "multi",
     "carrierLayouts": [
       {
         "name": "new-level-13-hard-v1",
@@ -7116,33 +7116,96 @@
         "grid": [
           [
             {
-              "type": "carrier",
-              "color": 58
+              "type": "wall"
+            },
+            {
+              "type": "wall"
             },
             {
               "type": "wall"
             },
             {
               "type": "carrier",
-              "color": 55
+              "color": 57,
+              "hidden": false
             },
             {
               "type": "wall"
             },
             {
-              "type": "carrier",
-              "color": 47
+              "type": "wall"
             },
             {
-              "type": "carrier",
-              "color": 56
-            },
-            {
-              "type": "carrier",
-              "color": 57
+              "type": "wall"
             }
           ],
           [
+            {
+              "type": "carrier",
+              "color": 56,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 55,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            null,
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            null,
+            {
+              "type": "carrier",
+              "color": 58,
+              "hidden": false
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 51,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 47,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 50,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
             {
               "type": "wall"
             },
@@ -7150,6 +7213,16 @@
               "type": "carrier",
               "color": 59,
               "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 57,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "wall"
             },
             {
               "type": "wall"
@@ -7161,140 +7234,45 @@
             },
             {
               "type": "carrier",
-              "color": 7,
+              "color": 58,
               "hidden": true
             },
             {
-              "type": "wall"
+              "type": "carrier",
+              "color": 56,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 55,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 47,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 57,
+              "hidden": false
             },
             {
               "type": "carrier",
               "color": 50,
               "hidden": true
-            }
-          ],
-          [
-            {
-              "type": "wall"
             },
-            {
-              "type": "carrier",
-              "color": 58,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 56,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 57,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 55
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "wall"
-            }
-          ],
-          [
-            null,
-            {
-              "type": "carrier",
-              "color": 7,
-              "hidden": true
-            },
-            null,
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 50
-            },
-            {
-              "type": "carrier",
-              "color": 51,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 47,
-              "hidden": true
-            }
-          ],
-          [
-            {
-              "type": "carrier",
-              "color": 57,
-              "hidden": true
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 56,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 55,
-              "hidden": true
-            },
-            null,
             {
               "type": "carrier",
               "color": 59,
               "hidden": true
             },
-            null
-          ],
-          [
-            {
-              "type": "carrier",
-              "color": 51,
-              "hidden": true
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 57,
-              "hidden": true
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 47,
-              "hidden": true
-            },
-            {
-              "type": "wall"
-            },
             {
               "type": "carrier",
               "color": 58,
               "hidden": true
-            }
-          ],
-          [
-            {
-              "type": "carrier",
-              "color": 55,
-              "hidden": true
-            },
-            {
-              "type": "wall"
             },
             {
               "type": "carrier",
@@ -7302,26 +7280,58 @@
               "hidden": true
             },
             {
-              "type": "wall"
-            },
-            {
-              "type": "wall"
+              "type": "carrier",
+              "color": 55,
+              "hidden": false
             },
             {
               "type": "carrier",
+              "color": 7,
+              "hidden": true
+            }
+          ],
+          [
+            {
+              "type": "carrier",
               "color": 57,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 56,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 55,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 47,
               "hidden": true
             },
             {
               "type": "carrier",
               "color": 58,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 51,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 57,
               "hidden": true
             }
           ]
         ],
         "curveAnnotations": []
       }
-    ]
+    ],
+    "defaultComplexity": "hard"
   },
   {
     "key": "new-level-30",
@@ -11002,7 +11012,186 @@
     ],
     "blocks": [],
     "rocketTargets": null,
-    "garage": null
+    "garage": null,
+    "carrierLayouts": [
+      {
+        "name": "new-level-12-easy-v1",
+        "difficulty": "easy",
+        "grid": [
+          [
+            {
+              "type": "carrier",
+              "color": 59,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 1,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 15,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 17,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 17,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 47,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 59,
+              "hidden": true
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 17,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 56,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 16,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 17,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": true
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 19,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 13,
+              "hidden": false
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 60,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": true
+            },
+            null,
+            null,
+            null,
+            null,
+            {
+              "type": "carrier",
+              "color": 60,
+              "hidden": false
+            },
+            null
+          ],
+          [
+            null,
+            null,
+            null,
+            null,
+            null,
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": true
+            },
+            null
+          ]
+        ],
+        "curveAnnotations": []
+      }
+    ]
   },
   {
     "key": "new-level-25",
@@ -21429,7 +21618,7 @@
   {
     "key": "new-level-17",
     "label": "Nový level",
-    "type": "relaxing",
+    "type": "easy",
     "image": {
       "source": "custom",
       "pixels": [
@@ -22477,7 +22666,7 @@
     ],
     "blocks": [],
     "rocketTargets": null,
-    "garage": null,
+    "garage": "multi",
     "carrierLayouts": [
       {
         "name": "new-level-17-hard-v1",
@@ -22489,38 +22678,43 @@
             },
             {
               "type": "carrier",
-              "color": 28
+              "color": 51,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 43
-            },
-            {
-              "type": "carrier",
-              "color": 4
-            },
-            {
-              "type": "carrier",
-              "color": 46
-            },
-            {
-              "type": "carrier",
-              "color": 26
-            },
-            {
-              "type": "carrier",
-              "color": 8
-            }
-          ],
-          [
-            {
-              "type": "carrier",
-              "color": 53,
-              "hidden": true
+              "color": 0,
+              "hidden": false
             },
             {
               "type": "wall"
             },
+            {
+              "type": "garage",
+              "queue": [
+                {
+                  "color": 28
+                },
+                {
+                  "color": 46
+                },
+                {
+                  "color": 43
+                },
+                {
+                  "color": 46
+                }
+              ],
+              "color": 8
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            null
+          ],
+          [
             {
               "type": "carrier",
               "color": 5,
@@ -22528,9 +22722,61 @@
             },
             {
               "type": "carrier",
-              "color": 44,
+              "color": 53,
               "hidden": true
             },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 63,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 28,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 44,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            null
+          ],
+          [
             {
               "type": "carrier",
               "color": 0,
@@ -22538,23 +22784,56 @@
             },
             {
               "type": "carrier",
-              "color": 63
+              "color": 43,
+              "hidden": true
             },
             {
               "type": "carrier",
-              "color": 51,
+              "color": 8,
               "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 26,
+              "hidden": false
+            },
+            null,
+            {
+              "type": "garage",
+              "queue": [
+                {
+                  "color": 4
+                },
+                {
+                  "color": 28
+                },
+                {
+                  "color": 8
+                },
+                {
+                  "color": 26
+                }
+              ],
+              "color": 28
+            },
+            {
+              "type": "wall"
             }
           ],
           [
             {
               "type": "carrier",
-              "color": 28
+              "color": 4,
+              "hidden": true
             },
             {
               "type": "carrier",
-              "color": 4,
+              "color": 8,
               "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 28
             },
             {
               "type": "carrier",
@@ -22562,12 +22841,9 @@
               "hidden": true
             },
             {
-              "type": "wall"
-            },
-            {
               "type": "carrier",
               "color": 8,
-              "hidden": true
+              "hidden": false
             },
             {
               "type": "carrier",
@@ -22575,39 +22851,207 @@
               "hidden": true
             },
             {
+              "type": "wall"
+            }
+          ]
+        ],
+        "curveAnnotations": [
+          {
+            "id": "pin-1777449207256-wi09o",
+            "stepStart": 7,
+            "stepEnd": 7,
+            "tag": "harder",
+            "note": ""
+          }
+        ]
+      },
+      {
+        "name": "new-level-17-easy-v1",
+        "difficulty": "easy",
+        "grid": [
+          [
+            {
               "type": "carrier",
-              "color": 43
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 28,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 26,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 46,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 26,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 44,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 63,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 51,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            }
+          ],
+          [
+            null,
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 28,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 46,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": false
             }
           ],
           [
             {
               "type": "carrier",
               "color": 4,
-              "hidden": true
+              "hidden": false
             },
             {
-              "type": "carrier",
-              "color": 8,
-              "hidden": true
+              "type": "wall"
             },
             {
               "type": "carrier",
               "color": 5,
-              "hidden": true
+              "hidden": false
+            },
+            {
+              "type": "wall"
             },
             {
               "type": "carrier",
-              "color": 28
+              "color": 28,
+              "hidden": false
             },
             {
               "type": "carrier",
               "color": 53,
-              "hidden": true
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            null,
+            {
+              "type": "wall"
             },
             {
               "type": "carrier",
-              "color": 0,
-              "hidden": true
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 26,
+              "hidden": false
+            },
+            null,
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            null,
+            {
+              "type": "carrier",
+              "color": 28,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 46,
+              "hidden": false
             },
             {
               "type": "wall"
@@ -22617,14 +23061,139 @@
             {
               "type": "carrier",
               "color": 8,
-              "hidden": true
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            }
+          ]
+        ],
+        "cols": 7,
+        "curveAnnotations": [
+          {
+            "id": "pin-1777452241953-oyrza",
+            "stepStart": 16,
+            "stepEnd": 16,
+            "tag": "harder",
+            "note": ""
+          }
+        ]
+      },
+      {
+        "name": "new-level-17-medium-v1",
+        "difficulty": "medium",
+        "grid": [
+          [
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
             },
             {
               "type": "wall"
             },
             {
               "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
               "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 26,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "garage",
+              "queue": [
+                {
+                  "color": 8
+                },
+                {
+                  "color": 8
+                },
+                {
+                  "color": 5
+                }
+              ]
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "garage",
+              "queue": [
+                {
+                  "color": 53
+                },
+                {
+                  "color": 43
+                },
+                {
+                  "color": 0
+                }
+              ]
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 28,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 46,
               "hidden": true
             },
             {
@@ -22634,23 +23203,91 @@
             },
             {
               "type": "carrier",
-              "color": 4,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
               "color": 46,
               "hidden": true
             },
             {
               "type": "carrier",
-              "color": 26
+              "color": 4,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 51,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 26,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 28,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 46,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 63,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 26,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 28,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 44,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
             }
           ]
         ],
         "curveAnnotations": []
       }
-    ]
+    ],
+    "defaultComplexity": "hard"
   },
   {
     "key": "new-level-18",
@@ -26459,1131 +27096,282 @@
     ],
     "blocks": [],
     "rocketTargets": null,
-    "garage": null
-  },
-  {
-    "key": "new-level-21",
-    "label": "Nový level",
-    "type": "relaxing",
-    "image": {
-      "source": "custom",
-      "pixels": [
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          10,
-          10,
-          10,
-          10,
-          7,
-          7,
-          7,
-          7,
-          7,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          7,
-          7,
-          7,
-          7,
-          7,
-          10,
-          10,
-          10,
-          10,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          10,
-          10,
-          10,
-          10,
-          7,
-          7,
-          7,
-          7,
-          7,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          7,
-          7,
-          7,
-          7,
-          7,
-          10,
-          10,
-          10,
-          10,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          10,
-          10,
-          10,
-          10,
-          7,
-          7,
-          7,
-          7,
-          7,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          7,
-          7,
-          7,
-          7,
-          7,
-          10,
-          10,
-          10,
-          10,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          10,
-          10,
-          10,
-          10,
-          7,
-          7,
-          7,
-          7,
-          7,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          7,
-          7,
-          7,
-          7,
-          7,
-          10,
-          10,
-          10,
-          10,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          10,
-          10,
-          10,
-          10,
-          7,
-          7,
-          7,
-          7,
-          7,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          7,
-          7,
-          7,
-          7,
-          7,
-          10,
-          10,
-          10,
-          10,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          11,
-          11,
-          11,
-          11,
-          2,
-          2,
-          2,
-          2,
-          2,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          2,
-          2,
-          2,
-          2,
-          2,
-          11,
-          11,
-          11,
-          11,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          11,
-          11,
-          11,
-          11,
-          2,
-          2,
-          2,
-          2,
-          2,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          2,
-          2,
-          2,
-          2,
-          2,
-          11,
-          11,
-          11,
-          11,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          11,
-          11,
-          11,
-          11,
-          2,
-          2,
-          2,
-          2,
-          2,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          2,
-          2,
-          2,
-          2,
-          2,
-          11,
-          11,
-          11,
-          11,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          11,
-          11,
-          11,
-          11,
-          2,
-          2,
-          2,
-          2,
-          2,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          2,
-          2,
-          2,
-          2,
-          2,
-          11,
-          11,
-          11,
-          11,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          11,
-          11,
-          11,
-          11,
-          2,
-          2,
-          2,
-          2,
-          2,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          2,
-          2,
-          2,
-          2,
-          2,
-          11,
-          11,
-          11,
-          11,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          6,
-          6,
-          6,
-          6,
-          6,
-          1,
-          1,
-          1,
-          1,
-          0,
-          0,
-          0,
-          0,
-          0,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          0,
-          0,
-          0,
-          0,
-          0,
-          1,
-          1,
-          1,
-          1,
-          6,
-          6,
-          6,
-          6,
-          6
-        ],
-        [
-          6,
-          6,
-          6,
-          6,
-          6,
-          1,
-          1,
-          1,
-          1,
-          0,
-          0,
-          0,
-          0,
-          0,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          0,
-          0,
-          0,
-          0,
-          0,
-          1,
-          1,
-          1,
-          1,
-          6,
-          6,
-          6,
-          6,
-          6
-        ],
-        [
-          6,
-          6,
-          6,
-          6,
-          6,
-          1,
-          1,
-          1,
-          1,
-          0,
-          0,
-          0,
-          0,
-          0,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          0,
-          0,
-          0,
-          0,
-          0,
-          1,
-          1,
-          1,
-          1,
-          6,
-          6,
-          6,
-          6,
-          6
-        ],
-        [
-          6,
-          6,
-          6,
-          6,
-          6,
-          1,
-          1,
-          1,
-          1,
-          0,
-          0,
-          0,
-          0,
-          0,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          0,
-          0,
-          0,
-          0,
-          0,
-          1,
-          1,
-          1,
-          1,
-          6,
-          6,
-          6,
-          6,
-          6
-        ],
-        [
-          6,
-          6,
-          6,
-          6,
-          6,
-          1,
-          1,
-          1,
-          1,
-          0,
-          0,
-          0,
-          0,
-          0,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          0,
-          0,
-          0,
-          0,
-          0,
-          1,
-          1,
-          1,
-          1,
-          6,
-          6,
-          6,
-          6,
-          6
-        ],
-        [
-          6,
-          6,
-          6,
-          6,
-          6,
-          1,
-          1,
-          1,
-          1,
-          0,
-          0,
-          0,
-          0,
-          0,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          0,
-          0,
-          0,
-          0,
-          0,
-          1,
-          1,
-          1,
-          1,
-          6,
-          6,
-          6,
-          6,
-          6
-        ],
-        [
-          6,
-          6,
-          6,
-          6,
-          6,
-          1,
-          1,
-          1,
-          1,
-          0,
-          0,
-          0,
-          0,
-          0,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          4,
-          0,
-          0,
-          0,
-          0,
-          0,
-          1,
-          1,
-          1,
-          1,
-          6,
-          6,
-          6,
-          6,
-          6
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          11,
-          11,
-          11,
-          11,
-          2,
-          2,
-          2,
-          2,
-          2,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          2,
-          2,
-          2,
-          2,
-          2,
-          11,
-          11,
-          11,
-          11,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          11,
-          11,
-          11,
-          11,
-          2,
-          2,
-          2,
-          2,
-          2,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          2,
-          2,
-          2,
-          2,
-          2,
-          11,
-          11,
-          11,
-          11,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          11,
-          11,
-          11,
-          11,
-          2,
-          2,
-          2,
-          2,
-          2,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          2,
-          2,
-          2,
-          2,
-          2,
-          11,
-          11,
-          11,
-          11,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          11,
-          11,
-          11,
-          11,
-          2,
-          2,
-          2,
-          2,
-          2,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          2,
-          2,
-          2,
-          2,
-          2,
-          11,
-          11,
-          11,
-          11,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          11,
-          11,
-          11,
-          11,
-          2,
-          2,
-          2,
-          2,
-          2,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          6,
-          2,
-          2,
-          2,
-          2,
-          2,
-          11,
-          11,
-          11,
-          11,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          10,
-          10,
-          10,
-          10,
-          7,
-          7,
-          7,
-          7,
-          7,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          7,
-          7,
-          7,
-          7,
-          7,
-          10,
-          10,
-          10,
-          10,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          10,
-          10,
-          10,
-          10,
-          7,
-          7,
-          7,
-          7,
-          7,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          7,
-          7,
-          7,
-          7,
-          7,
-          10,
-          10,
-          10,
-          10,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          10,
-          10,
-          10,
-          10,
-          7,
-          7,
-          7,
-          7,
-          7,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          7,
-          7,
-          7,
-          7,
-          7,
-          10,
-          10,
-          10,
-          10,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          10,
-          10,
-          10,
-          10,
-          7,
-          7,
-          7,
-          7,
-          7,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          7,
-          7,
-          7,
-          7,
-          7,
-          10,
-          10,
-          10,
-          10,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          0,
-          0,
-          0,
-          10,
-          10,
-          10,
-          10,
-          7,
-          7,
-          7,
-          7,
-          7,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          11,
-          7,
-          7,
-          7,
-          7,
-          7,
-          10,
-          10,
-          10,
-          10,
-          0,
-          0,
-          0,
-          0,
-          0
-        ]
-      ]
-    },
-    "activePalette": [
-      0,
-      9,
-      12,
-      1,
-      5,
-      33,
-      3,
-      39,
-      43,
-      25,
-      31,
-      8
-    ],
-    "blocks": [
-      {
-        "x": 0,
-        "y": 17,
-        "w": 5,
-        "h": 10,
-        "shape": "rect",
-        "kind": "solid",
-        "color": 0,
-        "hp": 120,
-        "rotation": 0
-      },
-      {
-        "x": 31,
-        "y": 17,
-        "w": 5,
-        "h": 10,
-        "shape": "rect",
-        "kind": "solid",
-        "color": 0,
-        "hp": 120,
-        "rotation": 0
-      },
-      {
-        "x": 22,
-        "y": 5,
-        "w": 9,
-        "h": 12,
-        "shape": "rect",
-        "kind": "solid",
-        "color": 25,
-        "hp": 120,
-        "rotation": 0
-      },
-      {
-        "x": 5,
-        "y": 5,
-        "w": 9,
-        "h": 12,
-        "shape": "rect",
-        "kind": "solid",
-        "color": 25,
-        "hp": 120,
-        "rotation": 0
-      },
-      {
-        "x": 14,
-        "y": 0,
-        "w": 8,
-        "h": 5,
-        "shape": "rect",
-        "kind": "solid",
-        "color": 0,
-        "hp": 120,
-        "rotation": 0
-      }
-    ],
-    "rocketTargets": null,
-    "garage": "multi",
+    "garage": null,
     "carrierLayouts": [
       {
-        "name": "new-level-21-medium-v1",
-        "difficulty": "medium",
+        "name": "new-level-20-easy-v1",
+        "difficulty": "easy",
         "grid": [
           [
             {
               "type": "carrier",
-              "color": 10,
+              "color": 5,
               "hidden": false
             },
             {
               "type": "carrier",
-              "color": 2,
+              "color": 53,
               "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": false
+            },
+            null
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 46,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 26,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 51,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 28,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 44,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 28,
+              "hidden": false
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 26,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 28,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 63,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 44,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 51,
+              "hidden": false
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            }
+          ]
+        ],
+        "curveAnnotations": []
+      },
+      {
+        "name": "new-level-20-hard-v1",
+        "difficulty": "hard",
+        "grid": [
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            null,
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 28,
+              "hidden": true
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 44,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 26,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 51,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
             },
             {
               "type": "wall"
@@ -27591,183 +27379,114 @@
             {
               "type": "carrier",
               "color": 4,
-              "hidden": false
-            },
-            {
-              "type": "carrier",
-              "color": 25,
-              "hidden": false
-            },
-            {
-              "type": "carrier",
-              "color": 0,
-              "hidden": false
-            },
-            {
-              "type": "carrier",
-              "color": 2,
-              "hidden": false
-            }
-          ],
-          [
-            {
-              "type": "garage",
-              "queue": [
-                {
-                  "color": 0
-                },
-                {
-                  "color": 25
-                },
-                {
-                  "color": 11
-                }
-              ]
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "garage",
-              "queue": [
-                {
-                  "color": 10
-                },
-                {
-                  "color": 25
-                },
-                {
-                  "color": 0
-                }
-              ]
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "garage",
-              "queue": [
-                {
-                  "color": 25
-                },
-                {
-                  "color": 0
-                },
-                {
-                  "color": 25
-                }
-              ]
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 0,
-              "hidden": false
+              "hidden": true
             }
           ],
           [
             {
               "type": "carrier",
               "color": 0,
-              "hidden": false
-            },
-            {
-              "type": "carrier",
-              "color": 0,
-              "hidden": false
-            },
-            {
-              "type": "carrier",
-              "color": 0,
-              "hidden": false
-            },
-            {
-              "type": "carrier",
-              "color": 6,
               "hidden": true
             },
             {
               "type": "carrier",
-              "color": 11,
+              "color": 5,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 28,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 43,
               "hidden": false
             },
             {
               "type": "carrier",
-              "color": 0,
+              "color": 46,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 63,
+              "hidden": true
+            },
+            null
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 28,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 44,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 51,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 43,
               "hidden": false
             },
             {
               "type": "carrier",
-              "color": 6,
+              "color": 53,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 26,
               "hidden": false
             }
           ],
           [
             {
               "type": "carrier",
-              "color": 4,
-              "hidden": false
-            },
-            {
-              "type": "carrier",
-              "color": 6,
-              "hidden": false
-            },
-            {
-              "type": "carrier",
-              "color": 0,
-              "hidden": false
-            },
-            {
-              "type": "carrier",
-              "color": 6,
-              "hidden": false
-            },
-            {
-              "type": "carrier",
-              "color": 0,
+              "color": 43,
               "hidden": true
             },
             {
               "type": "carrier",
-              "color": 7,
+              "color": 43,
               "hidden": true
             },
             {
               "type": "carrier",
-              "color": 7,
-              "hidden": true
-            }
-          ],
-          [
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 25,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 0,
+              "color": 43,
               "hidden": false
             },
             {
               "type": "carrier",
-              "color": 7,
-              "hidden": false
+              "color": 43,
+              "hidden": true
             },
             {
-              "type": "wall"
+              "type": "carrier",
+              "color": 43,
+              "hidden": true
             },
             {
-              "type": "wall"
+              "type": "carrier",
+              "color": 43,
+              "hidden": true
             },
             {
-              "type": "wall"
+              "type": "carrier",
+              "color": 43,
+              "hidden": true
             }
           ]
         ],
@@ -30331,15 +30050,9 @@
             {
               "type": "wall"
             },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "wall"
-            },
+            null,
+            null,
+            null,
             {
               "type": "carrier",
               "color": 43,
@@ -30347,17 +30060,6 @@
             }
           ],
           [
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 46,
-              "hidden": false
-            },
-            {
-              "type": "wall"
-            },
             {
               "type": "wall"
             },
@@ -30371,43 +30073,57 @@
               "type": "carrier",
               "color": 53,
               "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 46,
+              "hidden": true
+            },
+            {
+              "type": "wall"
             }
           ],
           [
             {
+              "type": "carrier",
+              "color": 28,
+              "hidden": true
+            },
+            {
               "type": "wall"
             },
-            null,
-            null,
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
             {
               "type": "carrier",
               "color": 63,
               "hidden": true
             },
-            null,
             {
-              "type": "carrier",
-              "color": 5,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 28,
-              "hidden": true
+              "type": "wall"
             }
           ],
           [
             {
-              "type": "wall"
-            },
-            {
               "type": "carrier",
-              "color": 43,
+              "color": 46,
               "hidden": true
             },
             {
               "type": "carrier",
-              "color": 46,
+              "color": 53,
               "hidden": true
             },
             {
@@ -30416,12 +30132,15 @@
               "hidden": false
             },
             {
-              "type": "carrier",
-              "color": 53,
-              "hidden": false
+              "type": "wall"
             },
             {
               "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
             },
             {
               "type": "wall"
@@ -30430,11 +30149,21 @@
           [
             {
               "type": "carrier",
-              "color": 5,
+              "color": 28,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 43,
               "hidden": true
             },
             {
               "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": true
             },
             {
               "type": "carrier",
@@ -30442,13 +30171,15 @@
               "hidden": true
             },
             {
-              "type": "wall"
-            },
-            {
               "type": "carrier",
               "color": 63,
-              "hidden": false
+              "hidden": true
             },
+            {
+              "type": "wall"
+            }
+          ],
+          [
             {
               "type": "carrier",
               "color": 43,
@@ -30456,14 +30187,12 @@
             },
             {
               "type": "carrier",
-              "color": 28,
+              "color": 46,
               "hidden": false
-            }
-          ],
-          [
+            },
             {
               "type": "carrier",
-              "color": 28,
+              "color": 53,
               "hidden": true
             },
             {
@@ -30473,12 +30202,7 @@
             },
             {
               "type": "carrier",
-              "color": 53,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 43,
+              "color": 28,
               "hidden": true
             },
             {
@@ -30490,42 +30214,37 @@
               "type": "carrier",
               "color": 5,
               "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 46,
-              "hidden": true
             }
           ],
           [
             {
               "type": "carrier",
+              "color": 53,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
               "color": 43,
               "hidden": false
-            },
-            {
-              "type": "carrier",
-              "color": 53,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 53,
-              "hidden": true
             },
             {
               "type": "carrier",
               "color": 46,
-              "hidden": false
-            },
-            {
-              "type": "carrier",
-              "color": 53,
               "hidden": true
             },
             {
               "type": "carrier",
               "color": 43,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 53,
               "hidden": true
             },
             {
@@ -30536,7 +30255,15 @@
           ]
         ],
         "cols": 7,
-        "curveAnnotations": []
+        "curveAnnotations": [
+          {
+            "id": "pin-1777454984454-m9t27",
+            "stepStart": 9,
+            "stepEnd": 9,
+            "tag": "harder",
+            "note": ""
+          }
+        ]
       },
       {
         "name": "new-level-23-medium-v1",
@@ -30545,7 +30272,7 @@
           [
             {
               "type": "carrier",
-              "color": 53,
+              "color": 5,
               "hidden": false
             },
             {
@@ -30555,17 +30282,7 @@
             },
             {
               "type": "carrier",
-              "color": 46,
-              "hidden": false
-            },
-            {
-              "type": "carrier",
-              "color": 43,
-              "hidden": false
-            },
-            {
-              "type": "carrier",
-              "color": 43,
+              "color": 53,
               "hidden": false
             },
             {
@@ -30575,7 +30292,17 @@
             },
             {
               "type": "carrier",
-              "color": 26,
+              "color": 46,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 63,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 46,
               "hidden": false
             }
           ],
@@ -30584,10 +30311,10 @@
               "type": "garage",
               "queue": [
                 {
-                  "color": 53
+                  "color": 43
                 },
                 {
-                  "color": 26
+                  "color": 46
                 },
                 {
                   "color": 28
@@ -30598,18 +30325,91 @@
               "type": "wall"
             },
             {
+              "type": "garage",
+              "queue": [
+                {
+                  "color": 53
+                },
+                {
+                  "color": 63
+                },
+                {
+                  "color": 43
+                }
+              ]
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "garage",
+              "queue": [
+                {
+                  "color": 46
+                },
+                {
+                  "color": 5
+                },
+                {
+                  "color": 53
+                }
+              ]
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 28,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 26,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": true
+            },
+            {
               "type": "carrier",
               "color": 53,
               "hidden": false
             },
             {
               "type": "carrier",
-              "color": 43,
-              "hidden": false
+              "color": 63,
+              "hidden": true
             },
             {
               "type": "carrier",
-              "color": 43,
+              "color": 26,
+              "hidden": true
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 46,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 46,
               "hidden": true
             },
             {
@@ -30619,19 +30419,72 @@
             },
             {
               "type": "carrier",
-              "color": 26,
+              "color": 43,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            }
+          ]
+        ],
+        "curveAnnotations": []
+      },
+      {
+        "name": "new-level-23-easy-v1",
+        "difficulty": "easy",
+        "grid": [
+          [
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 63,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 28,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 46,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 5,
               "hidden": false
             }
           ],
           [
             {
               "type": "carrier",
-              "color": 5,
-              "hidden": true
+              "color": 26,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 46,
+              "color": 28,
               "hidden": false
             },
             {
@@ -30641,41 +30494,26 @@
             },
             {
               "type": "carrier",
+              "color": 26,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 63,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
               "color": 5,
               "hidden": false
             },
             {
               "type": "carrier",
-              "color": 43,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 63,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
               "color": 46,
-              "hidden": true
+              "hidden": false
             }
           ],
           [
-            {
-              "type": "carrier",
-              "color": 26,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 46,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 63,
-              "hidden": true
-            },
             {
               "type": "carrier",
               "color": 46,
@@ -30684,6 +30522,44 @@
             {
               "type": "carrier",
               "color": 28,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 46,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 53,
               "hidden": false
             },
             {
@@ -30693,18 +30569,100 @@
             },
             {
               "type": "wall"
+            },
+            null,
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 46,
+              "hidden": false
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 46,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 43,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
             }
           ]
         ],
         "curveAnnotations": []
       }
-    ],
-    "defaultComplexity": "hard"
+    ]
   },
   {
     "key": "new-level-31",
     "label": "Nový level",
-    "type": "medium",
+    "type": "hardcore",
     "image": {
       "source": "custom",
       "pixels": [
@@ -31776,7 +31734,7 @@
             },
             {
               "type": "carrier",
-              "color": 4,
+              "color": 6,
               "hidden": false
             },
             {
@@ -31842,13 +31800,12 @@
             },
             {
               "type": "carrier",
-              "color": 8,
-              "hidden": false
+              "color": 5,
+              "hidden": true
             },
             {
               "type": "carrier",
-              "color": 5,
-              "hidden": true
+              "color": 4
             }
           ],
           [
@@ -31869,7 +31826,7 @@
             },
             {
               "type": "carrier",
-              "color": 5,
+              "color": 10,
               "hidden": true
             },
             {
@@ -31881,20 +31838,26 @@
           [
             {
               "type": "carrier",
-              "color": 10,
+              "color": 5,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 8,
               "hidden": false
             },
             {
-              "type": "wall"
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "wall"
+              "type": "carrier",
+              "color": 6,
+              "hidden": false
             }
           ],
           [
@@ -31916,7 +31879,15 @@
           ]
         ],
         "cols": 5,
-        "curveAnnotations": []
+        "curveAnnotations": [
+          {
+            "id": "pin-1777370419131-yq3yi",
+            "stepStart": 5,
+            "stepEnd": 5,
+            "tag": "",
+            "note": ""
+          }
+        ]
       },
       {
         "name": "new-level-31-hard-v2",
@@ -32097,7 +32068,8 @@
               "type": "wall"
             }
           ]
-        ]
+        ],
+        "curveAnnotations": []
       },
       {
         "name": "new-level-31-easy-v1",
@@ -32106,123 +32078,183 @@
           [
             {
               "type": "carrier",
-              "color": 0
+              "color": 6,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 6
+              "color": 0,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 5
+              "color": 10,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 3
+              "color": 4,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 9
+              "color": 3,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 4
+              "color": 2,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 10
+              "color": 5,
+              "hidden": false
             }
           ],
           [
             {
               "type": "carrier",
-              "color": 10
+              "color": 10,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 2
+              "color": 3,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 6
+              "color": 8,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 3
+              "color": 5,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 8
+              "color": 0,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 5
+              "color": 9,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 0
+              "color": 6,
+              "hidden": false
             }
           ],
           [
             {
               "type": "carrier",
-              "color": 0
+              "color": 4,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 3
+              "color": 6,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 4
+              "color": 0,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 5
+              "color": 3,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 6
+              "color": 6,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 10
+              "color": 10,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 9
+              "color": 4,
+              "hidden": false
             }
           ],
           [
             {
-              "type": "carrier",
-              "color": 6
+              "type": "wall"
+            },
+            {
+              "type": "wall"
             },
             {
               "type": "carrier",
-              "color": 6
+              "color": 6,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 6
+              "color": 9,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 4
+              "color": 6,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 6
+              "color": 10,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 10
+              "color": 6,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
             },
             {
               "type": "carrier",
-              "color": 6
+              "color": 5,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": false
+            },
+            {
+              "type": "wall"
             }
           ]
+        ],
+        "curveAnnotations": [
+          {
+            "id": "pin-1777371132813-5lovo",
+            "stepStart": 14,
+            "stepEnd": 14,
+            "tag": "harder",
+            "note": ""
+          }
         ]
       },
       {
@@ -32377,9 +32409,2635 @@
               "hidden": false
             }
           ]
+        ],
+        "curveAnnotations": []
+      },
+      {
+        "name": "new-level-31-hard-v3",
+        "difficulty": "hard",
+        "grid": [
+          [
+            null,
+            null,
+            null,
+            null,
+            null,
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": false
+            },
+            null
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": true
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": true
+            },
+            null,
+            {
+              "type": "wall"
+            },
+            null,
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            null,
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            null,
+            null,
+            {
+              "type": "carrier",
+              "color": 2,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": true
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            }
+          ]
+        ],
+        "curveAnnotations": []
+      },
+      {
+        "name": "new-level-31-hard-v4",
+        "difficulty": "hard",
+        "grid": [
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": true
+            },
+            null,
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 2,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": true
+            }
+          ]
+        ],
+        "curveAnnotations": [
+          {
+            "id": "pin-1777383587694-qhnv5",
+            "stepStart": 3,
+            "stepEnd": 3,
+            "tag": "",
+            "note": ""
+          },
+          {
+            "id": "pin-1777383591993-v32lu",
+            "stepStart": 3,
+            "stepEnd": 3,
+            "tag": "",
+            "note": ""
+          },
+          {
+            "id": "pin-1777383594161-4dmaz",
+            "stepStart": 3,
+            "stepEnd": 3,
+            "tag": "easier",
+            "note": ""
+          }
         ]
+      },
+      {
+        "name": "new-level-31-hard-v5",
+        "difficulty": "hard",
+        "grid": [
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": true
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 2,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": false
+            },
+            null
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "garage",
+              "queue": [
+                {
+                  "color": 10
+                },
+                {
+                  "color": 6
+                },
+                {
+                  "color": 6
+                },
+                {
+                  "color": 5
+                }
+              ]
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "garage",
+              "queue": [
+                {
+                  "color": 6
+                },
+                {
+                  "color": 5
+                },
+                {
+                  "color": 6
+                },
+                {
+                  "color": 6
+                }
+              ]
+            }
+          ]
+        ],
+        "curveAnnotations": [
+          {
+            "id": "pin-1777465321877-e69u1",
+            "stepStart": 3,
+            "stepEnd": 3,
+            "tag": "easier",
+            "note": ""
+          },
+          {
+            "id": "pin-1777465497316-5ipi3",
+            "stepStart": 9,
+            "stepEnd": 9,
+            "tag": "easier",
+            "note": ""
+          }
+        ]
+      },
+      {
+        "name": "new-level-31-hard-v6",
+        "difficulty": "hard",
+        "grid": [
+          [
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 6,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 2,
+              "hidden": false
+            },
+            {
+              "type": "garage",
+              "queue": [
+                {
+                  "color": 6
+                },
+                {
+                  "color": 5
+                },
+                {
+                  "color": 6
+                },
+                {
+                  "color": 6
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "garage",
+              "queue": [
+                {
+                  "color": 10
+                },
+                {
+                  "color": 6
+                },
+                {
+                  "color": 6
+                },
+                {
+                  "color": 5
+                }
+              ]
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": false
+            },
+            null
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            }
+          ]
+        ],
+        "curveAnnotations": []
       }
     ],
-    "defaultComplexity": "hard"
+    "defaultComplexity": "easy"
+  },
+  {
+    "key": "new-level-32",
+    "label": "Nový level",
+    "type": "relaxing",
+    "image": {
+      "source": "custom",
+      "pixels": [
+        [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        [
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        [
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        [
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11
+        ],
+        [
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11
+        ],
+        [
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11
+        ],
+        [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        [
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7
+        ],
+        [
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7
+        ],
+        [
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7
+        ],
+        [
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8
+        ],
+        [
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8
+        ],
+        [
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8
+        ],
+        [
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9
+        ],
+        [
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9
+        ],
+        [
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9
+        ],
+        [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        [
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1
+        ]
+      ]
+    },
+    "activePalette": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+    ],
+    "blocks": [],
+    "rocketTargets": null,
+    "garage": "multi",
+    "carrierLayouts": [
+      {
+        "name": "new-level-32-easy-v1",
+        "difficulty": "easy",
+        "grid": [
+          [
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 11,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 11,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 11,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": false
+            }
+          ]
+        ],
+        "curveAnnotations": []
+      },
+      {
+        "name": "new-level-32-medium-v1",
+        "difficulty": "medium",
+        "grid": [
+          [
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 11,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": true
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 11,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 11,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            }
+          ]
+        ],
+        "curveAnnotations": []
+      },
+      {
+        "name": "new-level-32-hard-v1",
+        "difficulty": "hard",
+        "grid": [
+          [
+            null,
+            null,
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            null,
+            null,
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": false
+            },
+            null
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            null,
+            null,
+            {
+              "type": "wall"
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": false
+            },
+            null,
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 11,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            null,
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 11,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 11,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": true
+            }
+          ]
+        ],
+        "curveAnnotations": []
+      },
+      {
+        "name": "new-level-32-hard-v2",
+        "difficulty": "hard",
+        "grid": [
+          [
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            null,
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": true
+            },
+            null,
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 11,
+              "hidden": true
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 11,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 3,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 0,
+              "hidden": true
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 11,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 10,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 9,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 5,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 8,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 4,
+              "hidden": true
+            }
+          ]
+        ],
+        "curveAnnotations": []
+      }
+    ]
   }
 ]
