@@ -470,9 +470,11 @@ body.renderer-3d #image-area canvas {
   width: 420px !important;
   height: 362px !important;
 }
+/* V 3D módu skrýt textové labels (uživatel nechce decoration). */
+body.renderer-3d #belt-label,
 body.renderer-3d #pending-label,
 body.renderer-3d #carriers-label {
-  color: rgba(255, 220, 235, 0.65);
+  display: none;
 }
 
 /* Carriers: zachovat jejich vlastní dark inset look (cbox má svoje box-shadow),

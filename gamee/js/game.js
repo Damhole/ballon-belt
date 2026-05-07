@@ -5879,8 +5879,16 @@ function drawPending(){
   if(!pendingCtx)pendingCtx=canvas.getContext('2d');
   const ctx=pendingCtx;
   ctx.clearRect(0,0,FUN.w,FUN.h);
-  // Stěny trychtýře – široko dole (u nosičů), úzko nahoře (u pásu)
-  ctx.strokeStyle='rgba(180,190,210,0.6)';
+  // Stěny trychtýře – v 3D módu match s theme BG color (--bg-3d-top), aby
+  // diagonály splývaly s prostředím. Ve 2D módu zůstává původní šedá.
+  let funnelStroke='rgba(180,190,210,0.6)';
+  if(RENDERER_MODE==='3d'){
+    try {
+      const v=getComputedStyle(document.body).getPropertyValue('--bg-3d-top').trim();
+      if(v) funnelStroke=v;
+    } catch(_e){}
+  }
+  ctx.strokeStyle=funnelStroke;
   ctx.lineWidth=2;
   ctx.lineCap='round';
   ctx.beginPath();
