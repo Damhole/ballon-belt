@@ -376,31 +376,56 @@ body.renderer-3d #belt-wrap {
   box-shadow: none;
 }
 
-/* PENDING + CARRIERS — sjednocené v jeden continuous panel (single-width).
-   Bezešvý join přes negative margin, selective rounded corners + shadows. */
-body.renderer-3d #pending-wrap,
-body.renderer-3d #carriers-wrap {
+/* PENDING + CARRIERS — sjednocené ve tvaru trychtýře (funnel).
+   Wrapper #bottom-deck (vytvořený JSem) obaluje pending+carriers jako jeden
+   shape. Clip-path tvoří trapezoidní taper: wider top (extending out 30px
+   each side), narrowing to carriers width below pending area. */
+body.renderer-3d #bottom-deck {
   background: var(--carriers-3d-bg);
-}
-body.renderer-3d #pending-wrap {
-  border-radius: 18px 18px 0 0;
-  padding: 10px 8px 4px;
+  width: 420px;
+  margin-left: auto;
+  margin-right: auto;
+  align-self: center;
+  /* Trapezoid funnel: top wider (420px), tapers k 360px about pending+carriers
+     join point (cca 100px from top), pak 360px down. */
+  clip-path: polygon(
+    /* TOP — 420px wide */
+    14px 0,
+    406px 0,
+    420px 14px,
+    /* TAPER on right side — diagonál od (420, ~100) k (390, ~120) — narrowing */
+    420px 90px,
+    390px 110px,
+    /* BOTTOM right — at 390 (corresponds to 360px wide carriers + 30px offset) */
+    390px calc(100% - 14px),
+    376px 100%,
+    /* BOTTOM left mirror */
+    44px 100%,
+    30px calc(100% - 14px),
+    /* TAPER on left side */
+    30px 110px,
+    0 90px,
+    /* TOP-LEFT */
+    0 14px
+  );
   box-shadow:
     inset 0 6px 14px rgba(0, 0, 0, 0.50),
-    inset 5px 0 10px rgba(0, 0, 0, 0.28),
-    inset -5px 0 10px rgba(0, 0, 0, 0.28),
+    inset 6px 0 12px rgba(0, 0, 0, 0.30),
+    inset -6px 0 12px rgba(0, 0, 0, 0.30),
+    inset 0 -6px 12px rgba(0, 0, 0, 0.45),
     inset 0 1px 0 var(--carriers-3d-rim);
 }
-body.renderer-3d #carriers-wrap {
-  border-radius: 0 0 18px 18px;
-  margin-top: -10px;
-  padding: 4px 10px 18px;
-  box-shadow:
-    inset 5px 0 10px rgba(0, 0, 0, 0.28),
-    inset -5px 0 10px rgba(0, 0, 0, 0.28),
-    inset 0 -6px 12px rgba(0, 0, 0, 0.45),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+/* Inner panely transparentní — wrapper drží podklad + shape */
+body.renderer-3d #bottom-deck #pending-wrap,
+body.renderer-3d #bottom-deck #carriers-wrap {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  margin: 0;
+  width: auto;
 }
+body.renderer-3d #bottom-deck #pending-wrap { padding: 12px 30px 4px; }
+body.renderer-3d #bottom-deck #carriers-wrap { padding: 4px 30px 16px; }
 body.renderer-3d #pending-label,
 body.renderer-3d #carriers-label {
   color: rgba(255, 220, 235, 0.65);

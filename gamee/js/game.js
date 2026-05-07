@@ -91,6 +91,21 @@ function _applyBodyClasses(){
   // Pink je default v :root, takže žádnou class nepřidáváme. Ostatní témata mají vlastní class.
   if (_INITIAL_THEME !== 'pink') document.body.classList.add('theme-' + _INITIAL_THEME);
 }
+
+// V 3D módu wrapneme #pending-wrap + #carriers-wrap do parent #bottom-deck.
+// To umožní jeden clip-path na celý spodní panel (funnel/trychtýř shape).
+function _wrapBottomDeck(){
+  if (RENDERER_MODE !== '3d') return;
+  const pending = document.getElementById('pending-wrap');
+  const carriers = document.getElementById('carriers-wrap');
+  if (!pending || !carriers || pending.parentElement?.id === 'bottom-deck') return;
+  const parent = pending.parentElement;
+  const deck = document.createElement('div');
+  deck.id = 'bottom-deck';
+  parent.insertBefore(deck, pending);
+  deck.appendChild(pending);
+  deck.appendChild(carriers);
+}
 function _wireThemeSelect(){
   if (RENDERER_MODE !== '3d') return;
   const grp = document.getElementById('theme-group');
@@ -106,6 +121,7 @@ function _wireThemeSelect(){
 if (document.body) _applyBodyClasses();
 else document.addEventListener('DOMContentLoaded', _applyBodyClasses);
 document.addEventListener('DOMContentLoaded', _wireThemeSelect);
+document.addEventListener('DOMContentLoaded', _wrapBottomDeck);
 
 // Hot-swap theme za běhu — pro rychlé porovnání bez reloadu page.
 // Volání: window.setTheme('ocean') v DevTools console.
