@@ -433,8 +433,17 @@ body.renderer-3d #bottom-deck #carriers-wrap {
   width: auto;
 }
 body.renderer-3d #bottom-deck #pending-wrap { padding: 12px 30px 4px; }
-/* Carriers padding 40px each side → grid sedí v 420px panelu s 20px gap od stěn */
-body.renderer-3d #bottom-deck #carriers-wrap { padding: 4px 40px 22px; }
+/* Carriers padding 10px each side → grid sedí v 420px panelu těsně u zdí */
+body.renderer-3d #bottom-deck #carriers-wrap { padding: 4px 10px 22px; }
+/* Carriers cells větší (54px) → grid 7×54 + 6×4gap = 378+24 = 402px ≈ 400px */
+body.renderer-3d .cbox,
+body.renderer-3d .cbox-hid,
+body.renderer-3d .carrier.empty,
+body.renderer-3d .carrier.empty.wall {
+  width: 54px;
+  height: 54px;
+}
+body.renderer-3d #carriers-grid { gap: 4px; }
 
 /* IMAGE AREA scaled to match bottom-deck width (420px) → vertikálně líce.
    Three.js canvas resolution se nezmění (360x310 internal), CSS stretch
@@ -443,17 +452,9 @@ body.renderer-3d #image-area {
   width: 420px;
   height: 362px;
 }
-body.renderer-3d #pixel-canvas {
-  width: 420px;
-  height: 362px;
-}
-body.renderer-3d #three-canvas,
-body.renderer-3d #block-overlay-canvas {
-  width: 420px !important;
-  height: 362px !important;
-}
-/* Particle canvas (vytvořený JS dynamically, má inline style) */
-body.renderer-3d #image-area > canvas[style*="z-index:2"] {
+/* Všechny canvasy uvnitř image area se scalují na full size (přebije
+   inline width/height přes !important — particle-canvas má inline z game.js). */
+body.renderer-3d #image-area canvas {
   width: 420px !important;
   height: 362px !important;
 }
