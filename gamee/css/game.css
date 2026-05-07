@@ -105,33 +105,32 @@ body.theme-mystery {
   --frame-3d-rim:     rgba(180, 140, 240, 0.32);
 }
 
-/* NEON — cyberpunk dark BG s electric accents. Magenta/cyan glow rims.
-   Nejkrásnější s ?style=neon pixely (emissive glow). */
+/* NEON — cyberpunk dark BG. Outlines černé pro silnou definici hran,
+   ambient glow drží neon vibe ale méně dramaticky.
+   Nejkrásnější s ?style=neon pixely (emissive glow z pixelů samotných). */
 body.theme-neon {
   --bg-3d-top:        #0c1530;
   --bg-3d-bottom:     #030610;
   --image-3d-bg:      #020414;
-  --image-3d-outline: rgba(0, 220, 255, 0.45);
+  --image-3d-outline: rgba(0, 0, 0, 0.85);
   --carriers-3d-bg:   #060a1c;
-  --carriers-3d-rim:  rgba(255, 60, 200, 0.35);
-  --frame-3d-shadow:  rgba(0, 0, 0, 0.70);
-  --frame-3d-rim:     rgba(0, 240, 255, 0.30);
+  --carriers-3d-rim:  rgba(0, 0, 0, 0.55);
+  --frame-3d-shadow:  rgba(0, 0, 0, 0.85);
+  --frame-3d-rim:     rgba(255, 255, 255, 0.10);
 }
-/* Neon má cyan/magenta glow accenty na klíčových rámech */
+/* Neon panels mají hluboké black shadow místo barevné glow — outline-first design */
 body.theme-neon #image-area {
   box-shadow:
-    0 0 16px rgba(0, 220, 255, 0.35),
-    0 12px 32px rgba(0, 0, 0, 0.70),
-    0 3px 6px rgba(0, 0, 0, 0.30),
-    inset 0 2px 4px rgba(0, 220, 255, 0.10);
+    0 12px 36px rgba(0, 0, 0, 0.80),
+    0 4px 8px rgba(0, 0, 0, 0.50),
+    inset 0 2px 4px rgba(0, 0, 0, 0.60);
 }
 body.theme-neon #pending-wrap,
 body.theme-neon #carriers-wrap {
   box-shadow:
-    0 0 12px rgba(255, 60, 200, 0.25),
-    0 8px 22px rgba(0, 0, 0, 0.70),
-    inset 0 1px 0 var(--carriers-3d-rim),
-    inset 0 -2px 6px rgba(0, 0, 0, 0.40);
+    0 8px 24px rgba(0, 0, 0, 0.80),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.60);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {

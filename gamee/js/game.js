@@ -56,16 +56,20 @@ const RENDERER_MODE = (function(){
 // celé environment styly (pink BG, soft shadows, rounded frames). Stane se
 // jakmile body existuje (může to být před DOMContentLoaded pokud jsme inline).
 //
-// Plus optional ?theme=X (pink|ocean|sunset|forest|lavender|mono-dark|mono-light).
+// Plus optional ?theme=X (pink|ocean|sunset|forest|lavender|mono-dark|mystery|neon).
 // Default = pink (žádný extra class). Theme class se přidá k body společně
 // s renderer-3d. Hot-swap přes window.setTheme('ocean') v konzoli.
+//
+// Priorita volby: URL ?theme= (explicitní pro tuto session, vyhrává) →
+// localStorage (persisted preference) → 'pink' (default).
 const _THEMES = ['pink','ocean','sunset','forest','lavender','mono-dark','mystery','neon'];
-const _THEME = (function(){
+const _THEME_FROM_URL = (function(){
   try {
     const t = new URLSearchParams(location.search).get('theme');
-    return _THEMES.includes(t) ? t : 'pink';
-  } catch (_e) { return 'pink'; }
+    return _THEMES.includes(t) ? t : null;
+  } catch (_e) { return null; }
 })();
+const _THEME = _THEME_FROM_URL || 'pink'; // (URL nebo default; storage vyřešíme níže)
 // Z localStorage si pamatujeme poslední volbu (přebije URL ?theme=, pokud
 // je rozdílná). Designerovi se po reloadu vrátí jeho stálá preference.
 function _loadStoredTheme(){
@@ -78,7 +82,8 @@ function _persistTheme(name){
   try { localStorage.setItem('bb-theme-3d', name); } catch (_e) {}
 }
 
-const _INITIAL_THEME = _loadStoredTheme() || _THEME;
+// Priorita: URL > localStorage > default 'pink'.
+const _INITIAL_THEME = _THEME_FROM_URL || _loadStoredTheme() || 'pink';
 
 function _applyBodyClasses(){
   if (!document.body) return;
