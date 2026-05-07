@@ -16,7 +16,7 @@
   --frame-3d-bg:      #ee9bb1;  /* podklad pro panely — sjednocený s BG */
   --frame-3d-shadow:  rgba(60, 20, 50, 0.35);
   --frame-3d-rim:     rgba(255, 220, 230, 0.50);
-  --image-3d-bg:      #c87490;  /* image area podklad — tmavší pink, vidí se v pixel mezerách + ground shadow */
+  --image-3d-bg:      #6a2f4d;  /* image area podklad — deep plum, výrazný kontrast s pink BG */
   --carriers-3d-bg:   #4d2d6e;  /* deep purple pod carriers (match reference) */
   --carriers-3d-rim:  rgba(255, 200, 220, 0.18);
 }
