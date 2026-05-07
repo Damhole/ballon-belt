@@ -57,6 +57,10 @@ const st = {
   // Carrier-fire animace — Map<id, {t0, x, y, w, h, hex, n}>
   carrierAnim:    new Map(),
   _carrierAnimId: 0,
+  // Inactive→active pop anim: Map<carrierKey "c,r", t0>
+  carrierPopAnim: new Map(),
+  // Cache active state per carrier pro detekci přechodu inactive→active
+  carrierActiveCache: new Map(),
   // Tilt struktura: pivot (centerO) → tiltGroup (rotace -TILT_RAD okolo X) → contentGroup (posun zpět)
   pivot:        null,
   tiltGroup:    null,
@@ -441,6 +445,34 @@ function updateCarriers(columns, colorsArr) {
       const cbox = slotDivs[r].querySelector('.cbox');
       if (!cbox) continue;
 
+      // Active vs inactive — inactive carrier je menší (scale 0.78) bez koulí.
+      // Při přechodu inactive→active spustíme pop anim (overshoot scale).
+      const isActive = slotDivs[r].classList.contains('active');
+      const carrierKey = c + ',' + r;
+      const prevActive = st.carrierActiveCache.get(carrierKey);
+      if (prevActive === false && isActive) {
+        st.carrierPopAnim.set(carrierKey, performance.now());
+      }
+      st.carrierActiveCache.set(carrierKey, isActive);
+
+      // Compute scale: inactive=0.78, active=1.0, pop anim přidává overshoot křivku
+      let slotScale = isActive ? 1.0 : 0.78;
+      const popT0 = st.carrierPopAnim.get(carrierKey);
+      if (popT0 !== undefined) {
+        const popT = (performance.now() - popT0) / 1000;
+        if (popT >= 0.30) {
+          st.carrierPopAnim.delete(carrierKey);
+        } else if (popT < 0.15) {
+          // Fáze 1: 0.78 → 1.15 (ease-out)
+          const t = popT / 0.15;
+          slotScale = 0.78 + (1.15 - 0.78) * (1 - Math.pow(1 - t, 2));
+        } else {
+          // Fáze 2: 1.15 → 1.0 (settle)
+          const t = (popT - 0.15) / 0.15;
+          slotScale = 1.15 - (1.15 - 1.0) * (1 - Math.pow(1 - t, 2));
+        }
+      }
+
       const cr = cbox.getBoundingClientRect();
       // Střed cboxu v souřadnicích canvasu
       const xCSS = cr.left + cr.width  / 2 - canvasRect.left;
@@ -448,10 +480,10 @@ function updateCarriers(columns, colorsArr) {
       const xW   = xCSS;
       const yW   = _worldY(yCSS);
 
-      // Barva slotu (koule mají tutéž barvu) — čistá barva, žádné liftování.
-      // Černá = černá jako pixely v image-area. Outline + tilt drží 3D čitelnost.
+      // Barva slotu — inactive je desaturovaný (× 0.55).
       const hexColor = colorsArr ? colorsArr[slot.color] : '#888888';
       c3.set(_hex(hexColor));
+      if (!isActive) c3.multiplyScalar(0.55);
       // Slot box: lehce ztlumený (× 0.85) → koule vystupují přes outline.
       cSlot.copy(c3).multiplyScalar(0.85);
 
@@ -460,16 +492,20 @@ function updateCarriers(columns, colorsArr) {
         // Slot vystředěný v Z=0; horní face je Z = SLOT_DEPTH/2
         dummy.position.set(xW, yW, 0);
         dummy.rotation.set(0, 0, 0);
-        dummy.scale.set(1, 1, 1);
+        dummy.scale.set(slotScale, slotScale, slotScale);
         dummy.updateMatrix();
         st.carrierSlotMesh.setMatrixAt(slotIdx, dummy.matrix);
         st.carrierSlotMesh.setColorAt(slotIdx, cSlot);
         // Outline (slightly larger)
-        dummy.scale.set(OUTLINE_SCALE_SLOT, OUTLINE_SCALE_SLOT, OUTLINE_SCALE_SLOT);
+        const oS = slotScale * OUTLINE_SCALE_SLOT;
+        dummy.scale.set(oS, oS, oS);
         dummy.updateMatrix();
         st.carrierSlotOutlineMesh.setMatrixAt(slotIdx, dummy.matrix);
         slotIdx++;
       }
+
+      // Inactive carrier nemá koule — jen menší shell.
+      if (!isActive) continue;
 
       // Rozložení koulí: max 4 v 2×2 mřížce uvnitř slotu
       // Posuneme koule z trochu nad horní face slotu (Z = SLOT_DEPTH/2 + R_CARRIER*0.2)
@@ -488,13 +524,14 @@ function updateCarriers(columns, colorsArr) {
           if (bi >= filled) break outer;
           bi++;
 
-          dummy.position.set(xW + offX[col2], yW + offY[1 - row], ballZ);
-          dummy.scale.set(1, 1, 1);
+          dummy.position.set(xW + offX[col2] * slotScale, yW + offY[1 - row] * slotScale, ballZ);
+          dummy.scale.set(slotScale, slotScale, slotScale);
           dummy.updateMatrix();
           st.carrierMesh.setMatrixAt(ballIdx, dummy.matrix);
           st.carrierMesh.setColorAt(ballIdx, c3);
           // Outline
-          dummy.scale.set(OUTLINE_SCALE_BALL, OUTLINE_SCALE_BALL, OUTLINE_SCALE_BALL);
+          const oB = slotScale * OUTLINE_SCALE_BALL;
+          dummy.scale.set(oB, oB, oB);
           dummy.updateMatrix();
           st.carrierOutlineMesh.setMatrixAt(ballIdx, dummy.matrix);
           ballIdx++;
@@ -611,7 +648,7 @@ function triggerCarrierFire(col, row, hexColor, fillCount, canvasX, canvasY, cbo
 }
 
 function _hasActiveCarrierAnim() {
-  return st.carrierAnim && st.carrierAnim.size > 0;
+  return (st.carrierAnim && st.carrierAnim.size > 0) || (st.carrierPopAnim && st.carrierPopAnim.size > 0);
 }
 
 // Helper: převede canvasY v souřadnicích bottom3d-canvas → FUN.y
