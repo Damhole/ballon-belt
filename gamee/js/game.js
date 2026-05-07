@@ -6009,7 +6009,17 @@ function checkAndWarnAmmoDeficit(){
   const audit=computeAmmoAudit();
   renderAmmoAudit(audit);
   const short=audit.rows.filter(r=>r.diff>0);
-  if(!short.length) return false;
+  if(!short.length){
+    // FIX: clear stale „⚠ Nedostatek" text. Auditní check běží každou 1s
+    // (window._ammoAuditTimer), ale dříve setStatus() voláno JEN při deficitu.
+    // Při startu levelu race condition zobrazila warning, který zůstal i když
+    // se audit už srovnal. Teď ho aktivně mažeme když deficit zmizí.
+    const stat=document.getElementById('status');
+    if(stat && stat.textContent && stat.textContent.indexOf('Nedostatek')!==-1){
+      setStatus('Klikni na aktivní nosič');
+    }
+    return false;
+  }
   const parts=short.map(r=>'#'+r.c+' '+r.have+'/'+r.need);
   setStatus('⚠ Nedostatek ('+parts.join(', ')+') · celkem '+audit.totalHave+'/'+audit.totalNeed);
   console.warn('[BB] ammo audit', audit);
