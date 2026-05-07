@@ -20,7 +20,7 @@
   --frame-3d-rim:     rgba(255, 220, 230, 0.50);
   --image-3d-bg:      #6a2f4d;
   --image-3d-outline: rgba(0, 0, 0, 0.70);
-  --carriers-3d-bg:   #4d2d6e;
+  --carriers-3d-bg:   #6a2f4d;   /* MATCH s image-3d-bg — sjednocená navy/plum plocha */
   --carriers-3d-rim:  rgba(255, 200, 220, 0.18);
 }
 
