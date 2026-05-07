@@ -599,6 +599,32 @@ _Sem házej všechno, co tě napadne. Při příští session to společně rozt
 
 _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme)_
 
+### 🎯 Další session — 3D koule v carriers + provizorní 3D pás
+
+**Kontext:** 2.5D upgrade má hotové: 3D pixely, 3D bloky, 3D projektily (létající balónky), pixel destruction shards, theme system (10 variant), funnel shape pending+carriers, all polished s inset shadows + outlines + lighting boost. Carriers jsou ale POŘÁD CSS DOM (4 "balls" v gridu) a belt je SVG. Balónky padají z carriers na belt — momentálně transition není 3D animovaný, jen logický.
+
+**Cíle:**
+
+1. **3D koule v carriers** — místo CSS `border-radius:50%` divů použít 3D sphere mesh per ball v carrier slot. Když carrier vystřelí (klikem), spheres se vytrousí z nosiče dolů a zvalí na pás (gravity-driven 3D animace).
+   - Implementace: nový `state.carrierBallMesh` InstancedMesh nebo per-cbox individual sphere instances
+   - Track ball state per carrier slot — when carrier active, balls visible; when fired, animate fall
+   - Falling animation: drop with gravity + roll sideways onto belt position
+   - Carriers DOM zůstává pro layout/clicks, jen visual balls inside přejdou do 3D scéna
+   - Challenge: carriers jsou v DOM grid (nikoli ve Three.js scéně) → need overlay 3D canvas above carriers section, OR move carriers entirely into 3D scene
+   
+2. **Provizorní 3D pás (belt)** — nahradit současný SVG belt 3D mesh (cylinders na koncích + flat plane mezi nimi). Pásek může být animated UV-scrolled texture nebo just kinematic plane. Rolling balls na pásku (ball physics or kinematic positions).
+   - Implementace: nový `state.beltGroup` v Three.js scéně nebo separate WebGL canvas
+   - Belt geometry: 2× CylinderGeometry (rollers) + connecting plane
+   - Balls on belt: SphereGeometry instances scrolling left → right
+   - Sync s game state (belt[] array v game.js)
+
+**Otevřené otázky pro další session:**
+- Kde zařadit Three.js scéna pro carriers + belt? Existující three-canvas (image area) nebo nový canvas?
+- Jak řešit carriers click handling když přejde do 3D? Raycaster?
+- Ball physics realtime (Cannon.js mini) nebo kinematic (just position interpolate)?
+
+**Předpoklady:** Tohle je provizorní pre-cannon work. Až user dodá `cannon.glb`, integrujeme všechno do unified 3D scéna.
+
 - **Difficulty Curve Editor — Úroveň 1.5 (Replay & Scrub)** — Úr. 1 hotová (v63):
   multi-curve panel + piny + crosshair tooltip. Teď přidáme: `(c, r)` carrieru +
   pixel diff per krok do testeru, mini canvas (carrier grid + image grid) pod
@@ -617,6 +643,7 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
+| v70 batch 5: pixel destruction efekty (3D shards system) — 4 destroy módy: `shatter` (default, 6 cube fragmenty s gravitou + bounce off ground, life 280 ms), `collapse` (1 shard scaling 1.0→0 in place, life 120 ms), `combo` (collapse + 4 menší shards současně), `none`. Switch přes ?destroy=X URL nebo `window.render3d.setDestroyMode()` console hot-swap. State.shards array + InstancedMesh BoxGeometry shared bevel texture s pixely (mini verze pixelu). updateAnimations(dt) volá z beltLoop každý frame přes _animDt vypočítaný PŘED lastBeltTime reset (běží i pri paused). triggerPixelDestroy(gx,gy,hex) hook v game.js:1196,1352 PŘED grid mutation. MAX_SHARDS=280 FIFO pool. Performance <0.5ms per frame InstancedMesh 1 draw call. 2D pop shards + ring (spawnPopShards) běží PARALELNĚ v 3D módu (user chce kombinaci, vrstvený effect). Speed iterace: collapse 220→120 ms, shatter 550→280 ms, vyšší speed/vRot pro punchier feel. | `4957e73` | 2026-05-07 |
 | v70 batch 4: trychtýř shape + carriers polish + theme V-lines + hide labels — `#bottom-deck` wrapper kolem pending+carriers (přes JS), clip-path polygon vytváří funnel/trychtýř (narrow top „spice" 220px, expand outward k full 420px width carriers, rounded outer corners přes interpolated polygon points). Image area scaled 360×310 → 420×362 CSS (vertikálně lícuje s bottom-deck, all canvases `!important`-overriden inline width/height). Carriers grid cells 48 → 54px, panel padding na 10px each side, balls override JS hardcoded `max-width:18` na 26px + cbox padding/gap reduced (víc prostoru). V-lines v `drawPending` čtou `--bg-3d-top` CSS variable → splývají s theme BG color (každé téma mu pinky/blue/atd lines). Hide #belt-label/#pending-label/#carriers-label v 3D mode (clean look bez decoration textů). | `eed1941` | 2026-05-07 |
 | v70 batch 3: theme system (10 variant) + UI switcher + inset panely + lighting boost + image outline — pink (default, Blender ref match), ocean, sunset, forest, lavender, mono-dark, mystery (gothic deep purple), neon (cyber dark s black outlines), experiment (vintage terracotta + faded navy), experiment2 (lavender BG + sunflower yellow panel). UI: select dropdown vedle COMPLEXITY (jen 3D), localStorage persist, hot-swap přes `window.setTheme()`. URL ?theme= override priority. Image area dostal black 2px outline (theme-aware). Panely (image-area, pending, carriers) inset shadows místo levitace nad BG. Lighting boost: HemisphereLight 1.85 + DirectionalLight 1.55 → pixely svítivější. Carriers BG sjednocen s image-area (jeden continuous panel přes negative margin). Outline na všech tématech `rgba(0,0,0,0.70)` sjednocené. | `eed1941` | 2026-05-07 |
 | v70 batch 2: Fáze 2 (3D bloky) + Fáze 4 (3D projektily) + 6 style presets + iterace pixelů — bloky jako InstancedMesh BoxGeometry (BLOCK_DEPTH=32, BLOCK_INSET=1.0 → celistvé walls, ne per-cell mřížka). HP overlay canvas (z-index:3, separate canvas) s tilt-corrected positioning (FULL_DEPTH pro outline na top face). Block silhouette outline tracing (lines per cell edge na block boundary). Projektily: InstancedMesh SphereGeometry (low-poly 12×8), per-instance color, MeshLambertMaterial, blob shadows. 6 style presets pro pixel material: default/glossy/toon/neon/matte/metal (procedurální CanvasTexture, hot-swap). Pixel iterace: tilt 19.2° (Blender Camera.010 X rotation match), variable height (3 tiers 1.0/1.3/1.5, 90/8/2 % distribution), PIXEL_DEPTH 18, INSET 0.98 (vlasový gap), bevel symetrický edge bevels. Real-time directional shadows (PCFSoftShadowMap, 512×512 mapsize, normalBias=0.05 — žádný gap mezi cube a shadow). | `5850714` | 2026-05-07 |
