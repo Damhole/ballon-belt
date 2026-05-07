@@ -517,11 +517,11 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
   const spawnCollapse = () => {
     state.shards.push({
       x: wx, y: wy, z: PIXEL_LIFT,
-      vx: 0, vy: 0, vz: -8,
+      vx: 0, vy: 0, vz: -12,
       rot: 0, vRot: 0,
       scaleStart: 1.0,
       scaleEnd: 0.0,
-      t: 0, life: 0.22,
+      t: 0, life: 0.12,           // rychlejší zhroucení (220 → 120ms)
       color: color.clone(), gravity: false,
     });
   };
@@ -529,17 +529,17 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
   const spawnShatter = (count, speedMul = 1.0, scaleMul = 1.0) => {
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
-      const speed = (35 + Math.random() * 45) * speedMul;
+      const speed = (50 + Math.random() * 60) * speedMul;  // rychlejší výlet (35-80 → 50-110)
       state.shards.push({
         x: wx, y: wy, z: PIXEL_LIFT * 1.1,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed * 0.35,
-        vz: (55 + Math.random() * 70) * speedMul,
+        vz: (75 + Math.random() * 90) * speedMul,           // vyšší vz (55-125 → 75-165)
         rot: Math.random() * Math.PI * 2,
-        vRot: (Math.random() - 0.5) * 12,
+        vRot: (Math.random() - 0.5) * 16,
         scaleStart: 0.45 * scaleMul,
         scaleEnd: 0.18 * scaleMul,
-        t: 0, life: 0.55,
+        t: 0, life: 0.28,           // rychlejší fade (550 → 280ms)
         color: color.clone(), gravity: true,
       });
     }
