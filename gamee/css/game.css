@@ -106,17 +106,17 @@ body.theme-experiment {
   --frame-3d-rim:     rgba(255, 230, 200, 0.50);
 }
 
-/* EXPERIMENT2 — synthwave/anime: vivid pink + magenta + deep purple-navy +
-   teal accent. Inspirace cyberpunk illustration. Druhý testovací slot. */
+/* EXPERIMENT2 — synthwave/anime: dusty purple BG + deep plum panel +
+   calm pink/teal accents. Klidnější, méně saturovaná verze. */
 body.theme-experiment2 {
-  --bg-3d-top:        #ee82b5;   /* vivid hot pink horní */
-  --bg-3d-bottom:     #b8489a;   /* hluboká magenta dole */
-  --image-3d-bg:      #2a2658;   /* deep purple-navy (anime night) */
-  --image-3d-outline: rgba(15, 12, 40, 0.70);
-  --carriers-3d-bg:   #2a2658;   /* MATCH s image area */
-  --carriers-3d-rim:  rgba(80, 220, 230, 0.28);  /* teal/cyan accent rim */
-  --frame-3d-shadow:  rgba(50, 15, 60, 0.45);
-  --frame-3d-rim:     rgba(255, 210, 235, 0.48);
+  --bg-3d-top:        #ad94c2;   /* dusty soft lavender (méně saturace) */
+  --bg-3d-bottom:     #826995;   /* muted purple dole */
+  --image-3d-bg:      #2e2748;   /* dark plum-navy (jednolitý panel) */
+  --image-3d-outline: rgba(15, 10, 30, 0.65);
+  --carriers-3d-bg:   #2e2748;   /* MATCH s image area */
+  --carriers-3d-rim:  rgba(200, 165, 195, 0.22);  /* calm pink rim */
+  --frame-3d-shadow:  rgba(40, 15, 50, 0.40);
+  --frame-3d-rim:     rgba(225, 200, 220, 0.42);
 }
 
 /* MYSTERY — temný mystický vibe. Hluboké fialovo-modré tóny, jako noc před
