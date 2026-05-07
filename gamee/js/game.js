@@ -5733,7 +5733,16 @@ function onCarrierClick(e){
   // Per-ball offsety: 4 balls v 2×2 grid kopírují pozice koulí v carrier (TL, TR, BL, BR)
   // Order matchuje render3d_bottom updateCarriers carrier ball loop.
   const _ballOff=[[-0.21,-0.21],[0.21,-0.21],[-0.21,0.21],[0.21,0.21]];
-  // Tilt animace dočasně vypnuta — způsobovala stale dummy state interference
+  // Trigger 3D carrier-fire animaci (lift+tilt prázdného slotu) — jen SHELL,
+  // bez ghost koulí (ty mají zmizet úplně, balls už jsou v pending).
+  if(RENDERER_MODE==='3d'&&window.render3dBottom&&window.render3dBottom.triggerCarrierFire&&cbox){
+    const canvas3d=document.getElementById('bottom3d-canvas');
+    if(canvas3d){
+      const cR=cbox.getBoundingClientRect(),cv=canvas3d.getBoundingClientRect();
+      window.render3dBottom.triggerCarrierFire(c,r,COLORS[slot.color],0,
+        cR.left+cR.width/2-cv.left,cR.top+cR.height/2-cv.top,cR.width,cR.height);
+    }
+  }
   // Spawn každou kouli na 2×2 pozici v carrieru (TL, TR, BL, BR) — jako by ty samé míčky
   // padly z carrieru. Carrier balls v render3d_bottom mizí ve stejný frame (slot=null).
   for(let i=0;i<balls.length;i++){
