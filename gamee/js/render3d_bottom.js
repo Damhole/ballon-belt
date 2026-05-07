@@ -561,7 +561,7 @@ function updateCarriers(columns, colorsArr) {
 
       // Lift: 0 → 1 (peak at t=0.25) → klesá zpět; ease-out
       const liftT = t < 0.25 ? (t / 0.25) : Math.max(0, 1 - (t - 0.25) / 0.40);
-      const lift  = liftT * 55;   // canvas Y up px (vyšší aby unikl carriers řadě před ním)
+      const lift  = liftT * 70;   // canvas Y up px (vyšší aby unikl carriers řadě před ním)
 
       // Tilt: top of slot rotates AWAY from viewer (negative X rotation = top → -Z)
       const tiltT = t < 0.30 ? (t / 0.30) : Math.max(0, 1 - (t - 0.30) / 0.35);
@@ -578,9 +578,9 @@ function updateCarriers(columns, colorsArr) {
       const xW = anim.x;
       const yW = _worldY(anim.y - lift);
 
-      // Z=5 = mezi slot (Z=0) a ball (Z=10) — ghost je nad ostatními slot, ale balls
-      // okolo zůstávají viditelné nad ním.
-      _vec.set(xW, yW, 5);
+      // Z=80 — ghost vždy v plné výšce nad všemi ostatními carriers (i s rowZBias r*12).
+      // Při lift+tilt se ghost pohne v Y do trychtýřové oblasti, Z=80 zaručí depth-win.
+      _vec.set(xW, yW, 80);
       _quat.setFromAxisAngle(_axisX, tilt);
 
       // Slot
