@@ -315,11 +315,11 @@ function init(canvas, opts) {
   state.camera.position.set(0, 0, 100);
 
   // Lighting — HemisphereLight (sky + ground) ambient, DirectionalLight = „slunce".
-  // Po přechodu na light pink BG: ZVÝŠENÉ ambient + nižší directional contrast,
-  // aby pixely nezůstaly tmavé/desaturated proti světlému prostředí.
-  const sky = new THREE.HemisphereLight(0xffe8f0, 0xa090a8, 1.25);
+  // User feedback iterace: vyšší ambient + sun pro více svítivosti pixelů, ale
+  // zachovat černou jako černou (žádná emissive na material).
+  const sky = new THREE.HemisphereLight(0xffe8f0, 0xa090a8, 1.85);
   state.scene.add(sky);
-  const sun = new THREE.DirectionalLight(0xffffff, 1.05);
+  const sun = new THREE.DirectionalLight(0xffffff, 1.55);
   sun.position.set(-W * 0.4, H * 0.8, 300);
   sun.target.position.set(W / 2, imgCenterY, 0);
   state.scene.add(sun.target);
@@ -373,7 +373,7 @@ function init(canvas, opts) {
   };
   if (state.style === 'neon') {
     matOpts.emissive = 0xffffff;
-    matOpts.emissiveMap = bevelTex; // glow = stejný pattern jako map
+    matOpts.emissiveMap = bevelTex;
     matOpts.emissiveIntensity = 0.9;
   }
   const mat = new THREE.MeshLambertMaterial(matOpts);
