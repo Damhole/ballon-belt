@@ -5701,25 +5701,31 @@ function onCarrierClick(e){
     return;
   }
   const projectiles=slot.projectiles||UPC*PPU;
-  const balls=distributeProjectiles(projectiles).map(p=>({ci:slot.color,ppu:p}));
+  // Filter prázdné ppu=0 — některé carriery mají jen 1–3 míčky (filledCount), ne vždy 4
+  const balls=distributeProjectiles(projectiles).map(p=>({ci:slot.color,ppu:p})).filter(b=>b.ppu>0);
   // Spawn x/y v FUN coords podle pozice clicked carrieru
   // V 3D mode FUN.w=420 → reference je bottom-deck (420 px wide).
   // V 2D mode FUN.w=360 → reference je pending-canvas (360 px wide).
-  let spawnX,spawnY;
+  let spawnX,spawnY,cboxRect,xScale;
   const cbox=e.currentTarget.querySelector('.cbox');
   const refEl=document.getElementById(FUN.w===420?'bottom-deck':'pending-canvas')||document.getElementById('pending-canvas');
   if(cbox&&refEl){
-    const cR=cbox.getBoundingClientRect(),pR=refEl.getBoundingClientRect();
-    spawnX=(cR.left+cR.width/2-pR.left)*(FUN.w/pR.width);
+    cboxRect=cbox.getBoundingClientRect();
+    const pR=refEl.getBoundingClientRect();
+    xScale=FUN.w/pR.width;
+    spawnX=(cboxRect.left+cboxRect.width/2-pR.left)*xScale;
     // V 3D módu: spawnY = canvas Y carrieru → FUN.y, takže koule začnou na pozici clicked carrieru
     if(RENDERER_MODE==='3d'&&window.render3dBottom&&window.render3dBottom.canvasYtoFunY){
       const canvas3d=document.getElementById('bottom3d-canvas');
       if(canvas3d){
         const cv=canvas3d.getBoundingClientRect();
-        spawnY=window.render3dBottom.canvasYtoFunY(cR.top+cR.height/2-cv.top);
+        spawnY=window.render3dBottom.canvasYtoFunY(cboxRect.top+cboxRect.height/2-cv.top);
       }
     }
   }
+  // Per-ball offsety: 4 balls v 2×2 grid kopírují pozice koulí v carrier (TL, TR, BL, BR)
+  // Order matchuje render3d_bottom updateCarriers carrier ball loop.
+  const _ballOff=[[-0.21,-0.21],[0.21,-0.21],[-0.21,0.21],[0.21,0.21]];
   // Trigger 3D carrier-fire animaci (lift+tilt) — capture state PŘED slot=null
   if(RENDERER_MODE==='3d'&&window.render3dBottom&&window.render3dBottom.triggerCarrierFire&&cbox){
     const canvas3d=document.getElementById('bottom3d-canvas');
@@ -5731,7 +5737,17 @@ function onCarrierClick(e){
         cR.left+cR.width/2-cv.left,cR.top+cR.height/2-cv.top,cR.width,cR.height);
     }
   }
-  for(const b of balls)addToPending(b,spawnX,spawnY);
+  // Spawn každou kouli na 2×2 pozici v carrieru (TL, TR, BL, BR) — jako by ty samé míčky
+  // padly z carrieru. Carrier balls v render3d_bottom mizí ve stejný frame (slot=null).
+  for(let i=0;i<balls.length;i++){
+    let bsX=spawnX,bsY=spawnY;
+    if(cboxRect&&spawnX!==undefined&&spawnY!==undefined){
+      const off=_ballOff[i%4];
+      bsX=spawnX+off[0]*cboxRect.width*xScale;
+      bsY=spawnY+off[1]*cboxRect.height;
+    }
+    addToPending(balls[i],bsX,bsY);
+  }
   columns[c][r]=null;
   noMatchPasses=0;
   updateGarages();
