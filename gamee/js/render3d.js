@@ -103,7 +103,7 @@ function _resolveStyle() {
   return 'default';
 }
 
-const DESTROY_MODES = ['shatter', 'collapse', 'none'];
+const DESTROY_MODES = ['shatter', 'collapse', 'combo', 'none'];
 function _resolveDestroyMode() {
   try {
     const m = new URLSearchParams(location.search).get('destroy');
@@ -513,9 +513,8 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
   const wx = gridX * SCALE + SCALE / 2;
   const wy = gridY * SCALE + SCALE / 2;
 
-  if (state.destroyMode === 'collapse') {
-    // Zhroucení do sebe: jeden shard na pozici, plná velikost shrink k 0,
-    // mírný sink dolů (vz negative), žádná gravita.
+  // Helper: spawn collapse shard (full-size shrinks to nothing in place)
+  const spawnCollapse = () => {
     state.shards.push({
       x: wx, y: wy, z: PIXEL_LIFT,
       vx: 0, vy: 0, vz: -8,
@@ -523,28 +522,40 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
       scaleStart: 1.0,
       scaleEnd: 0.0,
       t: 0, life: 0.22,
-      color, gravity: false,
+      color: color.clone(), gravity: false,
     });
-  } else { // 'shatter' — exploze 6 cube fragmentů
-    for (let i = 0; i < DESTROY_SHARDS_PER_PIXEL; i++) {
-      const angle = (i / DESTROY_SHARDS_PER_PIXEL) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
-      const speed = 35 + Math.random() * 45;
+  };
+  // Helper: spawn shatter shards (small cubes flying out with gravity)
+  const spawnShatter = (count, speedMul = 1.0, scaleMul = 1.0) => {
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+      const speed = (35 + Math.random() * 45) * speedMul;
       state.shards.push({
         x: wx, y: wy, z: PIXEL_LIFT * 1.1,
         vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed * 0.35, // méně vertical spread (Y-axis)
-        vz: 55 + Math.random() * 70,         // up
+        vy: Math.sin(angle) * speed * 0.35,
+        vz: (55 + Math.random() * 70) * speedMul,
         rot: Math.random() * Math.PI * 2,
         vRot: (Math.random() - 0.5) * 12,
-        scaleStart: 0.45,
-        scaleEnd: 0.18,
+        scaleStart: 0.45 * scaleMul,
+        scaleEnd: 0.18 * scaleMul,
         t: 0, life: 0.55,
-        color, gravity: true,
+        color: color.clone(), gravity: true,
       });
     }
-    // Limit shard pool — když přeteče, dropni nejstarší (FIFO)
-    while (state.shards.length > MAX_SHARDS) state.shards.shift();
+  };
+
+  if (state.destroyMode === 'collapse') {
+    spawnCollapse();
+  } else if (state.destroyMode === 'shatter') {
+    spawnShatter(DESTROY_SHARDS_PER_PIXEL);
+  } else if (state.destroyMode === 'combo') {
+    // Best of both — pixel se zhroutí AND zároveň vystřelí menší/méně shardů
+    spawnCollapse();
+    spawnShatter(4, 0.85, 0.8); // 4 menší shardy s mírnějším speedem
   }
+  // Limit shard pool — když přeteče, dropni nejstarší (FIFO)
+  while (state.shards.length > MAX_SHARDS) state.shards.shift();
 }
 
 // Update animací. Volá se z beltLoop každý frame s dt v sekundách.
