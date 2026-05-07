@@ -502,6 +502,87 @@ function updateCarriers(columns, colorsArr) {
     }
   }
 
+  // Ghost render aktivních carrier-fire animací (lift + tilt + fade)
+  // Vykreslujeme PŘÍDAVNÉ instance sloty + koule pro animace, kdy slot je už null
+  // (po onCarrierClick → drawCarriers vyčistilo data, ale animace ještě běží).
+  if (st.carrierAnim.size > 0) {
+    const now = performance.now();
+    const _vec = new THREE.Vector3();
+    const _quat = new THREE.Quaternion();
+    const _slotM = new THREE.Matrix4();
+    const _axisX = new THREE.Vector3(1, 0, 0);
+
+    for (const [key, anim] of st.carrierAnim) {
+      const t = (now - anim.t0) / 1000;
+      if (t >= 0.65) { st.carrierAnim.delete(key); continue; }
+      if (slotIdx >= MAX_CARRIER_SLOTS && ballIdx >= MAX_CARRIER_BALLS) break;
+
+      // Lift: 0 → 1 (peak at t=0.25) → klesá zpět; ease-out
+      const liftT = t < 0.25 ? (t / 0.25) : Math.max(0, 1 - (t - 0.25) / 0.40);
+      const lift  = liftT * 32;   // canvas Y up px (DRAMATIC)
+
+      // Tilt: top of slot rotates AWAY from viewer (negative X rotation = top → -Z)
+      const tiltT = t < 0.30 ? (t / 0.30) : Math.max(0, 1 - (t - 0.30) / 0.35);
+      const tilt  = -tiltT * 0.75;   // ~43° tilt
+
+      // Fade: scale 1→0 v posledních 30 % animace
+      const fadeT = Math.max(0, (t - 0.45) / 0.20);
+      const scale = Math.max(0, 1 - fadeT);
+      if (scale < 0.04) continue;
+
+      c3.set(_hex(anim.hex));
+      cSlot.copy(c3).multiplyScalar(0.85);
+
+      const xW = anim.x;
+      const yW = _worldY(anim.y - lift);
+
+      _vec.set(xW, yW, 0);
+      _quat.setFromAxisAngle(_axisX, tilt);
+
+      // Slot
+      if (slotIdx < MAX_CARRIER_SLOTS) {
+        _slotM.compose(_vec, _quat, dummy.scale.set(scale, scale, scale));
+        st.carrierSlotMesh.setMatrixAt(slotIdx, _slotM);
+        st.carrierSlotMesh.setColorAt(slotIdx, cSlot);
+        const oS = scale * OUTLINE_SCALE_SLOT;
+        const _outM = new THREE.Matrix4().compose(_vec, _quat, dummy.scale.set(oS, oS, oS));
+        st.carrierSlotOutlineMesh.setMatrixAt(slotIdx, _outM);
+        slotIdx++;
+      }
+
+      // Balls (s aplikovaným slot transform — koule "ride" se slotem)
+      _slotM.compose(_vec, _quat, dummy.scale.set(1, 1, 1));   // matrix bez scale pro pozici
+      const offX = [-anim.w * 0.21, anim.w * 0.21];
+      const offY = [-anim.h * 0.21, anim.h * 0.21];
+      const ballZ = SLOT_DEPTH / 2 + R_CARRIER * 0.25;
+
+      let bi = 0;
+      outer: for (let row = 0; row < 2; row++) {
+        for (let col2 = 0; col2 < 2; col2++) {
+          if (ballIdx >= MAX_CARRIER_BALLS) break outer;
+          if (bi >= anim.fill) break outer;
+          bi++;
+
+          const local = new THREE.Vector3(offX[col2], offY[1 - row], ballZ);
+          local.applyMatrix4(_slotM);
+          dummy.position.copy(local);
+          dummy.quaternion.copy(_quat);
+          dummy.scale.set(scale, scale, scale);
+          dummy.updateMatrix();
+          st.carrierMesh.setMatrixAt(ballIdx, dummy.matrix);
+          st.carrierMesh.setColorAt(ballIdx, c3);
+          const oB = scale * OUTLINE_SCALE_BALL;
+          dummy.scale.set(oB, oB, oB);
+          dummy.updateMatrix();
+          st.carrierOutlineMesh.setMatrixAt(ballIdx, dummy.matrix);
+          ballIdx++;
+        }
+      }
+    }
+    // Reset dummy.quaternion na identitu pro budoucí volání
+    dummy.quaternion.identity();
+  }
+
   st.carrierSlotMesh.count = slotIdx;
   st.carrierSlotMesh.instanceMatrix.needsUpdate = true;
   if (st.carrierSlotMesh.instanceColor) st.carrierSlotMesh.instanceColor.needsUpdate = true;
@@ -513,6 +594,31 @@ function updateCarriers(columns, colorsArr) {
   if (st.carrierMesh.instanceColor) st.carrierMesh.instanceColor.needsUpdate = true;
   st.carrierOutlineMesh.count = ballIdx;
   st.carrierOutlineMesh.instanceMatrix.needsUpdate = true;
+}
+
+function triggerCarrierFire(col, row, hexColor, fillCount, canvasX, canvasY, cboxW, cboxH) {
+  if (!st.ready) return;
+  st.carrierAnim.set(col + ',' + row, {
+    t0:   performance.now(),
+    hex:  hexColor,
+    fill: fillCount,
+    x:    canvasX,
+    y:    canvasY,
+    w:    cboxW,
+    h:    cboxH,
+  });
+}
+
+function _hasActiveCarrierAnim() {
+  return st.carrierAnim && st.carrierAnim.size > 0;
+}
+
+// Helper: převede canvasY v souřadnicích bottom3d-canvas → FUN.y
+// (inverze mapování v updatePending: yCSS = TOP_CSS + (b.y - narrowY))
+function canvasYtoFunY(canvasY) {
+  const TOP_CSS = st.beltCenterY + R_BELT + 2;
+  const NARROW_Y = (window.FUN && window.FUN.narrowY) || 14;
+  return canvasY - TOP_CSS + NARROW_Y;
 }
 
 // Kolik koulí je plných (naplněno ze 40 max)
@@ -654,4 +760,5 @@ function dispose() {
 
 // ─── Export ──────────────────────────────────────────────────────────────────
 
-window.render3dBottom = { init, updateCarriers, updatePending, updateBelt, render, isReady, dispose };
+window.render3dBottom = { init, updateCarriers, updatePending, updateBelt, triggerCarrierFire, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose };
+window._r3dBState = st;  // debug

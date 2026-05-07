@@ -5672,15 +5672,19 @@ function onCarrierClick(e){
     return;
   }
   if(slot.type==='rocket'){
-    let _rxSpawn;
+    let _rxSpawn,_rxSpawnY;
     const _rxCbox=e.currentTarget.querySelector('.cbox');
     const _rxRef=document.getElementById(FUN.w===420?'bottom-deck':'pending-canvas')||document.getElementById('pending-canvas');
     if(_rxCbox&&_rxRef){
       const cR=_rxCbox.getBoundingClientRect(),pR=_rxRef.getBoundingClientRect();
       _rxSpawn=(cR.left+cR.width/2-pR.left)*(FUN.w/pR.width);
+      if(RENDERER_MODE==='3d'&&window.render3dBottom&&window.render3dBottom.canvasYtoFunY){
+        const canvas3d=document.getElementById('bottom3d-canvas');
+        if(canvas3d){const cv=canvas3d.getBoundingClientRect();_rxSpawnY=window.render3dBottom.canvasYtoFunY(cR.top+cR.height/2-cv.top);}
+      }
     }
-    addToPending({ci:slot.color,ppu:20,rocket:true},_rxSpawn);
-    addToPending({ci:slot.color,ppu:20,rocket:true},_rxSpawn);
+    addToPending({ci:slot.color,ppu:20,rocket:true},_rxSpawn,_rxSpawnY);
+    addToPending({ci:slot.color,ppu:20,rocket:true},_rxSpawn,_rxSpawnY);
     columns[c][r]=null;
     noMatchPasses=0;
     drawCarriers();drawBelt();drawPending();
@@ -5698,17 +5702,36 @@ function onCarrierClick(e){
   }
   const projectiles=slot.projectiles||UPC*PPU;
   const balls=distributeProjectiles(projectiles).map(p=>({ci:slot.color,ppu:p}));
-  // Spawn x v FUN coords podle pozice clicked carrieru
+  // Spawn x/y v FUN coords podle pozice clicked carrieru
   // V 3D mode FUN.w=420 → reference je bottom-deck (420 px wide).
   // V 2D mode FUN.w=360 → reference je pending-canvas (360 px wide).
-  let spawnX;
+  let spawnX,spawnY;
   const cbox=e.currentTarget.querySelector('.cbox');
   const refEl=document.getElementById(FUN.w===420?'bottom-deck':'pending-canvas')||document.getElementById('pending-canvas');
   if(cbox&&refEl){
     const cR=cbox.getBoundingClientRect(),pR=refEl.getBoundingClientRect();
     spawnX=(cR.left+cR.width/2-pR.left)*(FUN.w/pR.width);
+    // V 3D módu: spawnY = canvas Y carrieru → FUN.y, takže koule začnou na pozici clicked carrieru
+    if(RENDERER_MODE==='3d'&&window.render3dBottom&&window.render3dBottom.canvasYtoFunY){
+      const canvas3d=document.getElementById('bottom3d-canvas');
+      if(canvas3d){
+        const cv=canvas3d.getBoundingClientRect();
+        spawnY=window.render3dBottom.canvasYtoFunY(cR.top+cR.height/2-cv.top);
+      }
+    }
   }
-  for(const b of balls)addToPending(b,spawnX);
+  // Trigger 3D carrier-fire animaci (lift+tilt) — capture state PŘED slot=null
+  if(RENDERER_MODE==='3d'&&window.render3dBottom&&window.render3dBottom.triggerCarrierFire&&cbox){
+    const canvas3d=document.getElementById('bottom3d-canvas');
+    if(canvas3d){
+      const cR=cbox.getBoundingClientRect(),cv=canvas3d.getBoundingClientRect();
+      const p=slot.projectiles===undefined?40:slot.projectiles;
+      const fillCount=p<=0?0:(p>=40?4:Math.ceil(p/10));
+      window.render3dBottom.triggerCarrierFire(c,r,COLORS[slot.color],fillCount,
+        cR.left+cR.width/2-cv.left,cR.top+cR.height/2-cv.top,cR.width,cR.height);
+    }
+  }
+  for(const b of balls)addToPending(b,spawnX,spawnY);
   columns[c][r]=null;
   noMatchPasses=0;
   updateGarages();
@@ -5774,14 +5797,14 @@ if(RENDERER_MODE==='3d'){
   FUN.h=360;            // y od beltu po dno carriers
   FUN.narrowY=14;
   FUN.wideY=346;        // ~ h - 14 (zrcadlí narrowY)
-  FUN.narrowL=120;      // top-opening levá strana (kopíruje clip-path 120,0)
-  FUN.narrowR=300;      // top-opening pravá strana (kopíruje clip-path 300,0)
+  FUN.narrowL=150;      // top-opening levá strana (užší než clip-path → tightnější hrdlo)
+  FUN.narrowR=270;      // top-opening pravá strana
   FUN.wideL=0;          // levá vertikální stěna
   FUN.wideR=420;        // pravá vertikální stěna
   FUN.slopeEndY=88;     // y kde slope končí a začíná vertikální (kopíruje clip-path 0,88)
 }
 window.FUN=FUN;  // export pro render3d_bottom (modul nemá přístup ke globalu z classic skriptu)
-function addToPending(ball,spawnX){
+function addToPending(ball,spawnX,spawnY){
   ball.r=FUN.r;
   if(spawnX!==undefined){
     // Spawn z konkrétního carrieru — kolem jeho středu, malý jitter, clamp do trychtýře
@@ -5790,7 +5813,13 @@ function addToPending(ball,spawnX){
   } else {
     ball.x=FUN.wideL+24+Math.random()*(FUN.wideR-FUN.wideL-48);
   }
-  ball.y=FUN.wideY-6-Math.random()*8;
+  if(spawnY!==undefined){
+    // Spawn Y na výšce clicked carrieru (3D mode), s malým jitter, clamp do platného range
+    const j=(Math.random()-0.5)*4;
+    ball.y=Math.max(FUN.narrowY+ball.r+4,Math.min(FUN.wideY-ball.r-2,spawnY+j));
+  } else {
+    ball.y=FUN.wideY-6-Math.random()*8;
+  }
   ball.vx=(Math.random()-0.5)*40;
   ball.vy=-20;
   // Desynchronizace waggle – každá koule má unikátní práh i fázi
@@ -6899,6 +6928,10 @@ function beltLoop(ts){
   if(RENDERER_MODE==='3d' && window.render3dBottom && window.render3dBottom.isReady && window.render3dBottom.isReady()){
     window.render3dBottom.updatePending(pending,COLORS);
     window.render3dBottom.updateBelt(belt,beltAnim,COLORS);
+    // updateCarriers per-frame jen když běží carrier-fire animace (jinak je drahé měřit DOM zbytečně)
+    if(window.render3dBottom._hasActiveCarrierAnim&&window.render3dBottom._hasActiveCarrierAnim()){
+      window.render3dBottom.updateCarriers(columns,COLORS);
+    }
     window.render3dBottom.render();
   }
   _profAccum.drawBelt+=_t1-_t0;
