@@ -54,6 +54,9 @@ const st = {
   pendingTopCSS:  BELT_SVG_H,          // přepočítá se v init() dynamickým měřením
   carriersTopCSS: BELT_SVG_H + PENDING_CANVAS_H,  // carriers pod pending
   beltOffsetX:    0,                    // offset belt-wrap od levé hrany canvasu (canvas může být širší)
+  // Carrier-fire animace — Map<id, {t0, x, y, w, h, hex, n}>
+  carrierAnim:    new Map(),
+  _carrierAnimId: 0,
   // Tilt struktura: pivot (centerO) → tiltGroup (rotace -TILT_RAD okolo X) → contentGroup (posun zpět)
   pivot:        null,
   tiltGroup:    null,
@@ -543,7 +546,9 @@ function updatePending(pendingArr, colorsArr) {
     if (b.x === undefined || b.y === undefined) continue;
 
     const yCSS = TOP_CSS + (b.y - FUN_NARROW_Y);   // 1:1 mapping (Y v canvas = Y v fyzice)
-    const xW   = st.beltOffsetX + b.x;
+    // V 3D mode (FUN.w=420) je b.x už v canvas coords → žádný offset.
+    // V 2D fallback (FUN.w=360) je b.x v pending-canvas coords → přičti beltOffsetX.
+    const xW   = (window.FUN && window.FUN.w === 420) ? b.x : (st.beltOffsetX + b.x);
     const yW   = _worldY(yCSS);
 
     const hexColor = colorsArr ? colorsArr[b.ci] : '#888888';

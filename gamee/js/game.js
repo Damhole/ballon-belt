@@ -5674,9 +5674,9 @@ function onCarrierClick(e){
   if(slot.type==='rocket'){
     let _rxSpawn;
     const _rxCbox=e.currentTarget.querySelector('.cbox');
-    const _rxPend=document.getElementById('pending-canvas');
-    if(_rxCbox&&_rxPend){
-      const cR=_rxCbox.getBoundingClientRect(),pR=_rxPend.getBoundingClientRect();
+    const _rxRef=document.getElementById(FUN.w===420?'bottom-deck':'pending-canvas')||document.getElementById('pending-canvas');
+    if(_rxCbox&&_rxRef){
+      const cR=_rxCbox.getBoundingClientRect(),pR=_rxRef.getBoundingClientRect();
       _rxSpawn=(cR.left+cR.width/2-pR.left)*(FUN.w/pR.width);
     }
     addToPending({ci:slot.color,ppu:20,rocket:true},_rxSpawn);
@@ -5698,12 +5698,14 @@ function onCarrierClick(e){
   }
   const projectiles=slot.projectiles||UPC*PPU;
   const balls=distributeProjectiles(projectiles).map(p=>({ci:slot.color,ppu:p}));
-  // Spawn x v pending-canvas FUN coords podle pozice clicked carrieru
+  // Spawn x v FUN coords podle pozice clicked carrieru
+  // V 3D mode FUN.w=420 → reference je bottom-deck (420 px wide).
+  // V 2D mode FUN.w=360 → reference je pending-canvas (360 px wide).
   let spawnX;
   const cbox=e.currentTarget.querySelector('.cbox');
-  const pendCanvas=document.getElementById('pending-canvas');
-  if(cbox&&pendCanvas){
-    const cR=cbox.getBoundingClientRect(),pR=pendCanvas.getBoundingClientRect();
+  const refEl=document.getElementById(FUN.w===420?'bottom-deck':'pending-canvas')||document.getElementById('pending-canvas');
+  if(cbox&&refEl){
+    const cR=cbox.getBoundingClientRect(),pR=refEl.getBoundingClientRect();
     spawnX=(cR.left+cR.width/2-pR.left)*(FUN.w/pR.width);
   }
   for(const b of balls)addToPending(b,spawnX);
@@ -5762,12 +5764,21 @@ function updateGarages(){
 // úzký nahoře u pásu. „Gravitace" míří vzhůru k pásu – koule stoupají
 // skrz trychtýř a vstupují otvorem na pás.
 const FUN={w:360,h:90,narrowY:14,wideY:82,narrowL:150,narrowR:210,wideL:10,wideR:350,r:12};
-// V 3D módu rozšíříme fyzikální V trychtýře, aby v rendering byly Y i X škálované 1:1
-// (jinak collider 24 px v 2D = ~115 px Y mezera v 3D při škále 4.8×).
-// Pending-canvas (360×90) zůstává — drawPending v 3D je hidden, takže clipping nevadí.
+// V 3D módu rozšíříme fyzikální trychtýř tak, aby:
+// 1) Y i X v rendering byly 1:1 škálované (jinak collider 24 px = ~115 px Y mezera)
+// 2) collider stěny kopírovaly bottom-deck shape (top-narrow → slope → vertical),
+//    ne V trojúhelník.
+// Pending-canvas (360×90) zůstává — drawPending v 3D je hidden, clipping nevadí.
 if(RENDERER_MODE==='3d'){
-  FUN.h=360;
-  FUN.wideY=346;        // = h - 14 (zrcadlí narrowY=14 nahoře)
+  FUN.w=420;            // = bottom-deck width (full canvas width)
+  FUN.h=360;            // y od beltu po dno carriers
+  FUN.narrowY=14;
+  FUN.wideY=346;        // ~ h - 14 (zrcadlí narrowY)
+  FUN.narrowL=120;      // top-opening levá strana (kopíruje clip-path 120,0)
+  FUN.narrowR=300;      // top-opening pravá strana (kopíruje clip-path 300,0)
+  FUN.wideL=0;          // levá vertikální stěna
+  FUN.wideR=420;        // pravá vertikální stěna
+  FUN.slopeEndY=88;     // y kde slope končí a začíná vertikální (kopíruje clip-path 0,88)
 }
 window.FUN=FUN;  // export pro render3d_bottom (modul nemá přístup ke globalu z classic skriptu)
 function addToPending(ball,spawnX){
@@ -5861,11 +5872,25 @@ function updatePending(dt){
         }
       }
     }
-    // Stěny trychtýře (široko dole, úzko nahoře) + dno u nosičů
+    // Stěny — 3D má bottom-deck shape (narrow top → slope → vertical),
+    // 2D klasické V (široko dole, úzko nahoře).
     const gate=belt.length>=BELT_CAP;
+    const has3DShape=FUN.slopeEndY!==undefined;
     for(const b of pending){
-      collideFunnelSeg(b,FUN.wideL,FUN.wideY,FUN.narrowL,FUN.narrowY);
-      collideFunnelSeg(b,FUN.wideR,FUN.wideY,FUN.narrowR,FUN.narrowY);
+      if(has3DShape){
+        // Slope (narrowL,narrowY) → (wideL,slopeEndY) levá strana
+        collideFunnelSeg(b,FUN.narrowL,FUN.narrowY,FUN.wideL,FUN.slopeEndY);
+        // Vertical (wideL,slopeEndY) → (wideL,wideY) levá vertikála
+        collideFunnelSeg(b,FUN.wideL,FUN.slopeEndY,FUN.wideL,FUN.wideY);
+        // Slope pravá strana
+        collideFunnelSeg(b,FUN.narrowR,FUN.narrowY,FUN.wideR,FUN.slopeEndY);
+        // Vertical pravá vertikála
+        collideFunnelSeg(b,FUN.wideR,FUN.slopeEndY,FUN.wideR,FUN.wideY);
+      } else {
+        // Klasické V (2D)
+        collideFunnelSeg(b,FUN.wideL,FUN.wideY,FUN.narrowL,FUN.narrowY);
+        collideFunnelSeg(b,FUN.wideR,FUN.wideY,FUN.narrowR,FUN.narrowY);
+      }
       // Strop mimo otvor – uzavře trychtýř nahoře po stranách otvoru
       collideFunnelSeg(b,0,FUN.narrowY,FUN.narrowL,FUN.narrowY);
       collideFunnelSeg(b,FUN.narrowR,FUN.narrowY,FUN.w,FUN.narrowY);
@@ -5877,11 +5902,24 @@ function updatePending(dt){
       // Boční tvrdé zastavení – kdyby koule při impulzu klipla za okraj
       if(b.x<b.r){b.x=b.r;if(b.vx<0)b.vx*=-0.3;}
       if(b.x>FUN.w-b.r){b.x=FUN.w-b.r;if(b.vx>0)b.vx*=-0.3;}
-      // Sanity clamp do tvaru trychtýře – interpolovaná šířka v dané výšce
+      // Sanity clamp do tvaru — 3D používá slope+vertical, 2D V
       if(b.y>=FUN.narrowY&&b.y<=FUN.wideY){
-        const t=(FUN.wideY-b.y)/(FUN.wideY-FUN.narrowY);
-        const lx=FUN.wideL+t*(FUN.narrowL-FUN.wideL);
-        const rx=FUN.wideR+t*(FUN.narrowR-FUN.wideR);
+        let lx,rx;
+        if(has3DShape){
+          if(b.y<=FUN.slopeEndY){
+            // V slope úseku interpoluj mezi narrow a wide
+            const t=(b.y-FUN.narrowY)/(FUN.slopeEndY-FUN.narrowY);
+            lx=FUN.narrowL+t*(FUN.wideL-FUN.narrowL);
+            rx=FUN.narrowR+t*(FUN.wideR-FUN.narrowR);
+          } else {
+            // Pod slope: vertikální stěny
+            lx=FUN.wideL; rx=FUN.wideR;
+          }
+        } else {
+          const t=(FUN.wideY-b.y)/(FUN.wideY-FUN.narrowY);
+          lx=FUN.wideL+t*(FUN.narrowL-FUN.wideL);
+          rx=FUN.wideR+t*(FUN.narrowR-FUN.wideR);
+        }
         if(b.x<lx+b.r){b.x=lx+b.r;if(b.vx<0)b.vx=-b.vx*0.3;}
         if(b.x>rx-b.r){b.x=rx-b.r;if(b.vx>0)b.vx=-b.vx*0.3;}
       }
