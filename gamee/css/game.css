@@ -433,8 +433,30 @@ body.renderer-3d #bottom-deck #carriers-wrap {
   width: auto;
 }
 body.renderer-3d #bottom-deck #pending-wrap { padding: 12px 30px 4px; }
-/* Carriers extra padding (60px) → grid 360px sedí v 420px panelu s 30px na každé straně */
-body.renderer-3d #bottom-deck #carriers-wrap { padding: 4px 60px 22px; }
+/* Carriers padding 40px each side → grid sedí v 420px panelu s 20px gap od stěn */
+body.renderer-3d #bottom-deck #carriers-wrap { padding: 4px 40px 22px; }
+
+/* IMAGE AREA scaled to match bottom-deck width (420px) → vertikálně líce.
+   Three.js canvas resolution se nezmění (360x310 internal), CSS stretch
+   na 420x362 (slight upscale blur acceptable, lépe vypadá co se týká alignmentu). */
+body.renderer-3d #image-area {
+  width: 420px;
+  height: 362px;
+}
+body.renderer-3d #pixel-canvas {
+  width: 420px;
+  height: 362px;
+}
+body.renderer-3d #three-canvas,
+body.renderer-3d #block-overlay-canvas {
+  width: 420px !important;
+  height: 362px !important;
+}
+/* Particle canvas (vytvořený JS dynamically, má inline style) */
+body.renderer-3d #image-area > canvas[style*="z-index:2"] {
+  width: 420px !important;
+  height: 362px !important;
+}
 body.renderer-3d #pending-label,
 body.renderer-3d #carriers-label {
   color: rgba(255, 220, 235, 0.65);
