@@ -59,7 +59,7 @@ const RENDERER_MODE = (function(){
 // Plus optional ?theme=X (pink|ocean|sunset|forest|lavender|mono-dark|mono-light).
 // Default = pink (žádný extra class). Theme class se přidá k body společně
 // s renderer-3d. Hot-swap přes window.setTheme('ocean') v konzoli.
-const _THEMES = ['pink','ocean','sunset','forest','lavender','mono-dark','mono-light'];
+const _THEMES = ['pink','ocean','sunset','forest','lavender','mono-dark','mystery','neon'];
 const _THEME = (function(){
   try {
     const t = new URLSearchParams(location.search).get('theme');
