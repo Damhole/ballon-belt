@@ -444,6 +444,18 @@ body.renderer-3d .carrier.empty.wall {
   height: 54px;
 }
 body.renderer-3d #carriers-grid { gap: 4px; }
+/* Větší kuličky uvnitř cboxu — JS má hardcoded max-width:18px na balls,
+   přebijeme přes !important. Cílíme jen ball divy (aspect-ratio:1) — rocket
+   dot má fixní 10px width, neovlivní se. */
+body.renderer-3d .cbox > div[style*="aspect-ratio:1"] {
+  max-width: 26px !important;
+}
+/* Cbox má padding 4px + gap 2px → cell = (54-8-2)/2 = 22px. Pro větší balls
+   reduce padding+gap → cell = (54-4-1)/2 = 24.5px. */
+body.renderer-3d .cbox {
+  padding: 2px !important;
+  gap: 1px !important;
+}
 
 /* IMAGE AREA scaled to match bottom-deck width (420px) → vertikálně líce.
    Three.js canvas resolution se nezmění (360x310 internal), CSS stretch
