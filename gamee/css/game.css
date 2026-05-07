@@ -111,11 +111,11 @@ body.theme-experiment {
 body.theme-experiment2 {
   --bg-3d-top:        #ad94c2;   /* dusty soft lavender (méně saturace) */
   --bg-3d-bottom:     #826995;   /* muted purple dole */
-  --image-3d-bg:      #2e2748;   /* dark plum-navy (jednolitý panel) */
-  --image-3d-outline: rgba(15, 10, 30, 0.65);
-  --carriers-3d-bg:   #2e2748;   /* MATCH s image area */
-  --carriers-3d-rim:  rgba(200, 165, 195, 0.22);  /* calm pink rim */
-  --frame-3d-shadow:  rgba(40, 15, 50, 0.40);
+  --image-3d-bg:      #8a7430;   /* dusty mustard/ochre (calm yellow panel) */
+  --image-3d-outline: rgba(40, 30, 10, 0.65);
+  --carriers-3d-bg:   #8a7430;   /* MATCH s image area */
+  --carriers-3d-rim:  rgba(245, 225, 175, 0.30);  /* warm cream rim */
+  --frame-3d-shadow:  rgba(40, 25, 50, 0.40);
   --frame-3d-rim:     rgba(225, 200, 220, 0.42);
 }
 
