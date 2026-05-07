@@ -5761,7 +5761,7 @@ function onCarrierClick(e){
   // refill okamžitě (nezáleží na timing).
   drawCarriers();drawBelt();drawPending();
   if(RENDERER_MODE==='3d'){
-    setTimeout(()=>{updateGarages();drawCarriers();},200);
+    setTimeout(()=>{updateGarages();drawCarriers();},80);
   } else {
     updateGarages();drawCarriers();
   }
