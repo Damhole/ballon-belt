@@ -204,6 +204,9 @@ function init() {
   if (pendRect) {
     st.pendingTopCSS = Math.round(pendRect.top - gameRect.top) - canvasTop;
   }
+  if (carrEl) {
+    st.carriersTopCSS = Math.round(carrEl.getBoundingClientRect().top - gameRect.top) - canvasTop;
+  }
 
   // Vytvořit canvas a přidat do #game
   const canvas = document.createElement('canvas');
@@ -518,16 +521,25 @@ function updatePending(pendingArr, colorsArr) {
   const c3    = st._col3;
   let idx = 0;
 
-  // pending[i].x, pending[i].y jsou CSS px v rámci #pending-canvas (360×90)
-  // V bottom3d canvasu: pending oblast začíná na CSS y = BELT_SVG_H (64)
-  const yOffset = st.pendingTopCSS;
+  // pending[i].x, pending[i].y jsou v FUN coords (pending-canvas 360×90),
+  // kde b.y=14 = úzký konec u beltu, b.y=82 = široký konec u carriers.
+  // V 3D mapujeme b.y do ROZŠÍŘENÉHO range (od beltu až do horní řady carriers),
+  // aby koule byly vidět "vypadávat z carrieru" (ne z nějaké linie trychtýře).
+  const FUN_NARROW_Y = 14;
+  const FUN_WIDE_Y   = 82;
+  const FUN_RANGE    = FUN_WIDE_Y - FUN_NARROW_Y;
+  const TOP_CSS      = st.beltCenterY + R_BELT + 2;     // těsně pod beltem
+  const BOTTOM_CSS   = st.carriersTopCSS + 70;          // hluboko v 1.–2. řadě carriers
+  const RANGE_CSS    = BOTTOM_CSS - TOP_CSS;
 
   for (const b of (pendingArr || [])) {
     if (idx >= MAX_PENDING) break;
     if (b.x === undefined || b.y === undefined) continue;
 
-    const xW = st.beltOffsetX + b.x;
-    const yW = _worldY(yOffset + b.y);
+    const t   = (b.y - FUN_NARROW_Y) / FUN_RANGE;       // 0 (u beltu) … 1 (u carrieru)
+    const yCSS = TOP_CSS + t * RANGE_CSS;
+    const xW   = st.beltOffsetX + b.x;
+    const yW   = _worldY(yCSS);
 
     const hexColor = colorsArr ? colorsArr[b.ci] : '#888888';
     c3.set(_hex(hexColor));
