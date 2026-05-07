@@ -62,7 +62,7 @@ const RENDERER_MODE = (function(){
 //
 // Priorita volby: URL ?theme= (explicitní pro tuto session, vyhrává) →
 // localStorage (persisted preference) → 'pink' (default).
-const _THEMES = ['pink','ocean','sunset','forest','lavender','mono-dark','mystery','neon'];
+const _THEMES = ['pink','ocean','sunset','forest','lavender','mono-dark','mystery','neon','experiment'];
 const _THEME_FROM_URL = (function(){
   try {
     const t = new URLSearchParams(location.search).get('theme');

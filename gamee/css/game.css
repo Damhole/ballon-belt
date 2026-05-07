@@ -92,6 +92,20 @@ body.theme-mono-dark {
   --frame-3d-rim:     rgba(255, 255, 255, 0.55);
 }
 
+/* EXPERIMENT — testovací slot pro nové palety. Aktuálně: vintage terracotta
+   + faded blue + deep navy (warm autumn illustration vibe). Můžeme volně
+   iterovat tohle téma podle potřeby. */
+body.theme-experiment {
+  --bg-3d-top:        #e9b58a;   /* warm peach/terracotta horní */
+  --bg-3d-bottom:     #c97350;   /* hlubší terracotta dole */
+  --image-3d-bg:      #2c3a52;   /* deep dusty navy (faded sky → night) */
+  --image-3d-outline: rgba(20, 30, 50, 0.65);
+  --carriers-3d-bg:   #1a2334;   /* very dark navy (kontrast) */
+  --carriers-3d-rim:  rgba(220, 200, 170, 0.22);  /* warm cream rim */
+  --frame-3d-shadow:  rgba(60, 30, 20, 0.40);
+  --frame-3d-rim:     rgba(255, 230, 200, 0.50);
+}
+
 /* MYSTERY — temný mystický vibe. Hluboké fialovo-modré tóny, jako noc před
    bouří. Tajemné, gothic / arcane. */
 body.theme-mystery {
