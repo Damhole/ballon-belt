@@ -55,10 +55,38 @@ const RENDERER_MODE = (function(){
 // Aktivuje CSS .renderer-3d na body — game.css má pod tím selektorem
 // celé environment styly (pink BG, soft shadows, rounded frames). Stane se
 // jakmile body existuje (může to být před DOMContentLoaded pokud jsme inline).
-if (RENDERER_MODE === '3d') {
-  if (document.body) document.body.classList.add('renderer-3d');
-  else document.addEventListener('DOMContentLoaded', () => document.body.classList.add('renderer-3d'));
+//
+// Plus optional ?theme=X (pink|ocean|sunset|forest|lavender|mono-dark|mono-light).
+// Default = pink (žádný extra class). Theme class se přidá k body společně
+// s renderer-3d. Hot-swap přes window.setTheme('ocean') v konzoli.
+const _THEMES = ['pink','ocean','sunset','forest','lavender','mono-dark','mono-light'];
+const _THEME = (function(){
+  try {
+    const t = new URLSearchParams(location.search).get('theme');
+    return _THEMES.includes(t) ? t : 'pink';
+  } catch (_e) { return 'pink'; }
+})();
+function _applyBodyClasses(){
+  if (!document.body) return;
+  if (RENDERER_MODE === '3d') document.body.classList.add('renderer-3d');
+  // Pink je default v :root, takže žádnou class nepřidáváme. Ostatní témata mají vlastní class.
+  if (_THEME !== 'pink') document.body.classList.add('theme-' + _THEME);
 }
+if (document.body) _applyBodyClasses();
+else document.addEventListener('DOMContentLoaded', _applyBodyClasses);
+
+// Hot-swap theme za běhu — pro rychlé porovnání bez reloadu page.
+// Volání: window.setTheme('ocean') v DevTools console.
+window.setTheme = function(name) {
+  if (!_THEMES.includes(name)) {
+    console.warn('[BB] Neznámý theme:', name, '— dostupné:', _THEMES);
+    return false;
+  }
+  for (const t of _THEMES) document.body.classList.remove('theme-' + t);
+  if (name !== 'pink') document.body.classList.add('theme-' + name);
+  return true;
+};
+window.listThemes = () => _THEMES.slice();
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BLOCKS (Okruh 2) — puzzle-style HP walls inside the image area

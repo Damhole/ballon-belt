@@ -8,17 +8,110 @@
   --color-border-tertiary: #333;
   --color-background-primary: #1a1a1a;
   --color-background-secondary: #2a2a2a;
-  /* 3D mode atmospheric tokens — aktivují se přes body.renderer-3d.
+  /* 3D mode atmospheric tokens — DEFAULT (pink theme).
      Match s reference Blender renderem: bohatší salmon-pink BG +
-     hluboká purple sekce pro carriers. */
-  --bg-3d-top:        #ee9bb1;  /* salmon-pink nahoře (match reference) */
-  --bg-3d-bottom:     #d77c98;  /* hlubší pink dole */
-  --frame-3d-bg:      #ee9bb1;  /* podklad pro panely — sjednocený s BG */
+     hluboká purple sekce pro carriers.
+     Každé téma definuje 7 tokenů: BG nahoře/dole, image area, carriers,
+     shadow, rim, image outline. Logika contrast: BG light → image dark → carriers darkest. */
+  --bg-3d-top:        #ee9bb1;
+  --bg-3d-bottom:     #d77c98;
+  --frame-3d-bg:      #ee9bb1;
   --frame-3d-shadow:  rgba(60, 20, 50, 0.35);
   --frame-3d-rim:     rgba(255, 220, 230, 0.50);
-  --image-3d-bg:      #6a2f4d;  /* image area podklad — deep plum, výrazný kontrast s pink BG */
-  --carriers-3d-bg:   #4d2d6e;  /* deep purple pod carriers (match reference) */
+  --image-3d-bg:      #6a2f4d;
+  --image-3d-outline: rgba(40, 10, 30, 0.55);
+  --carriers-3d-bg:   #4d2d6e;
   --carriers-3d-rim:  rgba(255, 200, 220, 0.18);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   COLOR THEMES — aktivují se přes body.theme-X (z URL param ?theme=X).
+   Vždy 3 úrovně contrast: BG (nejsvětlejší) → image area → carriers (nejtmavší).
+   Default = pink (definované v :root výše).
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* OCEAN — sky blue → deep navy. Klidný, čistý vibe. */
+body.theme-ocean {
+  --bg-3d-top:        #9ed5e8;
+  --bg-3d-bottom:     #75b8d4;
+  --image-3d-bg:      #1f3d5c;
+  --image-3d-outline: rgba(8, 20, 35, 0.55);
+  --carriers-3d-bg:   #122a4a;
+  --carriers-3d-rim:  rgba(180, 220, 240, 0.18);
+  --frame-3d-shadow:  rgba(10, 30, 60, 0.40);
+  --frame-3d-rim:     rgba(220, 240, 255, 0.50);
+}
+
+/* SUNSET — warm orange/coral → dark wine. Energický, hřejivý. */
+body.theme-sunset {
+  --bg-3d-top:        #ffb88c;
+  --bg-3d-bottom:     #ee8a6e;
+  --image-3d-bg:      #5a2030;
+  --image-3d-outline: rgba(30, 10, 15, 0.55);
+  --carriers-3d-bg:   #3d1322;
+  --carriers-3d-rim:  rgba(255, 200, 180, 0.18);
+  --frame-3d-shadow:  rgba(60, 20, 30, 0.40);
+  --frame-3d-rim:     rgba(255, 230, 210, 0.50);
+}
+
+/* FOREST — sage/mint → deep forest. Přírodní, klidný. */
+body.theme-forest {
+  --bg-3d-top:        #b8d8a8;
+  --bg-3d-bottom:     #94bf85;
+  --image-3d-bg:      #2a4530;
+  --image-3d-outline: rgba(10, 25, 15, 0.55);
+  --carriers-3d-bg:   #1a3022;
+  --carriers-3d-rim:  rgba(200, 230, 190, 0.18);
+  --frame-3d-shadow:  rgba(20, 40, 25, 0.40);
+  --frame-3d-rim:     rgba(220, 240, 215, 0.50);
+}
+
+/* LAVENDER — soft purple → indigo. Snový, delikátní. */
+body.theme-lavender {
+  --bg-3d-top:        #c8b8e0;
+  --bg-3d-bottom:     #a896c8;
+  --image-3d-bg:      #2e1f4d;
+  --image-3d-outline: rgba(15, 8, 25, 0.55);
+  --carriers-3d-bg:   #1a0f33;
+  --carriers-3d-rim:  rgba(220, 200, 240, 0.18);
+  --frame-3d-shadow:  rgba(25, 10, 50, 0.40);
+  --frame-3d-rim:     rgba(235, 220, 250, 0.50);
+}
+
+/* MONO DARK — světlé pozadí, tmavá scéna. Minimalistický high-contrast. */
+body.theme-mono-dark {
+  --bg-3d-top:        #e8e8e8;
+  --bg-3d-bottom:     #c8c8c8;
+  --image-3d-bg:      #1e1e1e;
+  --image-3d-outline: rgba(0, 0, 0, 0.65);
+  --carriers-3d-bg:   #0a0a0a;
+  --carriers-3d-rim:  rgba(220, 220, 220, 0.18);
+  --frame-3d-shadow:  rgba(0, 0, 0, 0.45);
+  --frame-3d-rim:     rgba(255, 255, 255, 0.55);
+}
+
+/* MONO LIGHT — tmavé pozadí, světlá scéna. Inverze, dramatický. */
+body.theme-mono-light {
+  --bg-3d-top:        #2a2a2a;
+  --bg-3d-bottom:     #1a1a1a;
+  --image-3d-bg:      #f0f0f0;
+  --image-3d-outline: rgba(0, 0, 0, 0.40);
+  --carriers-3d-bg:   #ffffff;
+  --carriers-3d-rim:  rgba(40, 40, 40, 0.30);
+  --frame-3d-shadow:  rgba(0, 0, 0, 0.55);
+  --frame-3d-rim:     rgba(120, 120, 120, 0.50);
+}
+body.theme-mono-light #status,
+body.theme-mono-light .ctrl-label,
+body.theme-mono-light .gravity-label,
+body.theme-mono-light .diff-summary-label,
+body.theme-mono-light #belt-label,
+body.theme-mono-light #pending-label,
+body.theme-mono-light .step-label {
+  color: rgba(255, 255, 255, 0.85);
+}
+body.theme-mono-light #carriers-label {
+  color: rgba(0, 0, 0, 0.65);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -201,16 +294,16 @@ body.renderer-3d .btn.active {
 /* IMAGE AREA — hero canvas s hloubkou.
    - Větší rounded corners
    - Strong drop-shadow → vznáší se nad pozadím
-   - Inner highlight rim pro 3D button feel
-   - Background = tmavší pink podtón (vidí se v pixel mezerách + ground shadow) */
+   - Tmavý outline pro definici hran (sjednocuje s pixel/block outlines)
+   - Background = theme-aware (vidí se v pixel mezerách + ground shadow) */
 body.renderer-3d #image-area {
-  border: none;
+  border: 2px solid var(--image-3d-outline);
   border-radius: 18px;
   background: var(--image-3d-bg);
   box-shadow:
-    0 12px 32px rgba(60, 20, 50, 0.40),
-    0 3px 6px rgba(50, 15, 45, 0.25),
-    inset 0 1px 0 rgba(255, 220, 230, 0.40);
+    0 12px 32px var(--frame-3d-shadow),
+    0 3px 6px rgba(0, 0, 0, 0.20),
+    inset 0 2px 4px rgba(0, 0, 0, 0.30);
 }
 
 /* BELT/PENDING — light frame, splývá s pink BG */
