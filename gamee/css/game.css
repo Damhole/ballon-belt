@@ -378,38 +378,36 @@ body.renderer-3d #belt-wrap {
 
 /* PENDING + CARRIERS — sjednocené ve tvaru trychtýře (funnel).
    Wrapper #bottom-deck (vytvořený JSem) obaluje pending+carriers jako jeden
-   shape. Clip-path tvoří trapezoidní taper: wider top (extending out 30px
-   each side), narrowing to carriers width below pending area. */
+   shape. Aggressive V-shape funnel — kopíruje gray V-lines z pending-canvasu.
+   Top wider (420px) → diagonálně sbíhá inward k narrow waist (240px) přibližně
+   ve výšce pending bottom → expanduje zpět na 360px carriers width.
+   Polygon body sledují gray V-line direction (steeper angle). */
 body.renderer-3d #bottom-deck {
   background: var(--carriers-3d-bg);
   width: 420px;
   margin-left: auto;
   margin-right: auto;
   align-self: center;
-  /* Trapezoid funnel: top wider (420px), tapers k 360px about pending+carriers
-     join point (cca 100px from top), pak 360px down. */
+  /* Narrow top „spice" → expanduje diagonálně outward k carriers width.
+     Reverse trychtýř — point goes UP, ne k dolnimu kontejneru. */
   clip-path: polygon(
-    /* TOP — 420px wide */
-    14px 0,
-    406px 0,
-    420px 14px,
-    /* TAPER on right side — diagonál od (420, ~100) k (390, ~120) — narrowing */
-    420px 90px,
-    390px 110px,
-    /* BOTTOM right — at 390 (corresponds to 360px wide carriers + 30px offset) */
+    /* TOP narrow center (220px) */
+    114px 0,
+    306px 0,
+    /* Diagonal expansion outward to carriers width */
+    390px 70px,
+    /* Right side straight down */
     390px calc(100% - 14px),
     376px 100%,
-    /* BOTTOM left mirror */
+    /* Bottom-left rounded */
     44px 100%,
     30px calc(100% - 14px),
-    /* TAPER on left side */
-    30px 110px,
-    0 90px,
-    /* TOP-LEFT */
-    0 14px
+    /* Left diagonal up to narrow top */
+    30px 70px,
+    114px 0
   );
   box-shadow:
-    inset 0 6px 14px rgba(0, 0, 0, 0.50),
+    inset 0 8px 16px rgba(0, 0, 0, 0.50),
     inset 6px 0 12px rgba(0, 0, 0, 0.30),
     inset -6px 0 12px rgba(0, 0, 0, 0.30),
     inset 0 -6px 12px rgba(0, 0, 0, 0.45),
