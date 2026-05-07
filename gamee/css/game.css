@@ -485,6 +485,25 @@ body.renderer-3d .wall-block {
   background: rgba(20, 5, 35, 0.55);
 }
 
+/* render3d_bottom: 2D elementy skryté za 3D canvasem (z-index:2 canvas je překrývá).
+   visibility:hidden zachová layout pro správné měření výšky při init(). */
+body.renderer-3d #belt-svg,
+body.renderer-3d #pending-canvas {
+  visibility: hidden;
+}
+/* Carrier ball divy (CSS circles) skryté — 3D spheres je nahrazují */
+body.renderer-3d .cbox > div {
+  visibility: hidden !important;
+}
+/* Cbox background průhledný pro běžné nosiče — 3D rounded-box mesh ho nahrazuje.
+   Garage/rocket si necháváme CSS vzhled (3D je nerendrue). */
+body.renderer-3d .carrier.active .cbox,
+body.renderer-3d .carrier.inactive .cbox {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
 /* Diff badge readability na light BG */
 body.renderer-3d .diff-badge.diff-relaxing { background: rgba(70, 160, 80, 0.20); }
 body.renderer-3d .diff-badge.diff-medium { background: rgba(200, 160, 50, 0.25); }

@@ -5185,6 +5185,19 @@ function _ensureR3D(){
   return true;
 }
 
+// Lazy init Three.js scény pro bottom area (belt + pending + carriers).
+// Volá se po prvním drawCarriers() — DOM musí být plně layoutovaný.
+let _r3dBottomInited=false;
+function _ensureR3DBottom(){
+  if(_r3dBottomInited) return true;
+  if(RENDERER_MODE!=='3d') return false;
+  if(!window.render3dBottom||typeof window.render3dBottom.init!=='function') return false;
+  const ok=window.render3dBottom.init();
+  if(!ok) return false;
+  _r3dBottomInited=true;
+  return true;
+}
+
 // 3D-mode HP text overlay — kreslí HP čísla a mystery „?" na block-overlay-canvas
 // (z-index nad three-canvas), aby byly viditelné nad 3D walls. Volá se z drawBlocks
 // po render3d.updateBlocks. Stejná typografie jako 2D pipeline.
@@ -5596,6 +5609,12 @@ function drawCarriers(){
     el.appendChild(col);
   }
   document.getElementById('carriers-left').textContent=cntCarriers();
+  // 3D: update sphere instances pro carrier balls (DOM je čerstvý → správné pozice)
+  if(RENDERER_MODE==='3d'){
+    _ensureR3DBottom();
+    if(window.render3dBottom&&window.render3dBottom.isReady&&window.render3dBottom.isReady())
+      window.render3dBottom.updateCarriers(columns,COLORS);
+  }
 }
 function findColorCentroid(ci){
   // Najdi největší souvislý shluk a vrať jeho těžiště – vyhneme se tak
@@ -6808,6 +6827,12 @@ function beltLoop(ts){
   if(RENDERER_MODE==='3d' && window.render3d && window.render3d.isReady && window.render3d.isReady()){
     if(window.render3d.updateAnimations) window.render3d.updateAnimations(_animDt);
     window.render3d.render();
+  }
+  // 3D bottom: belt balls + pending balls každý frame; carriers se updatují v drawCarriers()
+  if(RENDERER_MODE==='3d' && window.render3dBottom && window.render3dBottom.isReady && window.render3dBottom.isReady()){
+    window.render3dBottom.updatePending(pending,COLORS);
+    window.render3dBottom.updateBelt(belt,beltAnim,COLORS);
+    window.render3dBottom.render();
   }
   _profAccum.drawBelt+=_t1-_t0;
   _profAccum.drawParticles+=_t2-_t1;
