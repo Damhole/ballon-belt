@@ -5691,11 +5691,22 @@ function onCarrierClick(e){
   }
   const projectiles=slot.projectiles||UPC*PPU;
   const balls=distributeProjectiles(projectiles).map(p=>({ci:slot.color,ppu:p}));
+  // Změřit pozici cboxu PŘED drawCarriers() — drawCarriers() může přepsat DOM
+  let _dropX=null,_dropY=null;
+  if(RENDERER_MODE==='3d'&&window.render3dBottom&&window.render3dBottom.isReady&&window.render3dBottom.isReady()){
+    const cbox=e.currentTarget.querySelector('.cbox');
+    const canvas3d=document.getElementById('bottom3d-canvas');
+    if(cbox&&canvas3d){
+      const cr=cbox.getBoundingClientRect(),cv=canvas3d.getBoundingClientRect();
+      _dropX=cr.left+cr.width/2-cv.left; _dropY=cr.top+cr.height/2-cv.top;
+    }
+  }
   for(const b of balls)addToPending(b);
   columns[c][r]=null;
   noMatchPasses=0;
   updateGarages();
   drawCarriers();drawBelt();drawPending();
+  if(_dropX!==null)window.render3dBottom.spawnDrop(_dropX,_dropY,COLORS[slot.color],balls.length);
   setStatus(balls.length+' balónků v trychtýři');
 }
 function showFunnelWarning(){
@@ -6832,6 +6843,7 @@ function beltLoop(ts){
   if(RENDERER_MODE==='3d' && window.render3dBottom && window.render3dBottom.isReady && window.render3dBottom.isReady()){
     window.render3dBottom.updatePending(pending,COLORS);
     window.render3dBottom.updateBelt(belt,beltAnim,COLORS);
+    window.render3dBottom.updateDropAnimations(_animDt * 1000);
     window.render3dBottom.render();
   }
   _profAccum.drawBelt+=_t1-_t0;
