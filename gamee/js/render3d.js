@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 
 const SCALE = 10;
-const PIXEL_DEPTH = 12;       // baseline hloubka pixel-kostky (z-extent)
+const PIXEL_DEPTH = 18;       // baseline hloubka pixel-kostky (z-extent)
 const PIXEL_LIFT = PIXEL_DEPTH / 2; // střed baseline kostky nad rovinou z=0
 const PIXEL_INSET = 0.94;     // 1.0 = full size, <1 vytvoří mezery (6% = jemná separace)
 const TILT_DEG = 19.2;        // tilt scény (°) — match Blender Camera.010 X rotation
@@ -23,8 +23,8 @@ const BEVEL_TEX_SIZE = 128;   // rozlišení bevel textury (vyšší = ostřejš
 // Per-pixel height variation — některé kostky vyšší, aby povrch nebyl rovnoměrný.
 // 3 tiery, deterministicky vybrané přes hash(x,y). Bottom plane všech kostek
 // zůstává na z=0 (cube se „natáhne" nahoru). Chceš to vypnout? Nastav VARIANCE_AMPL=0.
-const HEIGHT_TIERS = [1.0, 1.4, 1.8]; // násobiče PIXEL_DEPTH
-const TIER_PROBS = [0.6, 0.3, 0.1];   // pravděpodobnost (sum = 1.0)
+const HEIGHT_TIERS = [1.0, 1.3, 1.5]; // násobiče PIXEL_DEPTH
+const TIER_PROBS = [0.90, 0.08, 0.02]; // 90 % baseline, 8 % medium, 2 % tall
 const VARIANCE_AMPL = 1.0;            // 0 = vše stejně vysoké, 1 = plná varianta
 
 const state = {
