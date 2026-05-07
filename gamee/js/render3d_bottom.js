@@ -519,11 +519,11 @@ function updateCarriers(columns, colorsArr) {
 
       // Lift: 0 → 1 (peak at t=0.25) → klesá zpět; ease-out
       const liftT = t < 0.25 ? (t / 0.25) : Math.max(0, 1 - (t - 0.25) / 0.40);
-      const lift  = liftT * 32;   // canvas Y up px (DRAMATIC)
+      const lift  = liftT * 24;   // canvas Y up px
 
       // Tilt: top of slot rotates AWAY from viewer (negative X rotation = top → -Z)
       const tiltT = t < 0.30 ? (t / 0.30) : Math.max(0, 1 - (t - 0.30) / 0.35);
-      const tilt  = -tiltT * 0.75;   // ~43° tilt
+      const tilt  = -tiltT * 0.55;
 
       // Fade: scale 1→0 v posledních 30 % animace
       const fadeT = Math.max(0, (t - 0.45) / 0.20);
