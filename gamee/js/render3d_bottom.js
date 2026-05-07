@@ -557,7 +557,7 @@ function updateCarriers(columns, colorsArr) {
 
       // Lift: 0 → 1 (peak at t=0.25) → klesá zpět; ease-out
       const liftT = t < 0.25 ? (t / 0.25) : Math.max(0, 1 - (t - 0.25) / 0.40);
-      const lift  = liftT * 24;   // canvas Y up px
+      const lift  = liftT * 55;   // canvas Y up px (vyšší aby unikl carriers řadě před ním)
 
       // Tilt: top of slot rotates AWAY from viewer (negative X rotation = top → -Z)
       const tiltT = t < 0.30 ? (t / 0.30) : Math.max(0, 1 - (t - 0.30) / 0.35);
