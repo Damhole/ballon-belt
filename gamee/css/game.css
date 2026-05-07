@@ -111,9 +111,9 @@ body.theme-experiment {
 body.theme-experiment2 {
   --bg-3d-top:        #ad94c2;   /* dusty soft lavender (méně saturace) */
   --bg-3d-bottom:     #826995;   /* muted purple dole */
-  --image-3d-bg:      #e6d18e;   /* light buttery cream-yellow (brighter, méně saturace) */
+  --image-3d-bg:      #ecdba0;   /* warm cream-yellow, mírně zářivější + olivový nádech */
   --image-3d-outline: rgba(0, 0, 0, 0.70);
-  --carriers-3d-bg:   #e6d18e;   /* MATCH s image area */
+  --carriers-3d-bg:   #ecdba0;   /* MATCH s image area */
   --carriers-3d-rim:  rgba(180, 140, 80, 0.30);  /* warm dark rim pro definici */
   --frame-3d-shadow:  rgba(40, 25, 50, 0.40);
   --frame-3d-rim:     rgba(225, 200, 220, 0.42);
