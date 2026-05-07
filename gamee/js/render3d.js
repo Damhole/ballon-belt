@@ -17,7 +17,7 @@ import * as THREE from 'three';
 const SCALE = 10;
 const PIXEL_DEPTH = 18;       // baseline hloubka pixel-kostky (z-extent)
 const PIXEL_LIFT = PIXEL_DEPTH / 2; // střed baseline kostky nad rovinou z=0
-const PIXEL_INSET = 0.94;     // 1.0 = full size, <1 vytvoří mezery (6% = jemná separace)
+const PIXEL_INSET = 0.98;     // 1.0 = full size, <1 vytvoří mezery (2% = jen vlasový gap)
 const TILT_DEG = 19.2;        // tilt scény (°) — match Blender Camera.010 X rotation
 const BEVEL_TEX_SIZE = 128;   // rozlišení bevel textury (vyšší = ostřejší highlights)
 // Per-pixel height variation — některé kostky vyšší, aby povrch nebyl rovnoměrný.
