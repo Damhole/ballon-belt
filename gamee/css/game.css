@@ -8,6 +8,14 @@
   --color-border-tertiary: #333;
   --color-background-primary: #1a1a1a;
   --color-background-secondary: #2a2a2a;
+  /* 3D mode atmospheric tokens — aktivují se přes body.renderer-3d.
+     Inspirace painterly cartoon style (Royal Match / Toy Blast). */
+  --bg-3d-top:        #f4d6e3;  /* světlá pink-cream nahoře */
+  --bg-3d-bottom:     #ddc0d4;  /* mírně tmavší dole */
+  --frame-3d-bg:      #e8c8d8;  /* podklad pro panely */
+  --frame-3d-shadow:  rgba(50, 30, 50, 0.28);
+  --frame-3d-rim:     rgba(255, 255, 255, 0.55);
+  --image-3d-bg:      #d3b3c8;  /* image area podklad — vidí se v pixel mezerách + ground shadow */
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -113,3 +121,132 @@ body {
 #score-bar{display:flex;gap:24px;font-size:13px;color:var(--color-text-secondary)}
 #score-bar span b{color:var(--color-text-primary);font-weight:500}
 h1{font-size:16px;font-weight:500;color:var(--color-text-secondary);letter-spacing:0.05em}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   3D MODE ENVIRONMENT POLISH
+   Aktivuje se přes <body class="renderer-3d"> z game.js (RENDERER_MODE='3d').
+   2D režim zůstává úplně nedotčený — tyto styly se nikde nemíchají.
+   ═══════════════════════════════════════════════════════════════════════ */
+body.renderer-3d {
+  background:
+    radial-gradient(ellipse at top, var(--bg-3d-top) 0%, var(--bg-3d-bottom) 75%);
+  color: #3a2330;
+}
+body.renderer-3d #status {
+  color: rgba(80, 40, 70, 0.80);
+  font-weight: 500;
+}
+body.renderer-3d #version-badge {
+  color: rgba(80, 40, 70, 0.45);
+}
+body.renderer-3d #ammo-audit {
+  color: rgba(80, 40, 70, 0.75);
+}
+body.renderer-3d #ammo-audit .aa-chip {
+  background: rgba(255, 255, 255, 0.55);
+  color: rgba(60, 30, 50, 0.85);
+}
+body.renderer-3d #ammo-audit .aa-total {
+  color: rgba(60, 30, 50, 0.95);
+}
+body.renderer-3d .controls {
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--frame-3d-rim);
+  box-shadow:
+    0 4px 14px var(--frame-3d-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+body.renderer-3d .ctrl-label,
+body.renderer-3d .gravity-label,
+body.renderer-3d .diff-summary-label,
+body.renderer-3d #belt-label,
+body.renderer-3d #pending-label,
+body.renderer-3d #carriers-label,
+body.renderer-3d .special-chip-label {
+  color: rgba(80, 40, 70, 0.65);
+}
+body.renderer-3d .step-label {
+  color: rgba(50, 25, 45, 0.95);
+}
+body.renderer-3d .stepper {
+  background: rgba(255, 255, 255, 0.45);
+  border-color: rgba(120, 70, 100, 0.25);
+}
+body.renderer-3d .step-arrow,
+body.renderer-3d .btn {
+  color: rgba(80, 40, 70, 0.80);
+  border-right-color: rgba(120, 70, 100, 0.20);
+}
+body.renderer-3d .seg {
+  border-color: rgba(120, 70, 100, 0.25);
+}
+body.renderer-3d .btn:hover {
+  background: rgba(255, 255, 255, 0.55);
+  color: rgba(40, 15, 35, 1);
+}
+body.renderer-3d .btn.active {
+  background: rgba(255, 255, 255, 0.85);
+  color: rgba(40, 15, 35, 1);
+}
+
+/* IMAGE AREA — hero canvas s hloubkou.
+   - Větší rounded corners
+   - Strong drop-shadow → vznáší se nad pozadím
+   - Inner highlight rim pro 3D button feel
+   - Background = sjednocený pink podtón (vidí se v pixel mezerách + ground) */
+body.renderer-3d #image-area {
+  border: none;
+  border-radius: 16px;
+  background: var(--image-3d-bg);
+  box-shadow:
+    0 10px 28px var(--frame-3d-shadow),
+    0 2px 4px rgba(50, 30, 50, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+/* BELT/PENDING/CARRIERS — stejný card style, méně dramatický shadow */
+body.renderer-3d #belt-wrap,
+body.renderer-3d #pending-wrap,
+body.renderer-3d #carriers-wrap {
+  background: rgba(255, 255, 255, 0.40);
+  border-radius: 14px;
+  padding: 8px 8px 10px;
+  box-shadow:
+    0 4px 12px var(--frame-3d-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+body.renderer-3d #belt-wrap { padding: 8px 4px 4px; }
+body.renderer-3d #pending-wrap { padding: 6px 8px 8px; }
+body.renderer-3d #carriers-wrap { padding: 8px 8px 12px; }
+
+/* Carriers: zachovat jejich vlastní dark inset look (cbox má svoje box-shadow),
+   jen lehce vylepšit recessed slot iluzi přes background panelu výše. */
+
+/* Walls v 3D — match BG color, ať lépe splývají */
+body.renderer-3d .wall-block {
+  background: rgba(180, 140, 165, 0.55);
+}
+
+/* Diff badge readability na light BG */
+body.renderer-3d .diff-badge.diff-relaxing { background: rgba(70, 160, 80, 0.20); }
+body.renderer-3d .diff-badge.diff-medium { background: rgba(200, 160, 50, 0.25); }
+body.renderer-3d .diff-badge.diff-hard { background: rgba(220, 110, 50, 0.25); }
+body.renderer-3d .diff-badge.diff-hardcore { background: rgba(230, 70, 70, 0.30); }
+
+/* Game over overlay match style */
+body.renderer-3d #overlay {
+  background: rgba(120, 80, 105, 0.55);
+}
+body.renderer-3d #overlay-box {
+  background: rgba(255, 250, 252, 0.95);
+  color: #3a2330;
+  border-color: rgba(120, 70, 100, 0.20);
+}
+body.renderer-3d #overlay-box h3 { color: #3a2330; }
+body.renderer-3d #overlay-box p { color: rgba(80, 40, 70, 0.75); }
+body.renderer-3d #restart-btn {
+  background: #3a2330;
+  color: #fff;
+  border: none;
+}
+body.renderer-3d #restart-btn:hover { background: #5a3050; }

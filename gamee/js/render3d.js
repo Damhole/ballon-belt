@@ -314,19 +314,19 @@ function init(canvas, opts) {
   state.camera = new THREE.OrthographicCamera(0, W, H, 0, -500, 500);
   state.camera.position.set(0, 0, 100);
 
-  // Lighting — HemisphereLight (sky + ground) ambient, DirectionalLight = „slunce"
-  // ze shora a zleva (Y-up: kladné Y = nahoře, záporné X = vlevo). Cíl: pixely mají
-  // top face highlight + viditelné shading na bočních stěnách (díky tiltu).
-  const sky = new THREE.HemisphereLight(0xffffff, 0x6a6680, 0.85);
+  // Lighting — HemisphereLight (sky + ground) ambient, DirectionalLight = „slunce".
+  // Po přechodu na light pink BG: ZVÝŠENÉ ambient + nižší directional contrast,
+  // aby pixely nezůstaly tmavé/desaturated proti světlému prostředí.
+  const sky = new THREE.HemisphereLight(0xffe8f0, 0xa090a8, 1.25);
   state.scene.add(sky);
-  const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+  const sun = new THREE.DirectionalLight(0xffffff, 1.05);
   sun.position.set(-W * 0.4, H * 0.8, 300);
-  // Cílem směřuje slunce ke středu image area
   sun.target.position.set(W / 2, imgCenterY, 0);
   state.scene.add(sun.target);
   // ── SHADOWS — directional light cast shadows na ground plane.
-  // Low-res 512×512 shadow map pro mobile. PCF soft shadows = jemné okraje.
-  // Shadow camera frustum velkorysý, aby pokryl celou tilted scénu.
+  // normalBias VÝRAZNĚ snížený (z 0.5 na 0.05) — eliminuje viditelný gap mezi
+  // základnou kostky a začátkem stínu. Trade-off: může vzniknout subtle shadow
+  // acne, kompenzujeme přes bias.
   sun.castShadow = true;
   sun.shadow.mapSize.width = 512;
   sun.shadow.mapSize.height = 512;
@@ -336,12 +336,13 @@ function init(canvas, opts) {
   sun.shadow.camera.bottom = -H * 0.8;
   sun.shadow.camera.near = 1;
   sun.shadow.camera.far = 1200;
-  sun.shadow.bias = -0.0008;       // ofset proti shadow acne (samostíny na top face)
-  sun.shadow.normalBias = 0.5;     // pomáhá s self-shadowing na zaoblených surface
+  sun.shadow.bias = -0.001;        // mírně silnější bias kvůli sníženému normalBias
+  sun.shadow.normalBias = 0.05;    // FIX: stíny teď navazují přímo na základnu objektu
   sun.shadow.radius = 2;           // soft edge rozmazání
   state.scene.add(sun);
   // Subtilní fill zezadu/zprava, ať tmavé strany nejsou úplně černé. Bez stínu.
-  const fill = new THREE.DirectionalLight(0xffffff, 0.4);
+  // Pinkový tint, ať fill barví neutrálně k BG.
+  const fill = new THREE.DirectionalLight(0xfff0f5, 0.55);
   fill.position.set(W * 0.6, -H * 0.2, 200);
   state.scene.add(fill);
 
@@ -390,10 +391,10 @@ function init(canvas, opts) {
 
   // GROUND PLANE — neviditelný plane na z=0 přijímá stíny od kostek.
   // ShadowMaterial = renderuje JEN stíny, plane sám je transparentní.
-  // Velkorysá velikost (3× scéna) ať pokryje i okraje. Default orientace
-  // (XY plane, normal +Z) sedí pro náš Z-up cubes svět.
+  // Opacity SNÍŽENA z 0.42 na 0.28 — lehčí stíny po přechodu na light BG,
+  // pixely zůstanou saturované.
   const groundGeom = new THREE.PlaneGeometry(W * 3, H * 3);
-  const groundMat = new THREE.ShadowMaterial({ opacity: 0.42 });
+  const groundMat = new THREE.ShadowMaterial({ opacity: 0.28 });
   state.shadowGround = new THREE.Mesh(groundGeom, groundMat);
   state.shadowGround.position.set(W / 2, imgCenterY, 0);
   state.shadowGround.receiveShadow = true;

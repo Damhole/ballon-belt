@@ -52,6 +52,13 @@ const RENDERER_MODE = (function(){
     return (m === '3d') ? '3d' : '2d';
   } catch(_e) { return '2d'; }
 })();
+// Aktivuje CSS .renderer-3d na body — game.css má pod tím selektorem
+// celé environment styly (pink BG, soft shadows, rounded frames). Stane se
+// jakmile body existuje (může to být před DOMContentLoaded pokud jsme inline).
+if (RENDERER_MODE === '3d') {
+  if (document.body) document.body.classList.add('renderer-3d');
+  else document.addEventListener('DOMContentLoaded', () => document.body.classList.add('renderer-3d'));
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BLOCKS (Okruh 2) — puzzle-style HP walls inside the image area
@@ -5099,7 +5106,14 @@ function _ensureR3D(){
 const _BLK_TILT = 19.2 * Math.PI / 180;
 const _BLK_TILT_COS = Math.cos(_BLK_TILT);
 const _BLK_TILT_SIN = Math.sin(_BLK_TILT);
-const _BLK_HALF_DEPTH = 16; // BLOCK_DEPTH/2 v render3d.js
+const _BLK_HALF_DEPTH = 16; // BLOCK_DEPTH/2 v render3d.js — pro střed bloku
+const _BLK_FULL_DEPTH = 32; // BLOCK_DEPTH — pro top face (outline)
+// Tilt correction helper: vrací posunutou canvas-Y pro daný flat Y a Z výšku.
+// Y-flip (canvas top=0) + tilt rotace -19.2° kolem X osy s pivotem na imgCenter.
+function _tiltY(y_flat, z_world){
+  const imgHalf = IMG_GH * SCALE / 2;
+  return imgHalf * (1 - _BLK_TILT_COS) + y_flat * _BLK_TILT_COS - z_world * _BLK_TILT_SIN;
+}
 function _drawBlockHpOverlay(){
   const cv=document.getElementById('block-overlay-canvas');
   if(!cv) return;
@@ -5117,14 +5131,54 @@ function _drawBlockHpOverlay(){
   const ctx=cv.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // resetuj a scale na CSS-pixely
   ctx.clearRect(0,0,W,H);
-  const imgHalf = IMG_GH * SCALE / 2; // 135 — pivot Y v canvas-space
+
+  // ── BLOCK OUTLINES ─────────────────────────────────────────────────────
+  // Trace silhouette každého bloku — vykreslí lines na hranách cells, kde
+  // neighbor je MIMO blok. Tilt correction pro top face (FULL_DEPTH).
+  // Sjednocuje look bloků s pixely (které mají outline z bevel textury).
+  ctx.save();
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.lineWidth = 1.6;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  for(const b of currentBlocks){
+    if(b.hp<=0) continue;
+    if(!b._mask) continue;
+    ctx.beginPath();
+    for(let ly=0; ly<b.h; ly++){
+      const row = b._mask[ly];
+      if(!row) continue;
+      for(let lx=0; lx<b.w; lx++){
+        if(!row[lx]) continue;
+        const x = (b.x + lx) * SCALE;
+        const yT = _tiltY((b.y + ly) * SCALE, _BLK_FULL_DEPTH);     // top edge
+        const yB = _tiltY((b.y + ly + 1) * SCALE, _BLK_FULL_DEPTH); // bottom edge
+        // Top edge — pokud nahoře není sousední cell stejného bloku
+        const top = (ly===0) || !b._mask[ly-1] || !b._mask[ly-1][lx];
+        if(top){ ctx.moveTo(x, yT); ctx.lineTo(x+SCALE, yT); }
+        // Bottom edge
+        const bot = (ly===b.h-1) || !b._mask[ly+1] || !b._mask[ly+1][lx];
+        if(bot){ ctx.moveTo(x, yB); ctx.lineTo(x+SCALE, yB); }
+        // Left edge
+        const lft = (lx===0) || !row[lx-1];
+        if(lft){ ctx.moveTo(x, yT); ctx.lineTo(x, yB); }
+        // Right edge
+        const rgt = (lx===b.w-1) || !row[lx+1];
+        if(rgt){ ctx.moveTo(x+SCALE, yT); ctx.lineTo(x+SCALE, yB); }
+      }
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // ── HP TEXT + MYSTERY ──────────────────────────────────────────────────
   for(const b of currentBlocks){
     if(b.hp<=0) continue;
     const isMystery=b.kind==='mystery';
     const cx=(b.x+b.w/2)*SCALE;
     const cy_flat=(b.y+b.h/2)*SCALE;
     // Tilt korekce: cy_tilted = imgHalf*(1-cos) + cy_flat*cos - halfDepth*sin
-    const cy = imgHalf * (1 - _BLK_TILT_COS) + cy_flat * _BLK_TILT_COS - _BLK_HALF_DEPTH * _BLK_TILT_SIN;
+    const cy = _tiltY(cy_flat, _BLK_HALF_DEPTH);
     const fontPx=24;
     ctx.save();
     ctx.textAlign='center';
@@ -5150,7 +5204,7 @@ function _drawBlockHpOverlay(){
     if(isMystery){
       const hpX=(b.x+b.w)*SCALE-3;
       const hpY_flat=b.y*SCALE+3;
-      const hpY = imgHalf * (1 - _BLK_TILT_COS) + hpY_flat * _BLK_TILT_COS - _BLK_HALF_DEPTH * _BLK_TILT_SIN;
+      const hpY = _tiltY(hpY_flat, _BLK_HALF_DEPTH);
       ctx.save();
       ctx.textAlign='right';
       ctx.textBaseline='top';
@@ -5269,11 +5323,10 @@ function drawBlocks(ctx){
       ctx.fillText(String(b.hp),cx,cy);
     }
     ctx.restore();
-    // Mystery: malé HP číslo v pravém horním rohu (přes překrytí ? uvnitř)
+    // Mystery: malé HP číslo v pravém horním rohu (přes překrytí ? uvnitř).
+    // 2D pipeline → flat coords, žádná tilt correction.
     if(isMystery){
-      const hpX=(b.x+b.w)*SCALE-3;
-      const hpY_flat=b.y*SCALE+3;
-      const hpY = imgHalf * (1 - _BLK_TILT_COS) + hpY_flat * _BLK_TILT_COS - _BLK_HALF_DEPTH * _BLK_TILT_SIN;
+      const hpX=(b.x+b.w)*SCALE-3, hpY=b.y*SCALE+3;
       ctx.save();
       ctx.textAlign='right';
       ctx.textBaseline='top';

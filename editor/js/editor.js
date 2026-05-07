@@ -677,14 +677,17 @@ function reloadPreview() {
   $('preview-empty').hidden = true;
   frame.hidden = false;
   const diff = $('preview-diff').value || 'easy';
+  const rendererMode = $('preview-renderer')?.value || '2d';
   // Force aktuálně vybranou variantu (jinak hra losuje náhodně mezi variantami
   // pro stejný diff a designer vidí jinou než tu, kterou má v editoru otevřenou).
   const activeV = clActiveVariant(lvl);
   const variantParam = (activeV && activeV.name && activeV.difficulty === diff)
     ? '&variant=' + encodeURIComponent(activeV.name) : '';
+  const rendererParam = (rendererMode === '3d') ? '&renderer=3d' : '';
   const url = '../gamee/index_local.html?level=' + encodeURIComponent(lvl.key) +
               '&diff=' + encodeURIComponent(diff) +
               variantParam +
+              rendererParam +
               '&t=' + Date.now();
   // Hard refresh: about:blank → real URL. Vynutí plný reload (včetně cache-bust
   // scriptů uvnitř index_local.html, viz inline <script> tam). Bez blanku browser
@@ -5340,6 +5343,19 @@ function wireHeader() {
 function wirePreview() {
   const diffSel = $('preview-diff');
   if (diffSel) diffSel.addEventListener('change', () => reloadPreview());
+  // Renderer toggle (2D Canvas vs 3D Three.js). Persistuje volbu v localStorage,
+  // aby designer nemusel volit pokaždé znovu.
+  const rendererSel = $('preview-renderer');
+  if (rendererSel) {
+    try {
+      const saved = localStorage.getItem('bb-preview-renderer');
+      if (saved === '2d' || saved === '3d') rendererSel.value = saved;
+    } catch (_e) {}
+    rendererSel.addEventListener('change', () => {
+      try { localStorage.setItem('bb-preview-renderer', rendererSel.value); } catch (_e) {}
+      reloadPreview();
+    });
+  }
   const refresh = $('btn-preview-refresh');
   if (refresh) refresh.addEventListener('click', () => reloadPreview());
 }
