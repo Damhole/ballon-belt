@@ -324,17 +324,18 @@ function init() {
   st.pendingMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PENDING * 3), 3);
   st.pendingMesh.count = 0;
   st.pendingMesh.frustumCulled = false;
+  st.pendingMesh.renderOrder = 5;  // vrchol nad slot/carriery
   contentGroup.add(st.pendingMesh);
   st.pendingOutlineMesh = mkOutline(pendingGeom, MAX_PENDING);
   contentGroup.add(st.pendingOutlineMesh);
 
-  // ─── Pending shadows (tmavé disky pod koulemi → koule "stojí" na podlaze) ───
+  // ─── Pending shadows DISABLED — způsobovaly viditelnost issues ───
   const shadowGeom = new THREE.CircleGeometry(R_PENDING * 1.35, 18);
   const shadowMat  = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.42, depthWrite: false });
   st.pendingShadowMesh = new THREE.InstancedMesh(shadowGeom, shadowMat, MAX_PENDING);
   st.pendingShadowMesh.count = 0;
   st.pendingShadowMesh.frustumCulled = false;
-  st.pendingShadowMesh.renderOrder = -2;  // pod ball + outline
+  st.pendingShadowMesh.visible = false;  // disabled
   contentGroup.add(st.pendingShadowMesh);
 
   // ─── Belt balls ───

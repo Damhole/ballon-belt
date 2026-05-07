@@ -5733,17 +5733,7 @@ function onCarrierClick(e){
   // Per-ball offsety: 4 balls v 2×2 grid kopírují pozice koulí v carrier (TL, TR, BL, BR)
   // Order matchuje render3d_bottom updateCarriers carrier ball loop.
   const _ballOff=[[-0.21,-0.21],[0.21,-0.21],[-0.21,0.21],[0.21,0.21]];
-  // Trigger 3D carrier-fire animaci (lift+tilt) — capture state PŘED slot=null
-  if(RENDERER_MODE==='3d'&&window.render3dBottom&&window.render3dBottom.triggerCarrierFire&&cbox){
-    const canvas3d=document.getElementById('bottom3d-canvas');
-    if(canvas3d){
-      const cR=cbox.getBoundingClientRect(),cv=canvas3d.getBoundingClientRect();
-      const p=slot.projectiles===undefined?40:slot.projectiles;
-      const fillCount=p<=0?0:(p>=40?4:Math.ceil(p/10));
-      window.render3dBottom.triggerCarrierFire(c,r,COLORS[slot.color],fillCount,
-        cR.left+cR.width/2-cv.left,cR.top+cR.height/2-cv.top,cR.width,cR.height);
-    }
-  }
+  // Tilt animace dočasně vypnuta — způsobovala stale dummy state interference
   // Spawn každou kouli na 2×2 pozici v carrieru (TL, TR, BL, BR) — jako by ty samé míčky
   // padly z carrieru. Carrier balls v render3d_bottom mizí ve stejný frame (slot=null).
   for(let i=0;i<balls.length;i++){
@@ -5757,8 +5747,15 @@ function onCarrierClick(e){
   }
   columns[c][r]=null;
   noMatchPasses=0;
-  updateGarages();
+  // 3D: drawCarriers HNED, ale queue refill (updateGarages) odložit o 200 ms,
+  // aby uživatel viděl prázdný slot DŘÍVE než se objeví nový. 2D mode dělá
+  // refill okamžitě (nezáleží na timing).
   drawCarriers();drawBelt();drawPending();
+  if(RENDERER_MODE==='3d'){
+    setTimeout(()=>{updateGarages();drawCarriers();},200);
+  } else {
+    updateGarages();drawCarriers();
+  }
   setStatus(balls.length+' balónků v trychtýři');
 }
 function showFunnelWarning(){

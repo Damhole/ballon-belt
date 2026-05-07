@@ -491,6 +491,12 @@ body.renderer-3d #belt-svg,
 body.renderer-3d #pending-canvas {
   visibility: hidden;
 }
+/* V 3D módu vypnout hover scale .cbox — způsoboval, že 3D rendering
+   se "zasekl" na zvětšeném míčku, protože updateCarriers měřilo
+   getBoundingClientRect z scaled DOMu a neběželo dál když hover skončil. */
+body.renderer-3d .carrier.active:hover .cbox {
+  transform: none;
+}
 /* Carrier ball divy (CSS circles) skryté — 3D spheres je nahrazují */
 body.renderer-3d .cbox > div {
   visibility: hidden !important;
