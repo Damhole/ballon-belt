@@ -1196,7 +1196,9 @@ function updateParticles(dt){
             if(ci>=0) window.render3d.triggerPixelDestroy(h.xx, h.yy, COLORS[ci]);
           }
           grid[h.yy][h.xx]=-1;
-          spawnPopShards(h.xx*SCALE+SCALE/2,h.yy*SCALE+SCALE/2,p.color);
+          // 2D pop shards skipnout v 3D módu — máme svůj 3D shard system,
+          // 2D ring by overlayovalo a duplikoval efekt.
+          if(RENDERER_MODE!=='3d') spawnPopShards(h.xx*SCALE+SCALE/2,h.yy*SCALE+SCALE/2,p.color);
         }
         if(destroyed){
           drawGrid();
@@ -1358,7 +1360,8 @@ function updateParticles(dt){
       if(gravityOn)applyGravityToCol(grid,gx);
       drawGrid();
       p.phase='pop'; p.popX=nx; p.popY=ny; p.onPop();
-      spawnPopShards(nx,ny,p.color);
+      // 2D pop shards skipnout v 3D módu — duplikace s render3d shards.
+      if(RENDERER_MODE!=='3d') spawnPopShards(nx,ny,p.color);
       if(running&&!anyTargetLeft()){
         particles.forEach(q=>{if(q.phase==='fly'){q.phase='pop';q.popX=q.x;q.popY=q.y;}});
         setTimeout(()=>{if(running)endGame(true);},80);
