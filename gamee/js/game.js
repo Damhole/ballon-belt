@@ -5701,8 +5701,15 @@ function onCarrierClick(e){
     return;
   }
   const projectiles=slot.projectiles||UPC*PPU;
-  // Filter prázdné ppu=0 — některé carriery mají jen 1–3 míčky (filledCount), ne vždy 4
-  const balls=distributeProjectiles(projectiles).map(p=>({ci:slot.color,ppu:p})).filter(b=>b.ppu>0);
+  // Počet pending balls = počet vizuálně plných míčků v carrieru (1..4 podle projectiles).
+  // Carrier zobrazuje _countFilled balls (PPU=10 → každý visible ball ~10 projectilů).
+  // distributeProjectiles vždy dělí na UPC=4 části, ale my chceme N balls = filledCount,
+  // aby vizuálně sedělo "co je v carrieru, to padá ven".
+  const filledCount=projectiles<=0?0:(projectiles>=UPC*PPU?UPC:Math.ceil(projectiles/PPU));
+  const _ppuBase=filledCount>0?Math.floor(projectiles/filledCount):0;
+  const _ppuExtra=filledCount>0?projectiles%filledCount:0;
+  const balls=[];
+  for(let _i=0;_i<filledCount;_i++)balls.push({ci:slot.color,ppu:_ppuBase+(_i<_ppuExtra?1:0)});
   // Spawn x/y v FUN coords podle pozice clicked carrieru
   // V 3D mode FUN.w=420 → reference je bottom-deck (420 px wide).
   // V 2D mode FUN.w=360 → reference je pending-canvas (360 px wide).
