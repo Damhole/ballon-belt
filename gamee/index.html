@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <head>
   <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-  <title>Balloon Belt v69</title>
+  <title>Balloon Belt v70</title>
   <script type="text/javascript" src="./lib/gamee-js.min.js"></script>
   <meta name="viewport" content="viewport-fit=cover">
   <link rel="stylesheet" href="./css/game.css">
@@ -9,7 +9,7 @@
 </head>
 <body onload="initGame()">
 <div id="game">
-  <div id="version-badge">v69</div>
+  <div id="version-badge">v70</div>
   <!-- Top UI (h1 + score bar) bylo odstraněno v29 — v Gamee tyto informace
        zobrazuje platform wrapper, a editor preview je kompaktnější bez nich.
        Legacy ID score / belt-count / carriers-left jsou zachovány jako skryté
@@ -41,6 +41,9 @@
   <div id="ammo-audit" hidden></div>
   <div id="image-area">
     <canvas id="pixel-canvas" width="360" height="310"></canvas>
+    <!-- 3D render layer (Fáze 1+). Aktivuje se přes ?renderer=3d v URL.
+         Position absolute, překryje pixel-canvas. V 2D módu je display:none. -->
+    <canvas id="three-canvas" width="360" height="310" style="position:absolute;left:0;top:0;width:360px;height:310px;z-index:1;display:none;pointer-events:none"></canvas>
     <div id="overlay">
       <div id="overlay-box">
         <h3 id="overlay-title">Konec</h3>
@@ -63,6 +66,17 @@
     <div id="carriers-grid"></div>
   </div>
 </div>
+<!-- Three.js přes importmap. Modul render3d.js si naimportuje 'three' a vystaví
+     API přes window.render3d. body onload="initGame()" se spustí až po načtení
+     všech scriptů včetně module type, takže game.js vidí window.render3d. -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "./lib/three.module.min.js"
+  }
+}
+</script>
+<script type="module" src="./js/render3d.js"></script>
 <script type="text/javascript" src="./js/levels.js"></script>
 <script type="text/javascript" src="./js/game.js"></script>
 </body>

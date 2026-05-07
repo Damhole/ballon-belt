@@ -39,6 +39,21 @@ const PPU=10;
 const SOLVED_TOLERANCE_PX=UPC*PPU;
 
 // ═══════════════════════════════════════════════════════════════════════════
+// RENDERER_MODE — feature flag pro 2.5D upgrade (Fáze 1+).
+//   '2d' = stávající Canvas2D pipeline (default, safe fallback)
+//   '3d' = Three.js scéna (pixely jako InstancedMesh BoxGeometry)
+// Aktivace: ?renderer=3d v URL. Bloky/projektily/UI zatím zůstávají 2D
+// (Fáze 2+ je posune). Při 3D módu pixel-canvas pořád existuje a slouží
+// jako podklad pro 2D bloky (three-canvas má alpha, prosvítá).
+// ═══════════════════════════════════════════════════════════════════════════
+const RENDERER_MODE = (function(){
+  try {
+    const m = new URLSearchParams(location.search).get('renderer');
+    return (m === '3d') ? '3d' : '2d';
+  } catch(_e) { return '2d'; }
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
 // BLOCKS (Okruh 2) — puzzle-style HP walls inside the image area
 //   • shape:  'rect' | 'cross' | 'L' | 'T' | 'circle'
 //   • x,y:    top-left in image pixel coords (0..GW-1 × 0..IMG_GH-1)
@@ -1096,7 +1111,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v69');
+          gamee.updateScore(score,playTime,'balloon-belt-v70');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5045,12 +5060,39 @@ function getBeadSprite(color){
   _beadSpriteCache[color]=cv;
   return cv;
 }
+// Lazy init Three.js scény. Volá se při prvním drawGrid v 3D módu.
+// Defensivní check: window.render3d může být undefined, pokud ESM modul
+// ještě nedoběhl (race condition při velmi rychlém boot). V tom případě
+// vracíme false a kreslíme dál ve 2D pipeline; další frame to znovu zkusí.
+let _r3dInited=false;
+function _ensureR3D(){
+  if(_r3dInited) return true;
+  if(!window.render3d || typeof window.render3d.init!=='function') return false;
+  const c=document.getElementById('three-canvas');
+  if(!c) return false;
+  const ok=window.render3d.init(c, {GW, GH, IMG_GH});
+  if(!ok) return false;
+  window.render3d.setVisible(true);
+  _r3dInited=true;
+  return true;
+}
+
 function drawGrid(){
   const cv=document.getElementById('pixel-canvas');
   const ctx=cv.getContext('2d');
   const W=GW*SCALE, H=GH*SCALE;
   ctx.clearRect(0,0,W,H);
-  // Vržené stíny na prázdný prostor pod tvary (hloubkový efekt)
+
+  // 3D pipeline (Fáze 1): pixely renderuje Three.js, bloky pořád 2D.
+  // Three-canvas překryje pixel-canvas (alpha), takže 2D bloky pod ním zůstávají
+  // viditelné. Per-frame render() volá beltLoop, drawGrid jen pushne update data.
+  if(RENDERER_MODE==='3d' && _ensureR3D()){
+    window.render3d.updateGrid(grid, COLORS);
+    drawBlocks(ctx);
+    return;
+  }
+
+  // 2D pipeline (default): vržené stíny + bead sprity + bloky.
   for(let y=0;y<GH-1;y++)for(let x=0;x<GW;x++){
     if(grid[y][x]!==-1&&grid[y+1][x]===-1){
       const px=x*SCALE, py=(y+1)*SCALE;
@@ -5731,7 +5773,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v69');
+    gamee.updateScore(score,playTime,'balloon-belt-v70');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -5849,7 +5891,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v69');
+  gamee.updateScore(score,playTime,'balloon-belt-v70');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -6493,6 +6535,12 @@ function beltLoop(ts){
   drawBelt(); const _t1=performance.now();
   drawParticles(); const _t2=performance.now();
   drawPending(); const _t3=performance.now();
+  // 3D scéna se re-renderuje každý frame. Update gridu se neděje (data se
+  // mění jen v drawGrid() při změně pixelů), ale render() je nutný kvůli
+  // budoucím animacím a v případě WebGL context loss / re-attach.
+  if(RENDERER_MODE==='3d' && window.render3d && window.render3d.isReady && window.render3d.isReady()){
+    window.render3d.render();
+  }
   _profAccum.drawBelt+=_t1-_t0;
   _profAccum.drawParticles+=_t2-_t1;
   _profAccum.drawPending+=_t3-_t2;
@@ -6659,7 +6707,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v69');
+      gamee.updateScore(score,playTime,'balloon-belt-v70');
       event.detail.callback();
     });
 
