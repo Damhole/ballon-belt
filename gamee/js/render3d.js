@@ -317,12 +317,30 @@ function init(canvas, opts) {
   // Lighting — HemisphereLight (sky + ground) ambient, DirectionalLight = „slunce"
   // ze shora a zleva (Y-up: kladné Y = nahoře, záporné X = vlevo). Cíl: pixely mají
   // top face highlight + viditelné shading na bočních stěnách (díky tiltu).
-  const sky = new THREE.HemisphereLight(0xffffff, 0x6a6680, 1.0);
+  const sky = new THREE.HemisphereLight(0xffffff, 0x6a6680, 0.85);
   state.scene.add(sky);
-  const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+  const sun = new THREE.DirectionalLight(0xffffff, 1.4);
   sun.position.set(-W * 0.4, H * 0.8, 300);
+  // Cílem směřuje slunce ke středu image area
+  sun.target.position.set(W / 2, imgCenterY, 0);
+  state.scene.add(sun.target);
+  // ── SHADOWS — directional light cast shadows na ground plane.
+  // Low-res 512×512 shadow map pro mobile. PCF soft shadows = jemné okraje.
+  // Shadow camera frustum velkorysý, aby pokryl celou tilted scénu.
+  sun.castShadow = true;
+  sun.shadow.mapSize.width = 512;
+  sun.shadow.mapSize.height = 512;
+  sun.shadow.camera.left = -W * 0.8;
+  sun.shadow.camera.right = W * 0.8;
+  sun.shadow.camera.top = H * 0.8;
+  sun.shadow.camera.bottom = -H * 0.8;
+  sun.shadow.camera.near = 1;
+  sun.shadow.camera.far = 1200;
+  sun.shadow.bias = -0.0008;       // ofset proti shadow acne (samostíny na top face)
+  sun.shadow.normalBias = 0.5;     // pomáhá s self-shadowing na zaoblených surface
+  sun.shadow.radius = 2;           // soft edge rozmazání
   state.scene.add(sun);
-  // Subtilní fill zezadu/zprava, ať tmavé strany nejsou úplně černé.
+  // Subtilní fill zezadu/zprava, ať tmavé strany nejsou úplně černé. Bez stínu.
   const fill = new THREE.DirectionalLight(0xffffff, 0.4);
   fill.position.set(W * 0.6, -H * 0.2, 200);
   state.scene.add(fill);
@@ -337,6 +355,8 @@ function init(canvas, opts) {
   state.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   state.renderer.setSize(W, H, false); // false = neměnit CSS rozměr canvasu
   state.renderer.setClearColor(0x000000, 0);
+  state.renderer.shadowMap.enabled = true;
+  state.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   // InstancedMesh pro pixely — max GW*IMG_GH (jen image area, ne belt rows)
   const maxInstances = state.GW * state.IMG_GH; // 36*27 = 972
@@ -363,8 +383,21 @@ function init(canvas, opts) {
   );
   state.pixelMesh.count = 0;
   state.pixelMesh.frustumCulled = false; // statická scéna, culling stejně nepomůže
+  state.pixelMesh.castShadow = true;
+  state.pixelMesh.receiveShadow = true;
   // Pixely jdou do contentGroup (tilted) místo přímo do scene.
   state.contentGroup.add(state.pixelMesh);
+
+  // GROUND PLANE — neviditelný plane na z=0 přijímá stíny od kostek.
+  // ShadowMaterial = renderuje JEN stíny, plane sám je transparentní.
+  // Velkorysá velikost (3× scéna) ať pokryje i okraje. Default orientace
+  // (XY plane, normal +Z) sedí pro náš Z-up cubes svět.
+  const groundGeom = new THREE.PlaneGeometry(W * 3, H * 3);
+  const groundMat = new THREE.ShadowMaterial({ opacity: 0.42 });
+  state.shadowGround = new THREE.Mesh(groundGeom, groundMat);
+  state.shadowGround.position.set(W / 2, imgCenterY, 0);
+  state.shadowGround.receiveShadow = true;
+  state.contentGroup.add(state.shadowGround);
 
   // BLOCK MESH — bloky jako InstancedMesh cubes BEZ bevel textury a BEZ insetu.
   // Cells stejného bloku tedy splývají v jeden „celistvý" wall povrch (bez seams,
@@ -392,6 +425,8 @@ function init(canvas, opts) {
   );
   state.blockMesh.count = 0;
   state.blockMesh.frustumCulled = false;
+  state.blockMesh.castShadow = true;
+  state.blockMesh.receiveShadow = true;
   state.contentGroup.add(state.blockMesh);
 
   // PROJECTILE MESH (Fáze 4) — 3D sphere instances pro létající balónky.
@@ -415,6 +450,8 @@ function init(canvas, opts) {
   );
   state.projectileMesh.count = 0;
   state.projectileMesh.frustumCulled = false;
+  state.projectileMesh.castShadow = true; // projektily vrhají stín na ground
+  // Záměrně ne receiveShadow (sphere by self-shadowoval kvůli Lambert + low-poly)
   state.contentGroup.add(state.projectileMesh);
 
   state.ready = true;
