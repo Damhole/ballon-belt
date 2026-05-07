@@ -487,10 +487,14 @@ function updateCarriers(columns, colorsArr) {
       // Slot box: lehce ztlumený (× 0.85) → koule vystupují přes outline.
       cSlot.copy(c3).multiplyScalar(0.85);
 
+      // Z bias podle row indexu: spodní řády push forward, aby překrývaly horní řády
+      // při tilt rendering (na hraně sousedních carriers depth test jinak losuje).
+      const rowZBias = r * 12;
+
       // 3D rounded-box slot container (jen pokud máme ještě prostor)
       if (slotIdx < MAX_CARRIER_SLOTS) {
-        // Slot vystředěný v Z=0; horní face je Z = SLOT_DEPTH/2
-        dummy.position.set(xW, yW, 0);
+        // Slot vystředěný v Z=rowZBias; horní face je Z = SLOT_DEPTH/2 + rowZBias
+        dummy.position.set(xW, yW, rowZBias);
         dummy.rotation.set(0, 0, 0);
         dummy.scale.set(slotScale, slotScale, slotScale);
         dummy.updateMatrix();
@@ -524,7 +528,7 @@ function updateCarriers(columns, colorsArr) {
           if (bi >= filled) break outer;
           bi++;
 
-          dummy.position.set(xW + offX[col2] * slotScale, yW + offY[1 - row] * slotScale, ballZ);
+          dummy.position.set(xW + offX[col2] * slotScale, yW + offY[1 - row] * slotScale, ballZ + rowZBias);
           dummy.scale.set(slotScale, slotScale, slotScale);
           dummy.updateMatrix();
           st.carrierMesh.setMatrixAt(ballIdx, dummy.matrix);
