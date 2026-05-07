@@ -1354,8 +1354,15 @@ function drawParticles(){
   if(!particleCtx)return;
   particleCtx.clearRect(0,0,360,310);
   drawCannon();
+  // V 3D módu: 'fly' fáze projektily renderuje render3d (sphere instances).
+  // Rocket/pop/confetti/shards fáze zůstávají 2D na particle-canvas.
+  const _use3DProj = RENDERER_MODE==='3d' && window.render3d && window.render3d.isReady && window.render3d.isReady();
+  if(_use3DProj){
+    window.render3d.updateProjectiles(particles);
+  }
   for(const p of particles){
     if(p.phase==='fly'){
+      if(_use3DProj) continue; // 3D sphere render přes render3d.updateProjectiles výše
       const spd=Math.sqrt(p.vx*p.vx+p.vy*p.vy)||1;
       // Stopa
       particleCtx.save();

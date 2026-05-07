@@ -21,6 +21,9 @@ const PIXEL_INSET = 0.98;     // 1.0 = full size, <1 vytvoří mezery (2% = jen 
 const BLOCK_DEPTH = 32;       // bloky výrazně vyšší než pixely (puzzle wall feel)
 const BLOCK_INSET = 1.0;      // bloky lícují bez mezer — cells stejného bloku splývají v jeden „celistvý" povrch
 const MAX_BLOCK_INSTANCES = 600; // většina bloků je velkých (rect 12×17 = 204 cells)
+const PROJECTILE_RADIUS = 4.8; // poloměr 3D balónku — match s 2D arc(p.x, p.y, 4.8)
+const PROJECTILE_Z = 12;       // Z pozice projektilu — mírně nad pixely, vidět 3D feel
+const MAX_PROJECTILES = 80;    // max projektilů ve vzduchu (real-game ~40)
 const TILT_DEG = 19.2;        // tilt scény (°) — match Blender Camera.010 X rotation
 const BEVEL_TEX_SIZE = 128;   // rozlišení bevel textury (vyšší = ostřejší highlights)
 // Per-pixel height variation — některé kostky vyšší, aby povrch nebyl rovnoměrný.
@@ -391,6 +394,29 @@ function init(canvas, opts) {
   state.blockMesh.frustumCulled = false;
   state.contentGroup.add(state.blockMesh);
 
+  // PROJECTILE MESH (Fáze 4) — 3D sphere instances pro létající balónky.
+  // Low-poly (12×8 segments) pro mobile, MeshLambertMaterial dává sphere shading
+  // od DirectionalLight (highlight + shadow side). Per-instance color.
+  // Z = PROJECTILE_Z (12) — mírně nad baseline pixely, ale pod block tops.
+  const projGeom = new THREE.SphereGeometry(PROJECTILE_RADIUS, 12, 8);
+  const projMatOpts = {
+    color: 0xffffff,
+    transparent: false,
+  };
+  if (state.style === 'neon') {
+    projMatOpts.emissive = 0xffffff;
+    projMatOpts.emissiveIntensity = 0.7;
+  }
+  const projMat = new THREE.MeshLambertMaterial(projMatOpts);
+  state.projectileMesh = new THREE.InstancedMesh(projGeom, projMat, MAX_PROJECTILES);
+  state.projectileMesh.instanceColor = new THREE.InstancedBufferAttribute(
+    new Float32Array(MAX_PROJECTILES * 3),
+    3
+  );
+  state.projectileMesh.count = 0;
+  state.projectileMesh.frustumCulled = false;
+  state.contentGroup.add(state.projectileMesh);
+
   state.ready = true;
   return true;
 }
@@ -533,12 +559,38 @@ function setStyle(newStyle) {
   return true;
 }
 
+// Aktualizuje projektilní InstancedMesh z aktuálního particles array.
+// Iteruje pouze 'fly' fáze (létající balónky); rocket/pop/confetti/shards
+// zůstávají 2D na particle-canvas (krátkodobé efekty, není potřeba 3D).
+function updateProjectiles(particles) {
+  if (!state.ready || !state.projectileMesh) return;
+  const H = state.GH * SCALE;
+  const mesh = state.projectileMesh;
+  let i = 0;
+  for (const p of particles) {
+    if (p.phase !== 'fly') continue;
+    if (i >= MAX_PROJECTILES) break;
+    _dummy.position.set(p.x, H - p.y, PROJECTILE_Z); // Y-flip: canvas Y → world Y
+    _dummy.rotation.set(0, 0, 0);
+    _dummy.scale.set(1, 1, 1);
+    _dummy.updateMatrix();
+    mesh.setMatrixAt(i, _dummy.matrix);
+    const col = _getColor(p.color);
+    mesh.instanceColor.setXYZ(i, col.r, col.g, col.b);
+    i++;
+  }
+  mesh.count = i;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (i > 0) mesh.instanceColor.needsUpdate = true;
+}
+
 // Vystavit API na window pro game.js (klasický script).
 if (typeof window !== 'undefined') {
   window.render3d = {
     init,
     updateGrid,
     updateBlocks,
+    updateProjectiles,
     render,
     isReady,
     setVisible,
