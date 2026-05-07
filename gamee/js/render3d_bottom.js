@@ -574,10 +574,9 @@ function updateCarriers(columns, colorsArr) {
       const xW = anim.x;
       const yW = _worldY(anim.y - lift);
 
-      // Push ghost slot agresivně forward v Z. Scene má tilt -19.2° → spodní carriers
-      // se po rotaci dostanou na world Z ~46, takže ghost musí být >50, aby byl vždy
-      // nad nimi i když clicked carrier je v horní řadě (kde tilt dává malý Z bonus).
-      _vec.set(xW, yW, 60);
+      // Z=5 = mezi slot (Z=0) a ball (Z=10) — ghost je nad ostatními slot, ale balls
+      // okolo zůstávají viditelné nad ním.
+      _vec.set(xW, yW, 5);
       _quat.setFromAxisAngle(_axisX, tilt);
 
       // Slot
