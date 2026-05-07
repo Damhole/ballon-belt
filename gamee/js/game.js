@@ -5083,15 +5083,29 @@ function _ensureR3D(){
 // 3D-mode HP text overlay — kreslí HP čísla a mystery „?" na block-overlay-canvas
 // (z-index nad three-canvas), aby byly viditelné nad 3D walls. Volá se z drawBlocks
 // po render3d.updateBlocks. Stejná typografie jako 2D pipeline.
+//
+// Tilt korekce: 3D scéna je naklopená -19.2° kolem X osy s pivotem ve středu
+// image area. Bloky mají vrchol v Z = BLOCK_DEPTH/2 (cca 16 px) → projekce na
+// 2D plátno posune jejich vizuální střed o sin(tilt) × halfDepth (~5.3 px UP).
+// Také relativní Y od pivotu se zkrátí o cos(tilt) (~5.5 % squish). Aplikujeme
+// transformaci, aby HP text seděl na vrchol 3D bloku.
+const _BLK_TILT = 19.2 * Math.PI / 180;
+const _BLK_TILT_COS = Math.cos(_BLK_TILT);
+const _BLK_TILT_SIN = Math.sin(_BLK_TILT);
+const _BLK_HALF_DEPTH = 16; // BLOCK_DEPTH/2 v render3d.js
 function _drawBlockHpOverlay(){
   const cv=document.getElementById('block-overlay-canvas');
   if(!cv) return;
   const ctx=cv.getContext('2d');
   ctx.clearRect(0,0,cv.width,cv.height);
+  const imgHalf = IMG_GH * SCALE / 2; // 135 — pivot Y v canvas-space
   for(const b of currentBlocks){
     if(b.hp<=0) continue;
     const isMystery=b.kind==='mystery';
-    const cx=(b.x+b.w/2)*SCALE, cy=(b.y+b.h/2)*SCALE;
+    const cx=(b.x+b.w/2)*SCALE;
+    const cy_flat=(b.y+b.h/2)*SCALE;
+    // Tilt korekce: cy_tilted = imgHalf*(1-cos) + cy_flat*cos - halfDepth*sin
+    const cy = imgHalf * (1 - _BLK_TILT_COS) + cy_flat * _BLK_TILT_COS - _BLK_HALF_DEPTH * _BLK_TILT_SIN;
     const fontPx=24;
     ctx.save();
     ctx.textAlign='center';
@@ -5232,7 +5246,9 @@ function drawBlocks(ctx){
     ctx.restore();
     // Mystery: malé HP číslo v pravém horním rohu (přes překrytí ? uvnitř)
     if(isMystery){
-      const hpX=(b.x+b.w)*SCALE-3, hpY=b.y*SCALE+3;
+      const hpX=(b.x+b.w)*SCALE-3;
+      const hpY_flat=b.y*SCALE+3;
+      const hpY = imgHalf * (1 - _BLK_TILT_COS) + hpY_flat * _BLK_TILT_COS - _BLK_HALF_DEPTH * _BLK_TILT_SIN;
       ctx.save();
       ctx.textAlign='right';
       ctx.textBaseline='top';
