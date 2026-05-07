@@ -16,9 +16,9 @@ const BELT_SPACING    = (BELT_ENDX - BELT_STARTX) / (BELT_CAP - 1); // ~20
 const BELT_TOTAL      = BELT_CAP * BELT_SPACING;                     // ~280
 const BELT_CENTER_CSS_Y = 32;  // (trackY1+trackY2)/2 = (18+46)/2
 
-// Poloměry koulí (3D) — větší koule, lépe zaplňují slot
+// Poloměry koulí (3D) — sjednoceno, aby koule v carriers/trychtýři/belt měly stejnou velikost
 const R_CARRIER = 12;
-const R_PENDING = 10;
+const R_PENDING = 12;
 const R_BELT    = 12;
 
 // Carrier slot rounded-box geometry parametry
@@ -39,7 +39,6 @@ const TILT_RAD = TILT_DEG * Math.PI / 180;
 const MAX_CARRIER_BALLS = 300;
 const MAX_CARRIER_SLOTS = 80;
 const MAX_PENDING       = 30;
-const MAX_DROP          = 60;   // drop-animace při kliknutí na nosič
 
 // ─── Stav scény ──────────────────────────────────────────────────────────────
 const st = {
@@ -54,6 +53,7 @@ const st = {
   beltCenterY:    40,                   // přepočítá se v init() dynamickým měřením
   pendingTopCSS:  BELT_SVG_H,          // přepočítá se v init() dynamickým měřením
   carriersTopCSS: BELT_SVG_H + PENDING_CANVAS_H,  // carriers pod pending
+  beltOffsetX:    0,                    // offset belt-wrap od levé hrany canvasu (canvas může být širší)
   // Tilt struktura: pivot (centerO) → tiltGroup (rotace -TILT_RAD okolo X) → contentGroup (posun zpět)
   pivot:        null,
   tiltGroup:    null,
@@ -75,10 +75,6 @@ const st = {
   beltRollerLOutline: null,
   beltRollerR:      null,
   beltRollerROutline: null,
-  // Drop animation state
-  dropBalls:       [],
-  dropMesh:        null,
-  dropOutlineMesh: null,
   // Dummy objekt pro matrix výpočty (reuse)
   _dummy: new THREE.Object3D(),
   _col3:  new THREE.Color(),
@@ -176,7 +172,14 @@ function init() {
                    document.getElementById('carriers-wrap');
   const bottomRect = bottomEl ? bottomEl.getBoundingClientRect() : beltRect;
 
-  const W = 360;
+  // Canvas musí pokrýt nejširší area (carriers/pending = 420 px, belt = 360 px)
+  const carrEl     = document.getElementById('carriers-wrap');
+  const pendWrapEl = document.getElementById('pending-wrap');
+  let widestRect = beltRect;
+  if (carrEl && carrEl.getBoundingClientRect().width > widestRect.width) widestRect = carrEl.getBoundingClientRect();
+  if (pendWrapEl && pendWrapEl.getBoundingClientRect().width > widestRect.width) widestRect = pendWrapEl.getBoundingClientRect();
+
+  const W = Math.ceil(widestRect.width);
   const H = Math.max(180, Math.ceil(bottomRect.bottom - beltRect.top) + 10);
 
   st.W = W;
@@ -184,7 +187,10 @@ function init() {
 
   // Canvas pozice relativně k #game divu
   const canvasTop  = Math.round(beltRect.top  - gameRect.top);
-  const canvasLeft = Math.round((gameRect.width - W) / 2);
+  const canvasLeft = Math.round(widestRect.left - gameRect.left);
+
+  // X-offset belt-wrap od levé hrany canvasu (belt-svg + pending-canvas jsou užší a vystředěné)
+  st.beltOffsetX = Math.round(beltRect.left - widestRect.left);
 
   // Dynamicky změřit pozice belt-svg a pending-canvas v rámci bottom3d-canvas
   const beltSvgEl   = document.getElementById('belt-svg');
@@ -283,6 +289,7 @@ function init() {
     const m = new THREE.InstancedMesh(geom, _outlineMat(), max);
     m.count = 0;
     m.renderOrder = -1;  // outline se kreslí PŘED main mesh (BackSide+depth = silueta)
+    m.frustumCulled = false;  // InstancedMesh per-instance positions přesahují geometry boundingSphere
     return m;
   };
 
@@ -290,6 +297,7 @@ function init() {
   st.carrierSlotMesh = new THREE.InstancedMesh(slotGeom, slotMat, MAX_CARRIER_SLOTS);
   st.carrierSlotMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARRIER_SLOTS * 3), 3);
   st.carrierSlotMesh.count = 0;
+  st.carrierSlotMesh.frustumCulled = false;
   contentGroup.add(st.carrierSlotMesh);
   st.carrierSlotOutlineMesh = mkOutline(slotGeom, MAX_CARRIER_SLOTS);
   contentGroup.add(st.carrierSlotOutlineMesh);
@@ -298,6 +306,7 @@ function init() {
   st.carrierMesh = new THREE.InstancedMesh(carrierGeom, ballMat(), MAX_CARRIER_BALLS);
   st.carrierMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARRIER_BALLS * 3), 3);
   st.carrierMesh.count = 0;
+  st.carrierMesh.frustumCulled = false;
   contentGroup.add(st.carrierMesh);
   st.carrierOutlineMesh = mkOutline(carrierGeom, MAX_CARRIER_BALLS);
   contentGroup.add(st.carrierOutlineMesh);
@@ -306,6 +315,7 @@ function init() {
   st.pendingMesh = new THREE.InstancedMesh(pendingGeom, ballMat(), MAX_PENDING);
   st.pendingMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PENDING * 3), 3);
   st.pendingMesh.count = 0;
+  st.pendingMesh.frustumCulled = false;
   contentGroup.add(st.pendingMesh);
   st.pendingOutlineMesh = mkOutline(pendingGeom, MAX_PENDING);
   contentGroup.add(st.pendingOutlineMesh);
@@ -314,18 +324,10 @@ function init() {
   st.beltMesh = new THREE.InstancedMesh(beltGeom, ballMat(), BELT_CAP);
   st.beltMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(BELT_CAP * 3), 3);
   st.beltMesh.count = 0;
+  st.beltMesh.frustumCulled = false;
   contentGroup.add(st.beltMesh);
   st.beltOutlineMesh = mkOutline(beltGeom, BELT_CAP);
   contentGroup.add(st.beltOutlineMesh);
-
-  // ─── Drop balls (animace nosiče→pás) ───
-  const dropGeom = new THREE.SphereGeometry(R_BELT, 24, 16);
-  st.dropMesh = new THREE.InstancedMesh(dropGeom, ballMat(), MAX_DROP);
-  st.dropMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_DROP * 3), 3);
-  st.dropMesh.count = 0;
-  contentGroup.add(st.dropMesh);
-  st.dropOutlineMesh = mkOutline(dropGeom, MAX_DROP);
-  contentGroup.add(st.dropOutlineMesh);
 
   _buildBeltTrack(contentGroup, W, toonGrad, st.beltCenterY);
 
@@ -339,13 +341,15 @@ function _buildBeltTrack(parent, W, toonGrad, beltCenterY) {
   const trackCssY = beltCenterY;
   const trackWY   = _worldY(trackCssY);  // world Y středu pásu
   const trackH    = 28;                  // pás výška v 3D (odpovídá trackY2-trackY1=28px)
+  const ox        = st.beltOffsetX;      // offset belt-wrap od levé hrany canvasu (belt je 360px wide, vystředěn)
+  const beltMid   = ox + 180;            // střed belt-svg (360/2)
 
   // Belt track plane (toon shader)
   const planeW  = 304;
   const planeGeom = new THREE.BoxGeometry(planeW, trackH, 4);
   const planeMat = new THREE.MeshToonMaterial({ color: 0x4a4a5a, gradientMap: toonGrad });
   const planeMesh = new THREE.Mesh(planeGeom, planeMat);
-  planeMesh.position.set(W / 2, trackWY, -2);
+  planeMesh.position.set(beltMid, trackWY, -2);
   parent.add(planeMesh);
   st.beltPlane = planeMesh;
 
@@ -363,7 +367,7 @@ function _buildBeltTrack(parent, W, toonGrad, beltCenterY) {
   const rollerMat = new THREE.MeshToonMaterial({ color: 0x6b6b7a, gradientMap: toonGrad });
 
   const rollerL = new THREE.Mesh(rollerGeom, rollerMat);
-  rollerL.position.set(28, trackWY, 2);
+  rollerL.position.set(ox + 28, trackWY, 2);
   parent.add(rollerL);
   st.beltRollerL = rollerL;
 
@@ -375,7 +379,7 @@ function _buildBeltTrack(parent, W, toonGrad, beltCenterY) {
   st.beltRollerLOutline = rollerLOut;
 
   const rollerR = new THREE.Mesh(rollerGeom, rollerMat);
-  rollerR.position.set(332, trackWY, 2);
+  rollerR.position.set(ox + 332, trackWY, 2);
   parent.add(rollerR);
   st.beltRollerR = rollerR;
 
@@ -522,7 +526,7 @@ function updatePending(pendingArr, colorsArr) {
     if (idx >= MAX_PENDING) break;
     if (b.x === undefined || b.y === undefined) continue;
 
-    const xW = b.x;
+    const xW = st.beltOffsetX + b.x;
     const yW = _worldY(yOffset + b.y);
 
     const hexColor = colorsArr ? colorsArr[b.ci] : '#888888';
@@ -567,9 +571,10 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
     const b = beltArr[i];
     if (!b) continue;
 
-    const xCSS = BELT_STARTX + (i * BELT_SPACING + offset) % BELT_TOTAL;
+    const xCSSrel = BELT_STARTX + (i * BELT_SPACING + offset) % BELT_TOTAL;
     // Kulička mimo viditelný pás → přeskočit
-    if (xCSS < 28 || xCSS > 332) continue;
+    if (xCSSrel < 28 || xCSSrel > 332) continue;
+    const xCSS = st.beltOffsetX + xCSSrel;
 
     const hexColor = colorsArr ? colorsArr[b.ci] : '#888888';
     c3.set(_hex(hexColor));
@@ -591,80 +596,6 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
   if (st.beltMesh.instanceColor) st.beltMesh.instanceColor.needsUpdate = true;
   st.beltOutlineMesh.count = idx;
   st.beltOutlineMesh.instanceMatrix.needsUpdate = true;
-}
-
-// ─── Drop animation (koule z nosiče na pás) ──────────────────────────────────
-// spawnDrop: volá se z game.js onCarrierClick.
-// canvasX/Y: střed .cbox v souřadnicích bottom3d-canvas (CSS px).
-// hexColor:  COLORS[slot.color] (hex string).
-// count:     počet koulí k animaci (1–4).
-
-const DROP_GRAV    = 0.008;   // CSS px/ms²  (gravitace — táhne k větším Y)
-const DROP_MAX_AGE = 700;     // ms — safety cut-off
-
-function spawnDrop(canvasX, canvasY, hexColor, count) {
-  if (!st.ready) return;
-  const n = Math.min(count || 1, MAX_DROP - st.dropBalls.length);
-  const dy  = Math.max(20, canvasY - st.beltCenterY);    // CSS px k pásu
-  const vy0 = -Math.sqrt(2 * DROP_GRAV * dy) * 1.18;    // kinetika + overshoot; min faktor zachytí belt spolehlivě
-
-  for (let i = 0; i < n; i++) {
-    const jitter = (i - (n - 1) / 2) * 7;
-    st.dropBalls.push({
-      x:     canvasX + jitter,
-      y:     canvasY,
-      vy:    vy0 * (0.92 + Math.random() * 0.08),  // malý rozptyl, vždy dosáhne pásu
-      hex:   hexColor,
-      delay: i * 55,
-      t:     0,
-      done:  false,
-    });
-  }
-}
-
-function updateDropAnimations(dt) {
-  if (!st.ready || !st.dropMesh) return;
-  if (!st.dropBalls.length) {
-    if (st.dropMesh.count !== 0) { st.dropMesh.count = 0; st.dropOutlineMesh.count = 0; }
-    return;
-  }
-
-  const beltY = st.beltCenterY;
-  const dummy = st._dummy;
-  const c3    = st._col3;
-  let   idx   = 0;
-
-  for (const b of st.dropBalls) {
-    if (b.done) continue;
-    if (b.delay > 0) { b.delay -= dt; continue; }
-
-    const step = Math.min(dt, 50);
-    b.y  += b.vy * step + 0.5 * DROP_GRAV * step * step;
-    b.vy += DROP_GRAV * step;
-    b.t  += step;
-
-    if (b.y <= beltY || b.t >= DROP_MAX_AGE) { b.done = true; continue; }
-    if (idx >= MAX_DROP) { b.done = true; continue; }
-
-    c3.set(_hex(b.hex));
-    dummy.position.set(b.x, _worldY(b.y), R_BELT);
-    dummy.scale.set(1, 1, 1);
-    dummy.updateMatrix();
-    st.dropMesh.setMatrixAt(idx, dummy.matrix);
-    st.dropMesh.setColorAt(idx, c3);
-    dummy.scale.setScalar(OUTLINE_SCALE_BALL);
-    dummy.updateMatrix();
-    st.dropOutlineMesh.setMatrixAt(idx, dummy.matrix);
-    idx++;
-  }
-
-  st.dropBalls = st.dropBalls.filter(b => !b.done);
-
-  st.dropMesh.count = idx;
-  st.dropMesh.instanceMatrix.needsUpdate = true;
-  if (st.dropMesh.instanceColor) st.dropMesh.instanceColor.needsUpdate = true;
-  st.dropOutlineMesh.count = idx;
-  st.dropOutlineMesh.instanceMatrix.needsUpdate = true;
 }
 
 // ─── Render ──────────────────────────────────────────────────────────────────
@@ -689,4 +620,4 @@ function dispose() {
 
 // ─── Export ──────────────────────────────────────────────────────────────────
 
-window.render3dBottom = { init, updateCarriers, updatePending, updateBelt, spawnDrop, updateDropAnimations, render, isReady, dispose };
+window.render3dBottom = { init, updateCarriers, updatePending, updateBelt, render, isReady, dispose };
