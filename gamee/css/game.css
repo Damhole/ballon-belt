@@ -19,7 +19,7 @@
   --frame-3d-shadow:  rgba(60, 20, 50, 0.35);
   --frame-3d-rim:     rgba(255, 220, 230, 0.50);
   --image-3d-bg:      #6a2f4d;
-  --image-3d-outline: rgba(40, 10, 30, 0.55);
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
   --carriers-3d-bg:   #4d2d6e;
   --carriers-3d-rim:  rgba(255, 200, 220, 0.18);
 }
@@ -35,7 +35,7 @@ body.theme-ocean {
   --bg-3d-top:        #9ed5e8;
   --bg-3d-bottom:     #75b8d4;
   --image-3d-bg:      #1f3d5c;
-  --image-3d-outline: rgba(8, 20, 35, 0.55);
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
   --carriers-3d-bg:   #122a4a;
   --carriers-3d-rim:  rgba(180, 220, 240, 0.18);
   --frame-3d-shadow:  rgba(10, 30, 60, 0.40);
@@ -47,7 +47,7 @@ body.theme-sunset {
   --bg-3d-top:        #ffb88c;
   --bg-3d-bottom:     #ee8a6e;
   --image-3d-bg:      #5a2030;
-  --image-3d-outline: rgba(30, 10, 15, 0.55);
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
   --carriers-3d-bg:   #3d1322;
   --carriers-3d-rim:  rgba(255, 200, 180, 0.18);
   --frame-3d-shadow:  rgba(60, 20, 30, 0.40);
@@ -59,7 +59,7 @@ body.theme-forest {
   --bg-3d-top:        #b8d8a8;
   --bg-3d-bottom:     #94bf85;
   --image-3d-bg:      #2a4530;
-  --image-3d-outline: rgba(10, 25, 15, 0.55);
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
   --carriers-3d-bg:   #1a3022;
   --carriers-3d-rim:  rgba(200, 230, 190, 0.18);
   --frame-3d-shadow:  rgba(20, 40, 25, 0.40);
@@ -71,7 +71,7 @@ body.theme-lavender {
   --bg-3d-top:        #c8b8e0;
   --bg-3d-bottom:     #a896c8;
   --image-3d-bg:      #2e1f4d;
-  --image-3d-outline: rgba(15, 8, 25, 0.55);
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
   --carriers-3d-bg:   #1a0f33;
   --carriers-3d-rim:  rgba(220, 200, 240, 0.18);
   --frame-3d-shadow:  rgba(25, 10, 50, 0.40);
@@ -85,7 +85,7 @@ body.theme-mono-dark {
   --bg-3d-top:        #e8e8e8;
   --bg-3d-bottom:     #c8c8c8;
   --image-3d-bg:      #222222;
-  --image-3d-outline: rgba(0, 0, 0, 0.60);
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
   --carriers-3d-bg:   #242424;
   --carriers-3d-rim:  rgba(220, 220, 220, 0.20);
   --frame-3d-shadow:  rgba(0, 0, 0, 0.42);
@@ -99,7 +99,7 @@ body.theme-experiment {
   --bg-3d-top:        #dab7a0;   /* dusty peach (méně saturovaný než předtím) */
   --bg-3d-bottom:     #b8866d;   /* muted terracotta (zachovává warmth, méně oranže) */
   --image-3d-bg:      #2c3a52;   /* deep dusty navy (faded sky → night) */
-  --image-3d-outline: rgba(20, 30, 50, 0.65);
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
   --carriers-3d-bg:   #2c3a52;   /* MATCH s image area — sjednocená navy plocha */
   --carriers-3d-rim:  rgba(220, 200, 170, 0.22);  /* warm cream rim */
   --frame-3d-shadow:  rgba(60, 30, 20, 0.40);
@@ -112,7 +112,7 @@ body.theme-experiment2 {
   --bg-3d-top:        #ad94c2;   /* dusty soft lavender (méně saturace) */
   --bg-3d-bottom:     #826995;   /* muted purple dole */
   --image-3d-bg:      #e6d18e;   /* light buttery cream-yellow (brighter, méně saturace) */
-  --image-3d-outline: rgba(80, 60, 25, 0.55);
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
   --carriers-3d-bg:   #e6d18e;   /* MATCH s image area */
   --carriers-3d-rim:  rgba(180, 140, 80, 0.30);  /* warm dark rim pro definici */
   --frame-3d-shadow:  rgba(40, 25, 50, 0.40);
@@ -130,7 +130,7 @@ body.theme-mystery {
   --bg-3d-top:        #2a1f4d;
   --bg-3d-bottom:     #15102e;
   --image-3d-bg:      #0d0820;
-  --image-3d-outline: rgba(120, 80, 200, 0.50);
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
   --carriers-3d-bg:   #150a30;
   --carriers-3d-rim:  rgba(180, 130, 230, 0.25);
   --frame-3d-shadow:  rgba(20, 5, 40, 0.55);
@@ -144,7 +144,7 @@ body.theme-neon {
   --bg-3d-top:        #0c1530;
   --bg-3d-bottom:     #030610;
   --image-3d-bg:      #020414;
-  --image-3d-outline: rgba(0, 0, 0, 0.85);
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
   --carriers-3d-bg:   #060a1c;
   --carriers-3d-rim:  rgba(0, 0, 0, 0.55);
   --frame-3d-shadow:  rgba(0, 0, 0, 0.85);
