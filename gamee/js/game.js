@@ -5096,8 +5096,20 @@ const _BLK_HALF_DEPTH = 16; // BLOCK_DEPTH/2 v render3d.js
 function _drawBlockHpOverlay(){
   const cv=document.getElementById('block-overlay-canvas');
   if(!cv) return;
+  // Retina-crisp rendering: match interní pixely k devicePixelRatio.
+  // Bez tohohle se canvas 360×310 scaluje 2× na Retina → rozmazaná
+  // antialiasing kolem stroku → teal/yellow ghost pixely.
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const W=360, H=310;
+  if (cv.width !== W*dpr || cv.height !== H*dpr) {
+    cv.width = W*dpr;
+    cv.height = H*dpr;
+    cv.style.width = W+'px';
+    cv.style.height = H+'px';
+  }
   const ctx=cv.getContext('2d');
-  ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // resetuj a scale na CSS-pixely
+  ctx.clearRect(0,0,W,H);
   const imgHalf = IMG_GH * SCALE / 2; // 135 — pivot Y v canvas-space
   for(const b of currentBlocks){
     if(b.hp<=0) continue;
@@ -5110,8 +5122,10 @@ function _drawBlockHpOverlay(){
     ctx.save();
     ctx.textAlign='center';
     ctx.textBaseline='middle';
-    ctx.lineWidth=Math.max(2,fontPx/7);
-    ctx.strokeStyle='rgba(0,0,0,0.95)';
+    ctx.lineWidth=Math.max(3,fontPx/6);  // o trochu silnější pro clean rim
+    ctx.lineJoin='round';                 // round joins = žádné spike artefakty
+    ctx.lineCap='round';
+    ctx.strokeStyle='#000000';            // solid černá, žádná alpha → žádný blend artefakt
     if(isMystery){
       const qFont=28;
       ctx.font='bold '+qFont+'px system-ui, -apple-system, sans-serif';
@@ -5127,13 +5141,17 @@ function _drawBlockHpOverlay(){
     ctx.restore();
     // Mystery: malé HP číslo v pravém horním rohu (přes překrytí ? uvnitř)
     if(isMystery){
-      const hpX=(b.x+b.w)*SCALE-3, hpY=b.y*SCALE+3;
+      const hpX=(b.x+b.w)*SCALE-3;
+      const hpY_flat=b.y*SCALE+3;
+      const hpY = imgHalf * (1 - _BLK_TILT_COS) + hpY_flat * _BLK_TILT_COS - _BLK_HALF_DEPTH * _BLK_TILT_SIN;
       ctx.save();
       ctx.textAlign='right';
       ctx.textBaseline='top';
       ctx.font='bold 10px system-ui, -apple-system, sans-serif';
-      ctx.lineWidth=2;
-      ctx.strokeStyle='rgba(0,0,0,0.95)';
+      ctx.lineWidth=2.5;
+      ctx.lineJoin='round';
+      ctx.lineCap='round';
+      ctx.strokeStyle='#000000';
       ctx.strokeText(String(b.hp),hpX,hpY);
       ctx.fillStyle='#ffffff';
       ctx.fillText(String(b.hp),hpX,hpY);
