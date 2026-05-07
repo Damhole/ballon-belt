@@ -78,15 +78,17 @@ body.theme-lavender {
   --frame-3d-rim:     rgba(235, 220, 250, 0.50);
 }
 
-/* MONO DARK — světlé pozadí, tmavá scéna. Minimalistický high-contrast. */
+/* MONO DARK — světlé pozadí, tmavá scéna. Minimalistický high-contrast.
+   Carriers BG záměrně medium gray (ne pure black) — black/dark nosiče by
+   jinak splývaly s podkladem. Image area zůstává tmavší, ale ne úplně black. */
 body.theme-mono-dark {
   --bg-3d-top:        #e8e8e8;
   --bg-3d-bottom:     #c8c8c8;
-  --image-3d-bg:      #1e1e1e;
-  --image-3d-outline: rgba(0, 0, 0, 0.65);
-  --carriers-3d-bg:   #0a0a0a;
-  --carriers-3d-rim:  rgba(220, 220, 220, 0.18);
-  --frame-3d-shadow:  rgba(0, 0, 0, 0.45);
+  --image-3d-bg:      #2a2a2a;
+  --image-3d-outline: rgba(0, 0, 0, 0.55);
+  --carriers-3d-bg:   #3a3a3a;
+  --carriers-3d-rim:  rgba(220, 220, 220, 0.22);
+  --frame-3d-shadow:  rgba(0, 0, 0, 0.40);
   --frame-3d-rim:     rgba(255, 255, 255, 0.55);
 }
 
