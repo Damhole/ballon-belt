@@ -376,35 +376,28 @@ body.renderer-3d #belt-wrap {
   box-shadow: none;
 }
 
-/* PENDING + CARRIERS — sjednocené v jeden „shouldered" panel.
-   Pending má WIDER top deck (vyčnívá nad carriers), velké rounded top corners,
-   smooth curve dolů přes negative margin → vytváří dojem trychtýře.
-   Reference: Blender render kde balónky leží na širší vrchní desce. */
+/* PENDING + CARRIERS — sjednocené v jeden continuous panel (single-width).
+   Bezešvý join přes negative margin, selective rounded corners + shadows. */
 body.renderer-3d #pending-wrap,
 body.renderer-3d #carriers-wrap {
   background: var(--carriers-3d-bg);
 }
 body.renderer-3d #pending-wrap {
-  width: 392px;                /* wider than carriers (360px) → shoulders */
-  margin-left: -16px;
-  margin-right: -16px;
-  border-radius: 32px 32px 24px 24px; /* big rounded top corners (shoulders) */
-  padding: 10px 24px 4px;
+  border-radius: 18px 18px 0 0;
+  padding: 10px 8px 4px;
   box-shadow:
-    inset 0 8px 16px rgba(0, 0, 0, 0.50),
-    inset 6px 0 12px rgba(0, 0, 0, 0.30),
-    inset -6px 0 12px rgba(0, 0, 0, 0.30),
+    inset 0 6px 14px rgba(0, 0, 0, 0.50),
+    inset 5px 0 10px rgba(0, 0, 0, 0.28),
+    inset -5px 0 10px rgba(0, 0, 0, 0.28),
     inset 0 1px 0 var(--carriers-3d-rim);
 }
 body.renderer-3d #carriers-wrap {
-  border-radius: 24px 24px 18px 18px; /* matchne pending bottom radius nahoře */
-  margin-top: -22px;            /* větší overlap → smooth curve transition */
+  border-radius: 0 0 18px 18px;
+  margin-top: -10px;
   padding: 4px 10px 18px;
-  position: relative;
-  z-index: 1;                   /* carriers nad pending na join */
   box-shadow:
-    inset 6px 0 12px rgba(0, 0, 0, 0.30),
-    inset -6px 0 12px rgba(0, 0, 0, 0.30),
+    inset 5px 0 10px rgba(0, 0, 0, 0.28),
+    inset -5px 0 10px rgba(0, 0, 0, 0.28),
     inset 0 -6px 12px rgba(0, 0, 0, 0.45),
     inset 0 -1px 0 rgba(255, 255, 255, 0.04);
 }
