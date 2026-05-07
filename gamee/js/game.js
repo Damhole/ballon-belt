@@ -1190,6 +1190,11 @@ function updateParticles(dt){
         }
         const destroyed=hits.length;
         for(const h of hits){
+          // 3D destruction trigger BEFORE grid mutation (color z grid)
+          if(RENDERER_MODE==='3d' && window.render3d && window.render3d.triggerPixelDestroy){
+            const ci=grid[h.yy][h.xx];
+            if(ci>=0) window.render3d.triggerPixelDestroy(h.xx, h.yy, COLORS[ci]);
+          }
           grid[h.yy][h.xx]=-1;
           spawnPopShards(h.xx*SCALE+SCALE/2,h.yy*SCALE+SCALE/2,p.color);
         }
@@ -1343,6 +1348,11 @@ function updateParticles(dt){
           if(blk)crossed.push({cx,cy,col:blk.color,hp:blk.hp});
         }
         if(crossed.length) console.log('[BB-DEBUG] pixel destroy CROSSED BLOCK', {ci:p.ci, from:[oldGx,oldGy], to:[gx,gy], crossed});
+      }
+      // 3D destruction trigger BEFORE grid mutation (color z grid)
+      if(RENDERER_MODE==='3d' && window.render3d && window.render3d.triggerPixelDestroy){
+        const ci=grid[gy][gx];
+        if(ci>=0) window.render3d.triggerPixelDestroy(gx, gy, COLORS[ci]);
       }
       grid[gy][gx]=-1;
       if(gravityOn)applyGravityToCol(grid,gx);
@@ -6598,6 +6608,9 @@ function beltLoop(ts){
   // dispatch loop volá tyto funkce pro každý queue item, ale grid se mezi
   // items nemění, takže se to dá memoizovat per (color, cannonX|0).
   _invalidateFrameCache();
+  // Vypočítej dt pro animace mimo paused blok — render3d animace musí běžet
+  // i když je hra paused (game over screen). Clamp na 0.05 s pro tab-switch.
+  const _animDt = (lastBeltTime!==null) ? Math.min(0.05, (ts-lastBeltTime)/1000) : 1/60;
   if(lastBeltTime!==null&&!paused){
     const dt=(ts-lastBeltTime)/1000;
     const prevAnim=beltAnim;
@@ -6789,8 +6802,9 @@ function beltLoop(ts){
   drawPending(); const _t3=performance.now();
   // 3D scéna se re-renderuje každý frame. Update gridu se neděje (data se
   // mění jen v drawGrid() při změně pixelů), ale render() je nutný kvůli
-  // budoucím animacím a v případě WebGL context loss / re-attach.
+  // animacím (shards) a v případě WebGL context loss / re-attach.
   if(RENDERER_MODE==='3d' && window.render3d && window.render3d.isReady && window.render3d.isReady()){
+    if(window.render3d.updateAnimations) window.render3d.updateAnimations(_animDt);
     window.render3d.render();
   }
   _profAccum.drawBelt+=_t1-_t0;

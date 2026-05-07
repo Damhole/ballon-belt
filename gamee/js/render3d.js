@@ -24,6 +24,15 @@ const MAX_BLOCK_INSTANCES = 600; // většina bloků je velkých (rect 12×17 = 
 const PROJECTILE_RADIUS = 4.8; // poloměr 3D balónku — match s 2D arc(p.x, p.y, 4.8)
 const PROJECTILE_Z = 12;       // Z pozice projektilu — mírně nad pixely, vidět 3D feel
 const MAX_PROJECTILES = 80;    // max projektilů ve vzduchu (real-game ~40)
+
+// ─── DESTRUCTION ANIMATIONS ────────────────────────────────────────────────
+// Když pixel zničen, spawne animaci. Dva módy:
+//   'collapse' — pixel se zmenší k 0 (shrink-fade in place)
+//   'shatter'  — pixel exploduje na 6 menších cubes s gravitací
+//   'none'     — žádná animace, instant disappear (legacy 2D look)
+// Aktivace: ?destroy=X v URL. Default = shatter (zábavnější).
+const DESTROY_SHARDS_PER_PIXEL = 6;
+const MAX_SHARDS = 280;
 const TILT_DEG = 19.2;        // tilt scény (°) — match Blender Camera.010 X rotation
 const BEVEL_TEX_SIZE = 128;   // rozlišení bevel textury (vyšší = ostřejší highlights)
 // Per-pixel height variation — některé kostky vyšší, aby povrch nebyl rovnoměrný.
@@ -92,6 +101,15 @@ function _resolveStyle() {
     if (STYLES.includes(s)) return s;
   } catch (_e) {}
   return 'default';
+}
+
+const DESTROY_MODES = ['shatter', 'collapse', 'none'];
+function _resolveDestroyMode() {
+  try {
+    const m = new URLSearchParams(location.search).get('destroy');
+    if (DESTROY_MODES.includes(m)) return m;
+  } catch (_e) {}
+  return 'shatter';
 }
 
 // Helper: nový canvas + ctx pro texturu.
@@ -455,8 +473,116 @@ function init(canvas, opts) {
   // Záměrně ne receiveShadow (sphere by self-shadowoval kvůli Lambert + low-poly)
   state.contentGroup.add(state.projectileMesh);
 
+  // SHARD MESH — pro pixel destruction animace (collapse + shatter).
+  // Sdílí bevel texturu s pixely, takže shards vypadají jako mini verze pixelů.
+  // Per-instance scale (animovaný), per-instance position+rotation, per-instance color.
+  state.destroyMode = _resolveDestroyMode();
+  state.shards = [];
+  const shardGeom = new THREE.BoxGeometry(SCALE * PIXEL_INSET, SCALE * PIXEL_INSET, PIXEL_DEPTH);
+  const shardMat = new THREE.MeshLambertMaterial({
+    color: 0xffffff,
+    map: bevelTex, // shared with pixels
+    transparent: false,
+  });
+  if (state.style === 'neon') {
+    shardMat.emissive = new THREE.Color(0xffffff);
+    shardMat.emissiveMap = bevelTex;
+    shardMat.emissiveIntensity = 0.9;
+  }
+  state.shardMesh = new THREE.InstancedMesh(shardGeom, shardMat, MAX_SHARDS);
+  state.shardMesh.instanceColor = new THREE.InstancedBufferAttribute(
+    new Float32Array(MAX_SHARDS * 3),
+    3
+  );
+  state.shardMesh.count = 0;
+  state.shardMesh.frustumCulled = false;
+  state.shardMesh.castShadow = true;
+  state.contentGroup.add(state.shardMesh);
+
   state.ready = true;
   return true;
+}
+
+// ── Pixel destruction trigger ─────────────────────────────────────────────
+// Volá se z game.js při destrukci pixelu. Spawne shards podle DESTROY_MODE.
+// gridX, gridY = grid coords (0..GW-1, 0..IMG_GH-1). hexColor = pixel color.
+function triggerPixelDestroy(gridX, gridY, hexColor) {
+  if (!state.ready || !state.shardMesh) return;
+  if (state.destroyMode === 'none') return;
+  const color = _getColor(hexColor).clone();
+  const wx = gridX * SCALE + SCALE / 2;
+  const wy = gridY * SCALE + SCALE / 2;
+
+  if (state.destroyMode === 'collapse') {
+    // Zhroucení do sebe: jeden shard na pozici, plná velikost shrink k 0,
+    // mírný sink dolů (vz negative), žádná gravita.
+    state.shards.push({
+      x: wx, y: wy, z: PIXEL_LIFT,
+      vx: 0, vy: 0, vz: -8,
+      rot: 0, vRot: 0,
+      scaleStart: 1.0,
+      scaleEnd: 0.0,
+      t: 0, life: 0.22,
+      color, gravity: false,
+    });
+  } else { // 'shatter' — exploze 6 cube fragmentů
+    for (let i = 0; i < DESTROY_SHARDS_PER_PIXEL; i++) {
+      const angle = (i / DESTROY_SHARDS_PER_PIXEL) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+      const speed = 35 + Math.random() * 45;
+      state.shards.push({
+        x: wx, y: wy, z: PIXEL_LIFT * 1.1,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed * 0.35, // méně vertical spread (Y-axis)
+        vz: 55 + Math.random() * 70,         // up
+        rot: Math.random() * Math.PI * 2,
+        vRot: (Math.random() - 0.5) * 12,
+        scaleStart: 0.45,
+        scaleEnd: 0.18,
+        t: 0, life: 0.55,
+        color, gravity: true,
+      });
+    }
+    // Limit shard pool — když přeteče, dropni nejstarší (FIFO)
+    while (state.shards.length > MAX_SHARDS) state.shards.shift();
+  }
+}
+
+// Update animací. Volá se z beltLoop každý frame s dt v sekundách.
+function updateAnimations(dt) {
+  if (!state.ready || !state.shardMesh) return;
+  const H = state.GH * SCALE;
+  const G = -280; // gravity (px/s²) — v Y-up scéně, ale pro Z osu (kostky padají dolů v Z)
+  for (let i = state.shards.length - 1; i >= 0; i--) {
+    const s = state.shards[i];
+    s.t += dt;
+    if (s.t >= s.life) { state.shards.splice(i, 1); continue; }
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.z += s.vz * dt;
+    if (s.gravity) s.vz += G * dt;
+    s.rot += s.vRot * dt;
+    if (s.z < 0) { s.z = 0; s.vz *= -0.4; s.vx *= 0.7; s.vy *= 0.7; } // bounce off ground
+  }
+  // Render shards do InstancedMesh
+  let i = 0;
+  for (const s of state.shards) {
+    if (i >= MAX_SHARDS) break;
+    const tn = s.t / s.life; // 0..1
+    const sc = s.scaleStart + (s.scaleEnd - s.scaleStart) * tn;
+    const fade = Math.max(0.05, 1 - tn * 0.85); // fade barvy k 15% na konci
+    _dummy.position.set(s.x, H - s.y, s.z);
+    _dummy.rotation.set(0, 0, s.rot);
+    _dummy.scale.set(sc, sc, sc);
+    _dummy.updateMatrix();
+    state.shardMesh.setMatrixAt(i, _dummy.matrix);
+    state.shardMesh.instanceColor.setXYZ(i, s.color.r * fade, s.color.g * fade, s.color.b * fade);
+    i++;
+  }
+  state.shardMesh.count = i;
+  if (i > 0 || state.shardMesh.instanceMatrix.needsUpdate === false) {
+    state.shardMesh.instanceMatrix.needsUpdate = true;
+    state.shardMesh.instanceColor.needsUpdate = true;
+  }
 }
 
 // Aktualizuje block InstancedMesh z aktuálního currentBlocks state.
@@ -629,6 +755,8 @@ if (typeof window !== 'undefined') {
     updateGrid,
     updateBlocks,
     updateProjectiles,
+    triggerPixelDestroy,
+    updateAnimations,
     render,
     isReady,
     setVisible,
@@ -636,6 +764,9 @@ if (typeof window !== 'undefined') {
     setStyle,
     getStyle: () => state.style,
     listStyles: () => STYLES.slice(),
+    getDestroyMode: () => state.destroyMode,
+    setDestroyMode: (m) => { if (DESTROY_MODES.includes(m)) state.destroyMode = m; },
+    listDestroyModes: () => DESTROY_MODES.slice(),
   };
   // Signalizace, že modul je připravený. game.js může poslouchat tenhle event,
   // pokud by měl race condition (zatím ne — body onload čeká na všechny scripty
