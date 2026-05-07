@@ -162,6 +162,11 @@ body {
 .btn:hover{background:rgba(255,255,255,0.07);color:var(--color-text-primary)}
 .btn.active{background:rgba(255,255,255,0.13);color:var(--color-text-primary);font-weight:600}
 .gravity-label{font-size:10px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.07em;font-weight:500}
+/* Theme select (jen 3D mode, hidden v 2D přes [hidden]). Match s ostatními ctrl-group. */
+.theme-select{padding:4px 8px;border-radius:7px;border:0.5px solid var(--color-border-secondary);background:rgba(255,255,255,0.04);color:var(--color-text-primary);font-size:12px;font-family:var(--font-sans);cursor:pointer;min-width:90px}
+.theme-select:hover{background:rgba(255,255,255,0.10)}
+body.renderer-3d .theme-select{background:rgba(255,255,255,0.20);border-color:rgba(255,220,230,0.30);color:#fff;font-weight:600}
+body.renderer-3d.theme-mono-light .theme-select{color:#fff}
 .toggle-btn{padding:4px 12px;border-radius:7px;border:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:12px;color:var(--color-text-secondary);transition:background 0.15s,color 0.15s,border-color 0.15s}
 .toggle-btn:hover{background:rgba(255,255,255,0.07)}
 .toggle-btn.active{background:rgba(100,200,100,0.15);color:#7defa0;border-color:#4a9e62;font-weight:600}

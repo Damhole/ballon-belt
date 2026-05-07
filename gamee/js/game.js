@@ -66,14 +66,41 @@ const _THEME = (function(){
     return _THEMES.includes(t) ? t : 'pink';
   } catch (_e) { return 'pink'; }
 })();
+// Z localStorage si pamatujeme poslední volbu (přebije URL ?theme=, pokud
+// je rozdílná). Designerovi se po reloadu vrátí jeho stálá preference.
+function _loadStoredTheme(){
+  try {
+    const v = localStorage.getItem('bb-theme-3d');
+    return _THEMES.includes(v) ? v : null;
+  } catch (_e) { return null; }
+}
+function _persistTheme(name){
+  try { localStorage.setItem('bb-theme-3d', name); } catch (_e) {}
+}
+
+const _INITIAL_THEME = _loadStoredTheme() || _THEME;
+
 function _applyBodyClasses(){
   if (!document.body) return;
   if (RENDERER_MODE === '3d') document.body.classList.add('renderer-3d');
   // Pink je default v :root, takže žádnou class nepřidáváme. Ostatní témata mají vlastní class.
-  if (_THEME !== 'pink') document.body.classList.add('theme-' + _THEME);
+  if (_INITIAL_THEME !== 'pink') document.body.classList.add('theme-' + _INITIAL_THEME);
+}
+function _wireThemeSelect(){
+  if (RENDERER_MODE !== '3d') return;
+  const grp = document.getElementById('theme-group');
+  const sel = document.getElementById('theme-select');
+  if (!grp || !sel) return;
+  grp.hidden = false;
+  sel.value = _INITIAL_THEME;
+  sel.addEventListener('change', () => {
+    window.setTheme(sel.value);
+    _persistTheme(sel.value);
+  });
 }
 if (document.body) _applyBodyClasses();
 else document.addEventListener('DOMContentLoaded', _applyBodyClasses);
+document.addEventListener('DOMContentLoaded', _wireThemeSelect);
 
 // Hot-swap theme za běhu — pro rychlé porovnání bez reloadu page.
 // Volání: window.setTheme('ocean') v DevTools console.
@@ -84,6 +111,9 @@ window.setTheme = function(name) {
   }
   for (const t of _THEMES) document.body.classList.remove('theme-' + t);
   if (name !== 'pink') document.body.classList.add('theme-' + name);
+  // Sync UI selectu (pokud existuje), ať se ukáže aktivní volba.
+  const sel = document.getElementById('theme-select');
+  if (sel && sel.value !== name) sel.value = name;
   return true;
 };
 window.listThemes = () => _THEMES.slice();
