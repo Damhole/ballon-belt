@@ -44,6 +44,9 @@
     <!-- 3D render layer (Fáze 1+). Aktivuje se přes ?renderer=3d v URL.
          Position absolute, překryje pixel-canvas. V 2D módu je display:none. -->
     <canvas id="three-canvas" width="360" height="310" style="position:absolute;left:0;top:0;width:360px;height:310px;z-index:1;display:none;pointer-events:none"></canvas>
+    <!-- Block HP overlay (Fáze 2). HP čísla a mystery "?" pro 3D bloky.
+         Z-index 3 = nad three-canvas (1) i particle-canvas (2). -->
+    <canvas id="block-overlay-canvas" width="360" height="310" style="position:absolute;left:0;top:0;width:360px;height:310px;z-index:3;display:none;pointer-events:none"></canvas>
     <div id="overlay">
       <div id="overlay-box">
         <h3 id="overlay-title">Konec</h3>

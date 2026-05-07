@@ -5073,8 +5073,59 @@ function _ensureR3D(){
   const ok=window.render3d.init(c, {GW, GH, IMG_GH});
   if(!ok) return false;
   window.render3d.setVisible(true);
+  // Zviditelnit i block overlay canvas (HP text + mystery "?" pro 3D bloky).
+  const overlay=document.getElementById('block-overlay-canvas');
+  if(overlay) overlay.style.display='block';
   _r3dInited=true;
   return true;
+}
+
+// 3D-mode HP text overlay — kreslí HP čísla a mystery „?" na block-overlay-canvas
+// (z-index nad three-canvas), aby byly viditelné nad 3D walls. Volá se z drawBlocks
+// po render3d.updateBlocks. Stejná typografie jako 2D pipeline.
+function _drawBlockHpOverlay(){
+  const cv=document.getElementById('block-overlay-canvas');
+  if(!cv) return;
+  const ctx=cv.getContext('2d');
+  ctx.clearRect(0,0,cv.width,cv.height);
+  for(const b of currentBlocks){
+    if(b.hp<=0) continue;
+    const isMystery=b.kind==='mystery';
+    const cx=(b.x+b.w/2)*SCALE, cy=(b.y+b.h/2)*SCALE;
+    const fontPx=24;
+    ctx.save();
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.lineWidth=Math.max(2,fontPx/7);
+    ctx.strokeStyle='rgba(0,0,0,0.95)';
+    if(isMystery){
+      const qFont=28;
+      ctx.font='bold '+qFont+'px system-ui, -apple-system, sans-serif';
+      ctx.strokeText('?',cx,cy);
+      ctx.fillStyle='#ffe07a';
+      ctx.fillText('?',cx,cy);
+    } else {
+      ctx.font='bold '+fontPx+'px system-ui, -apple-system, sans-serif';
+      ctx.strokeText(String(b.hp),cx,cy);
+      ctx.fillStyle='#ffffff';
+      ctx.fillText(String(b.hp),cx,cy);
+    }
+    ctx.restore();
+    // Mystery: malé HP číslo v pravém horním rohu (přes překrytí ? uvnitř)
+    if(isMystery){
+      const hpX=(b.x+b.w)*SCALE-3, hpY=b.y*SCALE+3;
+      ctx.save();
+      ctx.textAlign='right';
+      ctx.textBaseline='top';
+      ctx.font='bold 10px system-ui, -apple-system, sans-serif';
+      ctx.lineWidth=2;
+      ctx.strokeStyle='rgba(0,0,0,0.95)';
+      ctx.strokeText(String(b.hp),hpX,hpY);
+      ctx.fillStyle='#ffffff';
+      ctx.fillText(String(b.hp),hpX,hpY);
+      ctx.restore();
+    }
+  }
 }
 
 function drawGrid(){
@@ -5113,6 +5164,16 @@ function drawGrid(){
 // Bloky se kreslí nad pixely – jsou "nad" obrazem, hráč je musí zničit
 // než se dostane k pixelům pod nimi. HP progress = opacity/saturace.
 function drawBlocks(ctx){
+  // 3D pipeline: bloky jako InstancedMesh cubes přes render3d. HP text + mystery
+  // "?" se kreslí na block-overlay-canvas (z-index 3, nad three-canvas) přes
+  // _drawBlockHpOverlay() — stejná typografie jako 2D, jen na jiné vrstvě.
+  if(RENDERER_MODE==='3d' && window.render3d && window.render3d.isReady && window.render3d.isReady()){
+    window.render3d.updateBlocks(currentBlocks, COLORS);
+    _drawBlockHpOverlay();
+    return;
+  }
+
+  // 2D pipeline (default):
   // Vržené stíny bloků (pod spodní hranu bloku, jen kde dole není ani pixel
   // ani jiný blok) — aby byly bloky „nad povrchem" jako pixely.
   for(const b of currentBlocks){

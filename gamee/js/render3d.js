@@ -18,6 +18,9 @@ const SCALE = 10;
 const PIXEL_DEPTH = 18;       // baseline hloubka pixel-kostky (z-extent)
 const PIXEL_LIFT = PIXEL_DEPTH / 2; // střed baseline kostky nad rovinou z=0
 const PIXEL_INSET = 0.98;     // 1.0 = full size, <1 vytvoří mezery (2% = jen vlasový gap)
+const BLOCK_DEPTH = 32;       // bloky výrazně vyšší než pixely (puzzle wall feel)
+const BLOCK_INSET = 1.0;      // bloky lícují bez mezer — cells stejného bloku splývají v jeden „celistvý" povrch
+const MAX_BLOCK_INSTANCES = 600; // většina bloků je velkých (rect 12×17 = 204 cells)
 const TILT_DEG = 19.2;        // tilt scény (°) — match Blender Camera.010 X rotation
 const BEVEL_TEX_SIZE = 128;   // rozlišení bevel textury (vyšší = ostřejší highlights)
 // Per-pixel height variation — některé kostky vyšší, aby povrch nebyl rovnoměrný.
@@ -360,8 +363,80 @@ function init(canvas, opts) {
   // Pixely jdou do contentGroup (tilted) místo přímo do scene.
   state.contentGroup.add(state.pixelMesh);
 
+  // BLOCK MESH — bloky jako InstancedMesh cubes BEZ bevel textury a BEZ insetu.
+  // Cells stejného bloku tedy splývají v jeden „celistvý" wall povrch (bez seams,
+  // bez gap). Pouze top faces se viditelně liší díky lighting na boční stěny.
+  // Bottom plane všech cells na z=0, výška BLOCK_DEPTH = 32 (výrazně nad pixely).
+  const blockGeom = new THREE.BoxGeometry(
+    SCALE * BLOCK_INSET,  // 1.0 = full size, kostky lícují
+    SCALE * BLOCK_INSET,
+    BLOCK_DEPTH
+  );
+  const blockMatOpts = {
+    color: 0xffffff,
+    transparent: false,
+    // Zámerně bez map — chceme čistý color fill, žádné per-cell hrany.
+  };
+  if (state.style === 'neon') {
+    blockMatOpts.emissive = 0xffffff;
+    blockMatOpts.emissiveIntensity = 0.5;
+  }
+  const blockMat = new THREE.MeshLambertMaterial(blockMatOpts);
+  state.blockMesh = new THREE.InstancedMesh(blockGeom, blockMat, MAX_BLOCK_INSTANCES);
+  state.blockMesh.instanceColor = new THREE.InstancedBufferAttribute(
+    new Float32Array(MAX_BLOCK_INSTANCES * 3),
+    3
+  );
+  state.blockMesh.count = 0;
+  state.blockMesh.frustumCulled = false;
+  state.contentGroup.add(state.blockMesh);
+
   state.ready = true;
   return true;
+}
+
+// Aktualizuje block InstancedMesh z aktuálního currentBlocks state.
+// Volá se z drawBlocks() v game.js v 3D módu, kdykoli se blocks změní.
+//
+// Každý cell mask bloku → jedna cube instance. Solid blok dostane COLORS[block.color],
+// mystery blok #555a62. Bottom plane všech bloků na z=0 (rostou nahoru jako stěny).
+function updateBlocks(blocks, COLORS) {
+  if (!state.ready || !state.blockMesh) return;
+  const H = state.GH * SCALE;
+  const mesh = state.blockMesh;
+  const max = MAX_BLOCK_INSTANCES;
+  let i = 0;
+  for (const b of blocks) {
+    if (!b || b.hp <= 0) continue;
+    const isMystery = b.kind === 'mystery';
+    const baseHex = isMystery ? '#555a62' : (COLORS[b.color] || '#888');
+    const baseCol = _getColor(baseHex);
+    if (!b._mask) continue;
+    for (let ly = 0; ly < b.h; ly++) {
+      const row = b._mask[ly];
+      if (!row) continue;
+      for (let lx = 0; lx < b.w; lx++) {
+        if (!row[lx]) continue;
+        if (i >= max) break;
+        const x = b.x + lx;
+        const y = b.y + ly;
+        _dummy.position.set(
+          x * SCALE + SCALE / 2,
+          H - (y * SCALE + SCALE / 2),
+          BLOCK_DEPTH / 2 // bottom plane na z=0
+        );
+        _dummy.rotation.set(0, 0, 0);
+        _dummy.scale.set(1, 1, 1);
+        _dummy.updateMatrix();
+        mesh.setMatrixAt(i, _dummy.matrix);
+        mesh.instanceColor.setXYZ(i, baseCol.r, baseCol.g, baseCol.b);
+        i++;
+      }
+    }
+  }
+  mesh.count = i;
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.instanceColor.needsUpdate = true;
 }
 
 // Aktualizuje InstancedMesh z aktuálního grid[][] state.
@@ -463,6 +538,7 @@ if (typeof window !== 'undefined') {
   window.render3d = {
     init,
     updateGrid,
+    updateBlocks,
     render,
     isReady,
     setVisible,
