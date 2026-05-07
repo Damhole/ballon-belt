@@ -5672,8 +5672,15 @@ function onCarrierClick(e){
     return;
   }
   if(slot.type==='rocket'){
-    addToPending({ci:slot.color,ppu:20,rocket:true});
-    addToPending({ci:slot.color,ppu:20,rocket:true});
+    let _rxSpawn;
+    const _rxCbox=e.currentTarget.querySelector('.cbox');
+    const _rxPend=document.getElementById('pending-canvas');
+    if(_rxCbox&&_rxPend){
+      const cR=_rxCbox.getBoundingClientRect(),pR=_rxPend.getBoundingClientRect();
+      _rxSpawn=(cR.left+cR.width/2-pR.left)*(FUN.w/pR.width);
+    }
+    addToPending({ci:slot.color,ppu:20,rocket:true},_rxSpawn);
+    addToPending({ci:slot.color,ppu:20,rocket:true},_rxSpawn);
     columns[c][r]=null;
     noMatchPasses=0;
     drawCarriers();drawBelt();drawPending();
@@ -5691,7 +5698,15 @@ function onCarrierClick(e){
   }
   const projectiles=slot.projectiles||UPC*PPU;
   const balls=distributeProjectiles(projectiles).map(p=>({ci:slot.color,ppu:p}));
-  for(const b of balls)addToPending(b);
+  // Spawn x v pending-canvas FUN coords podle pozice clicked carrieru
+  let spawnX;
+  const cbox=e.currentTarget.querySelector('.cbox');
+  const pendCanvas=document.getElementById('pending-canvas');
+  if(cbox&&pendCanvas){
+    const cR=cbox.getBoundingClientRect(),pR=pendCanvas.getBoundingClientRect();
+    spawnX=(cR.left+cR.width/2-pR.left)*(FUN.w/pR.width);
+  }
+  for(const b of balls)addToPending(b,spawnX);
   columns[c][r]=null;
   noMatchPasses=0;
   updateGarages();
@@ -5746,10 +5761,24 @@ function updateGarages(){
 // === Trychtýř – fyzika koulí ve frontě. Široký konec dole u nosičů,
 // úzký nahoře u pásu. „Gravitace" míří vzhůru k pásu – koule stoupají
 // skrz trychtýř a vstupují otvorem na pás.
-const FUN={w:360,h:90,narrowY:14,wideY:82,narrowL:150,narrowR:210,wideL:10,wideR:350,r:14};
-function addToPending(ball){
+const FUN={w:360,h:90,narrowY:14,wideY:82,narrowL:150,narrowR:210,wideL:10,wideR:350,r:12};
+// V 3D módu rozšíříme fyzikální V trychtýře, aby v rendering byly Y i X škálované 1:1
+// (jinak collider 24 px v 2D = ~115 px Y mezera v 3D při škále 4.8×).
+// Pending-canvas (360×90) zůstává — drawPending v 3D je hidden, takže clipping nevadí.
+if(RENDERER_MODE==='3d'){
+  FUN.h=360;
+  FUN.wideY=346;        // = h - 14 (zrcadlí narrowY=14 nahoře)
+}
+window.FUN=FUN;  // export pro render3d_bottom (modul nemá přístup ke globalu z classic skriptu)
+function addToPending(ball,spawnX){
   ball.r=FUN.r;
-  ball.x=FUN.wideL+24+Math.random()*(FUN.wideR-FUN.wideL-48);
+  if(spawnX!==undefined){
+    // Spawn z konkrétního carrieru — kolem jeho středu, malý jitter, clamp do trychtýře
+    const j=(Math.random()-0.5)*10;
+    ball.x=Math.max(FUN.wideL+ball.r+1,Math.min(FUN.wideR-ball.r-1,spawnX+j));
+  } else {
+    ball.x=FUN.wideL+24+Math.random()*(FUN.wideR-FUN.wideL-48);
+  }
   ball.y=FUN.wideY-6-Math.random()*8;
   ball.vx=(Math.random()-0.5)*40;
   ball.vy=-20;

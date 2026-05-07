@@ -205,7 +205,9 @@ function init() {
     st.pendingTopCSS = Math.round(pendRect.top - gameRect.top) - canvasTop;
   }
   if (carrEl) {
-    st.carriersTopCSS = Math.round(carrEl.getBoundingClientRect().top - gameRect.top) - canvasTop;
+    const cR = carrEl.getBoundingClientRect();
+    st.carriersTopCSS    = Math.round(cR.top    - gameRect.top) - canvasTop;
+    st.carriersBottomCSS = Math.round(cR.bottom - gameRect.top) - canvasTop;
   }
 
   // Vytvořit canvas a přidat do #game
@@ -322,6 +324,15 @@ function init() {
   contentGroup.add(st.pendingMesh);
   st.pendingOutlineMesh = mkOutline(pendingGeom, MAX_PENDING);
   contentGroup.add(st.pendingOutlineMesh);
+
+  // ─── Pending shadows (tmavé disky pod koulemi → koule "stojí" na podlaze) ───
+  const shadowGeom = new THREE.CircleGeometry(R_PENDING * 1.35, 18);
+  const shadowMat  = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.42, depthWrite: false });
+  st.pendingShadowMesh = new THREE.InstancedMesh(shadowGeom, shadowMat, MAX_PENDING);
+  st.pendingShadowMesh.count = 0;
+  st.pendingShadowMesh.frustumCulled = false;
+  st.pendingShadowMesh.renderOrder = -2;  // pod ball + outline
+  contentGroup.add(st.pendingShadowMesh);
 
   // ─── Belt balls ───
   st.beltMesh = new THREE.InstancedMesh(beltGeom, ballMat(), BELT_CAP);
@@ -521,23 +532,17 @@ function updatePending(pendingArr, colorsArr) {
   const c3    = st._col3;
   let idx = 0;
 
-  // pending[i].x, pending[i].y jsou v FUN coords (pending-canvas 360×90),
-  // kde b.y=14 = úzký konec u beltu, b.y=82 = široký konec u carriers.
-  // V 3D mapujeme b.y do ROZŠÍŘENÉHO range (od beltu až do horní řady carriers),
-  // aby koule byly vidět "vypadávat z carrieru" (ne z nějaké linie trychtýře).
-  const FUN_NARROW_Y = 14;
-  const FUN_WIDE_Y   = 82;
-  const FUN_RANGE    = FUN_WIDE_Y - FUN_NARROW_Y;
+  // V 3D fyzika je rozšířená (FUN.h=360, FUN.wideY=346), aby Y rozestupy mezi
+  // koulemi v rendering odpovídaly X rozestupům (1:1 scale, žádné pohyblivé mezery).
+  // Mapujeme b.y → canvas Y posunem o TOP_CSS (offset, žádný násobitel).
+  const FUN_NARROW_Y = (window.FUN && window.FUN.narrowY) || 14;
   const TOP_CSS      = st.beltCenterY + R_BELT + 2;     // těsně pod beltem
-  const BOTTOM_CSS   = st.carriersTopCSS + 70;          // hluboko v 1.–2. řadě carriers
-  const RANGE_CSS    = BOTTOM_CSS - TOP_CSS;
 
   for (const b of (pendingArr || [])) {
     if (idx >= MAX_PENDING) break;
     if (b.x === undefined || b.y === undefined) continue;
 
-    const t   = (b.y - FUN_NARROW_Y) / FUN_RANGE;       // 0 (u beltu) … 1 (u carrieru)
-    const yCSS = TOP_CSS + t * RANGE_CSS;
+    const yCSS = TOP_CSS + (b.y - FUN_NARROW_Y);   // 1:1 mapping (Y v canvas = Y v fyzice)
     const xW   = st.beltOffsetX + b.x;
     const yW   = _worldY(yCSS);
 
@@ -553,6 +558,16 @@ function updatePending(pendingArr, colorsArr) {
     dummy.scale.set(OUTLINE_SCALE_BALL, OUTLINE_SCALE_BALL, OUTLINE_SCALE_BALL);
     dummy.updateMatrix();
     st.pendingOutlineMesh.setMatrixAt(idx, dummy.matrix);
+    // Shadow — disk pod koulí na "podlaze" trychtýře (canvas y těsně pod ball)
+    // Velikost roste s "výškou" ball nad beltem: ball u carrieru → větší stín, u beltu → menší
+    const FUN_WIDE = (window.FUN && window.FUN.wideY) || 346;
+    const tHeight = Math.max(0, Math.min(1, (b.y - FUN_NARROW_Y) / (FUN_WIDE - FUN_NARROW_Y)));
+    const sScale  = 0.55 + tHeight * 0.55;          // 0.55×–1.10×
+    const shadowY = _worldY(yCSS + R_PENDING + 4);  // pod kouli, mírně níž v canvas Y
+    dummy.position.set(xW, shadowY, 0.5);           // Z=0.5 — za belt plane (-2), před content
+    dummy.scale.set(sScale, sScale * 0.45, 1);      // X full, Y zploštělý (perspektivní disk)
+    dummy.updateMatrix();
+    st.pendingShadowMesh.setMatrixAt(idx, dummy.matrix);
     idx++;
   }
 
@@ -561,6 +576,8 @@ function updatePending(pendingArr, colorsArr) {
   if (st.pendingMesh.instanceColor) st.pendingMesh.instanceColor.needsUpdate = true;
   st.pendingOutlineMesh.count = idx;
   st.pendingOutlineMesh.instanceMatrix.needsUpdate = true;
+  st.pendingShadowMesh.count = idx;
+  st.pendingShadowMesh.instanceMatrix.needsUpdate = true;
 }
 
 // ─── updateBelt ──────────────────────────────────────────────────────────────
