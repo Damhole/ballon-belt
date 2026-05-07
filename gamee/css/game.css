@@ -96,8 +96,8 @@ body.theme-mono-dark {
    + faded blue + deep navy (warm autumn illustration vibe). Můžeme volně
    iterovat tohle téma podle potřeby. */
 body.theme-experiment {
-  --bg-3d-top:        #e9b58a;   /* warm peach/terracotta horní */
-  --bg-3d-bottom:     #c97350;   /* hlubší terracotta dole */
+  --bg-3d-top:        #dab7a0;   /* dusty peach (méně saturovaný než předtím) */
+  --bg-3d-bottom:     #b8866d;   /* muted terracotta (zachovává warmth, méně oranže) */
   --image-3d-bg:      #2c3a52;   /* deep dusty navy (faded sky → night) */
   --image-3d-outline: rgba(20, 30, 50, 0.65);
   --carriers-3d-bg:   #1a2334;   /* very dark navy (kontrast) */
