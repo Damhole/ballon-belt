@@ -167,6 +167,7 @@ _Sem házej cokoliv co tě napadne. Při příští session to roztřídíme._
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v71.21 | `7bc6ca9` | 2026-05-11 | Fix flicker při kliku + belt position bug. (1) Memoize _setAdaptiveCarrierSize na numRows+vh inputs — drawCarriers cascade už nereflow-uje. (2) bottom3d-canvas top via CSS calc(baseline + var(--game-top-extra)) — auto-follows padding change. |
 | v71.20 | `7a87107` | 2026-05-11 | PWA setup — manifest.json + apple-mobile-web-app-* meta tagy. User Add to Home Screen → fullscreen Safari bez URL baru/toolbaru. Apple chrome programmatically nelze schovat z webu, PWA install je jediná cesta k fullscreen. |
 | v71.19 | `0345e35` | 2026-05-11 | Boost adaptive top padding — threshold 30→16, ratio /3→/2, cap 48→72. v71.18 hodnoty byly příliš subtle (13-20 px splývalo s background), uživatel změnu nevnímal. |
 | v71.18 | `e9a2418` | 2026-05-11 | Adaptive top padding — když carriers fit at TARGET (54) a leftover >= 30 px, hra dostane top breathing space (min(48, leftover/3)) od horní hrany telefonu. Při tight space (shrink) 0 — natlačeno nahoru jako dosud. Oscillation prevention: výpočet odečte current --game-top-extra od carrWrap.top. |
