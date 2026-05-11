@@ -123,6 +123,7 @@ _Sem házej cokoliv co tě napadne. Při příští session to roztřídíme._
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v71.5 | `45cbe22` | 2026-05-11 | Chrome cleanup: body margin 0, #game padding 16→8 + gap 10→6, image-area border 2→1. Σ ~48 px uvolněno pro 6. řadu carriers |
 | v71.4 | `f47d735` | 2026-05-11 | Dev labely (#belt-label, #pending-label, #carriers-label) globálně `display:none` — sjednoceno z 3D-only scope, 0 px overhead v 3D bylo, 0 px i ve 2D teď |
 | v71.3 | `7e1e78d` | 2026-05-11 | Fix MIN_H scaling (568 phys × 460/320 = 817 css), `#status` hidden (krade pixely), version badge přesunut do settings baru vlevo od ⚙ |
 | v71.2 | `750d0f1` | 2026-05-11 | Settings panel: ⚙ button otevírá pill toggley (Level UI / Stats / Safe zone), controls a ammo-audit na spodek hry přes CSS order, layout se při togglech nehýbe |
