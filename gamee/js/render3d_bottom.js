@@ -306,13 +306,54 @@ function init() {
     return m;
   };
 
-  // ─── Carrier slots (3D rounded boxes) ───
+  // ─── Carrier slots + balls — PER-ROW InstancedMesh ───
+  // Důvod: Lower rows musí ALWAYS překrýt upper rows. Explicit renderOrder per row
+  // řeší problém že depth test sám nesedí když se mesh boundary překrývají (rounded
+  // corners, scene tilt). Drawing order: row 0 první → row 3 poslední (= na vrcholu).
+  const ROW_COUNT_MAX = 4;
+  const PER_ROW_SLOTS = 20;
+  const PER_ROW_BALLS = PER_ROW_SLOTS * 4;
+  st.rowSlotMeshes = [];
+  st.rowSlotOutlineMeshes = [];
+  st.rowBallMeshes = [];
+  st.rowBallOutlineMeshes = [];
+  for (let row = 0; row < ROW_COUNT_MAX; row++) {
+    // Slot mesh
+    const sm = new THREE.InstancedMesh(slotGeom, slotMat, PER_ROW_SLOTS);
+    sm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PER_ROW_SLOTS * 3), 3);
+    sm.count = 0;
+    sm.frustumCulled = false;
+    sm.renderOrder = 100 + row * 4;          // higher row = drawn later = on top
+    contentGroup.add(sm);
+    st.rowSlotMeshes.push(sm);
+    // Slot outline
+    const so = mkOutline(slotGeom, PER_ROW_SLOTS);
+    so.renderOrder = 100 + row * 4 - 1;      // before main slot, but in row order
+    contentGroup.add(so);
+    st.rowSlotOutlineMeshes.push(so);
+    // Ball mesh
+    const bm = new THREE.InstancedMesh(carrierGeom, ballMat(), PER_ROW_BALLS);
+    bm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PER_ROW_BALLS * 3), 3);
+    bm.count = 0;
+    bm.frustumCulled = false;
+    bm.renderOrder = 100 + row * 4 + 2;      // after slot main + outline, within row
+    contentGroup.add(bm);
+    st.rowBallMeshes.push(bm);
+    // Ball outline
+    const bo = mkOutline(carrierGeom, PER_ROW_BALLS);
+    bo.renderOrder = 100 + row * 4 + 1;      // between slot main and ball
+    contentGroup.add(bo);
+    st.rowBallOutlineMeshes.push(bo);
+  }
+  // Legacy single meshes pro carrier-fire ghost anim (zatím)
   st.carrierSlotMesh = new THREE.InstancedMesh(slotGeom, slotMat, MAX_CARRIER_SLOTS);
   st.carrierSlotMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARRIER_SLOTS * 3), 3);
   st.carrierSlotMesh.count = 0;
   st.carrierSlotMesh.frustumCulled = false;
+  st.carrierSlotMesh.renderOrder = 200;   // ghost vždy nad všemi rows
   contentGroup.add(st.carrierSlotMesh);
   st.carrierSlotOutlineMesh = mkOutline(slotGeom, MAX_CARRIER_SLOTS);
+  st.carrierSlotOutlineMesh.renderOrder = 199;
   contentGroup.add(st.carrierSlotOutlineMesh);
 
   // Hot-swap slot geometry s GLB assetem (async — placeholder rendered do té doby).
@@ -330,25 +371,27 @@ function init() {
     const bb = glbGeom.boundingBox;
     glbGeom.translate(-(bb.min.x+bb.max.x)/2, -(bb.min.y+bb.max.y)/2, -(bb.min.z+bb.max.z)/2);
     glbGeom.computeBoundingSphere();
-    // Hot-swap
+    // Hot-swap geometrie do všech row meshes + ghost mesh
     const oldMain = st.carrierSlotMesh.geometry;
-    const oldOutline = st.carrierSlotOutlineMesh.geometry;
     st.carrierSlotMesh.geometry = glbGeom;
     st.carrierSlotOutlineMesh.geometry = glbGeom;
-    if (oldMain && oldMain !== oldOutline) oldMain.dispose();
-    if (oldOutline) oldOutline.dispose();
+    for (const m of st.rowSlotMeshes) m.geometry = glbGeom;
+    for (const m of st.rowSlotOutlineMeshes) m.geometry = glbGeom;
+    if (oldMain) oldMain.dispose();
     console.log('[render3d_bottom] carrier.glb loaded, bbox after scale:', bb);
   }, undefined, (err) => {
     console.warn('[render3d_bottom] carrier.glb load failed, keep placeholder:', err);
   });
 
-  // ─── Carrier balls ───
+  // ─── Carrier balls — legacy single mesh pouze pro ghost anim ───
   st.carrierMesh = new THREE.InstancedMesh(carrierGeom, ballMat(), MAX_CARRIER_BALLS);
   st.carrierMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARRIER_BALLS * 3), 3);
   st.carrierMesh.count = 0;
   st.carrierMesh.frustumCulled = false;
+  st.carrierMesh.renderOrder = 202;
   contentGroup.add(st.carrierMesh);
   st.carrierOutlineMesh = mkOutline(carrierGeom, MAX_CARRIER_BALLS);
+  st.carrierOutlineMesh.renderOrder = 201;
   contentGroup.add(st.carrierOutlineMesh);
 
   // ─── Pending balls ───
@@ -456,8 +499,10 @@ function updateCarriers(columns, colorsArr) {
   const dummy   = st._dummy;
   const c3      = st._col3;
   const cSlot   = new THREE.Color();
-  let ballIdx  = 0;
-  let slotIdx  = 0;
+  let ballIdx  = 0;   // ghost mesh ball index (only ghost anim now)
+  let slotIdx  = 0;   // ghost mesh slot index
+  const rowSlotIdx = [0, 0, 0, 0, 0, 0];  // per-row slot indices
+  const rowBallIdx = [0, 0, 0, 0, 0, 0];  // per-row ball indices
 
   const colDivs = gridEl.querySelectorAll('.carrier-col');
 
@@ -517,34 +562,34 @@ function updateCarriers(columns, colorsArr) {
 
       // Z bias podle row indexu: spodní řády push forward, aby překrývaly horní řády
       // při tilt rendering (na hraně sousedních carriers depth test jinak losuje).
-      // Row Z bias: lower rows posunuté víc dopředu, aby fyzicky nekolidovali
-      // s carrier řadou nad sebou. Carrier má depth 14 (Z range ±7), takže bias
-      // musí být > 14 mezi sousedními řadami.
-      const rowZBias = r * 20;
+      // Per-row mesh: lower rows mají vyšší renderOrder → drawn last → na vrcholu.
+      // Žádný Z bias potřeba — explicit layering řeší overlap.
+      const rowIdx = Math.min(r, st.rowSlotMeshes.length - 1);
+      const slotMesh = st.rowSlotMeshes[rowIdx];
+      const slotOutMesh = st.rowSlotOutlineMeshes[rowIdx];
+      const ballMesh = st.rowBallMeshes[rowIdx];
+      const ballOutMesh = st.rowBallOutlineMeshes[rowIdx];
 
-      // 3D rounded-box slot container (jen pokud máme ještě prostor)
-      if (slotIdx < MAX_CARRIER_SLOTS) {
-        // Slot vystředěný v Z=rowZBias; horní face je Z = SLOT_DEPTH/2 + rowZBias
-        dummy.position.set(xW, yW, rowZBias);
+      // 3D slot container (per-row mesh)
+      const slotInstIdx = rowSlotIdx[rowIdx];
+      if (slotInstIdx < slotMesh.count + slotMesh.instanceMatrix.count) {
+        dummy.position.set(xW, yW, 0);
         dummy.rotation.set(0, 0, 0);
         dummy.scale.set(slotScale, slotScale, slotScale);
         dummy.updateMatrix();
-        st.carrierSlotMesh.setMatrixAt(slotIdx, dummy.matrix);
-        st.carrierSlotMesh.setColorAt(slotIdx, cSlot);
-        // Outline (slightly larger)
+        slotMesh.setMatrixAt(slotInstIdx, dummy.matrix);
+        slotMesh.setColorAt(slotInstIdx, cSlot);
         const oS = slotScale * OUTLINE_SCALE_SLOT;
         dummy.scale.set(oS, oS, oS);
         dummy.updateMatrix();
-        st.carrierSlotOutlineMesh.setMatrixAt(slotIdx, dummy.matrix);
-        slotIdx++;
+        slotOutMesh.setMatrixAt(slotInstIdx, dummy.matrix);
+        rowSlotIdx[rowIdx]++;
       }
 
       // Inactive carrier nemá koule — jen menší shell.
       if (!isActive) continue;
 
-      // Rozložení koulí: max 4 v 2×2 mřížce uvnitř slotu
-      // Posuneme koule z trochu nad horní face slotu (Z = SLOT_DEPTH/2 + R_CARRIER*0.2)
-      // → koule částečně zapuštěné, ale dobře viditelné
+      // Rozložení koulí: max 4 v 2×2 mřížce uvnitř slotu (per-row mesh)
       const cw   = cr.width;
       const ch   = cr.height;
       const offX = [-cw * 0.21, cw * 0.21];
@@ -553,23 +598,21 @@ function updateCarriers(columns, colorsArr) {
       const filled = _countFilled(slot.projectiles);
 
       let bi = 0;
-      outer: for (let row = 0; row < 2; row++) {
+      outer: for (let bRow = 0; bRow < 2; bRow++) {
         for (let col2 = 0; col2 < 2; col2++) {
-          if (ballIdx >= MAX_CARRIER_BALLS) break outer;
           if (bi >= filled) break outer;
           bi++;
-
-          dummy.position.set(xW + offX[col2] * slotScale, yW + offY[1 - row] * slotScale, ballZ + rowZBias);
+          const bIdx = rowBallIdx[rowIdx];
+          dummy.position.set(xW + offX[col2] * slotScale, yW + offY[1 - bRow] * slotScale, ballZ);
           dummy.scale.set(slotScale, slotScale, slotScale);
           dummy.updateMatrix();
-          st.carrierMesh.setMatrixAt(ballIdx, dummy.matrix);
-          st.carrierMesh.setColorAt(ballIdx, c3);
-          // Outline
+          ballMesh.setMatrixAt(bIdx, dummy.matrix);
+          ballMesh.setColorAt(bIdx, c3);
           const oB = slotScale * OUTLINE_SCALE_BALL;
           dummy.scale.set(oB, oB, oB);
           dummy.updateMatrix();
-          st.carrierOutlineMesh.setMatrixAt(ballIdx, dummy.matrix);
-          ballIdx++;
+          ballOutMesh.setMatrixAt(bIdx, dummy.matrix);
+          rowBallIdx[rowIdx]++;
         }
       }
     }
@@ -658,12 +701,28 @@ function updateCarriers(columns, colorsArr) {
     dummy.quaternion.identity();
   }
 
+  // Per-row mesh counts
+  for (let row = 0; row < st.rowSlotMeshes.length; row++) {
+    const sCount = rowSlotIdx[row] || 0;
+    const bCount = rowBallIdx[row] || 0;
+    st.rowSlotMeshes[row].count = sCount;
+    st.rowSlotMeshes[row].instanceMatrix.needsUpdate = true;
+    if (st.rowSlotMeshes[row].instanceColor) st.rowSlotMeshes[row].instanceColor.needsUpdate = true;
+    st.rowSlotOutlineMeshes[row].count = sCount;
+    st.rowSlotOutlineMeshes[row].instanceMatrix.needsUpdate = true;
+    st.rowBallMeshes[row].count = bCount;
+    st.rowBallMeshes[row].instanceMatrix.needsUpdate = true;
+    if (st.rowBallMeshes[row].instanceColor) st.rowBallMeshes[row].instanceColor.needsUpdate = true;
+    st.rowBallOutlineMeshes[row].count = bCount;
+    st.rowBallOutlineMeshes[row].instanceMatrix.needsUpdate = true;
+  }
+
+  // Ghost mesh counts (only for tilt anim — single legacy mesh)
   st.carrierSlotMesh.count = slotIdx;
   st.carrierSlotMesh.instanceMatrix.needsUpdate = true;
   if (st.carrierSlotMesh.instanceColor) st.carrierSlotMesh.instanceColor.needsUpdate = true;
   st.carrierSlotOutlineMesh.count = slotIdx;
   st.carrierSlotOutlineMesh.instanceMatrix.needsUpdate = true;
-
   st.carrierMesh.count = ballIdx;
   st.carrierMesh.instanceMatrix.needsUpdate = true;
   if (st.carrierMesh.instanceColor) st.carrierMesh.instanceColor.needsUpdate = true;
