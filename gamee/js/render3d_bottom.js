@@ -559,6 +559,12 @@ function updateCarriers(columns, colorsArr) {
       const xW   = xCSS;
       const yW   = _worldY(yCSS);
 
+      // Responsive sizing — 3D mesh velikost = poměr DOM cbox vs SLOT_SIZE (world units).
+      // Když DOM carrier zmenší (small phone, 7 rows), mesh se zmenší taky.
+      // Multiplikuje slotScale (active/inactive/pop anim) zachová animační křivky.
+      const dynScale = cr.width / SLOT_SIZE;
+      slotScale *= dynScale;
+
       // Barva slotu — inactive je desaturovaný (× 0.55).
       const hexColor = colorsArr ? colorsArr[slot.color] : '#888888';
       c3.set(_hex(hexColor));
