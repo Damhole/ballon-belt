@@ -1203,7 +1203,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v71.7');
+          gamee.updateScore(score,playTime,'balloon-belt-v71.8');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5542,20 +5542,57 @@ function isCarrierActive(c,r){
   if(c+1<COLS){const rc=columns[c+1];if(rc&&r<rc.length&&rc[r]===null)return true;}
   return false;
 }
-// Adaptivní velikost carriers podle max počtu řad v levelu — nastavuje CSS vars
-// které čte game.css. Cíl: zachovat podobnou síťovinu, jen menší při více řadách,
-// aby se 6–7 řad vešlo do iPhone SE budgetu (817 css px).
+// Adaptivní velikost carriers — RESPONZIVNÍ podle aktuální výšky viewportu.
+// Cíl: na velkém displeji (Pixel 8, iPhone 14) zachovat full 54 px carriers
+// i pro 7 řad. Na malém (iPhone SE 817 css) inteligentně zmenšit aby se vešlo.
+//
+// Algoritmus:
+//   1) Změř reálnou pozici #carriers-wrap (top) a available = vh - top - safe
+//   2) Pokud target 54 px se vejde pro numRows → použij target
+//   3) Jinak shrink: solve size × (rows + (rows-1)×0.10) = usable
+//   4) Gap ≈ 10 % carrier size, ball ≈ (carrier-5)/2 (cbox inner)
+const CARR_TARGET_SIZE = 54;
+const CARR_TARGET_GAP  = 6;
+const CARR_MIN_SIZE    = 38;
+const CARR_SAFE_BOTTOM = 10;     // rezerva mezi carriers a viewport bottom
+const CARR_WRAP_PAD    = 26;     // #carriers-wrap padding (4 top + 22 bottom)
 function _setAdaptiveCarrierSize(columnsArr){
   const numRows = Math.max(0, ...columnsArr.map(c => c ? c.length : 0));
-  let carrierSize, ballSize, rowGap;
-  if (numRows <= 5)      { carrierSize = 54; ballSize = 26; rowGap = 6; }
-  else if (numRows === 6){ carrierSize = 48; ballSize = 22; rowGap = 5; }
-  else                   { carrierSize = 42; ballSize = 18; rowGap = 4; }  // 7+
+  if (numRows === 0) return;
+  const viewportH = window.innerHeight || 817;
+  const carrWrap = document.getElementById('carriers-wrap');
+  let available;
+  if (carrWrap) {
+    const top = carrWrap.getBoundingClientRect().top;
+    available = Math.max(140, viewportH - top - CARR_SAFE_BOTTOM);
+  } else {
+    available = Math.max(140, viewportH - 540);  // fallback estimate
+  }
+  const usable = available - CARR_WRAP_PAD;
+  const neededAtTarget = numRows * CARR_TARGET_SIZE + (numRows - 1) * CARR_TARGET_GAP;
+  let carrierSize, rowGap;
+  if (neededAtTarget <= usable) {
+    // Vejde se v plné velikosti — big phone / desktop
+    carrierSize = CARR_TARGET_SIZE;
+    rowGap = CARR_TARGET_GAP;
+  } else {
+    // Shrink — gap drží ~10 % size. Solve: size × (rows + (rows-1)×0.10) = usable
+    const denom = numRows + (numRows - 1) * 0.10;
+    const ideal = usable / denom;
+    carrierSize = Math.max(CARR_MIN_SIZE, Math.min(CARR_TARGET_SIZE, Math.floor(ideal)));
+    rowGap = Math.max(3, Math.round(carrierSize * 0.10));
+  }
+  // Cbox inner space: padding 2×2 + gap 1 = 5 px → cell = (carrier-5)/2
+  const ballSize = Math.max(14, Math.floor((carrierSize - 5) / 2));
   const r = document.documentElement.style;
   r.setProperty('--carrier-size', carrierSize + 'px');
   r.setProperty('--ball-size',    ballSize + 'px');
   r.setProperty('--row-gap',      rowGap + 'px');
 }
+// Recompute on resize (rotation, desktop window resize)
+window.addEventListener('resize', function(){
+  if (typeof columns !== 'undefined' && columns) _setAdaptiveCarrierSize(columns);
+});
 function drawCarriers(){
   _setAdaptiveCarrierSize(columns);
   const el=document.getElementById('carriers-grid');
@@ -6189,7 +6226,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v71.7');
+    gamee.updateScore(score,playTime,'balloon-belt-v71.8');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6317,7 +6354,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v71.7');
+  gamee.updateScore(score,playTime,'balloon-belt-v71.8');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7147,7 +7184,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v71.7');
+      gamee.updateScore(score,playTime,'balloon-belt-v71.8');
       event.detail.callback();
     });
 
