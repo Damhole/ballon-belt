@@ -350,10 +350,10 @@ function init() {
   st.carrierSlotMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARRIER_SLOTS * 3), 3);
   st.carrierSlotMesh.count = 0;
   st.carrierSlotMesh.frustumCulled = false;
-  st.carrierSlotMesh.renderOrder = 200;   // ghost vždy nad všemi rows
+  st.carrierSlotMesh.renderOrder = 140;   // ghost nad row carriery (100-114) ale POD pending balls (150)
   contentGroup.add(st.carrierSlotMesh);
   st.carrierSlotOutlineMesh = mkOutline(slotGeom, MAX_CARRIER_SLOTS);
-  st.carrierSlotOutlineMesh.renderOrder = 199;
+  st.carrierSlotOutlineMesh.renderOrder = 139;
   contentGroup.add(st.carrierSlotOutlineMesh);
 
   // Hot-swap slot geometry s GLB assetem (async — placeholder rendered do té doby).
@@ -388,10 +388,10 @@ function init() {
   st.carrierMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARRIER_BALLS * 3), 3);
   st.carrierMesh.count = 0;
   st.carrierMesh.frustumCulled = false;
-  st.carrierMesh.renderOrder = 202;
+  st.carrierMesh.renderOrder = 142;
   contentGroup.add(st.carrierMesh);
   st.carrierOutlineMesh = mkOutline(carrierGeom, MAX_CARRIER_BALLS);
-  st.carrierOutlineMesh.renderOrder = 201;
+  st.carrierOutlineMesh.renderOrder = 141;
   contentGroup.add(st.carrierOutlineMesh);
 
   // ─── Pending balls ───
