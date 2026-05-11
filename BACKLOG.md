@@ -39,9 +39,10 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 1. **v71.0** ✅ — bump verze v70.11 → v71.0
 2. **v71.1** ✅ — debug overlay (⚙ toggle, safe zone, markers)
 3. **v71.2** ✅ — settings panel redesign: pill toggley, controls na spodek hry přes CSS order
-4. **v71.3** — `ROW_COUNT_MAX 4 → 6` v `render3d_bottom.js`
-5. **v71.4** — responsive scale: viewport meta `width=device-width`, `applyGameScale()` přes CSS `transform: scale()` na `#game`
-6. **v71.5** — dynamic `FUN.wideY`: re-měřit carriers-wrap po `drawCarriers()`, volat `render3dBottom.canvasYtoFunY()`
+4. **v71.3** ✅ — fix MIN_H scaling (568 phys × 460/320 = 817 css), hide #status, version badge do settings baru
+5. **v71.4** — `ROW_COUNT_MAX 4 → 6` v `render3d_bottom.js`
+6. **v71.5** — responsive scale: viewport meta `width=device-width`, `applyGameScale()` přes CSS `transform: scale()` na `#game`
+7. **v71.6** — dynamic `FUN.wideY`: re-měřit carriers-wrap po `drawCarriers()`, volat `render3dBottom.canvasYtoFunY()`
 
 ### Otevřené po tomto sprintu
 - Sizing pro <360 px (iPhone SE 320px) — test po v71.2
@@ -122,6 +123,7 @@ _Sem házej cokoliv co tě napadne. Při příští session to roztřídíme._
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v71.3 | `7e1e78d` | 2026-05-11 | Fix MIN_H scaling (568 phys × 460/320 = 817 css), `#status` hidden (krade pixely), version badge přesunut do settings baru vlevo od ⚙ |
 | v71.2 | `750d0f1` | 2026-05-11 | Settings panel: ⚙ button otevírá pill toggley (Level UI / Stats / Safe zone), controls a ammo-audit na spodek hry přes CSS order, layout se při togglech nehýbe |
 | v71.1 | `a4290c7` | 2026-05-11 | Debug overlay: ⚙ toggle (Shift+D), min-screen 568px marker, overflow zóna, safe area, info panel, clean mode skryje controls |
 | v71.0 | `ea33992` | 2026-05-11 | Version bump v70.11 → v71.0 |
