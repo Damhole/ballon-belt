@@ -1,0 +1,11 @@
+{
+  "name": "Balloon Belt",
+  "short_name": "Balloon Belt",
+  "description": "Single-screen puzzle game — barevné carriers, dopravní pás, pixel obrazy.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a1a1a",
+  "theme_color": "#1a1a1a"
+}

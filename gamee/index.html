@@ -1,15 +1,21 @@
 <!DOCTYPE html>
 <head>
   <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-  <title>Balloon Belt v71.19</title>
+  <title>Balloon Belt v71.20</title>
   <script type="text/javascript" src="./lib/gamee-js.min.js"></script>
   <meta name="viewport" content="width=460,viewport-fit=cover">
+  <!-- PWA: Add to Home Screen → fullscreen, no Safari chrome. v71.20 -->
+  <link rel="manifest" href="./manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Balloon Belt">
+  <meta name="theme-color" content="#1a1a1a">
   <link rel="stylesheet" href="./css/game.css">
   <script>var module = {};</script>
 </head>
 <body onload="initGame()">
 <div id="game">
-  <div id="version-badge">v71.19</div>
+  <div id="version-badge">v71.20</div>
   <!-- Top UI (h1 + score bar) bylo odstraněno v29 — v Gamee tyto informace
        zobrazuje platform wrapper, a editor preview je kompaktnější bez nich.
        Legacy ID score / belt-count / carriers-left jsou zachovány jako skryté
