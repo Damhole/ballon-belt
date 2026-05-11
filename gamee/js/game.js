@@ -1205,7 +1205,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v71.15');
+          gamee.updateScore(score,playTime,'balloon-belt-v71.16');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5742,6 +5742,17 @@ function launchRocket(ci){
   });
   return true;
 }
+// Haptic feedback — navigator.vibrate() works on Android, NOT on iOS Safari
+// (Apple blokuje vibration API pro web). Gamee SDK haptic capability nemá.
+// Feature-detected + respektuje prefers-reduced-motion + localStorage opt-out.
+function _vibrate(pattern){
+  try {
+    if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
+    if (localStorage.getItem('bb-haptic') === '0') return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    navigator.vibrate(pattern);
+  } catch(_e) {}
+}
 function onCarrierClick(e){
   const c=+e.currentTarget.dataset.col,r=+e.currentTarget.dataset.row;
   if(!running)return;
@@ -5749,9 +5760,11 @@ function onCarrierClick(e){
   if(!slot)return;
   // Hard limit: v trychtýři max 4 nosiče (16 koulí). Klik se neodbaví a zobrazí se varování.
   if(pending.length>PENDING_DISPENSE_THRESHOLD){
+    _vibrate([20,40,20]);  // double-buzz denial
     showFunnelWarning();
     return;
   }
+  _vibrate(10);  // short tap feedback — carrier accepted
   if(slot.type==='rocket'){
     let _rxSpawn,_rxSpawnY;
     const _rxCbox=e.currentTarget.querySelector('.cbox');
@@ -6255,7 +6268,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v71.15');
+    gamee.updateScore(score,playTime,'balloon-belt-v71.16');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6382,8 +6395,10 @@ function renderAmmoAudit(audit){
 function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
+  // Haptic: celebration pulse-pause-pulse pro výhru, jeden delší buzz pro loss
+  _vibrate(win ? [0,60,50,120] : 200);
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v71.15');
+  gamee.updateScore(score,playTime,'balloon-belt-v71.16');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7213,7 +7228,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v71.15');
+      gamee.updateScore(score,playTime,'balloon-belt-v71.16');
       event.detail.callback();
     });
 
