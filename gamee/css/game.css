@@ -190,7 +190,11 @@ html,body{margin:0;padding:0}
    bez scroll/zoom potřeby. */
 *{-webkit-tap-highlight-color:transparent}
 #game{touch-action:manipulation}
-#game{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px;max-width:480px;margin:0 auto;width:100%;position:relative}
+/* #game padding-top adaptivní (v71.18) — když je v levelu dost místa
+   (carriers se nemusely shrinkovat), JS přidá --game-top-extra pro komfortní
+   odsazení od horní hrany telefonu. Při tight space = 0, layout zůstává
+   natlačený nahoru. */
+#game{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px;padding-top:calc(8px + var(--game-top-extra, 0px));max-width:480px;margin:0 auto;width:100%;position:relative}
 #version-badge{position:absolute;top:16px;right:16px;font-size:11px;color:var(--color-text-tertiary);font-family:var(--font-sans);pointer-events:none}
 #status{display:none}
 #ammo-audit{width:360px;display:flex;flex-wrap:wrap;gap:4px;justify-content:center;align-items:center;font-size:10px;color:var(--color-text-tertiary);padding:2px 0}
