@@ -1205,7 +1205,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v71.20');
+          gamee.updateScore(score,playTime,'balloon-belt-v71.21');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5557,12 +5557,21 @@ const CARR_TARGET_SIZE = 54;
 const CARR_TARGET_GAP  = 6;
 const CARR_MIN_SIZE    = 38;
 const CARR_WRAP_PAD    = 26;     // #carriers-wrap padding (4 top + 22 bottom)
+// Memoize last-computed inputs aby drawCarriers() na každý klik nepřepočítával
+// layout znovu (v71.21 fix — 3× flicker při kliku, protože onCarrierClick
+// triggeruje drawCarriers/drawBelt/drawPending kaskádu). Resize a level change
+// inputs změní → cache invalidate → plný recompute.
+const _lastAdaptive = { numRows: -1, vhR: -1 };
 function _setAdaptiveCarrierSize(columnsArr){
   const numRows = Math.max(0, ...columnsArr.map(c => c ? c.length : 0));
   if (numRows === 0) return;
   // visualViewport.height respektuje iOS Safari URL bar (innerHeight někdy
   // počítá full screen i s URL barem). Fallback na innerHeight pro desktop.
   const viewportH = (window.visualViewport && window.visualViewport.height) || window.innerHeight || 817;
+  const vhR = Math.round(viewportH);  // sub-pixel diffs by jinak triggerovaly recompute
+  if (_lastAdaptive.numRows === numRows && _lastAdaptive.vhR === vhR) return;
+  _lastAdaptive.numRows = numRows;
+  _lastAdaptive.vhR = vhR;
   const carrWrap = document.getElementById('carriers-wrap');
   // safeBottom = base 12 (chrome safety) + iOS home indicator (env safe-area).
   // Dev UI (controls Level UI, ammo-audit Stats, settings bar) se IGNORUJE —
@@ -6266,7 +6275,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v71.20');
+    gamee.updateScore(score,playTime,'balloon-belt-v71.21');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6394,7 +6403,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v71.20');
+  gamee.updateScore(score,playTime,'balloon-belt-v71.21');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7224,7 +7233,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v71.20');
+      gamee.updateScore(score,playTime,'balloon-belt-v71.21');
       event.detail.callback();
     });
 

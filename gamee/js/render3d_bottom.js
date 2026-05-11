@@ -194,8 +194,15 @@ function init() {
   st.W = W;
   st.H = H;
 
-  // Canvas pozice relativně k #game divu
+  // Canvas pozice relativně k #game divu.
+  // POZOR: canvasTop měřený teď zahrnuje aktuální --game-top-extra padding.
+  // Abychom auto-followovali jeho budoucí změny (level change s jiným numRows
+  // může změnit topExtra), uložíme baseline (= top při topExtra=0) a CSS calc()
+  // dopočítá aktuální pozici za běhu. v71.21 fix bug 'belt zůstává stejně
+  // pozicovaný' při změně top paddingu.
+  const _currentTopExtra = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--game-top-extra')) || 0;
   const canvasTop  = Math.round(beltRect.top  - gameRect.top);
+  const canvasTopBaseline = canvasTop - _currentTopExtra;
   const canvasLeft = Math.round(widestRect.left - gameRect.left);
 
   // X-offset belt-wrap od levé hrany canvasu (belt-svg + pending-canvas jsou užší a vystředěné)
@@ -227,7 +234,7 @@ function init() {
   canvas.style.cssText = [
     'position:absolute',
     `left:${canvasLeft}px`,
-    `top:${canvasTop}px`,
+    `top:calc(${canvasTopBaseline}px + var(--game-top-extra, 0px))`,
     `width:${W}px`,
     `height:${H}px`,
     'pointer-events:none',
