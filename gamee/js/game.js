@@ -40,17 +40,19 @@ const SOLVED_TOLERANCE_PX=UPC*PPU;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // RENDERER_MODE — feature flag pro 2.5D upgrade (Fáze 1+).
-//   '2d' = stávající Canvas2D pipeline (default, safe fallback)
-//   '3d' = Three.js scéna (pixely jako InstancedMesh BoxGeometry)
-// Aktivace: ?renderer=3d v URL. Bloky/projektily/UI zatím zůstávají 2D
-// (Fáze 2+ je posune). Při 3D módu pixel-canvas pořád existuje a slouží
-// jako podklad pro 2D bloky (three-canvas má alpha, prosvítá).
+//   '3d' = Three.js scéna (pixely jako InstancedMesh BoxGeometry) — DEFAULT
+//   '2d' = legacy Canvas2D pipeline (dev fallback, debugging)
+// Default flipped na 3D v v71.13 — po M6 ukončení a v71 responsive polishi
+// je 3D plnohodnotná hlavní zkušenost. ?renderer=2d je opt-in dev fallback.
+// Bloky/projektily/UI zatím zůstávají 2D (Fáze 2+ je posune). Při 3D módu
+// pixel-canvas pořád existuje a slouží jako podklad pro 2D bloky
+// (three-canvas má alpha, prosvítá).
 // ═══════════════════════════════════════════════════════════════════════════
 const RENDERER_MODE = (function(){
   try {
     const m = new URLSearchParams(location.search).get('renderer');
-    return (m === '3d') ? '3d' : '2d';
-  } catch(_e) { return '2d'; }
+    return (m === '2d') ? '2d' : '3d';
+  } catch(_e) { return '3d'; }
 })();
 // Aktivuje CSS .renderer-3d na body — game.css má pod tím selektorem
 // celé environment styly (pink BG, soft shadows, rounded frames). Stane se
@@ -1203,7 +1205,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v71.12');
+          gamee.updateScore(score,playTime,'balloon-belt-v71.13');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6240,7 +6242,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v71.12');
+    gamee.updateScore(score,playTime,'balloon-belt-v71.13');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6368,7 +6370,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v71.12');
+  gamee.updateScore(score,playTime,'balloon-belt-v71.13');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7198,7 +7200,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v71.12');
+      gamee.updateScore(score,playTime,'balloon-belt-v71.13');
       event.detail.callback();
     });
 
