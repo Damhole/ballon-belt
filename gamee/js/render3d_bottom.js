@@ -399,9 +399,10 @@ function init() {
   st.pendingMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PENDING * 3), 3);
   st.pendingMesh.count = 0;
   st.pendingMesh.frustumCulled = false;
-  st.pendingMesh.renderOrder = 5;  // vrchol nad slot/carriery
+  st.pendingMesh.renderOrder = 150;  // nad všema row carriery (100–114), pod ghost tilt (200)
   contentGroup.add(st.pendingMesh);
   st.pendingOutlineMesh = mkOutline(pendingGeom, MAX_PENDING);
+  st.pendingOutlineMesh.renderOrder = 149;  // pod pendingMesh (150) ale nad carriery
   contentGroup.add(st.pendingOutlineMesh);
 
   // ─── Pending shadows DISABLED — způsobovaly viditelnost issues ───
