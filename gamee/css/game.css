@@ -182,7 +182,7 @@ body {
 }
 #game{display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px;max-width:480px;margin:0 auto;width:100%;position:relative}
 #version-badge{position:absolute;top:16px;right:16px;font-size:11px;color:var(--color-text-tertiary);font-family:var(--font-sans);pointer-events:none}
-#status{font-size:13px;color:var(--color-text-secondary);min-height:18px;text-align:center}
+#status{display:none}
 #ammo-audit{width:360px;display:flex;flex-wrap:wrap;gap:4px;justify-content:center;align-items:center;font-size:10px;color:var(--color-text-tertiary);padding:2px 0}
 #ammo-audit .aa-total{width:100%;text-align:center;font-weight:600}
 #ammo-audit .aa-total.aa-bad{color:#ff6b6b}
@@ -550,11 +550,21 @@ body.renderer-3d #restart-btn:hover { background: #5a3050; }
   order: 200;
   width: 100%;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
   padding: 6px 8px 8px;
   position: relative;        /* kotva pro #dbg-panel (position:absolute) */
   flex-shrink: 0;
+}
+
+/* Version badge — když je uvnitř debug baru, přepiš jeho absolute pozici */
+#dbg-settings-bar #version-badge {
+  position: static;
+  top: auto;
+  right: auto;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  pointer-events: none;
 }
 
 /* ⚙ button */
@@ -633,11 +643,10 @@ body.renderer-3d #restart-btn:hover { background: #5a3050; }
 }
 body.dbg-active #dbg-info { display: block; }
 
-/* Marker linka na y=568px */
+/* Marker linka — top nastavuje debug.js dynamicky (MIN_H v CSS px) */
 #dbg-marker {
   display: none;
   position: absolute;
-  top: 568px;
   left: 0;
   right: 0;
   height: 2px;
@@ -658,14 +667,13 @@ body.dbg-active #dbg-info { display: block; }
 }
 body.dbg-active #dbg-marker { display: block; }
 
-/* Safe area — status bar nahoře */
+/* Safe area — status bar nahoře (height nastavuje debug.js v CSS px) */
 #dbg-safe-top {
   display: none;
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 20px;
   background: rgba(0, 200, 100, 0.12);
   border-bottom: 1px dashed rgba(0, 200, 100, 0.45);
   z-index: 9989;

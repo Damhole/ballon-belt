@@ -10,10 +10,18 @@
 (function () {
   'use strict';
 
-  var BASE_W  = 460;
-  var MIN_W   = 320;
-  var MIN_H   = 568;
-  var SAFE_TOP = 20;
+  // BASE_W = šířka layout viewportu z <meta viewport content="width=460">.
+  // MIN_W_PHYS / MIN_H_PHYS = nejmenší cílový telefon (iPhone SE 1. gen 320×568 phys).
+  // Browser na takovém telefonu škáluje obsah: 460 CSS px = 320 phys px.
+  // → CSS px výška dostupná na nejmenším telefonu = 568 × (460/320) = 817.
+  // Stejně tak status bar 20 phys → 29 CSS px.
+  var BASE_W       = 460;
+  var MIN_W_PHYS   = 320;
+  var MIN_H_PHYS   = 568;
+  var SAFE_TOP_PHYS = 20;
+  var SCALE        = BASE_W / MIN_W_PHYS;          // 1.4375
+  var MIN_H        = Math.round(MIN_H_PHYS * SCALE);    // 817
+  var SAFE_TOP     = Math.round(SAFE_TOP_PHYS * SCALE); // 29
 
   var panelOpen = false;
   var state     = { levelui: false, stats: false, safezone: false };
@@ -61,11 +69,13 @@
     // Overlay elementy (position:absolute uvnitř #game, mimo flex flow)
     infoEl    = mkEl('pre', 'dbg-info',     game);
     markerEl  = mkEl('div', 'dbg-marker',   game);
+    markerEl.style.top = MIN_H + 'px';
     var span  = document.createElement('span');
-    span.textContent = 'min screen ' + MIN_H + 'px ▼';
+    span.textContent = 'min screen ' + MIN_H + 'px (= ' + MIN_H_PHYS + 'phys @ ' + MIN_W_PHYS + ') ▼';
     markerEl.appendChild(span);
     safeTopEl  = mkEl('div', 'dbg-safe-top', game);
-    safeTopEl.textContent = 'status bar ' + SAFE_TOP + 'px';
+    safeTopEl.style.height = SAFE_TOP + 'px';
+    safeTopEl.textContent = 'status bar ' + SAFE_TOP + 'px (= ' + SAFE_TOP_PHYS + 'phys)';
     overflowEl = mkEl('div', 'dbg-overflow', game);
 
     // Settings bar — order:200, vždy poslední flex item v #game
@@ -73,6 +83,12 @@
 
     // Settings panel — otevírá se nad barem (position:absolute, bottom:100%)
     panel = mkEl('div', 'dbg-panel', settingsBar);
+
+    // Version badge — přesun z #game do settings baru (vlevo od ⚙)
+    var versionBadge = document.getElementById('version-badge');
+    if (versionBadge) {
+      settingsBar.appendChild(versionBadge);
+    }
 
     var ITEMS = [
       { key: 'levelui',  label: 'Level UI' },
@@ -166,7 +182,6 @@
     var vh = document.documentElement.clientHeight;
     var SECTIONS = [
       ['controls',      'ctrl'],
-      ['status',        'stat'],
       ['image-area',    'img '],
       ['belt-wrap',     'belt'],
       ['pending-wrap',  'pend'],
@@ -176,15 +191,18 @@
     SECTIONS.forEach(function (s) {
       var el = document.getElementById(s[0]);
       if (!el) return;
+      // pomineme skryté elementy (display:none → height 0)
       var h = Math.round(el.getBoundingClientRect().height);
+      if (h === 0) return;
       total += h;
       rows.push(s[1] + ' ' + pad(h, 4) + ' Σ' + pad(total, 4) + (total > MIN_H ? ' ⚠' : ''));
     });
     var ov = total > MIN_H ? '+' + (total - MIN_H) + 'px ⚠' : 'fits ✓';
     return [
       'vp ' + vw + '×' + vh + ' px',
-      'scl ' + (vw / BASE_W).toFixed(2) + '× (' + BASE_W + ')',
-      'min ' + MIN_W + '×' + MIN_H,
+      'scl ' + (vw / BASE_W).toFixed(2) + '× (base ' + BASE_W + ')',
+      'phys ' + MIN_W_PHYS + '×' + MIN_H_PHYS + ' (iPhone SE)',
+      'css  ' + BASE_W + '×' + MIN_H + ' (× ' + SCALE.toFixed(3) + ')',
       ov,
       '─────────────────',
     ].concat(rows).join('\n');
