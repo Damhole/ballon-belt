@@ -318,23 +318,17 @@ function init() {
   st.rowBallMeshes = [];
   st.rowBallOutlineMeshes = [];
   for (let row = 0; row < ROW_COUNT_MAX; row++) {
-    // INVERTED order — row 0 (top, near belt) má NEJVYŠŠÍ renderOrder = drawn last.
-    // Row 3 (bottom) má NEJNIŽŠÍ = drawn first. Top rows tedy překryjí bottom rows.
-    const baseOrder = 100 + (ROW_COUNT_MAX - 1 - row) * 4;
     // Slot mesh
     const sm = new THREE.InstancedMesh(slotGeom, slotMat, PER_ROW_SLOTS);
     sm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PER_ROW_SLOTS * 3), 3);
     sm.count = 0;
     sm.frustumCulled = false;
-    sm.material = sm.material.clone();
-    sm.material.depthTest = false;           // renderOrder fully authoritative
-    sm.renderOrder = baseOrder;
+    sm.renderOrder = 100 + row * 4;          // higher row = drawn later = on top
     contentGroup.add(sm);
     st.rowSlotMeshes.push(sm);
     // Slot outline
     const so = mkOutline(slotGeom, PER_ROW_SLOTS);
-    so.material.depthTest = false;
-    so.renderOrder = baseOrder - 1;
+    so.renderOrder = 100 + row * 4 - 1;      // before main slot, but in row order
     contentGroup.add(so);
     st.rowSlotOutlineMeshes.push(so);
     // Ball mesh
@@ -342,14 +336,12 @@ function init() {
     bm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PER_ROW_BALLS * 3), 3);
     bm.count = 0;
     bm.frustumCulled = false;
-    bm.material.depthTest = false;
-    bm.renderOrder = baseOrder + 2;
+    bm.renderOrder = 100 + row * 4 + 2;      // after slot main + outline, within row
     contentGroup.add(bm);
     st.rowBallMeshes.push(bm);
     // Ball outline
     const bo = mkOutline(carrierGeom, PER_ROW_BALLS);
-    bo.material.depthTest = false;
-    bo.renderOrder = baseOrder + 1;
+    bo.renderOrder = 100 + row * 4 + 1;      // between slot main and ball
     contentGroup.add(bo);
     st.rowBallOutlineMeshes.push(bo);
   }
