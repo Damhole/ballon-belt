@@ -188,7 +188,8 @@ function init() {
   if (pendWrapEl && pendWrapEl.getBoundingClientRect().width > widestRect.width) widestRect = pendWrapEl.getBoundingClientRect();
 
   const W = Math.ceil(widestRect.width);
-  const H = Math.max(180, Math.ceil(bottomRect.bottom - beltRect.top) + 10);
+  // +90 px pod carriery — víc prostoru pro balls / fyziku / vizuál bez clippingu
+  const H = Math.max(180, Math.ceil(bottomRect.bottom - beltRect.top) + 90);
 
   st.W = W;
   st.H = H;
