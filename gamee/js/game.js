@@ -1203,7 +1203,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v71.6');
+          gamee.updateScore(score,playTime,'balloon-belt-v71.7');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5542,7 +5542,22 @@ function isCarrierActive(c,r){
   if(c+1<COLS){const rc=columns[c+1];if(rc&&r<rc.length&&rc[r]===null)return true;}
   return false;
 }
+// Adaptivní velikost carriers podle max počtu řad v levelu — nastavuje CSS vars
+// které čte game.css. Cíl: zachovat podobnou síťovinu, jen menší při více řadách,
+// aby se 6–7 řad vešlo do iPhone SE budgetu (817 css px).
+function _setAdaptiveCarrierSize(columnsArr){
+  const numRows = Math.max(0, ...columnsArr.map(c => c ? c.length : 0));
+  let carrierSize, ballSize, rowGap;
+  if (numRows <= 5)      { carrierSize = 54; ballSize = 26; rowGap = 6; }
+  else if (numRows === 6){ carrierSize = 48; ballSize = 22; rowGap = 5; }
+  else                   { carrierSize = 42; ballSize = 18; rowGap = 4; }  // 7+
+  const r = document.documentElement.style;
+  r.setProperty('--carrier-size', carrierSize + 'px');
+  r.setProperty('--ball-size',    ballSize + 'px');
+  r.setProperty('--row-gap',      rowGap + 'px');
+}
 function drawCarriers(){
+  _setAdaptiveCarrierSize(columns);
   const el=document.getElementById('carriers-grid');
   el.innerHTML='';
   for(let c=0;c<COLS;c++){
@@ -6174,7 +6189,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v71.6');
+    gamee.updateScore(score,playTime,'balloon-belt-v71.7');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6302,7 +6317,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v71.6');
+  gamee.updateScore(score,playTime,'balloon-belt-v71.7');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7132,7 +7147,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v71.6');
+      gamee.updateScore(score,playTime,'balloon-belt-v71.7');
       event.detail.callback();
     });
 

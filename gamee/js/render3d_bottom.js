@@ -311,7 +311,7 @@ function init() {
   // Důvod: Lower rows musí ALWAYS překrýt upper rows. Explicit renderOrder per row
   // řeší problém že depth test sám nesedí když se mesh boundary překrývají (rounded
   // corners, scene tilt). Drawing order: row 0 první → row 3 poslední (= na vrcholu).
-  const ROW_COUNT_MAX = 4;
+  const ROW_COUNT_MAX = 7;
   const PER_ROW_SLOTS = 20;
   const PER_ROW_BALLS = PER_ROW_SLOTS * 4;
   st.rowSlotMeshes = [];
@@ -507,8 +507,8 @@ function updateCarriers(columns, colorsArr) {
   const cSlot   = new THREE.Color();
   let ballIdx  = 0;   // ghost mesh ball index (only ghost anim now)
   let slotIdx  = 0;   // ghost mesh slot index
-  const rowSlotIdx = [0, 0, 0, 0, 0, 0];  // per-row slot indices
-  const rowBallIdx = [0, 0, 0, 0, 0, 0];  // per-row ball indices
+  const rowSlotIdx = [0, 0, 0, 0, 0, 0, 0];  // per-row slot indices (max 7)
+  const rowBallIdx = [0, 0, 0, 0, 0, 0, 0];  // per-row ball indices  (max 7)
 
   const colDivs = gridEl.querySelectorAll('.carrier-col');
 
