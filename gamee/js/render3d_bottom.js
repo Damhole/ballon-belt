@@ -669,32 +669,35 @@ function updateCarriers(columns, colorsArr) {
         slotIdx++;
       }
 
-      // Balls (s aplikovaným slot transform — koule "ride" se slotem)
-      _slotM.compose(_vec, _quat, dummy.scale.set(1, 1, 1));   // matrix bez scale pro pozici
-      const offX = [-anim.w * 0.21, anim.w * 0.21];
-      const offY = [-anim.h * 0.21, anim.h * 0.21];
-      const ballZ = SLOT_DEPTH / 2 + R_CARRIER * 0.25;
-
-      let bi = 0;
-      outer: for (let row = 0; row < 2; row++) {
-        for (let col2 = 0; col2 < 2; col2++) {
-          if (ballIdx >= MAX_CARRIER_BALLS) break outer;
-          if (bi >= anim.fill) break outer;
-          bi++;
-
-          const local = new THREE.Vector3(offX[col2], offY[1 - row], ballZ);
-          local.applyMatrix4(_slotM);
-          dummy.position.copy(local);
-          dummy.quaternion.copy(_quat);
-          dummy.scale.set(scale, scale, scale);
-          dummy.updateMatrix();
-          st.carrierMesh.setMatrixAt(ballIdx, dummy.matrix);
-          st.carrierMesh.setColorAt(ballIdx, c3);
-          const oB = scale * OUTLINE_SCALE_BALL;
-          dummy.scale.set(oB, oB, oB);
-          dummy.updateMatrix();
-          st.carrierOutlineMesh.setMatrixAt(ballIdx, dummy.matrix);
-          ballIdx++;
+      // Balls — naparentované ke slotu (ride se slotem během lift+tilt).
+      // Fade out: scale 1 → 0 přes prvních 0.15s, pak invisible (= "vysypaly se").
+      const ballFadeT = Math.max(0, Math.min(1, t / 0.15));
+      const ballScale = scale * (1 - ballFadeT);
+      if (ballScale > 0.04) {
+        _slotM.compose(_vec, _quat, dummy.scale.set(1, 1, 1));   // matrix bez scale pro pozici
+        const offX = [-anim.w * 0.21, anim.w * 0.21];
+        const offY = [-anim.h * 0.21, anim.h * 0.21];
+        const ballZ = SLOT_DEPTH / 2 + R_CARRIER * 0.25;
+        let bi = 0;
+        outer: for (let row = 0; row < 2; row++) {
+          for (let col2 = 0; col2 < 2; col2++) {
+            if (ballIdx >= MAX_CARRIER_BALLS) break outer;
+            if (bi >= anim.fill) break outer;
+            bi++;
+            const local = new THREE.Vector3(offX[col2], offY[1 - row], ballZ);
+            local.applyMatrix4(_slotM);
+            dummy.position.copy(local);
+            dummy.quaternion.copy(_quat);
+            dummy.scale.set(ballScale, ballScale, ballScale);
+            dummy.updateMatrix();
+            st.carrierMesh.setMatrixAt(ballIdx, dummy.matrix);
+            st.carrierMesh.setColorAt(ballIdx, c3);
+            const oB = ballScale * OUTLINE_SCALE_BALL;
+            dummy.scale.set(oB, oB, oB);
+            dummy.updateMatrix();
+            st.carrierOutlineMesh.setMatrixAt(ballIdx, dummy.matrix);
+            ballIdx++;
+          }
         }
       }
     }
