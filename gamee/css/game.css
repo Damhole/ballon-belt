@@ -397,15 +397,16 @@ body.renderer-3d #bottom-deck {
      dostane 30px padding na sides, neexponují se ke zdím panelu).
      Polygon má vícebodů kolem rohů → simulované rounded corners. */
   clip-path: polygon(
-    /* TOP narrow center (210px wide), simulované zaoblení horních rohů */
-    115px 5px,
+    /* TOP narrow center (210px wide), simulované zaoblení horních rohů.
+       v71.6: funnel slope Y zhruba na půl (88→44), kratší vizuál. */
+    115px 3px,
     120px 0,
     300px 0,
-    305px 5px,
+    305px 3px,
     /* Diagonal smoothly expanding outward */
-    370px 50px,
-    410px 75px,
-    420px 88px,
+    370px 25px,
+    410px 37px,
+    420px 44px,
     /* Right side down with rounded bottom corner */
     420px calc(100% - 18px),
     416px calc(100% - 6px),
@@ -415,11 +416,11 @@ body.renderer-3d #bottom-deck {
     4px calc(100% - 6px),
     0 calc(100% - 18px),
     /* Left side up */
-    0 88px,
-    10px 75px,
-    50px 50px,
+    0 44px,
+    10px 37px,
+    50px 25px,
     /* Left diagonal back to top */
-    115px 5px
+    115px 3px
   );
   box-shadow:
     inset 0 8px 16px rgba(0, 0, 0, 0.50),
@@ -437,7 +438,7 @@ body.renderer-3d #bottom-deck #carriers-wrap {
   margin: 0;
   width: auto;
 }
-body.renderer-3d #bottom-deck #pending-wrap { padding: 12px 30px 4px; }
+body.renderer-3d #bottom-deck #pending-wrap { padding: 6px 30px 4px; }
 /* Carriers padding 10px each side → grid sedí v 420px panelu těsně u zdí */
 body.renderer-3d #bottom-deck #carriers-wrap { padding: 4px 10px 22px; }
 /* Carriers cells větší (54px) → grid 7×54 + 6×4gap = 378+24 = 402px ≈ 400px */

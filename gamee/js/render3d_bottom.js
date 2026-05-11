@@ -9,7 +9,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
-const PENDING_CANVAS_H = 90;   // výška #pending-canvas
+const PENDING_CANVAS_H = 50;   // výška #pending-canvas (v71.6: půlka)
 const BELT_CAP        = 14;    // max balls na pásu
 const BELT_STARTX     = 50;    // BELT_LX + BELT_BALL_R + 8
 const BELT_ENDX       = 310;   // BELT_RX - BELT_BALL_R - 8

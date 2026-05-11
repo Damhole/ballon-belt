@@ -1203,7 +1203,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v71.5');
+          gamee.updateScore(score,playTime,'balloon-belt-v71.6');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5833,7 +5833,7 @@ if(RENDERER_MODE==='3d'){
   FUN.narrowR=270;      // top-opening pravá strana
   FUN.wideL=0;          // levá vertikální stěna
   FUN.wideR=420;        // pravá vertikální stěna
-  FUN.slopeEndY=88;     // y kde slope končí a začíná vertikální (kopíruje clip-path 0,88)
+  FUN.slopeEndY=44;     // y kde slope končí a začíná vertikální (kopíruje clip-path 0,44 — v71.6)
 }
 window.FUN=FUN;  // export pro render3d_bottom (modul nemá přístup ke globalu z classic skriptu)
 function addToPending(ball,spawnX,spawnY){
@@ -6174,7 +6174,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v71.5');
+    gamee.updateScore(score,playTime,'balloon-belt-v71.6');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6302,7 +6302,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v71.5');
+  gamee.updateScore(score,playTime,'balloon-belt-v71.6');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7132,7 +7132,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v71.5');
+      gamee.updateScore(score,playTime,'balloon-belt-v71.6');
       event.detail.callback();
     });
 
