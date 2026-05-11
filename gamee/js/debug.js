@@ -6,121 +6,122 @@
 
   var MIN_W = 320;
   var MIN_H = 568;
-  var SAFE_TOP = 20;    // status bar
-  var SAFE_BOT = 34;    // home indicator (iPhone without button)
+  var SAFE_TOP = 20;   // status bar height
+  var BASE_W  = 460;   // game design width
 
-  var els = {};
+  var active = false;
+  var infoEl, markerEl, safeTopEl, overflowEl, btn;
 
   function build() {
-    // Toggle button
-    var btn = document.createElement('div');
+    // Toggle button — fixed bottom-right, always visible
+    btn = document.createElement('div');
     btn.id = 'dbg-btn';
     btn.textContent = '⚙';
     btn.title = 'Debug overlay  (Shift+D)';
     document.body.appendChild(btn);
 
-    // Min-screen frame (dashed border showing 320×568 boundary)
-    var frame = document.createElement('div');
-    frame.id = 'dbg-frame';
+    var game = document.getElementById('game');
+    if (!game) return;
 
-    var sTop = document.createElement('div');
-    sTop.id = 'dbg-safe-top';
-    sTop.textContent = 'status bar ' + SAFE_TOP + 'px';
-    frame.appendChild(sTop);
+    // Info panel — absolute inside #game, top-left corner
+    infoEl = document.createElement('pre');
+    infoEl.id = 'dbg-info';
+    game.appendChild(infoEl);
 
-    var sBot = document.createElement('div');
-    sBot.id = 'dbg-safe-bot';
-    sBot.textContent = 'home indicator ' + SAFE_BOT + 'px';
-    frame.appendChild(sBot);
+    // Min-screen marker line at y=568px inside #game
+    markerEl = document.createElement('div');
+    markerEl.id = 'dbg-marker';
+    var span = document.createElement('span');
+    span.textContent = 'min screen ' + MIN_H + 'px ▼';
+    markerEl.appendChild(span);
+    game.appendChild(markerEl);
 
-    document.body.appendChild(frame);
+    // Safe area — status bar at top of game
+    safeTopEl = document.createElement('div');
+    safeTopEl.id = 'dbg-safe-top';
+    safeTopEl.textContent = 'status bar ' + SAFE_TOP + 'px';
+    game.appendChild(safeTopEl);
 
-    // Info panel (top-left)
-    var info = document.createElement('pre');
-    info.id = 'dbg-info';
-    document.body.appendChild(info);
-
-    els = { btn: btn, frame: frame, info: info };
+    // Overflow zone — red tint for everything below 568px
+    overflowEl = document.createElement('div');
+    overflowEl.id = 'dbg-overflow';
+    game.appendChild(overflowEl);
 
     btn.addEventListener('click', toggle);
     document.addEventListener('keydown', function (e) {
       if (e.shiftKey && e.key === 'D') toggle();
     });
-
     window.addEventListener('resize', refresh);
+    setInterval(refresh, 500);
 
-    // Auto-activate via ?debug param
     if (new URLSearchParams(location.search).has('debug')) toggle();
   }
 
   function toggle() {
-    document.body.classList.toggle('dbg-active');
+    active = !active;
+    document.body.classList.toggle('dbg-active', active);
     refresh();
   }
 
   function refresh() {
-    if (!document.body.classList.contains('dbg-active')) return;
-    positionFrame();
-    els.info.textContent = buildInfo();
-  }
+    if (!active) return;
 
-  function positionFrame() {
-    var vw = document.documentElement.clientWidth;
-    // Center the 320px frame horizontally; pin to top of viewport
-    var left = Math.max(0, Math.round((vw - MIN_W) / 2));
-    els.frame.style.left = left + 'px';
-    els.frame.style.top = '0px';
-    els.frame.style.width = MIN_W + 'px';
-    els.frame.style.height = MIN_H + 'px';
+    // Update info text
+    if (infoEl) infoEl.textContent = buildInfo();
+
+    // Update overflow zone: starts at MIN_H, height = game height - MIN_H
+    if (overflowEl) {
+      var game = document.getElementById('game');
+      if (game) {
+        var gameH = game.scrollHeight;  // unscaled layout height
+        var overH = Math.max(0, gameH - MIN_H);
+        overflowEl.style.top    = MIN_H + 'px';
+        overflowEl.style.height = overH + 'px';
+      }
+    }
   }
 
   function buildInfo() {
     var vw = document.documentElement.clientWidth;
     var vh = document.documentElement.clientHeight;
-    var scaleStr = (vw / 460).toFixed(3);
+    var scale = (vw / BASE_W).toFixed(3);
 
     var SECTIONS = [
-      { id: 'controls',      label: 'controls   ' },
-      { id: 'status',        label: 'status     ' },
-      { id: 'image-area',    label: 'image-area ' },
-      { id: 'belt-wrap',     label: 'belt-wrap  ' },
-      { id: 'pending-wrap',  label: 'pending    ' },
-      { id: 'carriers-wrap', label: 'carriers   ' },
+      ['controls',      'ctrl'],
+      ['status',        'stat'],
+      ['image-area',    'img '],
+      ['belt-wrap',     'belt'],
+      ['pending-wrap',  'pend'],
+      ['carriers-wrap', 'carr'],
     ];
 
-    var total = 0;
-    var rows = [];
+    var total = 0, rows = [];
     for (var i = 0; i < SECTIONS.length; i++) {
-      var s = SECTIONS[i];
-      var el = document.getElementById(s.id);
+      var el = document.getElementById(SECTIONS[i][0]);
       if (!el) continue;
       var h = Math.round(el.getBoundingClientRect().height);
       total += h;
-      var flag = total > MIN_H ? ' ⚠' : '';
-      rows.push(s.label + pad(h, 4) + 'px  Σ' + pad(total, 4) + 'px' + flag);
+      rows.push(SECTIONS[i][1] + ' ' + rpad(h, 4) + ' Σ' + rpad(total, 4) + (total > MIN_H ? ' ⚠' : ''));
     }
 
-    var overflowLine = total > MIN_H
-      ? 'overflow  +' + (total - MIN_H) + 'px ⚠'
+    var overflow = total > MIN_H
+      ? '+' + (total - MIN_H) + 'px over ⚠'
       : 'fits in ' + MIN_H + 'px ✓';
 
     return [
-      'viewport  ' + vw + ' × ' + vh + ' px',
-      'scale     ' + scaleStr + '× (base 460px)',
-      'min screen ' + MIN_W + ' × ' + MIN_H + ' px',
-      overflowLine,
-      '──────────────────────────',
+      'vp  ' + vw + ' × ' + vh + ' px',
+      'scl ' + scale + '× (base ' + BASE_W + ')',
+      'min ' + MIN_W + ' × ' + MIN_H + ' px',
+      overflow,
+      '──────────────────',
     ].concat(rows).join('\n');
   }
 
-  function pad(n, len) {
+  function rpad(n, len) {
     var s = String(n);
     while (s.length < len) s = ' ' + s;
     return s;
   }
-
-  // Refresh info every 600ms while active (catches dynamic layout changes)
-  setInterval(function () { refresh(); }, 600);
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', build);
