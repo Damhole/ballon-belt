@@ -442,27 +442,23 @@ body.renderer-3d #bottom-deck #pending-wrap { padding: 6px 30px 4px; }
 /* Carriers padding 10px each side → grid sedí v 420px panelu těsně u zdí */
 body.renderer-3d #bottom-deck #carriers-wrap { padding: 4px 10px 22px; }
 /* Carriers cells — adaptivní velikost přes CSS var (--carrier-size).
-   Default 54px (4–5 řad). Pro 6 řad → 48, 7 řad → 42 (nastavuje JS
-   _setAdaptiveCarrierSize() v drawCarriers podle max počtu řad v levelu).
-   Stejně tak --ball-size pro míčky uvnitř a --row-gap mezi řadami. */
-body.renderer-3d {
-  --carrier-size: 54px;
-  --ball-size: 26px;
-  --row-gap: 6px;
-}
+   Default 54px (fallback v var()). JS _setAdaptiveCarrierSize() nastavuje
+   skutečnou hodnotu na document.documentElement.style podle viewport výšky
+   a počtu řad. POZOR: nikdy nedefinovat defaulty na body.renderer-3d level
+   — body class rule by shadowla inline :root override (BUG v71.7→v71.8). */
 body.renderer-3d .cbox,
 body.renderer-3d .cbox-hid,
 body.renderer-3d .carrier.empty,
 body.renderer-3d .carrier.empty.wall {
-  width: var(--carrier-size);
-  height: var(--carrier-size);
+  width: var(--carrier-size, 54px);
+  height: var(--carrier-size, 54px);
 }
 body.renderer-3d #carriers-grid { gap: 4px; }
 /* Větší kuličky uvnitř cboxu — JS má hardcoded max-width:18px na balls,
    přebijeme přes !important. Cílíme jen ball divy (aspect-ratio:1) — rocket
    dot má fixní 10px width, neovlivní se. */
 body.renderer-3d .cbox > div[style*="aspect-ratio:1"] {
-  max-width: var(--ball-size) !important;
+  max-width: var(--ball-size, 26px) !important;
 }
 /* Cbox má padding 4px + gap 2px → cell = (54-8-2)/2 = 22px. Pro větší balls
    reduce padding+gap → cell = (54-4-1)/2 = 24.5px. */
