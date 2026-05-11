@@ -675,8 +675,8 @@ function updateCarriers(columns, colorsArr) {
       }
 
       // Balls — naparentované ke slotu (ride se slotem během lift+tilt).
-      // Fade out: scale 1 → 0 přes prvních 0.15s, pak invisible (= "vysypaly se").
-      const ballFadeT = Math.max(0, Math.min(1, t / 0.15));
+      // Fade out: scale 1 → 0 přes prvních 0.075s, pak invisible (= "vysypaly se" rychle).
+      const ballFadeT = Math.max(0, Math.min(1, t / 0.075));
       const ballScale = scale * (1 - ballFadeT);
       if (ballScale > 0.04) {
         _slotM.compose(_vec, _quat, dummy.scale.set(1, 1, 1));   // matrix bez scale pro pozici
