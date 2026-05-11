@@ -321,10 +321,9 @@ function init() {
     let glbGeom = null;
     gltf.scene.traverse(obj => { if (obj.isMesh && !glbGeom) glbGeom = obj.geometry.clone(); });
     if (!glbGeom) { console.warn('[render3d_bottom] GLB nemá mesh'); return; }
-    // Rotate -90° + 180° kolem X — Blender Y-up export někdy nesedí, naše scéna
-    // chce height v Y a depth v Z. Plus dodatečné 180° otočení (carrier byl
-    // vzhůru nohama). Celkem +90° kolem X (= -3π/2 = π/2).
-    glbGeom.rotateX(Math.PI / 2);
+    // Asset je exportován s +Z up (= Blender axes preserved), takže Blender Z
+    // (= top face nahoru) odpovídá glTF Z (= top face k divákovi v naší scéně).
+    // Žádná rotace v kódu nepotřeba — drop-and-go workflow.
     glbGeom.scale(50, 50, 50);
     // Center geometrie (kdyby origin nebyl uprostřed)
     glbGeom.computeBoundingBox();
