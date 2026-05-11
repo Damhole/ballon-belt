@@ -400,9 +400,13 @@ function init() {
   st.pendingMesh.count = 0;
   st.pendingMesh.frustumCulled = false;
   st.pendingMesh.renderOrder = 150;  // nad všema row carriery (100–114), pod ghost tilt (200)
+  st.pendingMesh.material = st.pendingMesh.material.clone();
+  st.pendingMesh.material.depthTest = false;  // renderOrder fully authoritative
+  st.pendingMesh.material.depthWrite = false;
   contentGroup.add(st.pendingMesh);
   st.pendingOutlineMesh = mkOutline(pendingGeom, MAX_PENDING);
   st.pendingOutlineMesh.renderOrder = 149;  // pod pendingMesh (150) ale nad carriery
+  st.pendingOutlineMesh.material.depthTest = false;
   contentGroup.add(st.pendingOutlineMesh);
 
   // ─── Pending shadows DISABLED — způsobovaly viditelnost issues ───
