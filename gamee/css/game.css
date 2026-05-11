@@ -533,3 +533,92 @@ body.renderer-3d #restart-btn {
   border: none;
 }
 body.renderer-3d #restart-btn:hover { background: #5a3050; }
+
+/* ─── Debug overlay (dev only, index_local.html) ─────────────────────────── */
+
+#dbg-btn {
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  z-index: 9999;
+  width: 30px;
+  height: 30px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.45;
+  transition: opacity 0.15s, background 0.15s;
+}
+#dbg-btn:hover { opacity: 1; }
+body.dbg-active #dbg-btn {
+  background: rgba(255, 90, 0, 0.9);
+  opacity: 1;
+}
+
+/* Min-screen frame: dashed border = 320×568 px boundary */
+#dbg-frame {
+  display: none;
+  position: fixed;
+  box-sizing: border-box;
+  border: 2px dashed rgba(255, 90, 0, 0.75);
+  pointer-events: none;
+  z-index: 9990;
+}
+body.dbg-active #dbg-frame { display: block; }
+
+#dbg-safe-top {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 20px;
+  background: rgba(255, 90, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 9px/1 system-ui, sans-serif;
+  color: rgba(255, 140, 0, 0.95);
+  letter-spacing: 0.03em;
+}
+#dbg-safe-bot {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 34px;
+  background: rgba(255, 90, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 9px/1 system-ui, sans-serif;
+  color: rgba(255, 140, 0, 0.95);
+  letter-spacing: 0.03em;
+}
+
+/* Info panel: viewport size + section heights */
+#dbg-info {
+  display: none;
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 9999;
+  margin: 0;
+  padding: 8px 11px;
+  background: rgba(0, 0, 0, 0.82);
+  color: #4f4;
+  font: 10px/1.55 monospace;
+  border-radius: 6px;
+  white-space: pre;
+  pointer-events: none;
+  border: 1px solid rgba(80, 255, 80, 0.2);
+}
+body.dbg-active #dbg-info { display: block; }
+
+/* Section colour-coding when debug active */
+body.dbg-active .controls      { outline: 1px dashed rgba(200,200,200,0.4); }
+body.dbg-active #image-area    { outline: 2px solid rgba(0,200,255,0.5); }
+body.dbg-active #belt-wrap     { outline: 2px solid rgba(255,210,0,0.5); }
+body.dbg-active #pending-wrap  { outline: 2px solid rgba(0,255,120,0.5); }
+body.dbg-active #carriers-wrap { outline: 2px solid rgba(255,100,255,0.5); }
