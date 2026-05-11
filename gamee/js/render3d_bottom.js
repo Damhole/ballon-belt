@@ -517,7 +517,10 @@ function updateCarriers(columns, colorsArr) {
 
       // Z bias podle row indexu: spodní řády push forward, aby překrývaly horní řády
       // při tilt rendering (na hraně sousedních carriers depth test jinak losuje).
-      const rowZBias = r * 12;
+      // Row Z bias: lower rows posunuté víc dopředu, aby fyzicky nekolidovali
+      // s carrier řadou nad sebou. Carrier má depth 14 (Z range ±7), takže bias
+      // musí být > 14 mezi sousedními řadami.
+      const rowZBias = r * 20;
 
       // 3D rounded-box slot container (jen pokud máme ještě prostor)
       if (slotIdx < MAX_CARRIER_SLOTS) {
