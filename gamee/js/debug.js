@@ -1,95 +1,160 @@
 // debug.js — dev-only overlay, loaded only by index_local.html
-// Clean mode (default): skryje dev controls, zobrazí jen hru
-// Debug mode (⚙ / Shift+D / ?debug=1): zobrazí vše + overlay
+//
+// Layout: #game je flex-column. Volitelné elementy (.controls, #ammo-audit)
+// dostávají CSS order:100/101 → vždy ZA herní plochou (image/belt/carriers).
+// #dbg-settings-bar je order:200 → úplně poslední flex item.
+// Žádný element hry se nepohybuje při zapínání/vypínání toggleů.
+//
+// Klávesa Shift+D otvírá/zavírá settings panel.
+// URL param ?debug=1 auto-otevře panel.
 (function () {
   'use strict';
 
-  var MIN_W = 320;
-  var MIN_H = 568;
-  var SAFE_TOP = 20;   // status bar height
-  var BASE_W  = 460;   // game design width
+  var BASE_W  = 460;
+  var MIN_W   = 320;
+  var MIN_H   = 568;
+  var SAFE_TOP = 20;
 
-  // Selektory pro dev-only elementy (skryté v clean mode)
-  var DEV_SELECTORS = ['.controls', '#status'];
+  var panelOpen = false;
+  var state     = { levelui: false, stats: false, safezone: false };
 
-  var active = false;
-  var infoEl, markerEl, safeTopEl, overflowEl, btn;
+  var infoEl, markerEl, safeTopEl, overflowEl, settingsBar, panel;
+
+  // ── Persist ──────────────────────────────────────────────────────────────
+
+  function loadState() {
+    try {
+      var s = JSON.parse(localStorage.getItem('bb-dbg') || '{}');
+      Object.keys(state).forEach(function (k) {
+        if (typeof s[k] === 'boolean') state[k] = s[k];
+      });
+    } catch (e) {}
+  }
+
+  function saveState() {
+    try { localStorage.setItem('bb-dbg', JSON.stringify(state)); } catch (e) {}
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   function build() {
-    // V clean mode skryjeme dev controls okamžitě
-    DEV_SELECTORS.forEach(function (sel) {
-      var el = document.querySelector(sel);
-      if (el) el.style.display = 'none';
-    });
-
-    // Toggle button — fixed, vždy viditelný vpravo dole
-    btn = document.createElement('div');
-    btn.id = 'dbg-btn';
-    btn.textContent = '⚙';
-    btn.title = 'Debug / test mode  (Shift+D)';
-    document.body.appendChild(btn);
+    loadState();
 
     var game = document.getElementById('game');
     if (!game) return;
 
-    // Info panel — absolute inside #game, vlevo nahoře
-    infoEl = document.createElement('pre');
-    infoEl.id = 'dbg-info';
-    game.appendChild(infoEl);
+    // Přesun volitelných elementů na spodek hry pomocí CSS order.
+    // #game je display:flex flex-direction:column → order funguje na přímých dětech.
+    var controls  = document.querySelector('.controls');
+    var ammoAudit = document.getElementById('ammo-audit');
 
-    // Min-screen marker linka na y=568px
-    markerEl = document.createElement('div');
-    markerEl.id = 'dbg-marker';
-    var span = document.createElement('span');
+    if (controls) {
+      controls.style.order   = '100';
+      controls.style.display = 'none';   // skryto, dokud user nezapne Level UI
+    }
+    if (ammoAudit) {
+      ammoAudit.removeAttribute('hidden'); // přebíráme ovládání přes display
+      ammoAudit.style.order   = '101';
+      ammoAudit.style.display = 'none';   // skryto, dokud user nezapne Stats
+    }
+
+    // Overlay elementy (position:absolute uvnitř #game, mimo flex flow)
+    infoEl    = mkEl('pre', 'dbg-info',     game);
+    markerEl  = mkEl('div', 'dbg-marker',   game);
+    var span  = document.createElement('span');
     span.textContent = 'min screen ' + MIN_H + 'px ▼';
     markerEl.appendChild(span);
-    game.appendChild(markerEl);
-
-    // Safe area — status bar nahoře
-    safeTopEl = document.createElement('div');
-    safeTopEl.id = 'dbg-safe-top';
+    safeTopEl  = mkEl('div', 'dbg-safe-top', game);
     safeTopEl.textContent = 'status bar ' + SAFE_TOP + 'px';
-    game.appendChild(safeTopEl);
+    overflowEl = mkEl('div', 'dbg-overflow', game);
 
-    // Overflow zone — červený tint pod 568px
-    overflowEl = document.createElement('div');
-    overflowEl.id = 'dbg-overflow';
-    game.appendChild(overflowEl);
+    // Settings bar — order:200, vždy poslední flex item v #game
+    settingsBar = mkEl('div', 'dbg-settings-bar', game);
 
-    btn.addEventListener('click', toggle);
+    // Settings panel — otevírá se nad barem (position:absolute, bottom:100%)
+    panel = mkEl('div', 'dbg-panel', settingsBar);
+
+    var ITEMS = [
+      { key: 'levelui',  label: 'Level UI' },
+      { key: 'stats',    label: 'Stats' },
+      { key: 'safezone', label: 'Safe zone' },
+    ];
+
+    ITEMS.forEach(function (item) {
+      var pill = document.createElement('div');
+      pill.className = 'dbg-pill' + (state[item.key] ? ' active' : '');
+      pill.textContent = item.label;
+      pill.addEventListener('click', function () {
+        state[item.key] = !state[item.key];
+        pill.classList.toggle('active', state[item.key]);
+        applyKey(item.key);
+        saveState();
+      });
+      panel.appendChild(pill);
+    });
+
+    // ⚙ button — vpravo v settings baru
+    var btn = mkEl('div', 'dbg-btn', settingsBar);
+    btn.textContent = '⚙';
+    btn.title = 'Settings (Shift+D)';
+    btn.addEventListener('click', togglePanel);
+
     document.addEventListener('keydown', function (e) {
-      if (e.shiftKey && e.key === 'D') toggle();
-    });
-    window.addEventListener('resize', refresh);
-    setInterval(refresh, 500);
-
-    // Auto-aktivace přes ?debug=1
-    if (new URLSearchParams(location.search).has('debug')) toggle();
-  }
-
-  function toggle() {
-    active = !active;
-    document.body.classList.toggle('dbg-active', active);
-
-    // Zobraz/skryj dev controls podle stavu
-    DEV_SELECTORS.forEach(function (sel) {
-      var el = document.querySelector(sel);
-      if (el) el.style.display = active ? '' : 'none';
+      if (e.shiftKey && e.key === 'D') togglePanel();
     });
 
-    refresh();
+    // Aplikuj uložené stavy
+    Object.keys(state).forEach(applyKey);
+
+    // Pravidelná aktualizace safe zone readoutu
+    setInterval(function () { if (state.safezone) refreshSafezone(); }, 500);
+    window.addEventListener('resize', function () { if (state.safezone) refreshSafezone(); });
+
+    // Auto-open přes ?debug
+    if (new URLSearchParams(location.search).has('debug')) togglePanel();
   }
 
-  function refresh() {
-    if (!active) return;
+  function mkEl(tag, id, parent) {
+    var el = document.createElement(tag);
+    el.id  = id;
+    parent.appendChild(el);
+    return el;
+  }
+
+  // ── Toggle panel ──────────────────────────────────────────────────────────
+
+  function togglePanel() {
+    panelOpen = !panelOpen;
+    panel.style.display = panelOpen ? 'flex' : 'none';
+    var btn = document.getElementById('dbg-btn');
+    if (btn) btn.classList.toggle('open', panelOpen);
+  }
+
+  // ── Apply individual toggle ───────────────────────────────────────────────
+
+  function applyKey(key) {
+    if (key === 'levelui') {
+      var el = document.querySelector('.controls');
+      if (el) el.style.display = state.levelui ? '' : 'none';
+    }
+    if (key === 'stats') {
+      var el = document.getElementById('ammo-audit');
+      if (el) el.style.display = state.stats ? '' : 'none';
+    }
+    if (key === 'safezone') {
+      document.body.classList.toggle('dbg-active', state.safezone);
+      if (state.safezone) refreshSafezone();
+    }
+  }
+
+  // ── Safe zone overlay refresh ─────────────────────────────────────────────
+
+  function refreshSafezone() {
     if (infoEl) infoEl.textContent = buildInfo();
-
-    // Přepočítej overflow zone výšku
     if (overflowEl) {
       var game = document.getElementById('game');
       if (game) {
-        var gameH = game.scrollHeight;
-        var overH = Math.max(0, gameH - MIN_H);
+        var overH = Math.max(0, game.scrollHeight - MIN_H);
         overflowEl.style.top    = MIN_H + 'px';
         overflowEl.style.height = overH + 'px';
       }
@@ -99,8 +164,6 @@
   function buildInfo() {
     var vw = document.documentElement.clientWidth;
     var vh = document.documentElement.clientHeight;
-    var scale = (vw / BASE_W).toFixed(3);
-
     var SECTIONS = [
       ['controls',      'ctrl'],
       ['status',        'stat'],
@@ -109,34 +172,31 @@
       ['pending-wrap',  'pend'],
       ['carriers-wrap', 'carr'],
     ];
-
     var total = 0, rows = [];
-    for (var i = 0; i < SECTIONS.length; i++) {
-      var el = document.getElementById(SECTIONS[i][0]);
-      if (!el) continue;
+    SECTIONS.forEach(function (s) {
+      var el = document.getElementById(s[0]);
+      if (!el) return;
       var h = Math.round(el.getBoundingClientRect().height);
       total += h;
-      rows.push(SECTIONS[i][1] + ' ' + rpad(h, 4) + ' Σ' + rpad(total, 4) + (total > MIN_H ? ' ⚠' : ''));
-    }
-
-    var overflow = total > MIN_H
-      ? '+' + (total - MIN_H) + 'px over ⚠'
-      : 'fits ' + MIN_H + 'px ✓';
-
+      rows.push(s[1] + ' ' + pad(h, 4) + ' Σ' + pad(total, 4) + (total > MIN_H ? ' ⚠' : ''));
+    });
+    var ov = total > MIN_H ? '+' + (total - MIN_H) + 'px ⚠' : 'fits ✓';
     return [
-      'vp  ' + vw + ' × ' + vh + ' px',
-      'scl ' + scale + '× (base ' + BASE_W + ')',
-      'min ' + MIN_W + ' × ' + MIN_H + ' px',
-      overflow,
-      '──────────────────',
+      'vp ' + vw + '×' + vh + ' px',
+      'scl ' + (vw / BASE_W).toFixed(2) + '× (' + BASE_W + ')',
+      'min ' + MIN_W + '×' + MIN_H,
+      ov,
+      '─────────────────',
     ].concat(rows).join('\n');
   }
 
-  function rpad(n, len) {
+  function pad(n, len) {
     var s = String(n);
     while (s.length < len) s = ' ' + s;
     return s;
   }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', build);

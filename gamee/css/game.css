@@ -535,52 +535,105 @@ body.renderer-3d #restart-btn {
 body.renderer-3d #restart-btn:hover { background: #5a3050; }
 
 /* ─── Debug overlay (dev only, index_local.html) ─────────────────────────── */
-/* Všechny elementy kromě #dbg-btn jsou position:absolute uvnitř #game.       */
-/* #game má position:relative, takže absolutní pozicování funguje správně.    */
+/*                                                                             */
+/* Architektura: #game je display:flex flex-direction:column.                 */
+/*   order:100  → .controls   (Level UI toggle)                               */
+/*   order:101  → #ammo-audit (Stats toggle)                                  */
+/*   order:200  → #dbg-settings-bar (⚙ + panel, vždy poslední)               */
+/* Herní plocha (image/belt/carriers) zůstává na order:0 — nikdy se nehýbe.  */
+/*                                                                             */
+/* Overlay elementy (info, marker, safe-top, overflow) jsou position:absolute  */
+/* uvnitř #game — nezasahují do flex flow.                                    */
 
-/* Toggle button — fixed, vždy viditelný vpravo dole */
+/* Settings bar — vždy viditelný, order:200 v #game flex */
+#dbg-settings-bar {
+  order: 200;
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 6px 8px 8px;
+  position: relative;        /* kotva pro #dbg-panel (position:absolute) */
+  flex-shrink: 0;
+}
+
+/* ⚙ button */
 #dbg-btn {
-  position: fixed;
-  bottom: 10px;
-  right: 10px;
-  z-index: 9999;
-  width: 30px;
-  height: 30px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
+  width: 28px;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.4);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: 14px;
   cursor: pointer;
   user-select: none;
-  opacity: 0.45;
-  transition: opacity 0.15s, background 0.15s;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
 }
-#dbg-btn:hover { opacity: 1; }
-body.dbg-active #dbg-btn { background: rgba(255, 90, 0, 0.9); opacity: 1; }
+#dbg-btn:hover { background: rgba(255,255,255,0.18); color: #fff; }
+#dbg-btn.open  { background: rgba(80, 130, 255, 0.5); color: #fff; }
 
-/* Info panel — vlevo nahoře uvnitř #game */
+/* Settings panel — vyskočí NAD barem (bottom:100% relativně k #dbg-settings-bar) */
+#dbg-panel {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 2px);
+  right: 8px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  background: rgba(15, 15, 25, 0.94);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  z-index: 9999;
+  min-width: 180px;
+}
+
+/* Pill toggles */
+.dbg-pill {
+  padding: 5px 13px;
+  border-radius: 20px;
+  font: 11px/1 system-ui, -apple-system, sans-serif;
+  color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.07);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s;
+  border: 1px solid transparent;
+}
+.dbg-pill:hover { color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.12); }
+.dbg-pill.active {
+  color: #fff;
+  background: rgba(80, 130, 255, 0.35);
+  border-color: rgba(100, 150, 255, 0.6);
+}
+
+/* ── Overlay elementy (position:absolute uvnitř #game) ──────────────────── */
+
+/* Info panel — vlevo nahoře */
 #dbg-info {
   display: none;
   position: absolute;
   top: 4px;
   left: 4px;
-  z-index: 9999;
+  z-index: 9990;
   margin: 0;
   padding: 6px 10px;
-  background: rgba(0, 0, 0, 0.85);
+  background: rgba(0, 0, 0, 0.86);
   color: #4f4;
   font: 9px/1.6 monospace;
   border-radius: 5px;
   white-space: pre;
   pointer-events: none;
-  border: 1px solid rgba(80, 255, 80, 0.2);
+  border: 1px solid rgba(80, 255, 80, 0.18);
 }
 body.dbg-active #dbg-info { display: block; }
 
-/* Min-screen marker — oranžová linka na y=568px uvnitř #game */
+/* Marker linka na y=568px */
 #dbg-marker {
   display: none;
   position: absolute;
@@ -589,7 +642,7 @@ body.dbg-active #dbg-info { display: block; }
   right: 0;
   height: 2px;
   background: rgba(255, 90, 0, 0.9);
-  z-index: 9990;
+  z-index: 9988;
   pointer-events: none;
 }
 #dbg-marker span {
@@ -605,7 +658,7 @@ body.dbg-active #dbg-info { display: block; }
 }
 body.dbg-active #dbg-marker { display: block; }
 
-/* Status bar safe area — zelený pruh nahoře */
+/* Safe area — status bar nahoře */
 #dbg-safe-top {
   display: none;
   position: absolute;
@@ -613,14 +666,14 @@ body.dbg-active #dbg-marker { display: block; }
   left: 0;
   right: 0;
   height: 20px;
-  background: rgba(0, 200, 100, 0.13);
-  border-bottom: 1px dashed rgba(0, 200, 100, 0.5);
-  z-index: 9991;
+  background: rgba(0, 200, 100, 0.12);
+  border-bottom: 1px dashed rgba(0, 200, 100, 0.45);
+  z-index: 9989;
   pointer-events: none;
   align-items: center;
   justify-content: center;
   font: 8px/1 monospace;
-  color: rgba(0, 200, 100, 0.85);
+  color: rgba(0, 200, 100, 0.8);
 }
 body.dbg-active #dbg-safe-top { display: flex; }
 
@@ -631,15 +684,15 @@ body.dbg-active #dbg-safe-top { display: flex; }
   left: 0;
   right: 0;
   background: rgba(255, 40, 0, 0.07);
-  border-top: 2px solid rgba(255, 40, 0, 0.35);
-  z-index: 9989;
+  border-top: 2px solid rgba(255, 40, 0, 0.30);
+  z-index: 9987;
   pointer-events: none;
 }
 body.dbg-active #dbg-overflow { display: block; }
 
-/* Section colour outlines */
-body.dbg-active .controls      { outline: 1px dashed rgba(200, 200, 200, 0.4); }
-body.dbg-active #image-area    { outline: 2px solid rgba(0, 200, 255, 0.55); }
-body.dbg-active #belt-wrap     { outline: 2px solid rgba(255, 210, 0, 0.55); }
-body.dbg-active #pending-wrap  { outline: 2px solid rgba(0, 255, 120, 0.55); }
-body.dbg-active #carriers-wrap { outline: 2px solid rgba(255, 100, 255, 0.55); }
+/* Section outlines při aktivním Safe zone */
+body.dbg-active .controls      { outline: 1px dashed rgba(200, 200, 200, 0.35); }
+body.dbg-active #image-area    { outline: 2px solid rgba(0,   200, 255, 0.5); }
+body.dbg-active #belt-wrap     { outline: 2px solid rgba(255, 210,   0, 0.5); }
+body.dbg-active #pending-wrap  { outline: 2px solid rgba(0,   255, 120, 0.5); }
+body.dbg-active #carriers-wrap { outline: 2px solid rgba(255, 100, 255, 0.5); }
