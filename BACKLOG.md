@@ -123,6 +123,7 @@ _Sem házej cokoliv co tě napadne. Při příští session to roztřídíme._
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v71.14 | `a18addb` | 2026-05-11 | iOS safe area + visualViewport fix — bottom row carriers se na iPhone uřezávala pod home indicator. CSS env(safe-area-inset-bottom) přidána do safeBottom (12 + ~34 px na iPhone X+). visualViewport resize listener handluje URL bar collapse/expand. |
 | v71.13 | `d2c83d7` | 2026-05-11 | RENDERER_MODE default flipped 2D → 3D. URL bez params = 3D scéna (M6 hotový, v71 polishing). 2D fallback opt-in přes ?renderer=2d pro debugging. Deploy na GH Pages. |
 | v71.12 | `ff64fa9` | 2026-05-11 | safeBottom = konstanta 12 (ignoruje dev UI — settings bar/Level UI/Stats). Carriers sizují podle production layoutu, ne dev. Plus resize listener teď volá i window.render3dBottom.updateCarriers() — 2D i 3D se synchronně přepočtou. |
 | v71.11 | `74ca201` | 2026-05-11 | 3D meshes responzivně škálují k DOM cbox velikosti — slotScale × (cr.width / SLOT_SIZE). Před tím 3D objekty zůstávaly 50 px world units i když DOM divy zmenšily na 38 px → overlap. Outline a balls dědí scale přes multiplikaci. |
