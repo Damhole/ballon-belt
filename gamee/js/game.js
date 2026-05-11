@@ -1203,7 +1203,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v71.11');
+          gamee.updateScore(score,playTime,'balloon-belt-v71.12');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5560,13 +5560,12 @@ function _setAdaptiveCarrierSize(columnsArr){
   if (numRows === 0) return;
   const viewportH = window.innerHeight || 817;
   const carrWrap = document.getElementById('carriers-wrap');
-  // Dynamic safe bottom — settings bar v dev módu zabírá ~48 px pod carriers
-  // (bar + gap + chrome). V prod jen #game padding-bottom ~8 px.
-  let safeBottom = 12;
-  const settingsBar = document.getElementById('dbg-settings-bar');
-  if (settingsBar) {
-    safeBottom = settingsBar.getBoundingClientRect().height + 20;  // bar height + gap + chrome
-  }
+  // safeBottom = production-equivalent chrome (jen #game padding-bottom + safety).
+  // Dev UI (controls Level UI, ammo-audit Stats, settings bar) se IGNORUJE —
+  // carriers sizují jako by pod nimi nic nebylo. V dev mode můžou vizuálně
+  // překrývat dev UI, což je akceptovatelný trade-off vs. zbytečně malé
+  // carriers. V produkci žádné dev UI neexistuje → perfektní fit.
+  const safeBottom = 12;
   let available;
   if (carrWrap) {
     const top = carrWrap.getBoundingClientRect().top;
@@ -5595,9 +5594,18 @@ function _setAdaptiveCarrierSize(columnsArr){
   r.setProperty('--ball-size',    ballSize + 'px');
   r.setProperty('--row-gap',      rowGap + 'px');
 }
-// Recompute on resize (rotation, desktop window resize)
+// Recompute on resize (rotation, desktop window resize).
+// MUSÍ trigger i 3D mesh update — updateCarriers() čte cbox.getBoundingClientRect()
+// pro velikost mesh, ale spouští se jen z drawCarriers(). Bez explicitního volání
+// při resize 2D divs zmenší (CSS var → re-flow) ale 3D meshes zůstanou v původní
+// velikosti → překrývají se s DOM.
 window.addEventListener('resize', function(){
-  if (typeof columns !== 'undefined' && columns) _setAdaptiveCarrierSize(columns);
+  if (typeof columns === 'undefined' || !columns) return;
+  _setAdaptiveCarrierSize(columns);
+  if (typeof RENDERER_MODE !== 'undefined' && RENDERER_MODE === '3d' &&
+      window.render3dBottom && window.render3dBottom.isReady && window.render3dBottom.isReady()) {
+    window.render3dBottom.updateCarriers(columns, COLORS);
+  }
 });
 function drawCarriers(){
   _setAdaptiveCarrierSize(columns);
@@ -6232,7 +6240,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v71.11');
+    gamee.updateScore(score,playTime,'balloon-belt-v71.12');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6360,7 +6368,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v71.11');
+  gamee.updateScore(score,playTime,'balloon-belt-v71.12');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7190,7 +7198,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v71.11');
+      gamee.updateScore(score,playTime,'balloon-belt-v71.12');
       event.detail.callback();
     });
 
