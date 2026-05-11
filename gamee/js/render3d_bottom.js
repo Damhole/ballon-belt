@@ -5,6 +5,7 @@
 // API vystaveno přes window.render3dBottom = { init, updateCarriers, updatePending, updateBelt, render, isReady, dispose }
 
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
@@ -313,6 +314,33 @@ function init() {
   contentGroup.add(st.carrierSlotMesh);
   st.carrierSlotOutlineMesh = mkOutline(slotGeom, MAX_CARRIER_SLOTS);
   contentGroup.add(st.carrierSlotOutlineMesh);
+
+  // Hot-swap slot geometry s GLB assetem (async — placeholder rendered do té doby).
+  // Asset z Blenderu má 1m × 1m × 0.28m → scale 50× sjednotí na náš SLOT_SIZE.
+  new GLTFLoader().load('./assets/3d/carrier.glb', (gltf) => {
+    let glbGeom = null;
+    gltf.scene.traverse(obj => { if (obj.isMesh && !glbGeom) glbGeom = obj.geometry.clone(); });
+    if (!glbGeom) { console.warn('[render3d_bottom] GLB nemá mesh'); return; }
+    // Rotate -90° kolem X — Blender Y-up export někdy nesedí, naše scéna chce
+    // height v Y a depth v Z. Tato rotace přehodí osy do správného místa.
+    glbGeom.rotateX(-Math.PI / 2);
+    glbGeom.scale(50, 50, 50);
+    // Center geometrie (kdyby origin nebyl uprostřed)
+    glbGeom.computeBoundingBox();
+    const bb = glbGeom.boundingBox;
+    glbGeom.translate(-(bb.min.x+bb.max.x)/2, -(bb.min.y+bb.max.y)/2, -(bb.min.z+bb.max.z)/2);
+    glbGeom.computeBoundingSphere();
+    // Hot-swap
+    const oldMain = st.carrierSlotMesh.geometry;
+    const oldOutline = st.carrierSlotOutlineMesh.geometry;
+    st.carrierSlotMesh.geometry = glbGeom;
+    st.carrierSlotOutlineMesh.geometry = glbGeom;
+    if (oldMain && oldMain !== oldOutline) oldMain.dispose();
+    if (oldOutline) oldOutline.dispose();
+    console.log('[render3d_bottom] carrier.glb loaded, bbox after scale:', bb);
+  }, undefined, (err) => {
+    console.warn('[render3d_bottom] carrier.glb load failed, keep placeholder:', err);
+  });
 
   // ─── Carrier balls ───
   st.carrierMesh = new THREE.InstancedMesh(carrierGeom, ballMat(), MAX_CARRIER_BALLS);
