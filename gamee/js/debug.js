@@ -1,6 +1,6 @@
 // debug.js — dev-only overlay, loaded only by index_local.html
-// Toggle: click ⚙ button (bottom-right) or Shift+D
-// URL param ?debug=1 auto-activates on load
+// Clean mode (default): skryje dev controls, zobrazí jen hru
+// Debug mode (⚙ / Shift+D / ?debug=1): zobrazí vše + overlay
 (function () {
   'use strict';
 
@@ -9,26 +9,35 @@
   var SAFE_TOP = 20;   // status bar height
   var BASE_W  = 460;   // game design width
 
+  // Selektory pro dev-only elementy (skryté v clean mode)
+  var DEV_SELECTORS = ['.controls', '#status'];
+
   var active = false;
   var infoEl, markerEl, safeTopEl, overflowEl, btn;
 
   function build() {
-    // Toggle button — fixed bottom-right, always visible
+    // V clean mode skryjeme dev controls okamžitě
+    DEV_SELECTORS.forEach(function (sel) {
+      var el = document.querySelector(sel);
+      if (el) el.style.display = 'none';
+    });
+
+    // Toggle button — fixed, vždy viditelný vpravo dole
     btn = document.createElement('div');
     btn.id = 'dbg-btn';
     btn.textContent = '⚙';
-    btn.title = 'Debug overlay  (Shift+D)';
+    btn.title = 'Debug / test mode  (Shift+D)';
     document.body.appendChild(btn);
 
     var game = document.getElementById('game');
     if (!game) return;
 
-    // Info panel — absolute inside #game, top-left corner
+    // Info panel — absolute inside #game, vlevo nahoře
     infoEl = document.createElement('pre');
     infoEl.id = 'dbg-info';
     game.appendChild(infoEl);
 
-    // Min-screen marker line at y=568px inside #game
+    // Min-screen marker linka na y=568px
     markerEl = document.createElement('div');
     markerEl.id = 'dbg-marker';
     var span = document.createElement('span');
@@ -36,13 +45,13 @@
     markerEl.appendChild(span);
     game.appendChild(markerEl);
 
-    // Safe area — status bar at top of game
+    // Safe area — status bar nahoře
     safeTopEl = document.createElement('div');
     safeTopEl.id = 'dbg-safe-top';
     safeTopEl.textContent = 'status bar ' + SAFE_TOP + 'px';
     game.appendChild(safeTopEl);
 
-    // Overflow zone — red tint for everything below 568px
+    // Overflow zone — červený tint pod 568px
     overflowEl = document.createElement('div');
     overflowEl.id = 'dbg-overflow';
     game.appendChild(overflowEl);
@@ -54,26 +63,32 @@
     window.addEventListener('resize', refresh);
     setInterval(refresh, 500);
 
+    // Auto-aktivace přes ?debug=1
     if (new URLSearchParams(location.search).has('debug')) toggle();
   }
 
   function toggle() {
     active = !active;
     document.body.classList.toggle('dbg-active', active);
+
+    // Zobraz/skryj dev controls podle stavu
+    DEV_SELECTORS.forEach(function (sel) {
+      var el = document.querySelector(sel);
+      if (el) el.style.display = active ? '' : 'none';
+    });
+
     refresh();
   }
 
   function refresh() {
     if (!active) return;
-
-    // Update info text
     if (infoEl) infoEl.textContent = buildInfo();
 
-    // Update overflow zone: starts at MIN_H, height = game height - MIN_H
+    // Přepočítej overflow zone výšku
     if (overflowEl) {
       var game = document.getElementById('game');
       if (game) {
-        var gameH = game.scrollHeight;  // unscaled layout height
+        var gameH = game.scrollHeight;
         var overH = Math.max(0, gameH - MIN_H);
         overflowEl.style.top    = MIN_H + 'px';
         overflowEl.style.height = overH + 'px';
@@ -106,7 +121,7 @@
 
     var overflow = total > MIN_H
       ? '+' + (total - MIN_H) + 'px over ⚠'
-      : 'fits in ' + MIN_H + 'px ✓';
+      : 'fits ' + MIN_H + 'px ✓';
 
     return [
       'vp  ' + vw + ' × ' + vh + ' px',
