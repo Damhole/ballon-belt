@@ -123,6 +123,7 @@ _Sem házej cokoliv co tě napadne. Při příští session to roztřídíme._
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v71.11 | `74ca201` | 2026-05-11 | 3D meshes responzivně škálují k DOM cbox velikosti — slotScale × (cr.width / SLOT_SIZE). Před tím 3D objekty zůstávaly 50 px world units i když DOM divy zmenšily na 38 px → overlap. Outline a balls dědí scale přes multiplikaci. |
 | v71.10 | `787f6d1` | 2026-05-11 | Fix overflow 1. a 7. řady — SAFE_BOTTOM dynamicky měří dev settings bar (bar.height + 20). Před tím hardcoded 10 ignorovalo ~38 px pod carriers v dev módu, carriers se vytlačovaly mimo viewport. |
 | v71.9 | `af8bb9e` | 2026-05-11 | Fix CSS specificity bug — JS přepisy --carrier-size byly shadowed CSS rule na body.renderer-3d. Defaulty odebrány z body.renderer-3d, použit fallback v var(--x, default). Responsive sizing teď reálně funguje. |
 | v71.8 | `ad09d94` | 2026-05-11 | Responsive carrier sizing — měří viewportH + carriers-wrap.top, target 54 px pokud se vejde, shrink jen na malých displejích. Na Pixel 8 / iPhone 14 zachová full size i pro 7 řad. Resize listener pro rotaci. |
