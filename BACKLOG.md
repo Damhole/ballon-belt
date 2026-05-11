@@ -24,10 +24,11 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | M5 | Curve editor | v60–v68 | ✅ | Křivky obtížnosti, mutation designer, simulated annealing auto-tune |
 | M6 | 2.5D upgrade | v69–v70.11 | ✅ | Three.js, 3D pixely/bloky/projektily/carriers/belt, 10 témat |
 | M7 | Responsive + rows | v71.x | 🚧 | Responsive scaling, 6 řad carriers, dynamic FUN.wideY |
-| M8 | 3D carrier scene | v72+ | 📋 | 3D koule v carriers, 3D belt, falling animation při kliku |
+| M8 | Sjednocený 3D grid | v72+ | 📋 | Všechny grid prvky (empty/hidden/wall) jako 3D meshes pro vizuální konzistenci. Falling animation při kliku. |
 | M9 | Replay & scrub | v73+ | 📋 | Curve editor Úr. 1.5 — timeline scrubber, mini canvas, .webm export |
 | M10 | Editor polish | future | 💡 | Copy/paste bloků, multi-select, playtester mode, vizuální garáž |
 | M11 | Gameplay | future | 💡 | Adaptivní obtížnost, procedurální levely |
+| M12 | Variable image grid | future | 💡 | Zjemnění sítě obrázku — variabilní pixel resolution, sub-pixel detail, mid-game refinement |
 
 ---
 
@@ -53,13 +54,56 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 
 ## 📋 Plánováno
 
-### M8: 3D carrier scene (v72+)
+### M8: Sjednocený 3D grid (v72+)
 
-Carriers jsou teď CSS DOM boxy s `border-radius:50%` kouli. Cíl: sphere mesh per slot, při kliku koule vypadají z nosiče dolů (gravity) na pás. Belt = 3D (rollers + plane). Viz [deep dive →](#deep-dive-3d-koule-v-carriers--provizorní-3d-pás)
+**Východisko (po v71.14):** active a inactive carriers jsou 3D meshes (responzivně škálované), ale **empty / hidden / wall sloty** zůstávají 2D CSS divy. To dělá grid vizuálně nekonzistentní — ploché tmavé čtverce vedle 3D objektů s hloubkou a stínováním.
+
+**Cíl M8:** všechny grid cells jako 3D meshes pro jednotnou scénu:
+
+| Element | Současně | M8 cílový stav |
+|---------|----------|-----------------|
+| Active carrier | 3D mesh + 3D koule ✓ | zachovat |
+| Inactive carrier | 3D mesh × 0.78 ✓ | zachovat |
+| Empty slot (null) | 2D CSS div (flat) | 3D **recessed** mesh (vnitřní stín, hluboký) |
+| Hidden slot (?) | 2D CSS div s "?" | 3D **capped** mesh s ? glyph |
+| Wall slot | 2D CSS s wall-block | 3D **wall** geometry (blok zdi shora) |
+| Garage | 2D s 🏠 emoji | otevřená otázka — 3D model garáže nebo zachovat 2D? |
+| Rocket | 2D s 🚀 emoji | otevřená otázka — 3D model rakety nebo zachovat 2D? |
+
+Plus tooling pro „**falling animation**" při kliku — koule vypadávají z nosiče dolů (gravity → pending zóna).
+
+**Tech přístup:**
+- Rozšířit `rowSlotMeshes` o variant types (3 nové geometry: recessed, capped, wall)
+- Per-slot „slotType" parametr → instancing podle typu
+- Pop animace při state change (null → active = mesh swap + scale)
+
+**Riziko:** víc instanced meshes per row → memory/perf check. Současné max 80 carrier slots × 4 typy = 320 instancí na řadu × 7 řad = ~2240 instancí. Měl by stíhat (Three.js zvládá 10000+).
 
 ### M9: Replay & scrub — Curve editor Úr. 1.5 (v73+)
 
 Nad existujícím Curve panelem (v63) přidat: `(c, r)` carrieru do history, pixel diff per krok, mini canvas gridy, timeline scrubber, play kontrolér, .webm export. Viz [deep dive →](#deep-dive-difficulty-curve-editor-úr-15-replay--scrub)
+
+### M12: Variable image grid — zjemnění sítě obrázku (future)
+
+**Východisko:** image area má dnes pevný pixel grid (GW × IMG_GH). Každý level se vykresluje na stejné rozlišení. To omezuje:
+- **Detail** — malé obličejové rysy se ztrácí, gradient přechody jsou hrubé
+- **Difficulty scaling** — nejde mít "snadné" levely s velkými bloky a "expertní" s mikropixely
+- **Tematickou variabilitu** — chibi style by mohl mít hrubou síť, realistický portrét jemnou
+
+**Nápady k prozkoumání:**
+1. **Per-level resolution** — každý level deklaruje svůj grid (např. `gridScale: 1.5` = 1.5× pixely)
+2. **Mid-game refinement** — uprostřed levelu se síť zjemní, hráč musí dokončit přesnější obraz
+3. **Subpixel pixels** — kombinace velkých "blok" pixelů a malých "detail" pixelů (mosaic)
+4. **Adaptive density** — důležité oblasti (oči, detail) mají hustší grid, pozadí řidší
+5. **Resolution slider v editoru** — designer experimentuje s density před save
+
+**Otevřené otázky:**
+- Jak se to slučuje s carrier projectile distribution? (víc pixelů = víc projektilů na barvu)
+- Performance při 2× grid (4× pixelů) na slabých zařízeních?
+- Difficulty curve editor by musel respektovat resolution
+- Solver hierarchy (M4) by se musela přepočítat
+
+**Závislosti:** ideálně po M8 (3D grid sjednoceno) — pak je jasné jaký je vizuální baseline. Před M11 (adaptivní obtížnost) — protože image grid je další knob pro tuning.
 
 ---
 
