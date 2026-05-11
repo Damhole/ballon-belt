@@ -180,7 +180,9 @@ body {
   justify-content: center;
   padding: 20px 0 40px;
 }
-#game{display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px;max-width:480px;margin:0 auto;width:100%;position:relative}
+/* Browser default body margin (8 px) je chrome — zrušit, nikdy nebude v ostré hře. */
+html,body{margin:0;padding:0}
+#game{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px;max-width:480px;margin:0 auto;width:100%;position:relative}
 #version-badge{position:absolute;top:16px;right:16px;font-size:11px;color:var(--color-text-tertiary);font-family:var(--font-sans);pointer-events:none}
 #status{display:none}
 #ammo-audit{width:360px;display:flex;flex-wrap:wrap;gap:4px;justify-content:center;align-items:center;font-size:10px;color:var(--color-text-tertiary);padding:2px 0}
@@ -189,7 +191,7 @@ body {
 #ammo-audit .aa-chip{display:inline-flex;align-items:center;gap:3px;background:rgba(255,255,255,0.06);border-radius:8px;padding:2px 6px}
 #ammo-audit .aa-chip.aa-bad{background:rgba(255,80,80,0.18);color:#ffb0b0}
 #ammo-audit .aa-sw{width:8px;height:8px;border-radius:2px;display:inline-block}
-#image-area{width:360px;height:310px;border:2px solid #555;border-radius:8px;overflow:hidden;background:#353535;position:relative}
+#image-area{width:360px;height:310px;border:1px solid #555;border-radius:8px;overflow:hidden;background:#353535;position:relative}
 #pixel-canvas{display:block;width:360px;height:310px}
 #belt-wrap{width:360px}
 /* Dev label — vždy skrytý, nikdy se nezobrazí hráči */
