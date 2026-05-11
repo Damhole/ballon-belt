@@ -123,6 +123,7 @@ _Sem házej cokoliv co tě napadne. Při příští session to roztřídíme._
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v71.12 | `ff64fa9` | 2026-05-11 | safeBottom = konstanta 12 (ignoruje dev UI — settings bar/Level UI/Stats). Carriers sizují podle production layoutu, ne dev. Plus resize listener teď volá i window.render3dBottom.updateCarriers() — 2D i 3D se synchronně přepočtou. |
 | v71.11 | `74ca201` | 2026-05-11 | 3D meshes responzivně škálují k DOM cbox velikosti — slotScale × (cr.width / SLOT_SIZE). Před tím 3D objekty zůstávaly 50 px world units i když DOM divy zmenšily na 38 px → overlap. Outline a balls dědí scale přes multiplikaci. |
 | v71.10 | `787f6d1` | 2026-05-11 | Fix overflow 1. a 7. řady — SAFE_BOTTOM dynamicky měří dev settings bar (bar.height + 20). Před tím hardcoded 10 ignorovalo ~38 px pod carriers v dev módu, carriers se vytlačovaly mimo viewport. |
 | v71.9 | `af8bb9e` | 2026-05-11 | Fix CSS specificity bug — JS přepisy --carrier-size byly shadowed CSS rule na body.renderer-3d. Defaulty odebrány z body.renderer-3d, použit fallback v var(--x, default). Responsive sizing teď reálně funguje. |
