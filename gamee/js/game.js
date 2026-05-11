@@ -1205,7 +1205,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v71.13');
+          gamee.updateScore(score,playTime,'balloon-belt-v71.14');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5560,14 +5560,20 @@ const CARR_WRAP_PAD    = 26;     // #carriers-wrap padding (4 top + 22 bottom)
 function _setAdaptiveCarrierSize(columnsArr){
   const numRows = Math.max(0, ...columnsArr.map(c => c ? c.length : 0));
   if (numRows === 0) return;
-  const viewportH = window.innerHeight || 817;
+  // visualViewport.height respektuje iOS Safari URL bar (innerHeight někdy
+  // počítá full screen i s URL barem). Fallback na innerHeight pro desktop.
+  const viewportH = (window.visualViewport && window.visualViewport.height) || window.innerHeight || 817;
   const carrWrap = document.getElementById('carriers-wrap');
-  // safeBottom = production-equivalent chrome (jen #game padding-bottom + safety).
+  // safeBottom = base 12 (chrome safety) + iOS home indicator (env safe-area).
   // Dev UI (controls Level UI, ammo-audit Stats, settings bar) se IGNORUJE —
   // carriers sizují jako by pod nimi nic nebylo. V dev mode můžou vizuálně
   // překrývat dev UI, což je akceptovatelný trade-off vs. zbytečně malé
   // carriers. V produkci žádné dev UI neexistuje → perfektní fit.
-  const safeBottom = 12;
+  // CSS var --bb-safe-bottom drží env(safe-area-inset-bottom) hodnotu pro iOS
+  // home indicator (iPhone X+ ~34 px, iPhone SE 0 px).
+  const _cs = getComputedStyle(document.documentElement);
+  const _insetBottom = parseFloat(_cs.getPropertyValue('--bb-safe-bottom')) || 0;
+  const safeBottom = 12 + _insetBottom;
   let available;
   if (carrWrap) {
     const top = carrWrap.getBoundingClientRect().top;
@@ -5601,14 +5607,21 @@ function _setAdaptiveCarrierSize(columnsArr){
 // pro velikost mesh, ale spouští se jen z drawCarriers(). Bez explicitního volání
 // při resize 2D divs zmenší (CSS var → re-flow) ale 3D meshes zůstanou v původní
 // velikosti → překrývají se s DOM.
-window.addEventListener('resize', function(){
+function _recomputeCarrierLayout(){
   if (typeof columns === 'undefined' || !columns) return;
   _setAdaptiveCarrierSize(columns);
   if (typeof RENDERER_MODE !== 'undefined' && RENDERER_MODE === '3d' &&
       window.render3dBottom && window.render3dBottom.isReady && window.render3dBottom.isReady()) {
     window.render3dBottom.updateCarriers(columns, COLORS);
   }
-});
+}
+window.addEventListener('resize', _recomputeCarrierLayout);
+// iOS Safari URL bar dynamicky mění visualViewport (window.innerHeight zůstává
+// stejné). Bez tohoto listeneru bychom po skrytí/zobrazení URL baru měli
+// zastaralý carrier sizing → spodní řada by se uřezala pod home indicator.
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', _recomputeCarrierLayout);
+}
 function drawCarriers(){
   _setAdaptiveCarrierSize(columns);
   const el=document.getElementById('carriers-grid');
@@ -6242,7 +6255,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v71.13');
+    gamee.updateScore(score,playTime,'balloon-belt-v71.14');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6370,7 +6383,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v71.13');
+  gamee.updateScore(score,playTime,'balloon-belt-v71.14');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7200,7 +7213,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v71.13');
+      gamee.updateScore(score,playTime,'balloon-belt-v71.14');
       event.detail.callback();
     });
 
