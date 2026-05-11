@@ -123,6 +123,7 @@ _Sem házej cokoliv co tě napadne. Při příští session to roztřídíme._
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v71.10 | `787f6d1` | 2026-05-11 | Fix overflow 1. a 7. řady — SAFE_BOTTOM dynamicky měří dev settings bar (bar.height + 20). Před tím hardcoded 10 ignorovalo ~38 px pod carriers v dev módu, carriers se vytlačovaly mimo viewport. |
 | v71.9 | `af8bb9e` | 2026-05-11 | Fix CSS specificity bug — JS přepisy --carrier-size byly shadowed CSS rule na body.renderer-3d. Defaulty odebrány z body.renderer-3d, použit fallback v var(--x, default). Responsive sizing teď reálně funguje. |
 | v71.8 | `ad09d94` | 2026-05-11 | Responsive carrier sizing — měří viewportH + carriers-wrap.top, target 54 px pokud se vejde, shrink jen na malých displejích. Na Pixel 8 / iPhone 14 zachová full size i pro 7 řad. Resize listener pro rotaci. |
 | v71.7 | `351541e` | 2026-05-11 | Adaptivní carrier velikost přes CSS vars (--carrier-size/-ball-size/-row-gap) podle počtu řad: 4–5 = 54/26/6, 6 = 48/22/5, 7 = 42/18/4. ROW_COUNT_MAX 4→7, rowSlotIdx/rowBallIdx arrays 6→7 |
