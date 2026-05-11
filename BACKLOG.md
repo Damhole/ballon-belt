@@ -167,6 +167,7 @@ _Sem házej cokoliv co tě napadne. Při příští session to roztřídíme._
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v71.19 | `0345e35` | 2026-05-11 | Boost adaptive top padding — threshold 30→16, ratio /3→/2, cap 48→72. v71.18 hodnoty byly příliš subtle (13-20 px splývalo s background), uživatel změnu nevnímal. |
 | v71.18 | `e9a2418` | 2026-05-11 | Adaptive top padding — když carriers fit at TARGET (54) a leftover >= 30 px, hra dostane top breathing space (min(48, leftover/3)) od horní hrany telefonu. Při tight space (shrink) 0 — natlačeno nahoru jako dosud. Oscillation prevention: výpočet odečte current --game-top-extra od carrWrap.top. |
 | v71.17 | `2b34e7e` | 2026-05-11 | Revert haptic — iOS nemá vibration API (Apple blok), inconsistence napříč platformami. Helper + 4 calls odebrány. Kód v git history (v71.16 = 04608e2) pro budoucí re-enable kdyby Gamee SDK přidalo haptic capability. |
 | v71.16 | `04608e2` | 2026-05-11 | Haptic feedback (Android only) — navigator.vibrate() hooks na carrier click (10ms tap), funnel limit denial (double-buzz), level win ([0,60,50,120] pulse), game over (200ms). iOS Safari nemá vibration API (Apple blok). Feature-detected + respect prefers-reduced-motion. (REVERTED v71.17) |
