@@ -123,6 +123,7 @@ _Sem házej cokoliv co tě napadne. Při příští session to roztřídíme._
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v71.7 | `351541e` | 2026-05-11 | Adaptivní carrier velikost přes CSS vars (--carrier-size/-ball-size/-row-gap) podle počtu řad: 4–5 = 54/26/6, 6 = 48/22/5, 7 = 42/18/4. ROW_COUNT_MAX 4→7, rowSlotIdx/rowBallIdx arrays 6→7 |
 | v71.6 | `8582b30` | 2026-05-11 | Funnel půlka: pending-canvas 90→50, clip-path slope 88→44, padding 12→6, FUN.slopeEndY 88→44. Σ ~46 px |
 | v71.5 | `45cbe22` | 2026-05-11 | Chrome cleanup: body margin 0, #game padding 16→8 + gap 10→6, image-area border 2→1. Σ ~48 px uvolněno pro 6. řadu carriers |
 | v71.4 | `f47d735` | 2026-05-11 | Dev labely (#belt-label, #pending-label, #carriers-label) globálně `display:none` — sjednoceno z 3D-only scope, 0 px overhead v 3D bylo, 0 px i ve 2D teď |
