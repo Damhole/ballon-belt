@@ -635,7 +635,8 @@ function updateCarriers(columns, colorsArr) {
 
       // Lift: 0 → 1 (peak at t=0.25) → klesá zpět; ease-out
       const liftT = t < 0.25 ? (t / 0.25) : Math.max(0, 1 - (t - 0.25) / 0.40);
-      const lift  = liftT * 55;   // canvas Y up px (vyšší aby unikl carriers řadě před ním)
+      const lift  = liftT * 25;   // canvas Y up px (méně Y, ghost spíš jde dopředu v Z)
+      const liftZ = liftT * 45;   // Z push toward camera (ghost vystupuje dopředu místo nahoru)
 
       // Tilt: top of slot rotates AWAY from viewer (negative X rotation = top → -Z)
       const tiltT = t < 0.30 ? (t / 0.30) : Math.max(0, 1 - (t - 0.30) / 0.35);
@@ -654,7 +655,7 @@ function updateCarriers(columns, colorsArr) {
 
       // Z=5 = mezi slot (Z=0) a ball (Z=10) — ghost je nad ostatními slot, ale balls
       // okolo zůstávají viditelné nad ním.
-      _vec.set(xW, yW, 5);
+      _vec.set(xW, yW, 5 + liftZ);   // Z roste s liftT → ghost vystupuje směrem ke kameře
       _quat.setFromAxisAngle(_axisX, tilt);
 
       // Slot
