@@ -599,6 +599,44 @@ _Sem házej všechno, co tě napadne. Při příští session to společně rozt
 
 _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme)_
 
+### 🎯 Další session — Responzivní sizing pro nejmenší mobilní screens + víc řad carriers
+
+**Kontext:** Po session 70.x máme polished 3D carrier scene (asset GLB workflow,
+per-row mesh layering, ghost tilt+ball-fade, pop anim, etc.). Funguje fajn na **4×7 grid**
+carrierů a iPhone-style screens (CSS width 460 px). Ale:
+
+1. **Více řad = mesh kolize**. Per-row renderOrder dělá řady jasné, ale jak roste
+   počet řad (≥5), carriery se začínají vizuálně překrývat / shlukovat. Spawn position
+   musí být clampnutý na konci pro 2×2 grid (`spawnY = min(FUN.wideY-25, spawnY)`).
+   Pro víc řad fyzika nebo Y range mapping nesedí.
+
+2. **Sizing pro smallest mobile screens** (např. iPhone SE 320×568 CSS). Aktuální
+   viewport `width=460` schoduje do 320 → game je velmi malé. Carriers fixed 50 px
+   slot mesh × ≤7 cols = 350 px → overflow na úzkých screens. Belt + pending + tlačítka
+   musí všechny respektovat dynamic viewport.
+
+**Cíle:**
+
+1. **Responsive scaling celé scene** — Three.js camera + mesh sizes by měly škálovat
+   podle viewport width. Smaller screen → smaller carrier mesh (e.g. SLOT_SIZE 50 → 40).
+2. **Carrier grid responsive layout** — DOM grid musí fit viewport. Max columns = floor(viewport_width / min_cell_size).
+3. **Více řad bez kolize** — nepoužívat hard rowZBias; každá řada má vlastní InstancedMesh
+   ale spacing v CSS musí být ≥ scale * (slot_size + safety) pro každou velikost.
+4. **Pending physics FUN dimensions** dynamic dle počtu řad (carrier rows × cell height).
+5. **Belt + funnel SVG** scale podle viewportu.
+
+**Otevřené otázky pro další session:**
+- Použít CSS `transform: scale()` na celý #game pro uniform scaling, NEBO dynamicky
+  přepočítávat všechny dimensions v JS?
+- Mesh sizes — fix at 50 a scale jen DOM, NEBO škálovat mesh geometry?
+- Layout pro pop-up grids (víc carriers): scrollovat horizontálně, scale down, nebo
+  reorganizovat grid (5×6 místo 4×7)?
+- Aspect ratio image area: zachovat 360×310 (= 1.16:1) nebo měnit dle viewportu?
+
+**Pre-requisity:**
+- Měření smallest target screen (iPhone SE: 320×568 px; iPhone 12 mini: 360×780 px).
+- Test víc řad carriers v aktuálním kódu — kde přesně se začne sypát.
+
 ### 🎯 Další session — 3D koule v carriers + provizorní 3D pás
 
 **Kontext:** 2.5D upgrade má hotové: 3D pixely, 3D bloky, 3D projektily (létající balónky), pixel destruction shards, theme system (10 variant), funnel shape pending+carriers, all polished s inset shadows + outlines + lighting boost. Carriers jsou ale POŘÁD CSS DOM (4 "balls" v gridu) a belt je SVG. Balónky padají z carriers na belt — momentálně transition není 3D animovaný, jen logický.
@@ -643,6 +681,7 @@ _(přesuň sem to, co jsme si vybrali — ať se nehádáme, co právě děláme
 
 | Okruh | Commit | Datum |
 |-------|--------|-------|
+| v70.1–70.11 batch 9: asset workflow + polish carriers/balls/animations — **carrier.glb asset** integrace (GLTFLoader + BufferGeometryUtils v gamee/lib/ a utils/, drop-in workflow s `+Z up` export = no rotation v kódu, geom.scale(50) + auto-center). **Per-row InstancedMesh** layout pro carriery (4× row mesh + outline + balls + ball outline = 16 meshes), explicit renderOrder (row 0=112…row 3=100 ve v70.2 inverted experimentu, vrácené na original 100→112 ve v70.3). **Inactive carriers** scale 0.78 + barva ×0.55 (desaturated), žádné koule. **Pop animace** při přechodu inactive→active (overshoot 0.78→1.15→1.0 přes 300ms). **Carrier tilt-up animace** při kliku: ghost slot mesh + balls naparentované, lift Y 25 + lift Z 45 (vystupuje dopředu ke kameře), tilt -0.55 rad, scale fade 1→0 na konci animace. **Ghost balls** fade 0 → 0.075s (rychlé zmizení, dostatečně rychlé na "vysypání"). **Pending balls** renderOrder 150 + `depthTest:false` (vždy nad carriery), ghost slot/balls renderOrder 139-142 (nad row carriers ale pod pending balls — vypadávají z carrieru shora). **spawnY clamp** `min(FUN.wideY-25, spawnY)` pro dolní řadu carrierů (zachovává 2×2 grid pending balls v dolní). **Canvas extend +80 px dolů** (víc prostoru pro vizuál). **Mobile viewport** `width=460,viewport-fit=cover` (= scale-to-fit), CSS hover scale fix v 3D mode (`.carrier.active:hover .cbox { transform: none }`), **200 ms delay queue refill** v 3D (slot je visible-empty před refillem). game.js `addToPending(b, spawnX, spawnY)` rozšířen o per-ball spawn (TL/TR/BL/BR offset). Filter `ppu>0` + count=`filledCount` (= správně 1-4 balls per carrier dle projectiles). Otevřené: responsive sizing pro <360 px screens + víc řad carriers. | `ac4ea58` (v70.11) | 2026-05-11 |
 | v70 batch 8: fix frustum culling + sjednocení velikosti koulí + odstranění drop animace — `frustumCulled = false` na všech InstancedMesh (Three.js culluje per-mesh přes geometry.boundingSphere kolem 0,0,0 r=12, ale per-instance pozice jsou daleko → celý pendingMesh byl vůbec nerendrován). R_PENDING 10 → 12 (= R_CARRIER = R_BELT) a sphere segments sjednoceny na 24×16, pending koule stejně velké jako belt a carriers. Parabolická drop animace odstraněna (spawnDrop, updateDropAnimations, dropMesh) — 2D fyzika v updatePending(dt) už řeší vše: koule po addToPending() fyzicky padají v trychtýři, kolizují, čekají na průchod. 3D vrstva už jen rendruje výsledek. Otevřené: carrier tilt-up animace pro vysypání. | `ee3fef1` | 2026-05-07 |
 | v70 batch 7: drop animation + dynamic Y-offset — `spawnDrop()` + `updateDropAnimations()` v render3d_bottom.js: 3D koule letí z kliknutého nosiče (z cboxu) parabolickým obloukem na pás (kinetika: vy0=−√(2·GRAV·dy)·1.18, gravitace 0.008 px/ms², stagger 55 ms per ball). Dynamické měření pozic belt-svg a pending-canvas v init() přes getBoundingClientRect() místo hardcoded BELT_SVG_H=64 — opravuje Y-posun pending/belt koulí o 34 px. game.js: cbox změřen PŘED drawCarriers() (DOM re-render), spawnDrop volán po; updateDropAnimations(dt×1000) v beltLoop (dt konverze s→ms). | `0e134c8` | 2026-05-07 |
 | v70 batch 6: render3d_bottom — 3D belt + pending + carrier balls — nový modul `render3d_bottom.js` (WebGL canvas z-index:2 přes celou spodní oblast). InstancedMesh SphereGeometry pro carrier balls (R=12), pending (R=10), belt (R=12). 3D rounded-box slot containery (ExtrudeGeometry SLOT_SIZE=50). Belt track: BoxGeometry pás + 2× CylinderGeometry válce. Outline pass (inverted-hull BackSide black) → cartoon look. DirectionalLight(Math.PI) na (-300,800,600) — 3/4 úhel + BRDF kompenzace. MeshToonMaterial gradient [120,200,255] → výrazný shadow band. Černá = černá (_liftDark dead code, nevolá se). game.js: _ensureR3DBottom, updateCarriers v drawCarriers, updatePending+updateBelt+render v beltLoop. game.css: visibility:hidden pro DOM belt/pending/cbox balls; průhledné cbox. | `f0411c9` | 2026-05-07 |
