@@ -192,7 +192,8 @@ body {
 #image-area{width:360px;height:310px;border:2px solid #555;border-radius:8px;overflow:hidden;background:#353535;position:relative}
 #pixel-canvas{display:block;width:360px;height:310px}
 #belt-wrap{width:360px}
-#belt-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:4px;text-align:center}
+/* Dev label — vždy skrytý, nikdy se nezobrazí hráči */
+#belt-label{display:none}
 #belt-svg{width:360px;height:64px;display:block}
 .controls{width:360px;display:flex;flex-direction:column;gap:8px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-secondary);border-radius:12px;padding:10px 14px}
 .ctrl-row-top{display:flex;justify-content:space-between;align-items:flex-end;gap:8px}
@@ -234,12 +235,14 @@ body.renderer-3d.theme-mono-light .theme-select{color:#fff}
 .diff-badge.diff-hard{background:rgba(240,140,70,0.18);color:#ffaa5e;border-color:#b06a2a}
 .diff-badge.diff-hardcore{background:rgba(230,70,70,0.2);color:#ff7070;border-color:#a03030}
 #pending-wrap{width:360px;position:relative}
-#pending-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:4px;text-align:center}
+/* Dev label — vždy skrytý */
+#pending-label{display:none}
 #pending-canvas{display:block;margin:0 auto;background:transparent}
 #funnel-warning{position:absolute;top:18px;left:50%;transform:translate(-50%,-4px);max-width:320px;padding:6px 12px;background:rgba(220,80,80,0.92);color:#fff;font-size:11px;font-weight:600;letter-spacing:0.02em;border-radius:6px;text-align:center;line-height:1.35;box-shadow:0 3px 10px rgba(0,0,0,0.45);pointer-events:none;opacity:0;transition:opacity 0.18s,transform 0.18s;z-index:5}
 #funnel-warning.show{opacity:1;transform:translate(-50%,0)}
 #carriers-wrap{width:360px}
-#carriers-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:6px;text-align:center}
+/* Dev label — vždy skrytý */
+#carriers-label{display:none}
 #carriers-grid{display:flex;gap:4px;justify-content:center;flex-wrap:nowrap}
 .carrier-col{display:flex;flex-direction:column;gap:6px;align-items:center}
 .carrier{user-select:none}
