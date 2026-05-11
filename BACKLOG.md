@@ -167,7 +167,8 @@ _Sem házej cokoliv co tě napadne. Při příští session to roztřídíme._
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
-| v71.16 | `04608e2` | 2026-05-11 | Haptic feedback (Android only) — navigator.vibrate() hooks na carrier click (10ms tap), funnel limit denial (double-buzz), level win ([0,60,50,120] pulse), game over (200ms). iOS Safari nemá vibration API (Apple blok). Feature-detected + respect prefers-reduced-motion. |
+| v71.17 | `2b34e7e` | 2026-05-11 | Revert haptic — iOS nemá vibration API (Apple blok), inconsistence napříč platformami. Helper + 4 calls odebrány. Kód v git history (v71.16 = 04608e2) pro budoucí re-enable kdyby Gamee SDK přidalo haptic capability. |
+| v71.16 | `04608e2` | 2026-05-11 | Haptic feedback (Android only) — navigator.vibrate() hooks na carrier click (10ms tap), funnel limit denial (double-buzz), level win ([0,60,50,120] pulse), game over (200ms). iOS Safari nemá vibration API (Apple blok). Feature-detected + respect prefers-reduced-motion. (REVERTED v71.17) |
 | v71.15 | `4b3529c` | 2026-05-11 | Mobile touch fix — odstraněn 300ms click delay (touch-action: manipulation na #game) a polopruhledný tap highlight overlay (-webkit-tap-highlight-color: transparent). Tap na iPhonu je teď okamžitý. |
 | v71.14 | `a18addb` | 2026-05-11 | iOS safe area + visualViewport fix — bottom row carriers se na iPhone uřezávala pod home indicator. CSS env(safe-area-inset-bottom) přidána do safeBottom (12 + ~34 px na iPhone X+). visualViewport resize listener handluje URL bar collapse/expand. |
 | v71.13 | `d2c83d7` | 2026-05-11 | RENDERER_MODE default flipped 2D → 3D. URL bez params = 3D scéna (M6 hotový, v71 polishing). 2D fallback opt-in přes ?renderer=2d pro debugging. Deploy na GH Pages. |
