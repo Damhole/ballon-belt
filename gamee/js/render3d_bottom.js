@@ -616,13 +616,13 @@ function updateCarriers(columns, colorsArr) {
       if (!isActive) continue;
 
       // Rozložení koulí: max 4 v 2×2 mřížce uvnitř slotu (per-row mesh).
-      // v71.25: ofset 0.21 → 0.18 — balls blíže k sobě, jednotnější vzhled
-      // (outline overlaps mezi sousedními balls vytváří dark crosses na 0.21,
-      // nižší ofset balls visuálně merguje).
-      const cw   = cr.width;
-      const ch   = cr.height;
-      const offX = [-cw * 0.18, cw * 0.18];
-      const offY = [-ch * 0.18, ch * 0.18];
+      // v71.26 fix: ofset počítaný z SLOT_SIZE (base units), ne z cr.width —
+      // jinak by se násobil 2× slotScale (cr.width sám koreluje s slotScale)
+      // a balls by se při shrink sbíhaly do středu kvadraticky místo lineárně.
+      // Final offset = SLOT_SIZE × 0.18 × slotScale = consistent ratio k radius
+      // přes všechny carrier velikosti.
+      const offX = [-SLOT_SIZE * 0.18, SLOT_SIZE * 0.18];
+      const offY = [-SLOT_SIZE * 0.18, SLOT_SIZE * 0.18];
       const ballZ = SLOT_DEPTH / 2 + R_CARRIER * 0.25;
       const filled = _countFilled(slot.projectiles);
 
@@ -704,8 +704,9 @@ function updateCarriers(columns, colorsArr) {
       const ballScale = scale * (1 - ballFadeT);
       if (ballScale > 0.04) {
         _slotM.compose(_vec, _quat, dummy.scale.set(1, 1, 1));   // matrix bez scale pro pozici
-        const offX = [-anim.w * 0.18, anim.w * 0.18];   // v71.25: sync s main path
-        const offY = [-anim.h * 0.18, anim.h * 0.18];
+        // v71.26: SLOT_SIZE base units (sync s main path, žádné double scaling)
+        const offX = [-SLOT_SIZE * 0.18, SLOT_SIZE * 0.18];
+        const offY = [-SLOT_SIZE * 0.18, SLOT_SIZE * 0.18];
         const ballZ = SLOT_DEPTH / 2 + R_CARRIER * 0.25;
         let bi = 0;
         outer: for (let row = 0; row < 2; row++) {
