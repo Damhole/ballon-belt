@@ -333,7 +333,7 @@ function init() {
          // zachytí jen téměř-flat top face, vyřadí bevels i side walls.
          // Bottom (normal.z < 0) zůstává neaffected díky max(0, ...).
          float topFacing = max(0.0, vSlotNormal.z);
-         float innerness = smoothstep(0.85, 0.95, topFacing);
+         float innerness = smoothstep(0.95, 0.99, topFacing);
          diffuseColor.rgb *= mix(1.0, 0.40, innerness);
         `);
   };
