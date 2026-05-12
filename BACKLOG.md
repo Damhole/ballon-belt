@@ -24,7 +24,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | M5 | Curve editor | v60–v68 | ✅ | Křivky obtížnosti, mutation designer, simulated annealing auto-tune |
 | M6 | 2.5D upgrade | v69–v70.11 | ✅ | Three.js, 3D pixely/bloky/projektily/carriers/belt, 10 témat |
 | M7 | Responsive + rows | v71.0–21 | ✅ | Adaptive carriers (38–54 px), 7 řad, 3D mesh sync s 2D, iOS safe area, PWA, touch fix |
-| M8 | Sjednocený 3D grid | v72+ | 📋 | Všechny grid prvky (empty/hidden/wall) jako 3D meshes pro vizuální konzistenci. Falling animation při kliku. |
+| M8 | Sjednocený 3D grid | v72.x | 🚧 | Všechny grid prvky (empty/hidden/wall) jako 3D meshes pro vizuální konzistenci. Falling animation. Plus carrier inner depth illusion. |
 | M9 | 3D vizuál: image + BG + funnel | v73+ | 📋 | Finální 3D vizuální polish — pixel image area depth/highlights, background atmosphere/depth, jeden trvalý tvar funnelu (FUNNEL_3D z v71.22). |
 | M10 | Replay & scrub | v74+ | 📋 | Curve editor Úr. 1.5 — timeline scrubber, mini canvas, .webm export |
 | M11 | Editor polish | future | 💡 | Copy/paste bloků, multi-select, playtester mode, vizuální garáž |
@@ -258,6 +258,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v72.0 | `3f24949` | 2026-05-12 | **M8 start** — depth illusion na carrier slots přes vertex colors (option 1). Per-vertex tint po GLB load: top center 0.45 (darker), edges/bottom 1.0. slotMat.vertexColors=true násobí instance color × tint. Outline mat neaffectován. Pokud blocky → option 2 (user 2-material GLB). |
 | v71.27 | `0bfb7b1` | 2026-05-12 | Ball offset faktor 0.18 → 0.195 — dorovnat v71.25 vzhled spacingu při 54 carrier (po v71.26 base-unit fixu balls 1.56 px blíže). Final offset @ 54 = 10.53 (vs 10.50 původně). |
 | v71.26 | `a560918` | 2026-05-12 | Fix double scaling ball offsets — offX/offY z SLOT_SIZE base units místo cr.width. Bug: offset se násobil 2× slotScale (cr.width × × slotScale) → balls při shrinku kolabovaly do středu kvadraticky. Po fixu: konstantní offset/radius ratio 0.82 napříč všemi velikostmi. |
 | v71.25 | `8b09f9c` | 2026-05-12 | Revert sphere segments (user: 'nebyl to ten problem') + ball offsets 0.21 → 0.18 cw/ch v 2×2 mřížce. Balls blíže k sobě, outline overlaps zvětšeny → jednotnější vzhled místo 4 separated balls. |
