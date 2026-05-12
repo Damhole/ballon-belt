@@ -23,7 +23,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | M4 | AI tester | v51–v59 | ✅ | Solver hierarchy, difficulty score 0–100, heat-mapa |
 | M5 | Curve editor | v60–v68 | ✅ | Křivky obtížnosti, mutation designer, simulated annealing auto-tune |
 | M6 | 2.5D upgrade | v69–v70.11 | ✅ | Three.js, 3D pixely/bloky/projektily/carriers/belt, 10 témat |
-| M7 | Responsive + rows | v71.x | 🚧 | Responsive scaling, 6 řad carriers, dynamic FUN.wideY |
+| M7 | Responsive + rows | v71.0–21 | ✅ | Adaptive carriers (38–54 px), 7 řad, 3D mesh sync s 2D, iOS safe area, PWA, touch fix |
 | M8 | Sjednocený 3D grid | v72+ | 📋 | Všechny grid prvky (empty/hidden/wall) jako 3D meshes pro vizuální konzistenci. Falling animation při kliku. |
 | M9 | Replay & scrub | v73+ | 📋 | Curve editor Úr. 1.5 — timeline scrubber, mini canvas, .webm export |
 | M10 | Editor polish | future | 💡 | Copy/paste bloků, multi-select, playtester mode, vizuální garáž |
@@ -32,23 +32,34 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 
 ---
 
-## 🚧 Aktuální sprint — M7: Responsive + více řad (v71.x)
+## ✅ Dokončený sprint — M7: Responsive + více řad (v71.0–21)
 
-**Cíl:** Carriers a 3D scéna musí fungovat na všech mobilních velikostech a s více než 4 řadami.
+**Cíl:** Carriers a 3D scéna musí fungovat na všech mobilních velikostech a s více než 4 řadami. → **Splněno.**
 
-### Co uděláme (v pořadí commitů)
-1. **v71.0** ✅ — bump verze v70.11 → v71.0
-2. **v71.1** ✅ — debug overlay (⚙ toggle, safe zone, markers)
-3. **v71.2** ✅ — settings panel redesign: pill toggley, controls na spodek hry přes CSS order
-4. **v71.3** ✅ — fix MIN_H scaling (568 phys × 460/320 = 817 css), hide #status, version badge do settings baru
-5. **v71.4** — `ROW_COUNT_MAX 4 → 6` v `render3d_bottom.js`
-6. **v71.5** — responsive scale: viewport meta `width=device-width`, `applyGameScale()` přes CSS `transform: scale()` na `#game`
-7. **v71.6** — dynamic `FUN.wideY`: re-měřit carriers-wrap po `drawCarriers()`, volat `render3dBottom.canvasYtoFunY()`
+### Hlavní výsledky
+- **Adaptive carrier sizing** (CSS vars `--carrier-size/-ball-size/-row-gap`) podle viewportu — 38 → 54 px
+- **7 řad** (`ROW_COUNT_MAX 4 → 7`, rowSlotIdx/rowBallIdx arrays 6→7)
+- **3D mesh** responsivně škáluje k DOM cbox velikosti (`slotScale × cr.width/SLOT_SIZE`)
+- **iOS safe area** (home indicator) + visualViewport (URL bar dynamics)
+- **Production-equivalent sizing** — dev UI (Level UI / Stats / settings bar) se ignoruje
+- **Adaptive top padding** — komfort od horní hrany když je dost místa (min(72, leftover/2))
+- **Mobile touch fix** — 300ms click delay + tap highlight overlay
+- **PWA setup** (manifest.json + apple-mobile-web-app-*) — Add to Home Screen = fullscreen
+- **Default render** flipped 2D → 3D
+- **Funnel zone** ½ shrink (pending-canvas 90→50, FUN.slopeEndY 88→44)
+- **Chrome cleanup** (body margin, #game padding/gap, image border) — −48 px
 
-### Otevřené po tomto sprintu
-- Sizing pro <360 px (iPhone SE 320px) — test po v71.2
-- Belt + funnel SVG scale podle viewportu
-- Aspect ratio image area (zachovat 360×310 nebo měnit dle viewportu?)
+### Plán → Reality
+| Plán | Stav | Note |
+|------|------|------|
+| v71.4 ROW_COUNT 4→6 | ✅ Done lépe | Šli jsme až na 7 + adaptive size |
+| v71.5 CSS scale transform | ✅ Done jinak | CSS vars + adaptive sizing místo blurry scale() — zachová pixel sharpness |
+| v71.6 dynamic FUN.wideY | ⚠️ Skip | Místo toho ½ funnelu (v71.6) + FUN.slopeEndY update. FUN.h/wideY hardcoded ale balls fungují |
+
+### Otevřené body z M7 (přesunuto)
+- **Sizing pro <320 px** → polish inbox (meta viewport=460 už škáluje, nezkoušeno pod 320)
+- **Image area scaling** → součást M12 (variable image grid) — schválně skipnuto v M7
+- **Belt SVG scale** → already in 3D canvas (auto-followuje)
 
 ---
 
@@ -160,6 +171,11 @@ _Sem házej cokoliv co tě napadne. Při příští session to roztřídíme._
 ### 👀 Sleduj v provozu
 
 - **Cannon vystřelí všech 40 projektilů i když je dostupných jen 20 pixelů** (v64 podezření) — `hasAnyTargetForColor(ci)` testuje zda existuje JAKÝKOLIV pixel barvy `ci` (i pod blokem), nikoli flood-fill reachable. Zbývající balls bouncují + expire. Možná správné chování (= designed). Před změnou ověřit dopad — `hasReachableTargetForColor(ci)` místo toho by mohlo rychleji zablokovat belt u uzamčených barev.
+
+### 🔭 Polish (z M7 closeout)
+
+- **Test <320 px viewport** — meta viewport=460 už škáluje pro velmi malé displeje, ale nezkoušeno do hloubky. Pokud někdo opravdu testuje na Galaxy Fold (280 css) → ověřit.
+- **Gamee SDK haptic capability** — monitorovat changelog, kdyby přidali (v71.16 byl ready Android-only haptic, v71.17 reverted kvůli iOS missing). Pokud Gamee přidá native bridge → re-enable.
 
 ---
 
