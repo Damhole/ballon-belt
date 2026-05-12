@@ -453,10 +453,13 @@ function init() {
   st.carrierSlotOutlineMesh.renderOrder = 139;
   contentGroup.add(st.carrierSlotOutlineMesh);
 
-  // v72.16: Walls — per-cell 3D obstacle boxes. RoundedBox geometry, depth 18
-  // (větší než SLOT_DEPTH=14 → walls poke up nad carriery jako obstacle).
-  // Material color set dynamically z --carriers-3d-bg (theme aware).
-  const wallGeom = _roundedBoxGeom(SLOT_SIZE, SLOT_SIZE, SLOT_RADIUS, WALL_DEPTH, WALL_BEVEL);
+  // v72.16: Walls — 3D obstacle boxes. v72.17: BoxGeometry (sharp edges)
+  // pro per-instance scaling (rounded by scaled would distort do oválů).
+  // Greedy rectangle decomposition v updateWalls() merge adjacent walls do
+  // jednoho boxu (monolith effect). Depth 18 (větší než SLOT_DEPTH=14)
+  // → walls vyčnívají nad carriery jako obstacle. Color z --carriers-3d-bg
+  // (theme aware, read each updateWalls call).
+  const wallGeom = new THREE.BoxGeometry(SLOT_SIZE, SLOT_SIZE, WALL_DEPTH);
   const wallMat  = new THREE.MeshToonMaterial({ gradientMap: toonGrad });
   st.wallMesh = new THREE.InstancedMesh(wallGeom, wallMat, MAX_WALL_INSTANCES);
   st.wallMesh.count = 0;
@@ -1079,10 +1082,55 @@ function dispose() {
   st.ready = false;
 }
 
-// ─── updateWalls (v72.16) ────────────────────────────────────────────────────
-// Per-cell 3D walls. Iteruje columns, najde wall cells, set matrix na wallMesh.
-// Color match s --carriers-3d-bg (theme-aware, read each call). Žádné merging
-// yet — adjacent walls budou separated boxes. Merging = v72.17.
+// ─── updateWalls (v72.17) ────────────────────────────────────────────────────
+// Greedy rectangle decomposition — adjacent walls v gridu merguje do jednoho
+// většího rectu. L/T/+ shapes se rozloží na minimální počet rectů. Pro každý
+// rect render jedna scaled InstancedMesh instance. Mezery mezi cells v rectu
+// jsou zahrnuté do mesh velikosti (visual monolith).
+//
+// Algoritmus:
+//   1. Visited grid 2D bool.
+//   2. Pro každou unvisited wall cell:
+//      - Extend right maximálně (kontinuální walls v row).
+//      - Extend down maximálně (všechny cols v šíři jsou walls).
+//      - Mark visited, output rect.
+
+function _decomposeWallsToRects(columns) {
+  const visited = columns.map(col => (col || []).map(_ => false));
+  const rects = [];
+  for (let c = 0; c < columns.length; c++) {
+    const col = columns[c];
+    if (!col) continue;
+    for (let r = 0; r < col.length; r++) {
+      const slot = col[r];
+      if (!slot || slot.wall !== true || visited[c][r]) continue;
+      // Extend right
+      let maxC = c;
+      while (
+        maxC + 1 < columns.length && columns[maxC + 1] &&
+        columns[maxC + 1][r] && columns[maxC + 1][r].wall === true &&
+        !visited[maxC + 1][r]
+      ) maxC++;
+      // Extend down
+      let maxR = r;
+      let canExtend = true;
+      while (canExtend && maxR + 1 < col.length) {
+        for (let cc = c; cc <= maxC; cc++) {
+          if (
+            !columns[cc] || !columns[cc][maxR + 1] ||
+            columns[cc][maxR + 1].wall !== true || visited[cc][maxR + 1]
+          ) { canExtend = false; break; }
+        }
+        if (canExtend) maxR++;
+      }
+      // Mark
+      for (let cc = c; cc <= maxC; cc++)
+        for (let rr = r; rr <= maxR; rr++) visited[cc][rr] = true;
+      rects.push({ cStart: c, rStart: r, cEnd: maxC, rEnd: maxR });
+    }
+  }
+  return rects;
+}
 
 function updateWalls(columns) {
   if (!st.ready || !st.wallMesh) return;
@@ -1096,38 +1144,46 @@ function updateWalls(columns) {
   const canvasRect = st.canvas.getBoundingClientRect();
   const colDivs = gridEl.querySelectorAll('.carrier-col');
   const dummy = st._dummy;
+
+  const rects = _decomposeWallsToRects(columns);
   let instIdx = 0;
 
-  for (let c = 0; c < colDivs.length && c < columns.length; c++) {
-    const col = columns[c];
-    const slotDivs = colDivs[c].querySelectorAll('.carrier');
-    for (let r = 0; r < slotDivs.length && r < col.length; r++) {
-      const slot = col[r];
-      if (!slot || slot.wall !== true) continue;
-      if (instIdx >= MAX_WALL_INSTANCES) break;
+  for (const rect of rects) {
+    if (instIdx >= MAX_WALL_INSTANCES) break;
+    if (!colDivs[rect.cStart] || !colDivs[rect.cEnd]) continue;
+    const tlDivs = colDivs[rect.cStart].querySelectorAll('.carrier');
+    const brDivs = colDivs[rect.cEnd].querySelectorAll('.carrier');
+    if (!tlDivs[rect.rStart] || !brDivs[rect.rEnd]) continue;
+    const tlBlock = tlDivs[rect.rStart].querySelector('.wall-block');
+    const brBlock = brDivs[rect.rEnd].querySelector('.wall-block');
+    if (!tlBlock || !brBlock) continue;
+    const tlR = tlBlock.getBoundingClientRect();
+    const brR = brBlock.getBoundingClientRect();
 
-      // Position from wall-block (= cell content area). Match s cbox sizing.
-      const wb = slotDivs[r].querySelector('.wall-block');
-      if (!wb) continue;
-      const cr = wb.getBoundingClientRect();
-      const xCSS = cr.left + cr.width  / 2 - canvasRect.left;
-      const yCSS = cr.top  + cr.height / 2 - canvasRect.top;
-      const xW = xCSS;
-      const yW = _worldY(yCSS);
-      const scale = cr.width / SLOT_SIZE;
+    // Combined bounding box (zahrnuje gaps mezi cells)
+    const left   = tlR.left;
+    const top    = tlR.top;
+    const right  = brR.right;
+    const bottom = brR.bottom;
+    const w = right - left;
+    const h = bottom - top;
+    const xCSS = (left + right) / 2 - canvasRect.left;
+    const yCSS = (top + bottom) / 2 - canvasRect.top;
+    const xW = xCSS;
+    const yW = _worldY(yCSS);
+    const scaleX = w / SLOT_SIZE;
+    const scaleY = h / SLOT_SIZE;
 
-      dummy.position.set(xW, yW, 0);
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(scale, scale, scale);
-      dummy.updateMatrix();
-      st.wallMesh.setMatrixAt(instIdx, dummy.matrix);
-      // Outline (slot scale)
-      const oS = scale * OUTLINE_SCALE_SLOT;
-      dummy.scale.set(oS, oS, oS);
-      dummy.updateMatrix();
-      st.wallOutlineMesh.setMatrixAt(instIdx, dummy.matrix);
-      instIdx++;
-    }
+    dummy.position.set(xW, yW, 0);
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(scaleX, scaleY, 1);   // Z stays 1 — wall depth unchanged
+    dummy.updateMatrix();
+    st.wallMesh.setMatrixAt(instIdx, dummy.matrix);
+    // Outline — proporční scale × OUTLINE_SCALE_SLOT
+    dummy.scale.set(scaleX * OUTLINE_SCALE_SLOT, scaleY * OUTLINE_SCALE_SLOT, OUTLINE_SCALE_SLOT);
+    dummy.updateMatrix();
+    st.wallOutlineMesh.setMatrixAt(instIdx, dummy.matrix);
+    instIdx++;
   }
   st.wallMesh.count = instIdx;
   st.wallMesh.instanceMatrix.needsUpdate = true;
