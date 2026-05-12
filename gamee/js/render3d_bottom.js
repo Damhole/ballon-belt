@@ -299,9 +299,13 @@ function init() {
   st.renderer = renderer;
 
   // Sdílená geometrie pro koule (víc segmentů → hladší shading)
-  const carrierGeom = new THREE.SphereGeometry(R_CARRIER, 24, 16);
-  const pendingGeom = new THREE.SphereGeometry(R_PENDING, 18, 12);
-  const beltGeom    = new THREE.SphereGeometry(R_BELT,    24, 16);
+  // Sphere segments (width × height) — outline metoda 'inverted hull' kopíruje
+  // segment boundaries na siluetě. Low segment count = viditelné polygony při
+  // large render size (v71.24 fix). 32×24 je sweet spot mezi smooth siluetou
+  // a tris count (~110 balls × 1536 tris = ~170k, modern GPU pohodlně zvládne).
+  const carrierGeom = new THREE.SphereGeometry(R_CARRIER, 32, 24);
+  const pendingGeom = new THREE.SphereGeometry(R_PENDING, 32, 24);
+  const beltGeom    = new THREE.SphereGeometry(R_BELT,    32, 24);
 
   // Toon shader gradient — sdílený mezi všemi materiály
   const toonGrad = _makeToonGradient();
