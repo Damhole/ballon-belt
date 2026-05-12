@@ -335,20 +335,32 @@ function init() {
   const ROW_COUNT_MAX = 7;
   const PER_ROW_SLOTS = 20;
   const PER_ROW_BALLS = PER_ROW_SLOTS * 4;
-  st.rowSlotMeshes = [];
+  st.rowSlotMeshes = [];        // outer parts (rim/sides) — slotMatOuter
+  st.rowSlotInnerMeshes = [];   // inner parts (top face) — slotMatInner, v72.12
   st.rowSlotOutlineMeshes = [];
   st.rowBallMeshes = [];
   st.rowBallOutlineMeshes = [];
   for (let row = 0; row < ROW_COUNT_MAX; row++) {
-    // Slot mesh
-    const sm = new THREE.InstancedMesh(slotGeom, slotMat, PER_ROW_SLOTS);
+    // Slot mesh — OUTER
+    const sm = new THREE.InstancedMesh(slotGeom, slotMatOuter, PER_ROW_SLOTS);
     sm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PER_ROW_SLOTS * 3), 3);
     sm.count = 0;
     sm.frustumCulled = false;
     sm.renderOrder = 100 + row * 4;          // higher row = drawn later = on top
     contentGroup.add(sm);
     st.rowSlotMeshes.push(sm);
-    // Slot outline
+    // Slot mesh — INNER (top face, separate geometry from GLB primitive 1, darker)
+    // v72.12: separate InstancedMesh místo multi-material array (InstancedMesh
+    // multi-material support v Three.js je nereliabilní). Same matrix + same
+    // color jako outer, materiál × 0.4 modulator = 60 % darker render.
+    const smInner = new THREE.InstancedMesh(slotGeom, slotMatInner, PER_ROW_SLOTS);
+    smInner.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PER_ROW_SLOTS * 3), 3);
+    smInner.count = 0;
+    smInner.frustumCulled = false;
+    smInner.renderOrder = 100 + row * 4 + 0.5;  // mezi outer (100+r*4) a balls (100+r*4+2)
+    contentGroup.add(smInner);
+    st.rowSlotInnerMeshes.push(smInner);
+    // Slot outline (covers full silhouette — outer + inner share)
     const so = mkOutline(slotGeom, PER_ROW_SLOTS);
     so.renderOrder = 100 + row * 4 - 1;      // before main slot, but in row order
     contentGroup.add(so);
@@ -380,96 +392,52 @@ function init() {
 
   // Hot-swap slot geometry s GLB assetem (async — placeholder rendered do té doby).
   // Asset z Blenderu má 1m × 1m × 0.28m → scale 50× sjednotí na náš SLOT_SIZE.
-  // v72.11: merge multiple primitives (glTF mesh se 2 material slots dělá
-  // GLTFLoader 2 separate THREE.Mesh). Concat positions/normals/indices,
-  // build groups → single BufferGeometry s multi-material support.
-  function _mergeWithGroups(geos) {
-    const positions = [], normals = [], indices = [], groups = [];
-    let vertexOffset = 0, indexOffset = 0;
-    for (let i = 0; i < geos.length; i++) {
-      const g = geos[i];
-      const pos = g.attributes.position.array;
-      const nor = g.attributes.normal ? g.attributes.normal.array : null;
-      const idx = g.index ? g.index.array : null;
-      positions.push(pos);
-      if (nor) normals.push(nor);
-      const vCount = g.attributes.position.count;
-      let iCount;
-      if (idx) {
-        const off = new Uint32Array(idx.length);
-        for (let j = 0; j < idx.length; j++) off[j] = idx[j] + vertexOffset;
-        indices.push(off);
-        iCount = idx.length;
-      } else {
-        const seq = new Uint32Array(vCount);
-        for (let j = 0; j < vCount; j++) seq[j] = j + vertexOffset;
-        indices.push(seq);
-        iCount = vCount;
-      }
-      groups.push({ start: indexOffset, count: iCount, materialIndex: i });
-      indexOffset += iCount;
-      vertexOffset += vCount;
-    }
-    function flatF32(arrs) {
-      const t = arrs.reduce((a, b) => a + b.length, 0);
-      const o = new Float32Array(t);
-      let off = 0;
-      for (const a of arrs) { o.set(a, off); off += a.length; }
-      return o;
-    }
-    function flatU32(arrs) {
-      const t = arrs.reduce((a, b) => a + b.length, 0);
-      const o = new Uint32Array(t);
-      let off = 0;
-      for (const a of arrs) { o.set(a, off); off += a.length; }
-      return o;
-    }
-    const m = new THREE.BufferGeometry();
-    m.setAttribute('position', new THREE.BufferAttribute(flatF32(positions), 3));
-    if (normals.length === geos.length) m.setAttribute('normal', new THREE.BufferAttribute(flatF32(normals), 3));
-    m.setIndex(new THREE.BufferAttribute(flatU32(indices), 1));
-    for (const g of groups) m.addGroup(g.start, g.count, g.materialIndex);
-    return m;
-  }
-
   new GLTFLoader().load('./assets/3d/carrier.glb', (gltf) => {
     const geoms = [];
     gltf.scene.traverse(obj => { if (obj.isMesh) geoms.push(obj.geometry.clone()); });
     if (geoms.length === 0) { console.warn('[render3d_bottom] GLB nemá mesh'); return; }
-    const glbGeom = geoms.length >= 2 ? _mergeWithGroups(geoms) : geoms[0];
-    console.log('[render3d_bottom] GLB má', geoms.length, 'primitives → merged groups:', glbGeom.groups.length);
-    // Asset je exportován s +Z up (= Blender axes preserved), takže Blender Z
-    // (= top face nahoru) odpovídá glTF Z (= top face k divákovi v naší scéně).
-    // Žádná rotace v kódu nepotřeba — drop-and-go workflow.
-    glbGeom.scale(50, 50, 50);
-    // Center geometrie (kdyby origin nebyl uprostřed)
-    glbGeom.computeBoundingBox();
-    const bb = glbGeom.boundingBox;
-    glbGeom.translate(-(bb.min.x+bb.max.x)/2, -(bb.min.y+bb.max.y)/2, -(bb.min.z+bb.max.z)/2);
-    glbGeom.computeBoundingSphere();
-
-    // v72.10: detect multi-material groups (split-mesh GLB). Pokud má geometrie
-    // .groups (2+ material slots z Blenderu), swap material na pole
-    // [outer, inner] na všech slot meshes. Per-instance color (setColorAt) se
-    // násobí s material.color obou groups → outer renderuje plně, inner ×0.4.
-    const groupCount = (glbGeom.groups && glbGeom.groups.length) || 0;
-    if (groupCount >= 2) {
-      const matPair = [slotMatOuter, slotMatInner];
-      st.carrierSlotMesh.material = matPair;
-      for (const m of st.rowSlotMeshes) m.material = matPair;
-      console.log('[render3d_bottom] GLB má', groupCount, 'material groups → multi-material slot rendering');
-    } else {
-      console.log('[render3d_bottom] GLB single material — depth illusion vypnutá (groupCount =', groupCount, ')');
+    console.log('[render3d_bottom] GLB má', geoms.length, 'primitives — outer + inner separately rendered');
+    // v72.12: pro consistent transform na obou geoms použijeme PRVNÍ geom jako
+    // reference (jeho bbox). Stejné scale + center pro všechny → primitives
+    // si zachovají svou relativní pozici v rámci slotu.
+    // Asset je exportován s +Z up. Apply scale × 50 + common center na VŠECHNY
+    // geoms aby si zachovaly relativní pozice (oba primitives z téhož Blender
+    // meshe sdílí coord space).
+    for (const g of geoms) g.scale(50, 50, 50);
+    // Compute combined bbox aby translate byl consistent pro všechny primitives
+    const combinedBB = new THREE.Box3();
+    for (const g of geoms) {
+      g.computeBoundingBox();
+      combinedBB.union(g.boundingBox);
     }
+    const cx = (combinedBB.min.x + combinedBB.max.x) / 2;
+    const cy = (combinedBB.min.y + combinedBB.max.y) / 2;
+    const cz = (combinedBB.min.z + combinedBB.max.z) / 2;
+    for (const g of geoms) {
+      g.translate(-cx, -cy, -cz);
+      g.computeBoundingSphere();
+    }
+    const geomOuter = geoms[0];                            // primitive 0 (Material.001)
+    const geomInner = geoms.length >= 2 ? geoms[1] : null; // primitive 1 (Material.002)
 
-    // Hot-swap geometrie do všech row meshes + ghost mesh
-    const oldMain = st.carrierSlotMesh.geometry;
-    st.carrierSlotMesh.geometry = glbGeom;
-    st.carrierSlotOutlineMesh.geometry = glbGeom;
-    for (const m of st.rowSlotMeshes) m.geometry = glbGeom;
-    for (const m of st.rowSlotOutlineMeshes) m.geometry = glbGeom;
-    if (oldMain) oldMain.dispose();
-    console.log('[render3d_bottom] carrier.glb loaded, bbox after scale:', bb);
+    // v72.12: separate InstancedMesh per part (outer + inner). Each gets jeho
+    // vlastní geometry + material. Per-instance color identický u outer/inner;
+    // material.color modulator dělá depth illusion (inner × 0.4 = 60% darker).
+    const oldOuterGeom = st.carrierSlotMesh.geometry;
+    st.carrierSlotMesh.geometry = geomOuter;               // ghost mesh: jen outer
+    st.carrierSlotOutlineMesh.geometry = geomOuter;        // outline: jen outer (full silhouette)
+    for (const m of st.rowSlotMeshes) m.geometry = geomOuter;
+    for (const m of st.rowSlotOutlineMeshes) m.geometry = geomOuter;
+    if (geomInner) {
+      for (const m of st.rowSlotInnerMeshes) m.geometry = geomInner;
+      console.log('[render3d_bottom] GLB primitive 1 → inner mesh assigned (depth illusion ON)');
+    } else {
+      // Single-primitive GLB: skip inner rendering (no depth illusion)
+      for (const m of st.rowSlotInnerMeshes) m.count = 0;
+      console.log('[render3d_bottom] GLB single primitive — depth illusion vypnutá');
+    }
+    if (oldOuterGeom) oldOuterGeom.dispose();
+    console.log('[render3d_bottom] carrier.glb loaded, combined bbox:', combinedBB);
   }, undefined, (err) => {
     console.warn('[render3d_bottom] carrier.glb load failed, keep placeholder:', err);
   });
@@ -681,6 +649,12 @@ function updateCarriers(columns, colorsArr) {
         dummy.updateMatrix();
         slotMesh.setMatrixAt(slotInstIdx, dummy.matrix);
         slotMesh.setColorAt(slotInstIdx, cSlot);
+        // v72.12: paralelní inner mesh — same matrix + same color, material × 0.4
+        const innerMesh = st.rowSlotInnerMeshes[rowIdx];
+        if (innerMesh) {
+          innerMesh.setMatrixAt(slotInstIdx, dummy.matrix);
+          innerMesh.setColorAt(slotInstIdx, cSlot);
+        }
         const oS = slotScale * OUTLINE_SCALE_SLOT;
         dummy.scale.set(oS, oS, oS);
         dummy.updateMatrix();
@@ -818,6 +792,12 @@ function updateCarriers(columns, colorsArr) {
     st.rowSlotMeshes[row].count = sCount;
     st.rowSlotMeshes[row].instanceMatrix.needsUpdate = true;
     if (st.rowSlotMeshes[row].instanceColor) st.rowSlotMeshes[row].instanceColor.needsUpdate = true;
+    // v72.12: inner mesh sync s outer (paralelní rendering pro depth illusion)
+    if (st.rowSlotInnerMeshes && st.rowSlotInnerMeshes[row]) {
+      st.rowSlotInnerMeshes[row].count = sCount;
+      st.rowSlotInnerMeshes[row].instanceMatrix.needsUpdate = true;
+      if (st.rowSlotInnerMeshes[row].instanceColor) st.rowSlotInnerMeshes[row].instanceColor.needsUpdate = true;
+    }
     st.rowSlotOutlineMeshes[row].count = sCount;
     st.rowSlotOutlineMeshes[row].instanceMatrix.needsUpdate = true;
     st.rowBallMeshes[row].count = bCount;
