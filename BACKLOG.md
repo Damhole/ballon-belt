@@ -258,6 +258,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v71.26 | `a560918` | 2026-05-12 | Fix double scaling ball offsets — offX/offY z SLOT_SIZE base units místo cr.width. Bug: offset se násobil 2× slotScale (cr.width × × slotScale) → balls při shrinku kolabovaly do středu kvadraticky. Po fixu: konstantní offset/radius ratio 0.82 napříč všemi velikostmi. |
 | v71.25 | `8b09f9c` | 2026-05-12 | Revert sphere segments (user: 'nebyl to ten problem') + ball offsets 0.21 → 0.18 cw/ch v 2×2 mřížce. Balls blíže k sobě, outline overlaps zvětšeny → jednotnější vzhled místo 4 separated balls. |
 | v71.24 | `aa86772` | 2026-05-12 | Sphere segments 24×16 → 32×24 pro všechny ball geoms (carrier/pending/belt). Fix 'rozdroben' outline rim při larger render size — inverted hull outline metoda kopíruje polygon segments na siluetě, low count = visible facets. (REVERTED v71.25) |
 | v71.23 | `84078ad` | 2026-05-12 | R_CARRIER 12 → 11 — carrier balls mírně menší v poměru k nosiči. Geometry × slotScale stále škáluje s velikostí nosiče (responsive z v71.11). Pending/belt balls (R_PENDING/R_BELT = 12) nedotčeny. |
