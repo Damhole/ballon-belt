@@ -258,6 +258,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v71.24 | `aa86772` | 2026-05-12 | Sphere segments 24×16 → 32×24 pro všechny ball geoms (carrier/pending/belt). Fix 'rozdroben' outline rim při larger render size — inverted hull outline metoda kopíruje polygon segments na siluetě, low count = visible facets. |
 | v71.23 | `84078ad` | 2026-05-12 | R_CARRIER 12 → 11 — carrier balls mírně menší v poměru k nosiči. Geometry × slotScale stále škáluje s velikostí nosiče (responsive z v71.11). Pending/belt balls (R_PENDING/R_BELT = 12) nedotčeny. |
 | v71.22 | `c24a80c` | 2026-05-12 | Parametric funnel — FUNNEL_3D konstanty v JS jako single source of truth, CSS vars (--funnel-deck-w/-slope-h/-narrow-half/-corner-r) nastavované z JS. Clip-path coords přes calc() proporčně. Behavior unchanged, foundation pro Tier 2 (measurement-based) a Tier 3 (per-level konfigurace). |
 | v71.21 | `7bc6ca9` | 2026-05-11 | Fix flicker při kliku + belt position bug. (1) Memoize _setAdaptiveCarrierSize na numRows+vh inputs — drawCarriers cascade už nereflow-uje. (2) bottom3d-canvas top via CSS calc(baseline + var(--game-top-extra)) — auto-follows padding change. |
