@@ -57,6 +57,7 @@ balloon-belt-gamee.zip   prod bundle (git-ignored, regeneruje se)
 3. Server: BB Editor (Ruby httpd) běží z `/tmp/ballon-belt` na port 8080. User ho má perzistentně, Claude neuruští.
 4. Browser test URL: `http://localhost:8080/gamee/index_local.html` (dev s debug overlay).
    Force refresh: Cmd+Shift+R.
+   - **Renderer mode** detekce v [game.js:54](gamee/js/game.js#L54): default je `3d`, `?renderer=2d` vynutí 2D fallback (pixel-canvas only). `?renderer=3d` je redundantní — neuvádět ho, plain URL stačí.
 
 **Pokud Claude upraví soubor, MUSÍ hned poté spustit sync krok (2)**, jinak prohlížeč uvidí starou verzi.
 
