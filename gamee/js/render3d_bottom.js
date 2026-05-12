@@ -299,13 +299,9 @@ function init() {
   st.renderer = renderer;
 
   // Sdílená geometrie pro koule (víc segmentů → hladší shading)
-  // Sphere segments (width × height) — outline metoda 'inverted hull' kopíruje
-  // segment boundaries na siluetě. Low segment count = viditelné polygony při
-  // large render size (v71.24 fix). 32×24 je sweet spot mezi smooth siluetou
-  // a tris count (~110 balls × 1536 tris = ~170k, modern GPU pohodlně zvládne).
-  const carrierGeom = new THREE.SphereGeometry(R_CARRIER, 32, 24);
-  const pendingGeom = new THREE.SphereGeometry(R_PENDING, 32, 24);
-  const beltGeom    = new THREE.SphereGeometry(R_BELT,    32, 24);
+  const carrierGeom = new THREE.SphereGeometry(R_CARRIER, 24, 16);
+  const pendingGeom = new THREE.SphereGeometry(R_PENDING, 18, 12);
+  const beltGeom    = new THREE.SphereGeometry(R_BELT,    24, 16);
 
   // Toon shader gradient — sdílený mezi všemi materiály
   const toonGrad = _makeToonGradient();
@@ -619,11 +615,14 @@ function updateCarriers(columns, colorsArr) {
       // Inactive carrier nemá koule — jen menší shell.
       if (!isActive) continue;
 
-      // Rozložení koulí: max 4 v 2×2 mřížce uvnitř slotu (per-row mesh)
+      // Rozložení koulí: max 4 v 2×2 mřížce uvnitř slotu (per-row mesh).
+      // v71.25: ofset 0.21 → 0.18 — balls blíže k sobě, jednotnější vzhled
+      // (outline overlaps mezi sousedními balls vytváří dark crosses na 0.21,
+      // nižší ofset balls visuálně merguje).
       const cw   = cr.width;
       const ch   = cr.height;
-      const offX = [-cw * 0.21, cw * 0.21];
-      const offY = [-ch * 0.21, ch * 0.21];
+      const offX = [-cw * 0.18, cw * 0.18];
+      const offY = [-ch * 0.18, ch * 0.18];
       const ballZ = SLOT_DEPTH / 2 + R_CARRIER * 0.25;
       const filled = _countFilled(slot.projectiles);
 
@@ -705,8 +704,8 @@ function updateCarriers(columns, colorsArr) {
       const ballScale = scale * (1 - ballFadeT);
       if (ballScale > 0.04) {
         _slotM.compose(_vec, _quat, dummy.scale.set(1, 1, 1));   // matrix bez scale pro pozici
-        const offX = [-anim.w * 0.21, anim.w * 0.21];
-        const offY = [-anim.h * 0.21, anim.h * 0.21];
+        const offX = [-anim.w * 0.18, anim.w * 0.18];   // v71.25: sync s main path
+        const offY = [-anim.h * 0.18, anim.h * 0.18];
         const ballZ = SLOT_DEPTH / 2 + R_CARRIER * 0.25;
         let bi = 0;
         outer: for (let row = 0; row < 2; row++) {
