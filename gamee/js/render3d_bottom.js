@@ -18,7 +18,14 @@ const BELT_TOTAL      = BELT_CAP * BELT_SPACING;                     // ~280
 const BELT_CENTER_CSS_Y = 32;  // (trackY1+trackY2)/2 = (18+46)/2
 
 // Poloměry koulí (3D) — sjednoceno, aby koule v carriers/trychtýři/belt měly stejnou velikost
-const R_CARRIER = 12;
+// Sphere radii — separate geometries pro každý kontext:
+// - R_CARRIER: balls uvnitř nosiče (2×2 grid). Geometry × slotScale → škáluje
+//   proporčně s velikostí nosiče. v71.23: 12 → 11 (mírně menší v poměru
+//   k nosiči — user intent).
+// - R_PENDING: balls ve funnelu. Scale 1, fixní velikost.
+// - R_BELT: balls na pásu. Scale 1, fixní velikost (= pending → consistent
+//   pohled při přechodu funnel → belt).
+const R_CARRIER = 11;
 const R_PENDING = 12;
 const R_BELT    = 12;
 
