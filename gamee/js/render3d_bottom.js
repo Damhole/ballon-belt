@@ -386,6 +386,38 @@ function init() {
     const bb = glbGeom.boundingBox;
     glbGeom.translate(-(bb.min.x+bb.max.x)/2, -(bb.min.y+bb.max.y)/2, -(bb.min.z+bb.max.z)/2);
     glbGeom.computeBoundingSphere();
+
+    // v72.0 (M8): depth illusion přes vertex colors. Per-vertex tint =
+    // 1 - innerness, kde innerness = topness × centerness. Top center
+    // = nejtmavší, edges/bottom = původní barva (instance color × 1.0).
+    // Algoritmus pracuje na centered souřadnicích (post-translate).
+    // Závisí na vertex density GLB modelu — pokud je low-poly, bude
+    // blocky a budeme muset přejít na možnost 2 (two material slots).
+    {
+      const _pos = glbGeom.attributes.position.array;
+      const _zRange = bb.max.z - bb.min.z;
+      const _hw = (bb.max.x - bb.min.x) / 2;
+      const _hh = (bb.max.y - bb.min.y) / 2;
+      const _halfZ = _zRange / 2;
+      const colorAttr = new Float32Array(_pos.length);
+      for (let i = 0; i < _pos.length; i += 3) {
+        const _x = _pos[i];          // post-translate: centered around 0
+        const _y = _pos[i + 1];
+        const _z = _pos[i + 2];
+        const topness = (_z + _halfZ) / _zRange;            // 0 = bottom, 1 = top
+        const fromCenter = Math.max(Math.abs(_x) / _hw, Math.abs(_y) / _hh);
+        // Inner well: top half (>0.55) AND inner area (fromCenter < ~0.85)
+        const innerness = Math.max(0, topness - 0.55) * 2.5 * Math.max(0, 1 - fromCenter - 0.15);
+        const tint = 1 - Math.min(0.55, innerness);
+        colorAttr[i]     = tint;
+        colorAttr[i + 1] = tint;
+        colorAttr[i + 2] = tint;
+      }
+      glbGeom.setAttribute('color', new THREE.BufferAttribute(colorAttr, 3));
+      slotMat.vertexColors = true;
+      slotMat.needsUpdate = true;
+    }
+
     // Hot-swap geometrie do všech row meshes + ghost mesh
     const oldMain = st.carrierSlotMesh.geometry;
     st.carrierSlotMesh.geometry = glbGeom;
