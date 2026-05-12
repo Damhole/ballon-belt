@@ -332,11 +332,10 @@ function init() {
          // side walls mají normal ~ (0.7, 0, 0.7) (≈45°). smoothstep(0.85,0.95)
          // zachytí jen téměř-flat top face, vyřadí bevels i side walls.
          // Bottom (normal.z < 0) zůstává neaffected díky max(0, ...).
-         // v72.7: GLB updated (no flat surface, all bevel). Top of curved
-         // surface má normal.z ~0.92-0.97, ne 1.0. Threshold uvolněn na
-         // 0.85-0.95 aby zachytil curved top peak, fade na bevels.
+         // v72.9: threshold zpět na nejvyšší (0.95-0.99) — user request,
+         // necháváme strict cutoff jen pro téměř flat top.
          float topFacing = max(0.0, vSlotNormal.z);
-         float innerness = smoothstep(0.85, 0.95, topFacing);
+         float innerness = smoothstep(0.95, 0.99, topFacing);
          diffuseColor.rgb *= mix(1.0, 0.40, innerness);
         `);
   };
