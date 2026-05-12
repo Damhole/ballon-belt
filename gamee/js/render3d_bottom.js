@@ -453,23 +453,16 @@ function init() {
   st.carrierSlotOutlineMesh.renderOrder = 139;
   contentGroup.add(st.carrierSlotOutlineMesh);
 
-  // v72.16: Walls — 3D obstacle boxes. v72.17: BoxGeometry (sharp edges)
-  // pro per-instance scaling (rounded by scaled would distort do oválů).
-  // Greedy rectangle decomposition v updateWalls() merge adjacent walls do
-  // jednoho boxu (monolith effect). Depth 18 (větší než SLOT_DEPTH=14)
-  // → walls vyčnívají nad carriery jako obstacle. Color z --carriers-3d-bg
-  // (theme aware, read each updateWalls call).
-  const wallGeom = new THREE.BoxGeometry(SLOT_SIZE, SLOT_SIZE, WALL_DEPTH);
-  const wallMat  = new THREE.MeshToonMaterial({ gradientMap: toonGrad });
-  st.wallMesh = new THREE.InstancedMesh(wallGeom, wallMat, MAX_WALL_INSTANCES);
-  st.wallMesh.count = 0;
-  st.wallMesh.frustumCulled = false;
-  st.wallMesh.renderOrder = 130;  // mezi carriers (100-114) a ghost (140)
-  contentGroup.add(st.wallMesh);
-  st.wallOutlineMesh = mkOutline(wallGeom, MAX_WALL_INSTANCES);
-  st.wallOutlineMesh.renderOrder = 129;
-  contentGroup.add(st.wallOutlineMesh);
-  st._wallMat = wallMat;  // ref pro update theme color
+  // v72.18: Walls — technique 3 (per-rect Mesh s custom RoundedBoxGeometry).
+  // Předchozí InstancedMesh + scale (v72.17) měl pravoúhlé hrany a oválné
+  // rounded corners by scaled. Teď generujeme samostatný Mesh per merged rect
+  // s exact dimensions → uniform corner radius napříč všemi velikostmi walls.
+  // Material shared (theme color), meshes recreated v každém updateWalls call.
+  const wallMat = new THREE.MeshToonMaterial({ gradientMap: toonGrad });
+  st._wallMat = wallMat;
+  st._wallContentGroup = contentGroup;  // ref pro dynamic mesh add/remove
+  st.wallMeshes = [];         // dynamically created Mesh (per rect)
+  st.wallOutlineMeshes = [];  // dynamically created outline Mesh (per rect)
 
   // Hot-swap slot geometry s GLB assetem (async — placeholder rendered do té doby).
   // Asset z Blenderu má 1m × 1m × 0.28m → scale 50× sjednotí na náš SLOT_SIZE.
@@ -1132,24 +1125,37 @@ function _decomposeWallsToRects(columns) {
   return rects;
 }
 
+function _disposeWallMeshes() {
+  for (const m of st.wallMeshes) {
+    if (st._wallContentGroup) st._wallContentGroup.remove(m);
+    if (m.geometry) m.geometry.dispose();
+  }
+  for (const m of st.wallOutlineMeshes) {
+    if (st._wallContentGroup) st._wallContentGroup.remove(m);
+    if (m.geometry) m.geometry.dispose();
+  }
+  st.wallMeshes.length = 0;
+  st.wallOutlineMeshes.length = 0;
+}
+
 function updateWalls(columns) {
-  if (!st.ready || !st.wallMesh) return;
-  // Theme color match
+  if (!st.ready || !st._wallMat) return;
+  // Theme color match — read --carriers-3d-bg z aktuálního theme
   const cs = getComputedStyle(document.body);
   const bgColor = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
   st._wallMat.color.set(bgColor);
+
+  // Dispose previous meshes (rect počty + dimensions se mění)
+  _disposeWallMeshes();
 
   const gridEl = document.getElementById('carriers-grid');
   if (!gridEl) return;
   const canvasRect = st.canvas.getBoundingClientRect();
   const colDivs = gridEl.querySelectorAll('.carrier-col');
-  const dummy = st._dummy;
 
   const rects = _decomposeWallsToRects(columns);
-  let instIdx = 0;
 
   for (const rect of rects) {
-    if (instIdx >= MAX_WALL_INSTANCES) break;
     if (!colDivs[rect.cStart] || !colDivs[rect.cEnd]) continue;
     const tlDivs = colDivs[rect.cStart].querySelectorAll('.carrier');
     const brDivs = colDivs[rect.cEnd].querySelectorAll('.carrier');
@@ -1160,7 +1166,7 @@ function updateWalls(columns) {
     const tlR = tlBlock.getBoundingClientRect();
     const brR = brBlock.getBoundingClientRect();
 
-    // Combined bounding box (zahrnuje gaps mezi cells)
+    // Combined dimensions (zahrnuje gaps mezi cells = visual monolith)
     const left   = tlR.left;
     const top    = tlR.top;
     const right  = brR.right;
@@ -1171,24 +1177,31 @@ function updateWalls(columns) {
     const yCSS = (top + bottom) / 2 - canvasRect.top;
     const xW = xCSS;
     const yW = _worldY(yCSS);
-    const scaleX = w / SLOT_SIZE;
-    const scaleY = h / SLOT_SIZE;
 
-    dummy.position.set(xW, yW, 0);
-    dummy.rotation.set(0, 0, 0);
-    dummy.scale.set(scaleX, scaleY, 1);   // Z stays 1 — wall depth unchanged
-    dummy.updateMatrix();
-    st.wallMesh.setMatrixAt(instIdx, dummy.matrix);
-    // Outline — proporční scale × OUTLINE_SCALE_SLOT
-    dummy.scale.set(scaleX * OUTLINE_SCALE_SLOT, scaleY * OUTLINE_SCALE_SLOT, OUTLINE_SCALE_SLOT);
-    dummy.updateMatrix();
-    st.wallOutlineMesh.setMatrixAt(instIdx, dummy.matrix);
-    instIdx++;
+    // Per-rect RoundedBox geometry s custom dimensions → uniform rounded
+    // corners regardless of rect size. Radius scales s menší dimenzí aby
+    // nevypadlo divně na úzkých / širokých rectech.
+    const minDim = Math.min(w, h);
+    const radius = Math.min(SLOT_RADIUS, minDim * 0.18);
+    const bevel  = Math.min(WALL_BEVEL, radius * 0.4);
+    const geo = _roundedBoxGeom(w, h, radius, WALL_DEPTH, bevel);
+
+    const mesh = new THREE.Mesh(geo, st._wallMat);
+    mesh.position.set(xW, yW, 0);
+    mesh.renderOrder = 130;
+    mesh.frustumCulled = false;
+    st._wallContentGroup.add(mesh);
+    st.wallMeshes.push(mesh);
+
+    // Outline: same geometry scaled OUTLINE_SCALE_SLOT (inverted hull)
+    const outMesh = new THREE.Mesh(geo, _outlineMat());
+    outMesh.position.set(xW, yW, 0);
+    outMesh.scale.set(OUTLINE_SCALE_SLOT, OUTLINE_SCALE_SLOT, OUTLINE_SCALE_SLOT);
+    outMesh.renderOrder = 129;
+    outMesh.frustumCulled = false;
+    st._wallContentGroup.add(outMesh);
+    st.wallOutlineMeshes.push(outMesh);
   }
-  st.wallMesh.count = instIdx;
-  st.wallMesh.instanceMatrix.needsUpdate = true;
-  st.wallOutlineMesh.count = instIdx;
-  st.wallOutlineMesh.instanceMatrix.needsUpdate = true;
 }
 
 // ─── Export ──────────────────────────────────────────────────────────────────
