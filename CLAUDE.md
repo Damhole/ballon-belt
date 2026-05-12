@@ -41,15 +41,29 @@ balloon-belt-gamee.zip   prod bundle (git-ignored, regeneruje se)
 
 ## Dev workflow
 
-1. Editace v `~/Documents/GitHub/ballon-belt/gamee/`
-2. **Sync do /tmp** (Ruby WEBrick přes Claude Code sandbox nemá TCC přístup do `~/Documents/`):
-   ```bash
-   rm -rf /tmp/gamee && cp -r ~/Documents/GitHub/ballon-belt/gamee /tmp/gamee
-   ```
-3. Server: `preview_start` s konfigurací `Balloon Belt` (Ruby httpd na `/tmp` port 8080)
-4. Browser: `http://localhost:8080/gamee/index_local.html`
+**Aktuální setup (2026-05+, aktualizováno z reálné praxe):**
 
-Pokud Claude upraví soubor, **musí hned poté spustit sync krok (2)**, jinak prohlížeč uvidí starou verzi.
+1. Editace v jednom z těchto míst:
+   - **Worktree** (běžné během session): `/Users/denishrazdira/CodeProjects/ballon-belt/.claude/worktrees/<branch-name>/gamee/`
+   - **Main repo**: `/Users/denishrazdira/CodeProjects/ballon-belt/gamee/`
+2. **Sync do `/tmp/ballon-belt/gamee/`** (Ruby WEBrick servíruje z `/tmp/ballon-belt`):
+   ```bash
+   # Z worktree:
+   rm -rf /tmp/ballon-belt/gamee && cp -r /Users/denishrazdira/CodeProjects/ballon-belt/.claude/worktrees/<branch>/gamee /tmp/ballon-belt/gamee
+
+   # Z main repa:
+   rm -rf /tmp/ballon-belt/gamee && cp -r /Users/denishrazdira/CodeProjects/ballon-belt/gamee /tmp/ballon-belt/gamee
+   ```
+3. Server: BB Editor (Ruby httpd) běží z `/tmp/ballon-belt` na port 8080. User ho má perzistentně, Claude neuruští.
+4. Browser test URL: `http://localhost:8080/gamee/index_local.html` (dev s debug overlay).
+   Force refresh: Cmd+Shift+R.
+
+**Pokud Claude upraví soubor, MUSÍ hned poté spustit sync krok (2)**, jinak prohlížeč uvidí starou verzi.
+
+**Common bugs:**
+- „Vidím starou verzi" → buď sync neproběhl, nebo browser cache. Ověř datum souboru v `/tmp/ballon-belt/gamee/js/game.js` (`ls -la`) a porovnej s repo.
+- Server 500 errors → cílový adresář musí být v `/tmp`. Ruby WEBrick v Claude Code sandboxu nemá TCC přístup do `~/Documents/` ani `~/CodeProjects/` přímo. Proto sync do `/tmp/ballon-belt/`.
+- Preview Panel v Claude Code (Live Preview) neumí load Three.js ES modulů → 3D scéna nezobrazuje. **Test 3D vždy na `localhost:8080`**, ne v Preview panelu.
 
 ## Post-commit checklist (VŽDY po commitu bumpnout verzi + zápis do backlogu)
 
