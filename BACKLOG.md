@@ -25,10 +25,11 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | M6 | 2.5D upgrade | v69–v70.11 | ✅ | Three.js, 3D pixely/bloky/projektily/carriers/belt, 10 témat |
 | M7 | Responsive + rows | v71.0–21 | ✅ | Adaptive carriers (38–54 px), 7 řad, 3D mesh sync s 2D, iOS safe area, PWA, touch fix |
 | M8 | Sjednocený 3D grid | v72+ | 📋 | Všechny grid prvky (empty/hidden/wall) jako 3D meshes pro vizuální konzistenci. Falling animation při kliku. |
-| M9 | Replay & scrub | v73+ | 📋 | Curve editor Úr. 1.5 — timeline scrubber, mini canvas, .webm export |
-| M10 | Editor polish | future | 💡 | Copy/paste bloků, multi-select, playtester mode, vizuální garáž |
-| M11 | Gameplay | future | 💡 | Adaptivní obtížnost, procedurální levely |
-| M12 | Variable image grid | future | 💡 | Zjemnění sítě obrázku — variabilní pixel resolution, sub-pixel detail, mid-game refinement |
+| M9 | 3D vizuál: image + BG + funnel | v73+ | 📋 | Finální 3D vizuální polish — pixel image area depth/highlights, background atmosphere/depth, jeden trvalý tvar funnelu (FUNNEL_3D z v71.22). |
+| M10 | Replay & scrub | v74+ | 📋 | Curve editor Úr. 1.5 — timeline scrubber, mini canvas, .webm export |
+| M11 | Editor polish | future | 💡 | Copy/paste bloků, multi-select, playtester mode, vizuální garáž |
+| M12 | Gameplay | future | 💡 | Adaptivní obtížnost, procedurální levely |
+| M13 | Variable image grid | future | 💡 | Zjemnění sítě obrázku — variabilní pixel resolution, sub-pixel detail, mid-game refinement |
 
 ---
 
@@ -58,7 +59,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 
 ### Otevřené body z M7 (přesunuto)
 - **Sizing pro <320 px** → polish inbox (meta viewport=460 už škáluje, nezkoušeno pod 320)
-- **Image area scaling** → součást M12 (variable image grid) — schválně skipnuto v M7
+- **Image area scaling** → součást M13 (variable image grid) — schválně skipnuto v M7
 - **Belt SVG scale** → already in 3D canvas (auto-followuje)
 
 ---
@@ -90,11 +91,51 @@ Plus tooling pro „**falling animation**" při kliku — koule vypadávají z n
 
 **Riziko:** víc instanced meshes per row → memory/perf check. Současné max 80 carrier slots × 4 typy = 320 instancí na řadu × 7 řad = ~2240 instancí. Měl by stíhat (Three.js zvládá 10000+).
 
-### M9: Replay & scrub — Curve editor Úr. 1.5 (v73+)
+### M9: 3D vizuál — image + BG + funnel finalization (v73+)
+
+**Východisko (po M8):** 3D grid v bottom decku bude vizuálně konzistentní. Image area + BG ale zůstává v "hybridním" stavu z M6 — pixel-canvas (2D) + three-canvas (3D pixely) + block-overlay-canvas (HP). Plus BG je jen CSS gradient přes theme tokeny.
+
+**Cíl M9:** dokončit celkový 3D vizuální dojem hry. Po M9 by hra měla vypadat jako jeden coherent 3D scenérie shora dolů.
+
+**Klíčové oblasti:**
+
+1. **Pixel image area depth**
+   - Vyhodnotit jestli pixel-canvas (2D) má smysl udržovat vedle three-canvas, nebo plně přejít na 3D scénu
+   - Pixel highlights / lesk / depth shadows mezi pixely
+   - Polish destroy animací (shatter, fade, glow trails)
+   - Block 3D rendering refresh — momentálně block-overlay-canvas dělá HP overlay, vyzkoušet jestli 3D block geometry je dostatečně čitelná
+
+2. **Background / atmosphere**
+   - Současný stav: CSS gradient `--bg-3d-top → --bg-3d-bottom` per téma
+   - Možnosti:
+     - 3D depth (parallax pozadí pod hrou)
+     - Animated theme (slow gradient flow, atmosphere shift)
+     - Ambient particles (sparkles, snow, dust)
+     - Skybox / box illusion
+     - Theme finalization — momentálně 10 témat, vybrat 3–5 "default" pro production
+
+3. **Funnel finalization** — z v71.22 user note (12.5.2026):
+   > "Při finálním dotváření BG se zřejmě nastaví jeden trvalý tvar funnelu."
+
+   Tier 1 parametric foundation (v71.22) je ready. Stačí nastavit finální hodnoty v `FUNNEL_3D` konstanty v `game.js` (cca ř. 5920) — CSS clip-path + FUN physics se propagují automaticky. Tier 2/3 (measurement-based / per-level) se nedělají, viz polish inbox.
+
+4. **Image area aspect ratio** (resp z M7 closeout) — image-area v 3D mode 420×362 vs 360×310 base. Reconsider při BG finalization jestli má smysl měnit pro různé viewports.
+
+**Závislosti:**
+- Po **M8** — 3D grid sjednoceno → vizuální baseline jasný
+- Před **M13** (variable image grid) — M13 staví nad M9, image rendering musí být stabilní
+- Souběžně s **theme cleanup** — výběr finálních themes pro production
+
+**Anti-scope:**
+- Mid-game image refinement (= M13)
+- Replay export (= M10)
+- Gameplay tuning (= M12)
+
+### M10: Replay & scrub — Curve editor Úr. 1.5 (v74+)
 
 Nad existujícím Curve panelem (v63) přidat: `(c, r)` carrieru do history, pixel diff per krok, mini canvas gridy, timeline scrubber, play kontrolér, .webm export. Viz [deep dive →](#deep-dive-difficulty-curve-editor-úr-15-replay--scrub)
 
-### M12: Variable image grid — zjemnění sítě obrázku (future)
+### M13: Variable image grid — zjemnění sítě obrázku (future)
 
 **Východisko:** image area má dnes pevný pixel grid (GW × IMG_GH). Každý level se vykresluje na stejné rozlišení. To omezuje:
 - **Detail** — malé obličejové rysy se ztrácí, gradient přechody jsou hrubé
@@ -114,7 +155,7 @@ Nad existujícím Curve panelem (v63) přidat: `(c, r)` carrieru do history, pix
 - Difficulty curve editor by musel respektovat resolution
 - Solver hierarchy (M4) by se musela přepočítat
 
-**Závislosti:** ideálně po M8 (3D grid sjednoceno) — pak je jasné jaký je vizuální baseline. Před M11 (adaptivní obtížnost) — protože image grid je další knob pro tuning.
+**Závislosti:** ideálně po M9 (3D vizuál image + BG hotový) — image rendering musí být stabilní baseline před zjemněním sítě. Před M12 (adaptivní obtížnost) — image grid je další knob pro tuning.
 
 ---
 
@@ -184,6 +225,10 @@ se zřejmě nastaví **jeden trvalý tvar funnelu**. To znamená, že Tier 1
 (parametric foundation) **už stačí** — finální design se jen propíše do
 `FUNNEL_3D` konstant v `game.js` a tím to bude. Tier 2/3 níže jsou tedy
 spekulativní možnosti, pravděpodobně se nikdy nedělají.
+
+**📍 Naplánováno pro:** M9 (3D vizuál — image + BG + funnel finalization).
+Funnel finalization je explicitní součást M9 jako bod 3 (souběžně s BG
+finalization). Viz Plánováno → M9.
 
 **Současný stav (Tier 1, v71.22):** Funnel rozměry parametrické přes JS
 `FUNNEL_3D` konstanty + CSS vars (`--funnel-deck-w`, `--funnel-slope-h`,
