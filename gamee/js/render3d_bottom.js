@@ -1121,7 +1121,9 @@ function _findWallComponents(columns) {
 }
 
 function _buildComponentPolygon(cells, colDivs, halfRowGap, halfColGap) {
-  // Build cell rect map + inflated rect (gaps included where adjacent in component)
+  // Trace v grid-coords (integer korner pozice → vždy matchují, no sub-pixel
+  // bugs). Pak konvert na CSS pozice přes helper. Inside corners (concave)
+  // se umístí na midpoint mezi cells — žádné gap-induced trace failures.
   const cellRects = new Map();
   for (const [c, r] of cells) {
     if (!colDivs[c]) continue;
@@ -1133,41 +1135,65 @@ function _buildComponentPolygon(cells, colDivs, halfRowGap, halfColGap) {
   }
   if (cellRects.size === 0) return null;
   const hasCell = (c, r) => cellRects.has(c + ',' + r);
-  const inflated = new Map();
-  for (const [key, info] of cellRects) {
-    const { c, r, rect } = info;
-    inflated.set(key, {
-      c, r,
-      top:    rect.top    - (hasCell(c, r - 1) ? halfRowGap : 0),
-      right:  rect.right  + (hasCell(c + 1, r) ? halfColGap : 0),
-      bottom: rect.bottom + (hasCell(c, r + 1) ? halfRowGap : 0),
-      left:   rect.left   - (hasCell(c - 1, r) ? halfColGap : 0),
-    });
-  }
-  // Boundary edges (clockwise) — only outer edges
+
+  // Boundary edges v grid-coords (clockwise). Korner = grid intersection.
+  // Cell (c, r) zabírá grid square (c, r) → (c+1, r+1).
   const edges = [];
-  for (const [, info] of inflated) {
-    const { c, r, top, right, bottom, left } = info;
-    if (!hasCell(c, r - 1)) edges.push({ from: [left,  top],    to: [right, top]    });
-    if (!hasCell(c + 1, r)) edges.push({ from: [right, top],    to: [right, bottom] });
-    if (!hasCell(c, r + 1)) edges.push({ from: [right, bottom], to: [left,  bottom] });
-    if (!hasCell(c - 1, r)) edges.push({ from: [left,  bottom], to: [left,  top]    });
+  for (const [c, r] of cells) {
+    if (!hasCell(c, r - 1)) edges.push({ from: [c,   r  ], to: [c+1, r  ] });   // top →
+    if (!hasCell(c + 1, r)) edges.push({ from: [c+1, r  ], to: [c+1, r+1] });   // right ↓
+    if (!hasCell(c, r + 1)) edges.push({ from: [c+1, r+1], to: [c,   r+1] });   // bottom ←
+    if (!hasCell(c - 1, r)) edges.push({ from: [c,   r+1], to: [c,   r  ] });   // left ↑
   }
   if (edges.length === 0) return null;
-  // Trace polygon: from->to chains, sub-px rounded for key matching
-  const k = p => Math.round(p[0]) + ',' + Math.round(p[1]);
+
+  // Trace — at concave corners 2 edges meet, edgeMap picks first one added.
+  // For grid coord exact match works regardless of pixel rounding.
+  const k = p => p[0] + ',' + p[1];
   const edgeMap = new Map();
   for (const e of edges) edgeMap.set(k(e.from), e);
   const start = edges[0];
-  const polygon = [start.from.slice()];
+  const gridPoly = [start.from.slice()];
   let current = start;
-  for (let i = 0; i < edges.length + 4; i++) {  // +4 safety
-    polygon.push(current.to.slice());
+  for (let i = 0; i < edges.length + 4; i++) {
+    gridPoly.push(current.to.slice());
     const next = edgeMap.get(k(current.to));
     if (!next || next === start) break;
     current = next;
   }
-  return polygon;
+
+  // Convert grid corners → CSS pozice. Pro každý korner (gc, gr) zjisti
+  // pozici z okolních cells. Inside-of-component corners používají midpoint
+  // mezi sousedními cells (gaps include).
+  function cornerCSS(gc, gr) {
+    const cTL = cellRects.get(gc + ',' + gr);              // BR ← bottom-right cell relativní k cornu
+    const cTR = cellRects.get((gc-1) + ',' + gr);          // BL
+    const cBL = cellRects.get(gc + ',' + (gr-1));          // TR
+    const cBR = cellRects.get((gc-1) + ',' + (gr-1));      // TL
+    let x, y;
+    // X
+    if (cTL && cTR)      x = (cTR.rect.right + cTL.rect.left) / 2;
+    else if (cBL && cBR) x = (cBR.rect.right + cBL.rect.left) / 2;
+    else if (cTL || cBL) x = (cTL || cBL).rect.left;
+    else if (cTR || cBR) x = (cTR || cBR).rect.right;
+    else return null;
+    // Y
+    if (cTL && cBL)      y = (cBL.rect.bottom + cTL.rect.top) / 2;
+    else if (cTR && cBR) y = (cBR.rect.bottom + cTR.rect.top) / 2;
+    else if (cTL || cTR) y = (cTL || cTR).rect.top;
+    else if (cBL || cBR) y = (cBL || cBR).rect.bottom;
+    else return null;
+    return [x, y];
+  }
+
+  const cssPoly = [];
+  for (const [gc, gr] of gridPoly) {
+    const p = cornerCSS(gc, gr);
+    if (!p) continue;
+    cssPoly.push(p);
+  }
+  if (cssPoly.length < 3) return null;
+  return cssPoly;
 }
 
 function _disposeWallMeshes() {
