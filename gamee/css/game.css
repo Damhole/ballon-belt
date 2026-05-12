@@ -395,44 +395,55 @@ body.renderer-3d #belt-wrap {
 
 /* PENDING + CARRIERS — sjednocené ve tvaru trychtýře (funnel).
    Wrapper #bottom-deck (vytvořený JSem) obaluje pending+carriers jako jeden
-   shape. Aggressive V-shape funnel — kopíruje gray V-lines z pending-canvasu.
-   Top wider (420px) → diagonálně sbíhá inward k narrow waist (240px) přibližně
-   ve výšce pending bottom → expanduje zpět na 360px carriers width.
-   Polygon body sledují gray V-line direction (steeper angle). */
+   shape. v71.22: parametrické — všechny rozměry přes CSS vars (--funnel-*).
+   JS (FUNNEL_3D konstanty v game.js) tyhle vars nastavuje při FUN init,
+   takže CSS clip-path a JS physics FUN coords jsou v sync ze single source.
+
+   Vars (defaulty zde, ale JS je přepisuje):
+     --funnel-deck-w        420px  Šířka deck wrapperu
+     --funnel-slope-h       44px   Vertikální extent diagonálního sbíhání
+     --funnel-narrow-half   90px   Polovina šířky narrow top opening
+     --funnel-corner-r      18px   Poloměr zaoblení rohů
+*/
+body.renderer-3d {
+  --funnel-deck-w: 420px;
+  --funnel-slope-h: 44px;
+  --funnel-narrow-half: 90px;
+  --funnel-corner-r: 18px;
+}
 body.renderer-3d #bottom-deck {
   background: var(--carriers-3d-bg);
-  width: 420px;
+  width: var(--funnel-deck-w);
   margin-left: auto;
   margin-right: auto;
   align-self: center;
-  /* Narrow top „spice" → expanduje diagonálně k FULL 420px bottom (carriers
-     dostane 30px padding na sides, neexponují se ke zdím panelu).
-     Polygon má vícebodů kolem rohů → simulované rounded corners. */
+  /* Narrow top „spice" → expanduje diagonálně k FULL bottom. Polygon má více
+     bodů kolem rohů → simulované rounded corners. Coords parametrické přes
+     calc() + CSS vars. Diagonal intermediate body proporčně k slope-h. */
   clip-path: polygon(
-    /* TOP narrow center (210px wide), simulované zaoblení horních rohů.
-       v71.6: funnel slope Y zhruba na půl (88→44), kratší vizuál. */
-    115px 3px,
-    120px 0,
-    300px 0,
-    305px 3px,
-    /* Diagonal smoothly expanding outward */
-    370px 25px,
-    410px 37px,
-    420px 44px,
+    /* TOP narrow center, simulované zaoblení horních rohů */
+    calc(50% - var(--funnel-narrow-half) - 5px) 3px,
+    calc(50% - var(--funnel-narrow-half)) 0,
+    calc(50% + var(--funnel-narrow-half)) 0,
+    calc(50% + var(--funnel-narrow-half) + 5px) 3px,
+    /* Diagonal smoothly expanding outward (proporčně k slope-h) */
+    calc(100% - 50px) calc(var(--funnel-slope-h) * 0.568),
+    calc(100% - 10px) calc(var(--funnel-slope-h) * 0.841),
+    100% var(--funnel-slope-h),
     /* Right side down with rounded bottom corner */
-    420px calc(100% - 18px),
-    416px calc(100% - 6px),
-    402px 100%,
+    100% calc(100% - var(--funnel-corner-r)),
+    calc(100% - 4px) calc(100% - 6px),
+    calc(100% - var(--funnel-corner-r)) 100%,
     /* Bottom edge */
-    18px 100%,
+    var(--funnel-corner-r) 100%,
     4px calc(100% - 6px),
-    0 calc(100% - 18px),
+    0 calc(100% - var(--funnel-corner-r)),
     /* Left side up */
-    0 44px,
-    10px 37px,
-    50px 25px,
+    0 var(--funnel-slope-h),
+    10px calc(var(--funnel-slope-h) * 0.841),
+    50px calc(var(--funnel-slope-h) * 0.568),
     /* Left diagonal back to top */
-    115px 3px
+    calc(50% - var(--funnel-narrow-half) - 5px) 3px
   );
   box-shadow:
     inset 0 8px 16px rgba(0, 0, 0, 0.50),

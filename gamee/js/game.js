@@ -1205,7 +1205,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v71.21');
+          gamee.updateScore(score,playTime,'balloon-belt-v71.22');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5925,16 +5925,36 @@ const FUN={w:360,h:90,narrowY:14,wideY:82,narrowL:150,narrowR:210,wideL:10,wideR
 // 2) collider stěny kopírovaly bottom-deck shape (top-narrow → slope → vertical),
 //    ne V trojúhelník.
 // Pending-canvas (360×90) zůstává — drawPending v 3D je hidden, clipping nevadí.
-if(RENDERER_MODE==='3d'){
-  FUN.w=420;            // = bottom-deck width (full canvas width)
-  FUN.h=360;            // y od beltu po dno carriers
-  FUN.narrowY=14;
-  FUN.wideY=346;        // ~ h - 14 (zrcadlí narrowY)
-  FUN.narrowL=150;      // top-opening levá strana (užší než clip-path → tightnější hrdlo)
-  FUN.narrowR=270;      // top-opening pravá strana
-  FUN.wideL=0;          // levá vertikální stěna
-  FUN.wideR=420;        // pravá vertikální stěna
-  FUN.slopeEndY=44;     // y kde slope končí a začíná vertikální (kopíruje clip-path 0,44 — v71.6)
+//
+// v71.22: parametrický refactor — všechny rozměry funnelu z FUNNEL_3D konstant
+// (single source of truth). FUN physics coords + CSS clip-path vars se obě
+// odvodí odsud. Změna jedné hodnoty propaguje do CSS i fyziky automaticky.
+const FUNNEL_3D = {
+  deckW:             420,  // = #bottom-deck CSS width (full canvas width)
+  fullH:             360,  // FUN.h: y od beltu po dno carriers
+  narrowY:           14,   // Top opening Y offset (gap mezi belt a funnel top)
+  slopeEndY:         44,   // Kde diagonal slope končí, začíná vertikální (CSS+JS sync)
+  visualNarrowHalf:  90,   // CSS clip-path: ½ šířky narrow top opening (visual)
+  physicsNarrowHalf: 60,   // FUN.narrow: ½ šířky narrow opening (užší než visual → tightnější hrdlo pro fyziku)
+  cornerR:           18,   // CSS clip-path: poloměr rounded corners
+};
+if (RENDERER_MODE === '3d') {
+  const _F = FUNNEL_3D;
+  FUN.w = _F.deckW;
+  FUN.h = _F.fullH;
+  FUN.narrowY = _F.narrowY;
+  FUN.wideY = _F.fullH - _F.narrowY;                  // ~ h - narrowY (zrcadlí top offset)
+  FUN.narrowL = (_F.deckW / 2) - _F.physicsNarrowHalf;
+  FUN.narrowR = (_F.deckW / 2) + _F.physicsNarrowHalf;
+  FUN.wideL = 0;
+  FUN.wideR = _F.deckW;
+  FUN.slopeEndY = _F.slopeEndY;
+  // Sync CSS vars — clip-path v game.css je čte přes calc()
+  const _rs = document.documentElement.style;
+  _rs.setProperty('--funnel-deck-w',       _F.deckW + 'px');
+  _rs.setProperty('--funnel-slope-h',      _F.slopeEndY + 'px');
+  _rs.setProperty('--funnel-narrow-half',  _F.visualNarrowHalf + 'px');
+  _rs.setProperty('--funnel-corner-r',     _F.cornerR + 'px');
 }
 window.FUN=FUN;  // export pro render3d_bottom (modul nemá přístup ke globalu z classic skriptu)
 function addToPending(ball,spawnX,spawnY){
@@ -6275,7 +6295,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v71.21');
+    gamee.updateScore(score,playTime,'balloon-belt-v71.22');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6403,7 +6423,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v71.21');
+  gamee.updateScore(score,playTime,'balloon-belt-v71.22');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7233,7 +7253,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v71.21');
+      gamee.updateScore(score,playTime,'balloon-belt-v71.22');
       event.detail.callback();
     });
 
