@@ -513,9 +513,12 @@ body.renderer-3d #carriers-label {
 /* Carriers: zachovat jejich vlastní dark inset look (cbox má svoje box-shadow),
    jen lehce vylepšit recessed slot iluzi přes background panelu výše. */
 
-/* Walls v 3D — match deep purple carriers BG, ať lépe splývají */
+/* Walls v 3D — 2D .wall-block skryté, 3D mesh ho nahradí (v72.16).
+   visibility:hidden zachová layout aby getBoundingClientRect dal správnou
+   pozici pro 3D wall placement. */
 body.renderer-3d .wall-block {
   background: rgba(20, 5, 35, 0.55);
+  visibility: hidden;
 }
 
 /* render3d_bottom: 2D elementy skryté za 3D canvasem (z-index:2 canvas je překrývá).

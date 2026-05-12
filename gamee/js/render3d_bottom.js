@@ -48,6 +48,12 @@ const MAX_CARRIER_BALLS = 300;
 const MAX_CARRIER_SLOTS = 80;
 const MAX_PENDING       = 30;
 
+// Walls — v72.16. Per-cell 3D box, color matched s --carriers-3d-bg.
+// Depth mírně vyšší než SLOT_DEPTH → walls vyčnívají jako obstacle.
+const WALL_DEPTH         = 18;
+const WALL_BEVEL         = 1.2;
+const MAX_WALL_INSTANCES = 50;
+
 // ─── Stav scény ──────────────────────────────────────────────────────────────
 const st = {
   scene:        null,
@@ -446,6 +452,21 @@ function init() {
   st.carrierSlotOutlineMesh = mkOutline(slotGeom, MAX_CARRIER_SLOTS);
   st.carrierSlotOutlineMesh.renderOrder = 139;
   contentGroup.add(st.carrierSlotOutlineMesh);
+
+  // v72.16: Walls — per-cell 3D obstacle boxes. RoundedBox geometry, depth 18
+  // (větší než SLOT_DEPTH=14 → walls poke up nad carriery jako obstacle).
+  // Material color set dynamically z --carriers-3d-bg (theme aware).
+  const wallGeom = _roundedBoxGeom(SLOT_SIZE, SLOT_SIZE, SLOT_RADIUS, WALL_DEPTH, WALL_BEVEL);
+  const wallMat  = new THREE.MeshToonMaterial({ gradientMap: toonGrad });
+  st.wallMesh = new THREE.InstancedMesh(wallGeom, wallMat, MAX_WALL_INSTANCES);
+  st.wallMesh.count = 0;
+  st.wallMesh.frustumCulled = false;
+  st.wallMesh.renderOrder = 130;  // mezi carriers (100-114) a ghost (140)
+  contentGroup.add(st.wallMesh);
+  st.wallOutlineMesh = mkOutline(wallGeom, MAX_WALL_INSTANCES);
+  st.wallOutlineMesh.renderOrder = 129;
+  contentGroup.add(st.wallOutlineMesh);
+  st._wallMat = wallMat;  // ref pro update theme color
 
   // Hot-swap slot geometry s GLB assetem (async — placeholder rendered do té doby).
   // Asset z Blenderu má 1m × 1m × 0.28m → scale 50× sjednotí na náš SLOT_SIZE.
@@ -1058,7 +1079,63 @@ function dispose() {
   st.ready = false;
 }
 
+// ─── updateWalls (v72.16) ────────────────────────────────────────────────────
+// Per-cell 3D walls. Iteruje columns, najde wall cells, set matrix na wallMesh.
+// Color match s --carriers-3d-bg (theme-aware, read each call). Žádné merging
+// yet — adjacent walls budou separated boxes. Merging = v72.17.
+
+function updateWalls(columns) {
+  if (!st.ready || !st.wallMesh) return;
+  // Theme color match
+  const cs = getComputedStyle(document.body);
+  const bgColor = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
+  st._wallMat.color.set(bgColor);
+
+  const gridEl = document.getElementById('carriers-grid');
+  if (!gridEl) return;
+  const canvasRect = st.canvas.getBoundingClientRect();
+  const colDivs = gridEl.querySelectorAll('.carrier-col');
+  const dummy = st._dummy;
+  let instIdx = 0;
+
+  for (let c = 0; c < colDivs.length && c < columns.length; c++) {
+    const col = columns[c];
+    const slotDivs = colDivs[c].querySelectorAll('.carrier');
+    for (let r = 0; r < slotDivs.length && r < col.length; r++) {
+      const slot = col[r];
+      if (!slot || slot.wall !== true) continue;
+      if (instIdx >= MAX_WALL_INSTANCES) break;
+
+      // Position from wall-block (= cell content area). Match s cbox sizing.
+      const wb = slotDivs[r].querySelector('.wall-block');
+      if (!wb) continue;
+      const cr = wb.getBoundingClientRect();
+      const xCSS = cr.left + cr.width  / 2 - canvasRect.left;
+      const yCSS = cr.top  + cr.height / 2 - canvasRect.top;
+      const xW = xCSS;
+      const yW = _worldY(yCSS);
+      const scale = cr.width / SLOT_SIZE;
+
+      dummy.position.set(xW, yW, 0);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(scale, scale, scale);
+      dummy.updateMatrix();
+      st.wallMesh.setMatrixAt(instIdx, dummy.matrix);
+      // Outline (slot scale)
+      const oS = scale * OUTLINE_SCALE_SLOT;
+      dummy.scale.set(oS, oS, oS);
+      dummy.updateMatrix();
+      st.wallOutlineMesh.setMatrixAt(instIdx, dummy.matrix);
+      instIdx++;
+    }
+  }
+  st.wallMesh.count = instIdx;
+  st.wallMesh.instanceMatrix.needsUpdate = true;
+  st.wallOutlineMesh.count = instIdx;
+  st.wallOutlineMesh.instanceMatrix.needsUpdate = true;
+}
+
 // ─── Export ──────────────────────────────────────────────────────────────────
 
-window.render3dBottom = { init, updateCarriers, updatePending, updateBelt, triggerCarrierFire, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose };
+window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose };
 window._r3dBState = st;  // debug
