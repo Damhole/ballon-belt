@@ -258,7 +258,8 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
-| v72.0 | `3f24949` | 2026-05-12 | **M8 start** — depth illusion na carrier slots přes vertex colors (option 1). Per-vertex tint po GLB load: top center 0.45 (darker), edges/bottom 1.0. slotMat.vertexColors=true násobí instance color × tint. Outline mat neaffectován. Pokud blocky → option 2 (user 2-material GLB). |
+| v72.1 | `a6e6d52` | 2026-05-12 | Depth illusion via shader injection — vertex color approach z v72.0 user 'neviděl'. Switch na per-fragment darkening v slotMat.onBeforeCompile (object-space vSlotLocal varying). Funguje regardless of GLB vertex density. Stronger contrast (0.40 min, threshold 0.40). |
+| v72.0 | `3f24949` | 2026-05-12 | **M8 start** — depth illusion na carrier slots přes vertex colors (option 1). Per-vertex tint po GLB load: top center 0.45 (darker), edges/bottom 1.0. slotMat.vertexColors=true násobí instance color × tint. Outline mat neaffectován. (REPLACED v72.1 — vertex colors nešly vidět, vergeben shader injection) |
 | v71.27 | `0bfb7b1` | 2026-05-12 | Ball offset faktor 0.18 → 0.195 — dorovnat v71.25 vzhled spacingu při 54 carrier (po v71.26 base-unit fixu balls 1.56 px blíže). Final offset @ 54 = 10.53 (vs 10.50 původně). |
 | v71.26 | `a560918` | 2026-05-12 | Fix double scaling ball offsets — offX/offY z SLOT_SIZE base units místo cr.width. Bug: offset se násobil 2× slotScale (cr.width × × slotScale) → balls při shrinku kolabovaly do středu kvadraticky. Po fixu: konstantní offset/radius ratio 0.82 napříč všemi velikostmi. |
 | v71.25 | `8b09f9c` | 2026-05-12 | Revert sphere segments (user: 'nebyl to ten problem') + ball offsets 0.21 → 0.18 cw/ch v 2×2 mřížce. Balls blíže k sobě, outline overlaps zvětšeny → jednotnější vzhled místo 4 separated balls. |
