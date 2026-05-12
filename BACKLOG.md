@@ -177,6 +177,36 @@ _Sem házej cokoliv co tě napadne. Při příští session to roztřídíme._
 - **Test <320 px viewport** — meta viewport=460 už škáluje pro velmi malé displeje, ale nezkoušeno do hloubky. Pokud někdo opravdu testuje na Galaxy Fold (280 css) → ověřit.
 - **Gamee SDK haptic capability** — monitorovat changelog, kdyby přidali (v71.16 byl ready Android-only haptic, v71.17 reverted kvůli iOS missing). Pokud Gamee přidá native bridge → re-enable.
 
+### 🌀 Funnel evolution (z v71.22 parametric refactor)
+
+**🎨 Note od user (2026-05-12):** Při finálním dotváření BG (background)
+se zřejmě nastaví **jeden trvalý tvar funnelu**. To znamená, že Tier 1
+(parametric foundation) **už stačí** — finální design se jen propíše do
+`FUNNEL_3D` konstant v `game.js` a tím to bude. Tier 2/3 níže jsou tedy
+spekulativní možnosti, pravděpodobně se nikdy nedělají.
+
+**Současný stav (Tier 1, v71.22):** Funnel rozměry parametrické přes JS
+`FUNNEL_3D` konstanty + CSS vars (`--funnel-deck-w`, `--funnel-slope-h`,
+`--funnel-narrow-half`, `--funnel-corner-r`). Single source of truth —
+změna jedné hodnoty propaguje do CSS clip-path i fyziky FUN coords.
+Diagonal intermediate body proporčně k slope-h. Behavior unchanged
+vůči pre-v71.22.
+
+**Tier 2 — measurement-based** (~1–2h práce, spekulativní)
+JS by při init měřil belt-svg width + pending-canvas height a počítal
+funnel rozměry z toho. Když by se belt změnil na 320 px nebo pending
+na 70 px, funnel by se automaticky adaptoval. Užitečné pokud bychom
+měli variabilní belt/pending velikosti — což zatím nemáme v plánu.
+
+**Tier 3 — per-level funnel** (větší práce, spekulativní)
+LEVELS data by mohlo deklarovat custom funnel shape pro daný level:
+```js
+{ name: 'tvary', funnel: { slopeEndY: 60, narrowHalf: 70 }, ... }
+```
+Designer by experimentoval s tvarem per level. Hodí se pokud bychom
+chtěli, aby měly těžké levely jiný funnel než snadné (gameplay variací).
+Pravděpodobně nebude potřeba, viz user note výše.
+
 ---
 
 ## ✅ Historie commitů
