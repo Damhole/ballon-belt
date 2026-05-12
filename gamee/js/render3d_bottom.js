@@ -380,10 +380,64 @@ function init() {
 
   // Hot-swap slot geometry s GLB assetem (async — placeholder rendered do té doby).
   // Asset z Blenderu má 1m × 1m × 0.28m → scale 50× sjednotí na náš SLOT_SIZE.
+  // v72.11: merge multiple primitives (glTF mesh se 2 material slots dělá
+  // GLTFLoader 2 separate THREE.Mesh). Concat positions/normals/indices,
+  // build groups → single BufferGeometry s multi-material support.
+  function _mergeWithGroups(geos) {
+    const positions = [], normals = [], indices = [], groups = [];
+    let vertexOffset = 0, indexOffset = 0;
+    for (let i = 0; i < geos.length; i++) {
+      const g = geos[i];
+      const pos = g.attributes.position.array;
+      const nor = g.attributes.normal ? g.attributes.normal.array : null;
+      const idx = g.index ? g.index.array : null;
+      positions.push(pos);
+      if (nor) normals.push(nor);
+      const vCount = g.attributes.position.count;
+      let iCount;
+      if (idx) {
+        const off = new Uint32Array(idx.length);
+        for (let j = 0; j < idx.length; j++) off[j] = idx[j] + vertexOffset;
+        indices.push(off);
+        iCount = idx.length;
+      } else {
+        const seq = new Uint32Array(vCount);
+        for (let j = 0; j < vCount; j++) seq[j] = j + vertexOffset;
+        indices.push(seq);
+        iCount = vCount;
+      }
+      groups.push({ start: indexOffset, count: iCount, materialIndex: i });
+      indexOffset += iCount;
+      vertexOffset += vCount;
+    }
+    function flatF32(arrs) {
+      const t = arrs.reduce((a, b) => a + b.length, 0);
+      const o = new Float32Array(t);
+      let off = 0;
+      for (const a of arrs) { o.set(a, off); off += a.length; }
+      return o;
+    }
+    function flatU32(arrs) {
+      const t = arrs.reduce((a, b) => a + b.length, 0);
+      const o = new Uint32Array(t);
+      let off = 0;
+      for (const a of arrs) { o.set(a, off); off += a.length; }
+      return o;
+    }
+    const m = new THREE.BufferGeometry();
+    m.setAttribute('position', new THREE.BufferAttribute(flatF32(positions), 3));
+    if (normals.length === geos.length) m.setAttribute('normal', new THREE.BufferAttribute(flatF32(normals), 3));
+    m.setIndex(new THREE.BufferAttribute(flatU32(indices), 1));
+    for (const g of groups) m.addGroup(g.start, g.count, g.materialIndex);
+    return m;
+  }
+
   new GLTFLoader().load('./assets/3d/carrier.glb', (gltf) => {
-    let glbGeom = null;
-    gltf.scene.traverse(obj => { if (obj.isMesh && !glbGeom) glbGeom = obj.geometry.clone(); });
-    if (!glbGeom) { console.warn('[render3d_bottom] GLB nemá mesh'); return; }
+    const geoms = [];
+    gltf.scene.traverse(obj => { if (obj.isMesh) geoms.push(obj.geometry.clone()); });
+    if (geoms.length === 0) { console.warn('[render3d_bottom] GLB nemá mesh'); return; }
+    const glbGeom = geoms.length >= 2 ? _mergeWithGroups(geoms) : geoms[0];
+    console.log('[render3d_bottom] GLB má', geoms.length, 'primitives → merged groups:', glbGeom.groups.length);
     // Asset je exportován s +Z up (= Blender axes preserved), takže Blender Z
     // (= top face nahoru) odpovídá glTF Z (= top face k divákovi v naší scéně).
     // Žádná rotace v kódu nepotřeba — drop-and-go workflow.
