@@ -417,8 +417,11 @@ function init() {
       g.translate(-cx, -cy, -cz);
       g.computeBoundingSphere();
     }
-    const geomOuter = geoms[0];                            // primitive 0 (Material.001)
-    const geomInner = geoms.length >= 2 ? geoms[1] : null; // primitive 1 (Material.002)
+    // v72.13: user's Blender konvence — Material.001 (primitive 0) = top face
+    // (inner, darker), Material.002 (primitive 1) = outer shell (full color).
+    // Swap přiřazení: inner mesh dostane geoms[0], outer mesh dostane geoms[1].
+    const geomInner = geoms[0];                                   // primitive 0 = top face (Material.001)
+    const geomOuter = geoms.length >= 2 ? geoms[1] : geoms[0];    // primitive 1 = shell    (Material.002)
 
     // v72.12: separate InstancedMesh per part (outer + inner). Each gets jeho
     // vlastní geometry + material. Per-instance color identický u outer/inner;
