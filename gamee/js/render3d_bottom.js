@@ -435,6 +435,14 @@ function init() {
   st.carrierSlotMesh.frustumCulled = false;
   st.carrierSlotMesh.renderOrder = 140;   // ghost nad row carriery (100-114) ale POD pending balls (150)
   contentGroup.add(st.carrierSlotMesh);
+  // v72.15: parallel inner ghost mesh — během fire animace lift drží i top
+  // face (jinak inner mizí ze row mesh, top face vypadá černá).
+  st.carrierSlotInnerMesh = new THREE.InstancedMesh(slotGeom, slotMatInner, MAX_CARRIER_SLOTS);
+  st.carrierSlotInnerMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARRIER_SLOTS * 3), 3);
+  st.carrierSlotInnerMesh.count = 0;
+  st.carrierSlotInnerMesh.frustumCulled = false;
+  st.carrierSlotInnerMesh.renderOrder = 140.5;  // mezi outer ghost (140) a balls (150)
+  contentGroup.add(st.carrierSlotInnerMesh);
   st.carrierSlotOutlineMesh = mkOutline(slotGeom, MAX_CARRIER_SLOTS);
   st.carrierSlotOutlineMesh.renderOrder = 139;
   contentGroup.add(st.carrierSlotOutlineMesh);
@@ -482,10 +490,13 @@ function init() {
     for (const m of st.rowSlotOutlineMeshes) m.geometry = geomOuter;
     if (geomInner) {
       for (const m of st.rowSlotInnerMeshes) m.geometry = geomInner;
+      // v72.15: inner ghost mesh dostane stejnou geometrii (ghost anim při fire)
+      if (st.carrierSlotInnerMesh) st.carrierSlotInnerMesh.geometry = geomInner;
       console.log('[render3d_bottom] GLB primitive 1 → inner mesh assigned (depth illusion ON)');
     } else {
       // Single-primitive GLB: skip inner rendering (no depth illusion)
       for (const m of st.rowSlotInnerMeshes) m.count = 0;
+      if (st.carrierSlotInnerMesh) st.carrierSlotInnerMesh.count = 0;
       console.log('[render3d_bottom] GLB single primitive — depth illusion vypnutá');
     }
     if (oldOuterGeom) oldOuterGeom.dispose();
@@ -794,6 +805,13 @@ function updateCarriers(columns, colorsArr) {
         _slotM.compose(_vec, _quat, dummy.scale.set(scale, scale, scale));
         st.carrierSlotMesh.setMatrixAt(slotIdx, _slotM);
         st.carrierSlotMesh.setColorAt(slotIdx, cSlot);
+        // v72.15: parallel inner ghost — same matrix + same color jako outer.
+        // Bez tohoto by inner part zmizela po kliku → top face by vypadala
+        // černá během fire anim lift.
+        if (st.carrierSlotInnerMesh) {
+          st.carrierSlotInnerMesh.setMatrixAt(slotIdx, _slotM);
+          st.carrierSlotInnerMesh.setColorAt(slotIdx, cSlot);
+        }
         const oS = scale * OUTLINE_SCALE_SLOT;
         const _outM = new THREE.Matrix4().compose(_vec, _quat, dummy.scale.set(oS, oS, oS));
         st.carrierSlotOutlineMesh.setMatrixAt(slotIdx, _outM);
@@ -863,6 +881,12 @@ function updateCarriers(columns, colorsArr) {
   st.carrierSlotMesh.count = slotIdx;
   st.carrierSlotMesh.instanceMatrix.needsUpdate = true;
   if (st.carrierSlotMesh.instanceColor) st.carrierSlotMesh.instanceColor.needsUpdate = true;
+  // v72.15: inner ghost sync (parallel s outer ghost při fire anim)
+  if (st.carrierSlotInnerMesh) {
+    st.carrierSlotInnerMesh.count = slotIdx;
+    st.carrierSlotInnerMesh.instanceMatrix.needsUpdate = true;
+    if (st.carrierSlotInnerMesh.instanceColor) st.carrierSlotInnerMesh.instanceColor.needsUpdate = true;
+  }
   st.carrierSlotOutlineMesh.count = slotIdx;
   st.carrierSlotOutlineMesh.instanceMatrix.needsUpdate = true;
   st.carrierMesh.count = ballIdx;
