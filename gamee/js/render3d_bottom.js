@@ -308,37 +308,16 @@ function init() {
 
   const ballMat = () => new THREE.MeshToonMaterial({ gradientMap: toonGrad });
 
-  // Carrier slot rounded boxes (3D containery pro koule)
-  const slotGeom = _roundedBoxGeom(SLOT_SIZE, SLOT_SIZE, SLOT_RADIUS, SLOT_DEPTH, SLOT_BEVEL);
-  const slotMat  = new THREE.MeshToonMaterial({ gradientMap: toonGrad });
-
-  // v72.1 (M8): depth illusion přes shader injection — per-fragment darken
-  // top center plochy. Funguje regardless of GLB vertex density (interpolace
-  // varying napříč fragmenty). Lokální souřadnice (vSlotLocal) jsou v
-  // object space slot meshe (-25..+25 v XY pro SLOT_SIZE=50, -7..+7 v Z pro
-  // SLOT_DEPTH=14). Top center = high Z + near XY center → 60 % darker.
-  slotMat.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>',
-        '#include <common>\nvarying vec3 vSlotNormal;')
-      .replace('#include <beginnormal_vertex>',
-        '#include <beginnormal_vertex>\nvSlotNormal = normal;');
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>',
-        '#include <common>\nvarying vec3 vSlotNormal;')
-      .replace('#include <color_fragment>',
-        `#include <color_fragment>
-         // v72.5: strict threshold pro top-facing — bevels mezi top face a
-         // side walls mají normal ~ (0.7, 0, 0.7) (≈45°). smoothstep(0.85,0.95)
-         // zachytí jen téměř-flat top face, vyřadí bevels i side walls.
-         // Bottom (normal.z < 0) zůstává neaffected díky max(0, ...).
-         // v72.9: threshold zpět na nejvyšší (0.95-0.99) — user request,
-         // necháváme strict cutoff jen pro téměř flat top.
-         float topFacing = max(0.0, vSlotNormal.z);
-         float innerness = smoothstep(0.95, 0.99, topFacing);
-         diffuseColor.rgb *= mix(1.0, 0.40, innerness);
-        `);
-  };
+  // Carrier slot rounded boxes (3D containery pro koule).
+  // v72.10: split-mesh approach (user prepared GLB se 2 material slots).
+  //   - slotMatOuter: výchozí color (white) → instance color × 1.0 = full
+  //   - slotMatInner: color 0x666666 (40% gray) → instance × 0.4 = 60% darker
+  // Per-instance color (setColorAt) se násobí s material.color obou groups.
+  // V GLB load callback, pokud má geometry .groups, swap material na pole.
+  const slotGeom     = _roundedBoxGeom(SLOT_SIZE, SLOT_SIZE, SLOT_RADIUS, SLOT_DEPTH, SLOT_BEVEL);
+  const slotMatOuter = new THREE.MeshToonMaterial({ gradientMap: toonGrad });
+  const slotMatInner = new THREE.MeshToonMaterial({ gradientMap: toonGrad, color: 0x666666 });
+  const slotMat      = slotMatOuter;  // pro initial InstancedMesh creation (placeholder = single group)
 
   // Helper: vytvoří outline InstancedMesh pro danou geometrii a max počet instancí
   const mkOutline = (geom, max) => {
@@ -415,9 +394,19 @@ function init() {
     glbGeom.translate(-(bb.min.x+bb.max.x)/2, -(bb.min.y+bb.max.y)/2, -(bb.min.z+bb.max.z)/2);
     glbGeom.computeBoundingSphere();
 
-    // v72.1: depth illusion řeší shader injection na slotMat (onBeforeCompile
-    // v init), funguje per-fragment regardless of vertex density. Žádný
-    // post-load vertex color injection potřeba.
+    // v72.10: detect multi-material groups (split-mesh GLB). Pokud má geometrie
+    // .groups (2+ material slots z Blenderu), swap material na pole
+    // [outer, inner] na všech slot meshes. Per-instance color (setColorAt) se
+    // násobí s material.color obou groups → outer renderuje plně, inner ×0.4.
+    const groupCount = (glbGeom.groups && glbGeom.groups.length) || 0;
+    if (groupCount >= 2) {
+      const matPair = [slotMatOuter, slotMatInner];
+      st.carrierSlotMesh.material = matPair;
+      for (const m of st.rowSlotMeshes) m.material = matPair;
+      console.log('[render3d_bottom] GLB má', groupCount, 'material groups → multi-material slot rendering');
+    } else {
+      console.log('[render3d_bottom] GLB single material — depth illusion vypnutá (groupCount =', groupCount, ')');
+    }
 
     // Hot-swap geometrie do všech row meshes + ghost mesh
     const oldMain = st.carrierSlotMesh.geometry;
