@@ -312,6 +312,29 @@ function init() {
   const slotGeom = _roundedBoxGeom(SLOT_SIZE, SLOT_SIZE, SLOT_RADIUS, SLOT_DEPTH, SLOT_BEVEL);
   const slotMat  = new THREE.MeshToonMaterial({ gradientMap: toonGrad });
 
+  // v72.1 (M8): depth illusion přes shader injection — per-fragment darken
+  // top center plochy. Funguje regardless of GLB vertex density (interpolace
+  // varying napříč fragmenty). Lokální souřadnice (vSlotLocal) jsou v
+  // object space slot meshe (-25..+25 v XY pro SLOT_SIZE=50, -7..+7 v Z pro
+  // SLOT_DEPTH=14). Top center = high Z + near XY center → 60 % darker.
+  slotMat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>',
+        '#include <common>\nvarying vec3 vSlotLocal;')
+      .replace('#include <begin_vertex>',
+        '#include <begin_vertex>\nvSlotLocal = position;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>',
+        '#include <common>\nvarying vec3 vSlotLocal;')
+      .replace('#include <color_fragment>',
+        `#include <color_fragment>
+         float topness    = clamp((vSlotLocal.z + 7.0) / 14.0, 0.0, 1.0);
+         float fromCenter = max(abs(vSlotLocal.x), abs(vSlotLocal.y)) / 25.0;
+         float innerness  = max(0.0, topness - 0.40) * 2.0 * max(0.0, 0.95 - fromCenter);
+         diffuseColor.rgb *= mix(1.0, 0.40, clamp(innerness, 0.0, 1.0));
+        `);
+  };
+
   // Helper: vytvoří outline InstancedMesh pro danou geometrii a max počet instancí
   const mkOutline = (geom, max) => {
     const m = new THREE.InstancedMesh(geom, _outlineMat(), max);
@@ -387,36 +410,9 @@ function init() {
     glbGeom.translate(-(bb.min.x+bb.max.x)/2, -(bb.min.y+bb.max.y)/2, -(bb.min.z+bb.max.z)/2);
     glbGeom.computeBoundingSphere();
 
-    // v72.0 (M8): depth illusion přes vertex colors. Per-vertex tint =
-    // 1 - innerness, kde innerness = topness × centerness. Top center
-    // = nejtmavší, edges/bottom = původní barva (instance color × 1.0).
-    // Algoritmus pracuje na centered souřadnicích (post-translate).
-    // Závisí na vertex density GLB modelu — pokud je low-poly, bude
-    // blocky a budeme muset přejít na možnost 2 (two material slots).
-    {
-      const _pos = glbGeom.attributes.position.array;
-      const _zRange = bb.max.z - bb.min.z;
-      const _hw = (bb.max.x - bb.min.x) / 2;
-      const _hh = (bb.max.y - bb.min.y) / 2;
-      const _halfZ = _zRange / 2;
-      const colorAttr = new Float32Array(_pos.length);
-      for (let i = 0; i < _pos.length; i += 3) {
-        const _x = _pos[i];          // post-translate: centered around 0
-        const _y = _pos[i + 1];
-        const _z = _pos[i + 2];
-        const topness = (_z + _halfZ) / _zRange;            // 0 = bottom, 1 = top
-        const fromCenter = Math.max(Math.abs(_x) / _hw, Math.abs(_y) / _hh);
-        // Inner well: top half (>0.55) AND inner area (fromCenter < ~0.85)
-        const innerness = Math.max(0, topness - 0.55) * 2.5 * Math.max(0, 1 - fromCenter - 0.15);
-        const tint = 1 - Math.min(0.55, innerness);
-        colorAttr[i]     = tint;
-        colorAttr[i + 1] = tint;
-        colorAttr[i + 2] = tint;
-      }
-      glbGeom.setAttribute('color', new THREE.BufferAttribute(colorAttr, 3));
-      slotMat.vertexColors = true;
-      slotMat.needsUpdate = true;
-    }
+    // v72.1: depth illusion řeší shader injection na slotMat (onBeforeCompile
+    // v init), funguje per-fragment regardless of vertex density. Žádný
+    // post-load vertex color injection potřeba.
 
     // Hot-swap geometrie do všech row meshes + ghost mesh
     const oldMain = st.carrierSlotMesh.geometry;
