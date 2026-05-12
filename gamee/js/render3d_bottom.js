@@ -328,14 +328,12 @@ function init() {
         '#include <common>\nvarying vec3 vSlotNormal;')
       .replace('#include <color_fragment>',
         `#include <color_fragment>
-         // v72.4: use surface normal místo Z position. Object-space normal:
-         //   - Top face   → normal.z ≈ 1   (up)
-         //   - Side walls → normal.z ≈ 0   (sideways)
-         //   - Bottom     → normal.z ≈ -1  (down)
-         //   - Rounded corners → smooth transition 1 → 0
-         // Tím se top face izoluje cleanly, side walls zůstávají light.
+         // v72.5: strict threshold pro top-facing — bevels mezi top face a
+         // side walls mají normal ~ (0.7, 0, 0.7) (≈45°). smoothstep(0.85,0.95)
+         // zachytí jen téměř-flat top face, vyřadí bevels i side walls.
+         // Bottom (normal.z < 0) zůstává neaffected díky max(0, ...).
          float topFacing = max(0.0, vSlotNormal.z);
-         float innerness = smoothstep(0.4, 0.7, topFacing);
+         float innerness = smoothstep(0.85, 0.95, topFacing);
          diffuseColor.rgb *= mix(1.0, 0.40, innerness);
         `);
   };
