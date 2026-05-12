@@ -309,15 +309,64 @@ function init() {
   const ballMat = () => new THREE.MeshToonMaterial({ gradientMap: toonGrad });
 
   // Carrier slot rounded boxes (3D containery pro koule).
-  // v72.10: split-mesh approach (user prepared GLB se 2 material slots).
+  // v72.12: split-mesh approach — outer + inner separate InstancedMesh.
   //   - slotMatOuter: výchozí color (white) → instance color × 1.0 = full
-  //   - slotMatInner: color 0x666666 (40% gray) → instance × 0.4 = 60% darker
-  // Per-instance color (setColorAt) se násobí s material.color obou groups.
-  // V GLB load callback, pokud má geometry .groups, swap material na pole.
+  //   - slotMatInner: HSL darken (v72.14) — reduce lightness only, preserve
+  //     hue + saturation. Tmavomodrá zůstane modrá, ne načernalá.
+  //     Tunable: SLOT_INNER_LIGHTNESS_FACTOR konstanta (0.55 = 45% darker).
   const slotGeom     = _roundedBoxGeom(SLOT_SIZE, SLOT_SIZE, SLOT_RADIUS, SLOT_DEPTH, SLOT_BEVEL);
   const slotMatOuter = new THREE.MeshToonMaterial({ gradientMap: toonGrad });
-  const slotMatInner = new THREE.MeshToonMaterial({ gradientMap: toonGrad, color: 0x666666 });
+  const slotMatInner = new THREE.MeshToonMaterial({ gradientMap: toonGrad });
   const slotMat      = slotMatOuter;  // pro initial InstancedMesh creation (placeholder = single group)
+
+  // v72.14: HSL darken pro slotMatInner — preserve hue + saturation, reduce
+  // lightness. Standard color-preserving shadow přístup z designerské praxe.
+  // Tunable: změň 0.55 ve fragment shaderu (níž = tmavší).
+  slotMatInner.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>',
+        `#include <common>
+         // HSL conversion (standard Wikipedia formulas)
+         vec3 _rgb2hsl(vec3 c) {
+           float maxC = max(max(c.r, c.g), c.b);
+           float minC = min(min(c.r, c.g), c.b);
+           float l = (maxC + minC) * 0.5;
+           vec3 hsl = vec3(0.0, 0.0, l);
+           if (maxC != minC) {
+             float d = maxC - minC;
+             hsl.y = l > 0.5 ? d / (2.0 - maxC - minC) : d / (maxC + minC);
+             if (maxC == c.r)      hsl.x = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);
+             else if (maxC == c.g) hsl.x = (c.b - c.r) / d + 2.0;
+             else                  hsl.x = (c.r - c.g) / d + 4.0;
+             hsl.x /= 6.0;
+           }
+           return hsl;
+         }
+         float _h2r(float p, float q, float t) {
+           if (t < 0.0) t += 1.0;
+           if (t > 1.0) t -= 1.0;
+           if (t < 1.0/6.0) return p + (q - p) * 6.0 * t;
+           if (t < 0.5)     return q;
+           if (t < 2.0/3.0) return p + (q - p) * (2.0/3.0 - t) * 6.0;
+           return p;
+         }
+         vec3 _hsl2rgb(vec3 hsl) {
+           if (hsl.y == 0.0) return vec3(hsl.z);
+           float q = hsl.z < 0.5 ? hsl.z * (1.0 + hsl.y) : hsl.z + hsl.y - hsl.z * hsl.y;
+           float p = 2.0 * hsl.z - q;
+           return vec3(_h2r(p, q, hsl.x + 1.0/3.0), _h2r(p, q, hsl.x), _h2r(p, q, hsl.x - 1.0/3.0));
+         }
+        `)
+      .replace('#include <color_fragment>',
+        `#include <color_fragment>
+         // v72.14: HSL darken — preserve hue & saturation, reduce lightness only.
+         // Tunable: 0.55 = 45 % darker lightness. Nižší = tmavší (0.4 = strong),
+         // vyšší = jemnější (0.7 = subtle).
+         vec3 _hsl = _rgb2hsl(diffuseColor.rgb);
+         _hsl.z *= 0.55;
+         diffuseColor.rgb = _hsl2rgb(_hsl);
+        `);
+  };
 
   // Helper: vytvoří outline InstancedMesh pro danou geometrii a max počet instancí
   const mkOutline = (geom, max) => {
