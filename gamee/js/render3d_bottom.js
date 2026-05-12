@@ -38,6 +38,7 @@ const SLOT_BEVEL      = 1.6;  // bevel pro hladké hrany
 // Outline (inverted-hull technique) — scale faktor pro outline mesh
 const OUTLINE_SCALE_BALL = 1.13;  // koule outline 13 %
 const OUTLINE_SCALE_SLOT = 1.07;  // slot outline 7 %
+const WALL_OUTLINE_PX    = 1.6;   // wall outline — pevná tloušťka v CSS px (uniform, ne scale)
 const OUTLINE_COLOR      = 0x000000;  // čistá černá (cartoon look)
 
 // Tilt — stejný úhel jako render3d.js image area pro vizuální konzistenci
@@ -51,7 +52,9 @@ const MAX_PENDING       = 30;
 // Walls — v72.16. Per-cell 3D box, color matched s --carriers-3d-bg.
 // Depth mírně vyšší než SLOT_DEPTH → walls vyčnívají jako obstacle.
 const WALL_DEPTH         = 18;
-const WALL_BEVEL         = 1.2;
+const WALL_BEVEL         = 1.2;   // 3D top→side soft edge (malý, jen pro Toon)
+const WALL_BEVEL_SEGS    = 2;     // segmenty bevelu
+const WALL_CORNER_RADIUS = 4.5;   // poloměr zaoblení rohů polygonu (silhouette)
 const MAX_WALL_INSTANCES = 50;
 
 // ─── Stav scény ──────────────────────────────────────────────────────────────
@@ -434,6 +437,7 @@ function init() {
     contentGroup.add(bo);
     st.rowBallOutlineMeshes.push(bo);
   }
+
   // Legacy single meshes pro carrier-fire ghost anim (zatím)
   st.carrierSlotMesh = new THREE.InstancedMesh(slotGeom, slotMat, MAX_CARRIER_SLOTS);
   st.carrierSlotMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARRIER_SLOTS * 3), 3);
@@ -460,6 +464,9 @@ function init() {
   // Material shared (theme color), meshes recreated v každém updateWalls call.
   const wallMat = new THREE.MeshToonMaterial({ gradientMap: toonGrad });
   st._wallMat = wallMat;
+  // Wall outline material — sdílí barvu wallu (darkened) místo pure black. Vypadá to
+  // jako stínovaná část bloku, ne kontrastní okraj.
+  st._wallOutlineMat = new THREE.MeshBasicMaterial({ side: THREE.BackSide, fog: false });
   st._wallContentGroup = contentGroup;  // ref pro dynamic mesh add/remove
   st.wallMeshes = [];         // dynamically created Mesh (per rect)
   st.wallOutlineMeshes = [];  // dynamically created outline Mesh (per rect)
@@ -1088,6 +1095,86 @@ function dispose() {
 //   4. Trace edges in chain → polygon.
 //   5. THREE.Shape z polygon → ExtrudeGeometry → Mesh.
 
+// Posune každý vertex polygonu outward o `thickness` px po bisektoru sousedních hran.
+// Trace je CW v Y-down (CSS) coords, takže outward = rotace dir o -90° (= (dy, -dx)).
+// Použito pro wall outline — uniform tloušťka kolem celého obvodu (vs. scale, který
+// dělá tloušťku závislou na rozměru).
+function _offsetPolygonOutward(poly, thickness) {
+  const n = poly.length;
+  if (n < 3) return poly.slice();
+  const edges = [];
+  for (let i = 0; i < n; i++) {
+    const p1 = poly[i];
+    const p2 = poly[(i + 1) % n];
+    const dx = p2[0] - p1[0];
+    const dy = p2[1] - p1[1];
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-6) { edges.push(null); continue; }
+    const nx = dy / len;   // outward normal pro CW-in-Y-down polygon
+    const ny = -dx / len;
+    edges.push({
+      ox: p1[0] + nx * thickness,
+      oy: p1[1] + ny * thickness,
+      dx, dy,
+    });
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const eA = edges[(i - 1 + n) % n];
+    const eB = edges[i];
+    if (!eA || !eB) { out.push(poly[i].slice()); continue; }
+    const cross = eA.dx * eB.dy - eA.dy * eB.dx;
+    if (Math.abs(cross) < 1e-6) {
+      // Kolineární — použij start offsetované eB
+      out.push([eB.ox, eB.oy]);
+      continue;
+    }
+    const t = ((eB.ox - eA.ox) * eB.dy - (eB.oy - eA.oy) * eB.dx) / cross;
+    out.push([eA.ox + t * eA.dx, eA.oy + t * eA.dy]);
+  }
+  return out;
+}
+
+// Vytvoří THREE.Shape z polygonu (pole [x, y]) s zaoblenými rohy.
+// Místo lineTo do každého vertexu se použije quadraticCurveTo: kvadratická křivka
+// začíná `radius` px před vertexem na předchozí hraně, kontrolní bod je samotný
+// vertex, končí `radius` px za vertexem na následující hraně.
+// Funguje pro convex i concave rohy (rounding směřuje "do strany" od vrcholu).
+function _buildRoundedShape(polygon, radius) {
+  const n = polygon.length;
+  const shape = new THREE.Shape();
+  if (n < 3) return shape;
+
+  // Pro každý vertex spočítej in-point (před vertexem) a out-point (za vertexem)
+  const inPts = new Array(n);
+  const outPts = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const prev = polygon[(i - 1 + n) % n];
+    const curr = polygon[i];
+    const next = polygon[(i + 1) % n];
+    const dxIn = curr[0] - prev[0];
+    const dyIn = curr[1] - prev[1];
+    const lenIn = Math.hypot(dxIn, dyIn);
+    const dxOut = next[0] - curr[0];
+    const dyOut = next[1] - curr[1];
+    const lenOut = Math.hypot(dxOut, dyOut);
+    // Cap radius na polovinu kratší přilehlé hrany (jinak by se křivky překrývaly)
+    const rIn = Math.min(radius, lenIn / 2);
+    const rOut = Math.min(radius, lenOut / 2);
+    inPts[i]  = lenIn  > 1e-6 ? [curr[0] - dxIn  / lenIn  * rIn,  curr[1] - dyIn  / lenIn  * rIn]  : curr.slice();
+    outPts[i] = lenOut > 1e-6 ? [curr[0] + dxOut / lenOut * rOut, curr[1] + dyOut / lenOut * rOut] : curr.slice();
+  }
+
+  shape.moveTo(outPts[0][0], outPts[0][1]);
+  for (let i = 0; i < n; i++) {
+    const nextIdx = (i + 1) % n;
+    shape.lineTo(inPts[nextIdx][0], inPts[nextIdx][1]);
+    shape.quadraticCurveTo(polygon[nextIdx][0], polygon[nextIdx][1], outPts[nextIdx][0], outPts[nextIdx][1]);
+  }
+  shape.closePath();
+  return shape;
+}
+
 function _findWallComponents(columns) {
   const visited = columns.map(col => (col || []).map(_ => false));
   const components = [];
@@ -1163,26 +1250,38 @@ function _buildComponentPolygon(cells, colDivs, halfRowGap, halfColGap) {
   }
 
   // Convert grid corners → CSS pozice. Pro každý korner (gc, gr) zjisti
-  // pozici z okolních cells. Inside-of-component corners používají midpoint
-  // mezi sousedními cells (gaps include).
+  // pozici z okolních cells.
+  // cTL = cell jejíž TL corner je zde, cTR = TR corner, cBL = BL corner, cBR = BR corner.
+  // count=1 convex outer: přesný outer-corner cell.
+  // count=2 edge (2 sousední cells): midpoint gapů — bridge.
+  // count=3 concave inside: snap na cell-edge chybějící cell → čistý 90° roh.
   function cornerCSS(gc, gr) {
-    const cTL = cellRects.get(gc + ',' + gr);              // BR ← bottom-right cell relativní k cornu
-    const cTR = cellRects.get((gc-1) + ',' + gr);          // BL
-    const cBL = cellRects.get(gc + ',' + (gr-1));          // TR
-    const cBR = cellRects.get((gc-1) + ',' + (gr-1));      // TL
+    const cTL = cellRects.get(gc + ',' + gr);
+    const cTR = cellRects.get((gc-1) + ',' + gr);
+    const cBL = cellRects.get(gc + ',' + (gr-1));
+    const cBR = cellRects.get((gc-1) + ',' + (gr-1));
     let x, y;
-    // X
-    if (cTL && cTR)      x = (cTR.rect.right + cTL.rect.left) / 2;
-    else if (cBL && cBR) x = (cBR.rect.right + cBL.rect.left) / 2;
-    else if (cTL || cBL) x = (cTL || cBL).rect.left;
-    else if (cTR || cBR) x = (cTR || cBR).rect.right;
-    else return null;
-    // Y
-    if (cTL && cBL)      y = (cBL.rect.bottom + cTL.rect.top) / 2;
-    else if (cTR && cBR) y = (cBR.rect.bottom + cTR.rect.top) / 2;
-    else if (cTL || cTR) y = (cTL || cTR).rect.top;
-    else if (cBL || cBR) y = (cBL || cBR).rect.bottom;
-    else return null;
+    const count = [cTL, cTR, cBL, cBR].filter(Boolean).length;
+    if (count === 3) {
+      // Concave corner — snap na vnitřní hranu notče (opačná strana od missing cell).
+      if (!cTL)      { x = cTR.rect.right;  y = cBL.rect.bottom; }
+      else if (!cTR) { x = cTL.rect.left;   y = cBR.rect.bottom; }
+      else if (!cBL) { x = cBR.rect.right;  y = cTL.rect.top;    }
+      else           { x = cBL.rect.left;   y = cTR.rect.top;    }
+    } else {
+      // X
+      if (cTL && cTR)      x = (cTR.rect.right + cTL.rect.left) / 2;
+      else if (cBL && cBR) x = (cBR.rect.right + cBL.rect.left) / 2;
+      else if (cTL || cBL) x = (cTL || cBL).rect.left;
+      else if (cTR || cBR) x = (cTR || cBR).rect.right;
+      else return null;
+      // Y
+      if (cTL && cBL)      y = (cBL.rect.bottom + cTL.rect.top) / 2;
+      else if (cTR && cBR) y = (cBR.rect.bottom + cTR.rect.top) / 2;
+      else if (cTL || cTR) y = (cTL || cTR).rect.top;
+      else if (cBL || cBR) y = (cBL || cBR).rect.bottom;
+      else return null;
+    }
     return [x, y];
   }
 
@@ -1191,6 +1290,16 @@ function _buildComponentPolygon(cells, colDivs, halfRowGap, halfColGap) {
     const p = cornerCSS(gc, gr);
     if (!p) continue;
     cssPoly.push(p);
+  }
+  // Trace končí duplikem start-vertexu ([A,B,C,A]) — dedup, jinak offset polygon
+  // má zero-length edge na konci a první vertex se neoffsetne (tenký šev).
+  while (cssPoly.length >= 2) {
+    const a = cssPoly[0], b = cssPoly[cssPoly.length - 1];
+    if (Math.abs(a[0] - b[0]) < 0.5 && Math.abs(a[1] - b[1]) < 0.5) {
+      cssPoly.pop();
+    } else {
+      break;
+    }
   }
   if (cssPoly.length < 3) return null;
   return cssPoly;
@@ -1214,7 +1323,15 @@ function updateWalls(columns) {
   // Theme color match — read --carriers-3d-bg z aktuálního theme
   const cs = getComputedStyle(document.body);
   const bgColor = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
-  st._wallMat.color.set(bgColor);
+  // Wall barva = bgColor lightened ~+8 % HSL lightness — wall mírně vyniká z bg.
+  const wallCol = new THREE.Color(bgColor);
+  const hsl = { h: 0, s: 0, l: 0 };
+  wallCol.getHSL(hsl);
+  wallCol.setHSL(hsl.h, hsl.s, Math.min(1, hsl.l + 0.02));
+  st._wallMat.color.copy(wallCol);
+  // Outline barva = wall color × ~0.38 — lehce tmavší než nejtmavší toon band (0.47)
+  // pro jemné oddělení od bg, ale ne kontrastně černá.
+  st._wallOutlineMat.color.copy(wallCol).multiplyScalar(0.38);
   const rowGap = parseFloat(cs.getPropertyValue('--row-gap')) || 6;
   const colGap = 4;  // viz #carriers-grid gap v CSS
 
@@ -1238,21 +1355,17 @@ function updateWalls(columns) {
     cx /= polygon.length;
     cy /= polygon.length;
 
-    const shape = new THREE.Shape();
-    shape.moveTo(polygon[0][0] - cx, -(polygon[0][1] - cy));
-    for (let i = 1; i < polygon.length; i++) {
-      shape.lineTo(polygon[i][0] - cx, -(polygon[i][1] - cy));
-    }
-    shape.closePath();
+    // Konvert polygon na shape-local coords (centered, Y flipped pro Three.js Y up)
+    const shapePoly = polygon.map(p => [p[0] - cx, -(p[1] - cy)]);
+    const shape = _buildRoundedShape(shapePoly, WALL_CORNER_RADIUS);
 
-    const bevelSize = Math.min(WALL_BEVEL, 2);
     const geo = new THREE.ExtrudeGeometry(shape, {
       depth: WALL_DEPTH,
       bevelEnabled: true,
-      bevelThickness: bevelSize,
-      bevelSize: bevelSize,
-      bevelSegments: 2,
-      curveSegments: 1,
+      bevelThickness: WALL_BEVEL,
+      bevelSize: WALL_BEVEL,
+      bevelSegments: WALL_BEVEL_SEGS,
+      curveSegments: 4,
     });
     // Center mesh v Z (default ExtrudeGeometry extruduje z=0..depth)
     geo.translate(0, 0, -WALL_DEPTH / 2);
@@ -1270,10 +1383,25 @@ function updateWalls(columns) {
     st._wallContentGroup.add(mesh);
     st.wallMeshes.push(mesh);
 
-    // Outline: same geometry scaled OUTLINE_SCALE_SLOT (inverted hull, jen outer perimeter)
-    const outMesh = new THREE.Mesh(geo, _outlineMat());
+    // Outline: pevná tloušťka (WALL_OUTLINE_PX) — polygon offset outward po normálách,
+    // ne scale. Scale dělá tloušťku závislou na rozměru (široká strana = tlustší outline);
+    // polygon offset dává uniformní tloušťku po celém obvodu.
+    const offsetPoly = _offsetPolygonOutward(polygon, WALL_OUTLINE_PX);
+    const outShapePoly = offsetPoly.map(p => [p[0] - cx, -(p[1] - cy)]);
+    // Outline corner radius = wall radius + outline thickness, aby outer křivka outlinu
+    // byla koncentrická s wall křivkou (jinak outline na rohu vypadá moc tlustý/tenký).
+    const outShape = _buildRoundedShape(outShapePoly, WALL_CORNER_RADIUS + WALL_OUTLINE_PX);
+    const outGeo = new THREE.ExtrudeGeometry(outShape, {
+      depth: WALL_DEPTH + 2 * WALL_OUTLINE_PX,
+      bevelEnabled: true,
+      bevelThickness: WALL_BEVEL,
+      bevelSize: WALL_BEVEL,
+      bevelSegments: WALL_BEVEL_SEGS,
+      curveSegments: 4,
+    });
+    outGeo.translate(0, 0, -(WALL_DEPTH + 2 * WALL_OUTLINE_PX) / 2);
+    const outMesh = new THREE.Mesh(outGeo, st._wallOutlineMat);
     outMesh.position.set(xW, yW, 0);
-    outMesh.scale.set(OUTLINE_SCALE_SLOT, OUTLINE_SCALE_SLOT, OUTLINE_SCALE_SLOT);
     outMesh.renderOrder = 129;
     outMesh.frustumCulled = false;
     st._wallContentGroup.add(outMesh);

@@ -545,6 +545,12 @@ body.renderer-3d .carrier.inactive .cbox {
   border-color: transparent !important;
   box-shadow: none !important;
 }
+/* Drop shadow přímo na 3D canvas — generuje shadow ze silhouette všeho renderovaného
+   v canvasu (carriery, walls, balls). Auto-match s 3D mesh state (scale, position).
+   DISABLED v72.44 — vrátíme se k tomu později, pro teď to ruší vizuální čistotu. */
+/* body.renderer-3d #bottom3d-canvas {
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.45));
+} */
 
 /* Diff badge readability na light BG */
 body.renderer-3d .diff-badge.diff-relaxing { background: rgba(70, 160, 80, 0.20); }
