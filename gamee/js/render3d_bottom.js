@@ -328,10 +328,16 @@ function init() {
         '#include <common>\nvarying vec3 vSlotLocal;')
       .replace('#include <color_fragment>',
         `#include <color_fragment>
+         // v72.2: SHARP inner zone (step funkce) místo gradient. Inner =
+         // top face (topness > 0.40) AND central square area (fromCenter < 0.70).
+         // smoothstep s úzkým range (0.02) dává jen minimal AA na okraji
+         // (1-2 px), efektivně ostrá hrana.
          float topness    = clamp((vSlotLocal.z + 7.0) / 14.0, 0.0, 1.0);
          float fromCenter = max(abs(vSlotLocal.x), abs(vSlotLocal.y)) / 25.0;
-         float innerness  = max(0.0, topness - 0.40) * 2.0 * max(0.0, 0.95 - fromCenter);
-         diffuseColor.rgb *= mix(1.0, 0.40, clamp(innerness, 0.0, 1.0));
+         float isTop      = smoothstep(0.38, 0.42, topness);
+         float isInner    = 1.0 - smoothstep(0.68, 0.72, fromCenter);
+         float innerness  = isTop * isInner;
+         diffuseColor.rgb *= mix(1.0, 0.40, innerness);
         `);
   };
 
