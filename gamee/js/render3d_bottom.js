@@ -1075,54 +1075,99 @@ function dispose() {
   st.ready = false;
 }
 
-// ─── updateWalls (v72.17) ────────────────────────────────────────────────────
-// Greedy rectangle decomposition — adjacent walls v gridu merguje do jednoho
-// většího rectu. L/T/+ shapes se rozloží na minimální počet rectů. Pro každý
-// rect render jedna scaled InstancedMesh instance. Mezery mezi cells v rectu
-// jsou zahrnuté do mesh velikosti (visual monolith).
+// ─── updateWalls (v72.19) ────────────────────────────────────────────────────
+// BFS connected components + ExtrudeGeometry z polygon outline. Adjacent walls
+// libovolného tvaru (L/T/+/U) se merguje do JEDNOHO mesh s true monolith
+// vzhledem — žádné seams. Inflated cell rects (each ±half-gap směrem k sousedu
+// v komponentě) zajistí že polygon překlene gaps mezi cells.
 //
 // Algoritmus:
-//   1. Visited grid 2D bool.
-//   2. Pro každou unvisited wall cell:
-//      - Extend right maximálně (kontinuální walls v row).
-//      - Extend down maximálně (všechny cols v šíři jsou walls).
-//      - Mark visited, output rect.
+//   1. BFS najde connected wall components (4-directional adjacency).
+//   2. Pro každou komponentu: inflated cell rects (gaps included).
+//   3. Boundary edges = outer edges (kde adjacent cell NENÍ v komponentě).
+//   4. Trace edges in chain → polygon.
+//   5. THREE.Shape z polygon → ExtrudeGeometry → Mesh.
 
-function _decomposeWallsToRects(columns) {
+function _findWallComponents(columns) {
   const visited = columns.map(col => (col || []).map(_ => false));
-  const rects = [];
+  const components = [];
   for (let c = 0; c < columns.length; c++) {
     const col = columns[c];
     if (!col) continue;
     for (let r = 0; r < col.length; r++) {
-      const slot = col[r];
-      if (!slot || slot.wall !== true || visited[c][r]) continue;
-      // Extend right
-      let maxC = c;
-      while (
-        maxC + 1 < columns.length && columns[maxC + 1] &&
-        columns[maxC + 1][r] && columns[maxC + 1][r].wall === true &&
-        !visited[maxC + 1][r]
-      ) maxC++;
-      // Extend down
-      let maxR = r;
-      let canExtend = true;
-      while (canExtend && maxR + 1 < col.length) {
-        for (let cc = c; cc <= maxC; cc++) {
-          if (
-            !columns[cc] || !columns[cc][maxR + 1] ||
-            columns[cc][maxR + 1].wall !== true || visited[cc][maxR + 1]
-          ) { canExtend = false; break; }
+      if (!col[r] || col[r].wall !== true || visited[c][r]) continue;
+      // BFS flood-fill
+      const cells = [];
+      const queue = [[c, r]];
+      visited[c][r] = true;
+      while (queue.length) {
+        const [cc, rr] = queue.shift();
+        cells.push([cc, rr]);
+        const dirs = [[0,1], [0,-1], [1,0], [-1,0]];
+        for (const [dc, dr] of dirs) {
+          const nc = cc + dc, nr = rr + dr;
+          if (nc < 0 || nc >= columns.length || !columns[nc]) continue;
+          if (nr < 0 || nr >= columns[nc].length) continue;
+          if (visited[nc][nr]) continue;
+          if (!columns[nc][nr] || columns[nc][nr].wall !== true) continue;
+          visited[nc][nr] = true;
+          queue.push([nc, nr]);
         }
-        if (canExtend) maxR++;
       }
-      // Mark
-      for (let cc = c; cc <= maxC; cc++)
-        for (let rr = r; rr <= maxR; rr++) visited[cc][rr] = true;
-      rects.push({ cStart: c, rStart: r, cEnd: maxC, rEnd: maxR });
+      components.push(cells);
     }
   }
-  return rects;
+  return components;
+}
+
+function _buildComponentPolygon(cells, colDivs, halfRowGap, halfColGap) {
+  // Build cell rect map + inflated rect (gaps included where adjacent in component)
+  const cellRects = new Map();
+  for (const [c, r] of cells) {
+    if (!colDivs[c]) continue;
+    const slotDivs = colDivs[c].querySelectorAll('.carrier');
+    if (!slotDivs[r]) continue;
+    const wb = slotDivs[r].querySelector('.wall-block');
+    if (!wb) continue;
+    cellRects.set(c + ',' + r, { c, r, rect: wb.getBoundingClientRect() });
+  }
+  if (cellRects.size === 0) return null;
+  const hasCell = (c, r) => cellRects.has(c + ',' + r);
+  const inflated = new Map();
+  for (const [key, info] of cellRects) {
+    const { c, r, rect } = info;
+    inflated.set(key, {
+      c, r,
+      top:    rect.top    - (hasCell(c, r - 1) ? halfRowGap : 0),
+      right:  rect.right  + (hasCell(c + 1, r) ? halfColGap : 0),
+      bottom: rect.bottom + (hasCell(c, r + 1) ? halfRowGap : 0),
+      left:   rect.left   - (hasCell(c - 1, r) ? halfColGap : 0),
+    });
+  }
+  // Boundary edges (clockwise) — only outer edges
+  const edges = [];
+  for (const [, info] of inflated) {
+    const { c, r, top, right, bottom, left } = info;
+    if (!hasCell(c, r - 1)) edges.push({ from: [left,  top],    to: [right, top]    });
+    if (!hasCell(c + 1, r)) edges.push({ from: [right, top],    to: [right, bottom] });
+    if (!hasCell(c, r + 1)) edges.push({ from: [right, bottom], to: [left,  bottom] });
+    if (!hasCell(c - 1, r)) edges.push({ from: [left,  bottom], to: [left,  top]    });
+  }
+  if (edges.length === 0) return null;
+  // Trace polygon: from->to chains, sub-px rounded for key matching
+  const k = p => Math.round(p[0]) + ',' + Math.round(p[1]);
+  const edgeMap = new Map();
+  for (const e of edges) edgeMap.set(k(e.from), e);
+  const start = edges[0];
+  const polygon = [start.from.slice()];
+  let current = start;
+  for (let i = 0; i < edges.length + 4; i++) {  // +4 safety
+    polygon.push(current.to.slice());
+    const next = edgeMap.get(k(current.to));
+    if (!next || next === start) break;
+    current = next;
+  }
+  return polygon;
 }
 
 function _disposeWallMeshes() {
@@ -1144,8 +1189,9 @@ function updateWalls(columns) {
   const cs = getComputedStyle(document.body);
   const bgColor = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
   st._wallMat.color.set(bgColor);
+  const rowGap = parseFloat(cs.getPropertyValue('--row-gap')) || 6;
+  const colGap = 4;  // viz #carriers-grid gap v CSS
 
-  // Dispose previous meshes (rect počty + dimensions se mění)
   _disposeWallMeshes();
 
   const gridEl = document.getElementById('carriers-grid');
@@ -1153,38 +1199,43 @@ function updateWalls(columns) {
   const canvasRect = st.canvas.getBoundingClientRect();
   const colDivs = gridEl.querySelectorAll('.carrier-col');
 
-  const rects = _decomposeWallsToRects(columns);
+  const components = _findWallComponents(columns);
+  if (components.length === 0) return;
 
-  for (const rect of rects) {
-    if (!colDivs[rect.cStart] || !colDivs[rect.cEnd]) continue;
-    const tlDivs = colDivs[rect.cStart].querySelectorAll('.carrier');
-    const brDivs = colDivs[rect.cEnd].querySelectorAll('.carrier');
-    if (!tlDivs[rect.rStart] || !brDivs[rect.rEnd]) continue;
-    const tlBlock = tlDivs[rect.rStart].querySelector('.wall-block');
-    const brBlock = brDivs[rect.rEnd].querySelector('.wall-block');
-    if (!tlBlock || !brBlock) continue;
-    const tlR = tlBlock.getBoundingClientRect();
-    const brR = brBlock.getBoundingClientRect();
+  for (const cells of components) {
+    const polygon = _buildComponentPolygon(cells, colDivs, rowGap / 2, colGap / 2);
+    if (!polygon || polygon.length < 3) continue;
 
-    // Combined dimensions (zahrnuje gaps mezi cells = visual monolith)
-    const left   = tlR.left;
-    const top    = tlR.top;
-    const right  = brR.right;
-    const bottom = brR.bottom;
-    const w = right - left;
-    const h = bottom - top;
-    const xCSS = (left + right) / 2 - canvasRect.left;
-    const yCSS = (top + bottom) / 2 - canvasRect.top;
+    // Polygon je v CSS coords (Y down). Convert na shape-local (centered, Y flipped pro Three.js Y up).
+    let cx = 0, cy = 0;
+    for (const p of polygon) { cx += p[0]; cy += p[1]; }
+    cx /= polygon.length;
+    cy /= polygon.length;
+
+    const shape = new THREE.Shape();
+    shape.moveTo(polygon[0][0] - cx, -(polygon[0][1] - cy));
+    for (let i = 1; i < polygon.length; i++) {
+      shape.lineTo(polygon[i][0] - cx, -(polygon[i][1] - cy));
+    }
+    shape.closePath();
+
+    const bevelSize = Math.min(WALL_BEVEL, 2);
+    const geo = new THREE.ExtrudeGeometry(shape, {
+      depth: WALL_DEPTH,
+      bevelEnabled: true,
+      bevelThickness: bevelSize,
+      bevelSize: bevelSize,
+      bevelSegments: 2,
+      curveSegments: 1,
+    });
+    // Center mesh v Z (default ExtrudeGeometry extruduje z=0..depth)
+    geo.translate(0, 0, -WALL_DEPTH / 2);
+
+    // Mesh position v scene = polygon center v world coords
+    const xCSS = cx - canvasRect.left;
+    const yCSS = cy - canvasRect.top;
     const xW = xCSS;
     const yW = _worldY(yCSS);
-
-    // Per-rect RoundedBox geometry s custom dimensions → uniform rounded
-    // corners regardless of rect size. Radius scales s menší dimenzí aby
-    // nevypadlo divně na úzkých / širokých rectech.
-    const minDim = Math.min(w, h);
-    const radius = Math.min(SLOT_RADIUS, minDim * 0.18);
-    const bevel  = Math.min(WALL_BEVEL, radius * 0.4);
-    const geo = _roundedBoxGeom(w, h, radius, WALL_DEPTH, bevel);
 
     const mesh = new THREE.Mesh(geo, st._wallMat);
     mesh.position.set(xW, yW, 0);
@@ -1193,7 +1244,7 @@ function updateWalls(columns) {
     st._wallContentGroup.add(mesh);
     st.wallMeshes.push(mesh);
 
-    // Outline: same geometry scaled OUTLINE_SCALE_SLOT (inverted hull)
+    // Outline: same geometry scaled OUTLINE_SCALE_SLOT (inverted hull, jen outer perimeter)
     const outMesh = new THREE.Mesh(geo, _outlineMat());
     outMesh.position.set(xW, yW, 0);
     outMesh.scale.set(OUTLINE_SCALE_SLOT, OUTLINE_SCALE_SLOT, OUTLINE_SCALE_SLOT);
