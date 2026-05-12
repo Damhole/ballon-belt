@@ -320,20 +320,22 @@ function init() {
   slotMat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>',
-        '#include <common>\nvarying vec3 vSlotLocal;')
-      .replace('#include <begin_vertex>',
-        '#include <begin_vertex>\nvSlotLocal = position;');
+        '#include <common>\nvarying vec3 vSlotNormal;')
+      .replace('#include <beginnormal_vertex>',
+        '#include <beginnormal_vertex>\nvSlotNormal = normal;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>',
-        '#include <common>\nvarying vec3 vSlotLocal;')
+        '#include <common>\nvarying vec3 vSlotNormal;')
       .replace('#include <color_fragment>',
         `#include <color_fragment>
-         // v72.3: dark zone reaches all the way k edges of top face. XY
-         // restriction odstraněna, jen Z position rozhoduje. Side walls
-         // mají Z na half-range → smoothstep transition. Top face plně
-         // tmavý, geometrie zakřivení edge řeší přirozeně.
-         float topness   = clamp((vSlotLocal.z + 7.0) / 14.0, 0.0, 1.0);
-         float innerness = smoothstep(0.55, 0.70, topness);
+         // v72.4: use surface normal místo Z position. Object-space normal:
+         //   - Top face   → normal.z ≈ 1   (up)
+         //   - Side walls → normal.z ≈ 0   (sideways)
+         //   - Bottom     → normal.z ≈ -1  (down)
+         //   - Rounded corners → smooth transition 1 → 0
+         // Tím se top face izoluje cleanly, side walls zůstávají light.
+         float topFacing = max(0.0, vSlotNormal.z);
+         float innerness = smoothstep(0.4, 0.7, topFacing);
          diffuseColor.rgb *= mix(1.0, 0.40, innerness);
         `);
   };
