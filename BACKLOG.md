@@ -70,7 +70,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 
 **Cíl M8:** všechny grid cells jako 3D meshes pro jednotnou scénu (empty / hidden / wall / carrier inner depth).
 
-#### ✅ Hotovo v M8 (v72.0–20)
+#### ✅ Hotovo v M8 (v72.0–44)
 
 **Carrier inner depth** (v72.0–15):
 - Top face nosiče tmavší než shell přes split GLB se 2 material slots (Material.001 = inner top, Material.002 = outer shell), 2 paralelní `InstancedMesh` per row (`rowSlotMeshes` + `rowSlotInnerMeshes`).
@@ -86,13 +86,24 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 - `THREE.ExtrudeGeometry` z polygon → single mesh per component (true monolith pro L/T/+/U shapes).
 - Theme color `--carriers-3d-bg` (read each call, theme-aware).
 
+**Wall polish — concave corners, outline, silhouette** (v72.21–35):
+- **Concave inside corner snap** (v72.21–22): pro count=3 vertex (3 ze 4 surrounding cells jsou walls) snap na inner cell-edge intersection místo gap midpointu → čistý 90° L/T/+ inside corner.
+- **Polygon offset outline** (v72.25): `_offsetPolygonOutward` helper — každý vertex posunutý outward o `WALL_OUTLINE_PX = 1.6` po normálovém bisektoru. Místo scale (který dělal různou tloušťku na widě vs vyšším rozměru) je outline uniformní po celém obvodu.
+- **Polygon dedup** (v72.26): trace končí duplikátem start-vertexu (`[A,B,C,A]`); dedup před offset jinak zero-length edge na konci → první vertex se neoffsetne (tenký šev).
+- **Rounded silhouette corners** (v72.29–30): `_buildRoundedShape` — `quadraticCurveTo` na rozích s `WALL_CORNER_RADIUS = 4.5`. Wall i outline shape sdílí helper.
+- **Outline barva** (v72.31): místo pure black je outline = wall color × 0.38 (lehce tmavší než nejtmavší toon band 0.47). Sjednocený s materiálem.
+- **Wall lightness lift** (v72.32–34): wall color = bg color s HSL lightness + 0.02 → wall mírně vyniká z carrier-3d-bg.
+
+**Carrier shadows** (v72.41–44, **disabled v72.44**):
+- Pokus 1: per-cbox CSS box-shadow + scale-fix pro inactive carriers — měl halo artifacts.
+- Pokus 2: `filter: drop-shadow()` na `#bottom3d-canvas` — generuje stín ze silhouette opaque pixelů, auto-match s 3D mesh state.
+- Three.js InstancedMesh pokus 2× crashnul celý 3D render (z neznámého důvodu — slotGeom i ShapeGeometry obojí).
+- Aktuálně: CSS filter rule je zakomentovaný v `game.css` jako reference, vrátíme se k tomu.
+
 #### 📋 Zbývá v M8
 
 **Walls polish:**
-- Verify v72.20 grid-coord trace funguje na všech testovaných tvarech (rectangles ✓, L/T potřeba ověřit po deploy).
-- Pokud stále něco rozbité (triangly, missing shapes), debug další.
-- Možná polish bevel parametry / outline thickness u ExtrudeGeometry.
-- Edge cases: walls s holes (hollow ring), disjointné komponenty, walls na grid edge.
+- Edge cases: walls s holes (hollow ring), disjointné komponenty, walls na grid edge — potřeba ověřit.
 
 **Empty slot / Hidden slot 3D** (zatím neuděláno):
 - Empty slot (null) → 3D **recessed** mesh (vnitřní stín, hluboký) — vizuálně jako díra v desce.
@@ -129,9 +140,10 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 
 #### Známé quirky
 
-- **Rounded corners na walls:** ExtrudeGeometry s `bevelEnabled: true, bevelThickness: 2, bevelSize: 2` dává jemné rounded edges. Pokud user chce výraznější rounded, zvýšit bevel hodnoty.
-- **Polygon corner positions:** inside corners (concave) se umístí na midpoint mezi cells (= `(cell.right + halfCol, cell.bottom + halfRow)`). Sharp 90° inside corner by vyžadoval snap na cell corner místo midpoint.
+- **Rounded corners na walls:** ExtrudeGeometry bevel jen rounduje top→side přechod, ne silhouette. Pro rounded silhouette corners (L/T/+) má `_buildRoundedShape` `quadraticCurveTo` per vertex. Tuning: `WALL_CORNER_RADIUS`.
+- **Polygon corner positions:** outer convex + edge midpoint chování shodné s v72.20. Inside concave corners (count=3) od v72.22 snap na cell-edge průsečík missing cell = sharp 90° L/T (vs v72.20 gap midpoint = diagonal cut).
 - **Ghost mesh při fire** používá `geomOuter` (outer shell), ne polygon — protože ghost je jen jeden nosič mid-animation, ne komponenta.
+- **Shadow Three.js mesh experimenty crashují render:** přidání jakékoliv InstancedMesh + MeshBasicMaterial(transparent) na contentGroup způsobí ztrátu celé 3D scény. Příčina neznámá (slotGeom + ShapeGeometry obojí selhalo). CSS filter funguje, ale aktuálně disabled.
 
 ### M9: 3D vizuál — image + BG + funnel finalization (v73+)
 
@@ -300,6 +312,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v72.44 | `128a394` | 2026-05-12 | Wall polish bundle — concave corner snap (v72.21–22 fix gap-midpoint stair-step → cell-edge intersection), polygon offset outline (v72.25 `_offsetPolygonOutward` uniform tloušťka, místo scale), trailing-vertex dedup (v72.26 fix tenký šev), rounded silhouette (v72.29–30 `_buildRoundedShape` quadraticCurveTo radius 4.5), outline barva wall × 0.38 (v72.31), wall lightness +0.02 HSL (v72.32–34), disabled shadow filter experiment (v72.41–44). |
 | v72.1 | `a6e6d52` | 2026-05-12 | Depth illusion via shader injection — vertex color approach z v72.0 user 'neviděl'. Switch na per-fragment darkening v slotMat.onBeforeCompile (object-space vSlotLocal varying). Funguje regardless of GLB vertex density. Stronger contrast (0.40 min, threshold 0.40). |
 | v72.20 | `333476b` | 2026-05-12 | Fix wall polygon trace — grid-coord trace + CSS conversion via cornerCSS helper. v72.19 CSS-coord trace selhával na concave corners (L/T) kvůli inflated rect mismatched endpoints → incomplete polygon → triangles. Grid corners jsou integer, vždy matchují. |
 | v72.19 | `785856a` | 2026-05-12 | Walls TRUE monolith — BFS components + ExtrudeGeometry z polygon outline. Pro libovolný shape (L/T/+/U) jediný mesh bez seams. Inflated cell rects fill gaps. |
