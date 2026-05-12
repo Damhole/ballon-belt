@@ -621,8 +621,8 @@ function updateCarriers(columns, colorsArr) {
       // a balls by se při shrink sbíhaly do středu kvadraticky místo lineárně.
       // Final offset = SLOT_SIZE × 0.18 × slotScale = consistent ratio k radius
       // přes všechny carrier velikosti.
-      const offX = [-SLOT_SIZE * 0.18, SLOT_SIZE * 0.18];
-      const offY = [-SLOT_SIZE * 0.18, SLOT_SIZE * 0.18];
+      const offX = [-SLOT_SIZE * 0.195, SLOT_SIZE * 0.195];
+      const offY = [-SLOT_SIZE * 0.195, SLOT_SIZE * 0.195];
       const ballZ = SLOT_DEPTH / 2 + R_CARRIER * 0.25;
       const filled = _countFilled(slot.projectiles);
 
@@ -705,8 +705,8 @@ function updateCarriers(columns, colorsArr) {
       if (ballScale > 0.04) {
         _slotM.compose(_vec, _quat, dummy.scale.set(1, 1, 1));   // matrix bez scale pro pozici
         // v71.26: SLOT_SIZE base units (sync s main path, žádné double scaling)
-        const offX = [-SLOT_SIZE * 0.18, SLOT_SIZE * 0.18];
-        const offY = [-SLOT_SIZE * 0.18, SLOT_SIZE * 0.18];
+        const offX = [-SLOT_SIZE * 0.195, SLOT_SIZE * 0.195];
+        const offY = [-SLOT_SIZE * 0.195, SLOT_SIZE * 0.195];
         const ballZ = SLOT_DEPTH / 2 + R_CARRIER * 0.25;
         let bi = 0;
         outer: for (let row = 0; row < 2; row++) {
