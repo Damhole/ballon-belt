@@ -66,30 +66,72 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 
 ## 📋 Plánováno
 
-### M8: Sjednocený 3D grid (v72+)
+### M8: Sjednocený 3D grid (v72.x — 🚧 in progress)
 
-**Východisko (po v71.14):** active a inactive carriers jsou 3D meshes (responzivně škálované), ale **empty / hidden / wall sloty** zůstávají 2D CSS divy. To dělá grid vizuálně nekonzistentní — ploché tmavé čtverce vedle 3D objektů s hloubkou a stínováním.
+**Cíl M8:** všechny grid cells jako 3D meshes pro jednotnou scénu (empty / hidden / wall / carrier inner depth).
 
-**Cíl M8:** všechny grid cells jako 3D meshes pro jednotnou scénu:
+#### ✅ Hotovo v M8 (v72.0–20)
 
-| Element | Současně | M8 cílový stav |
-|---------|----------|-----------------|
-| Active carrier | 3D mesh + 3D koule ✓ | zachovat |
-| Inactive carrier | 3D mesh × 0.78 ✓ | zachovat |
-| Empty slot (null) | 2D CSS div (flat) | 3D **recessed** mesh (vnitřní stín, hluboký) |
-| Hidden slot (?) | 2D CSS div s "?" | 3D **capped** mesh s ? glyph |
-| Wall slot | 2D CSS s wall-block | 3D **wall** geometry (blok zdi shora) |
-| Garage | 2D s 🏠 emoji | otevřená otázka — 3D model garáže nebo zachovat 2D? |
-| Rocket | 2D s 🚀 emoji | otevřená otázka — 3D model rakety nebo zachovat 2D? |
+**Carrier inner depth** (v72.0–15):
+- Top face nosiče tmavší než shell přes split GLB se 2 material slots (Material.001 = inner top, Material.002 = outer shell), 2 paralelní `InstancedMesh` per row (`rowSlotMeshes` + `rowSlotInnerMeshes`).
+- HSL darken v shaderu (`onBeforeCompile`) — preserve hue + saturation, reduce lightness × 0.55. Tmavomodrá zůstane modrá místo načernalá.
+- Inner ghost mesh (v72.15) — synchronně s outer během fire animace, top face se nepropadne na černou při kliku.
+- Ball offsets fix (v71.26/27) — base-unit `SLOT_SIZE × 0.195` × `slotScale` (no double scaling).
+- R_CARRIER 12 → 11 (v71.23) — carrier balls mírně menší než pending/belt.
 
-Plus tooling pro „**falling animation**" při kliku — koule vypadávají z nosiče dolů (gravity → pending zóna).
+**Wall 3D rendering** (v72.16–20):
+- Multiple primitives v `carrier.glb` (user-prepared split mesh) → grab All via `gltf.scene.traverse`.
+- BFS connected components (`_findWallComponents`) — 4-directional adjacency.
+- Per-component polygon via grid-coord trace (`_buildComponentPolygon`) — integer grid corners, midpoint CSS interpolation pro inside corners.
+- `THREE.ExtrudeGeometry` z polygon → single mesh per component (true monolith pro L/T/+/U shapes).
+- Theme color `--carriers-3d-bg` (read each call, theme-aware).
 
-**Tech přístup:**
-- Rozšířit `rowSlotMeshes` o variant types (3 nové geometry: recessed, capped, wall)
-- Per-slot „slotType" parametr → instancing podle typu
-- Pop animace při state change (null → active = mesh swap + scale)
+#### 📋 Zbývá v M8
 
-**Riziko:** víc instanced meshes per row → memory/perf check. Současné max 80 carrier slots × 4 typy = 320 instancí na řadu × 7 řad = ~2240 instancí. Měl by stíhat (Three.js zvládá 10000+).
+**Walls polish:**
+- Verify v72.20 grid-coord trace funguje na všech testovaných tvarech (rectangles ✓, L/T potřeba ověřit po deploy).
+- Pokud stále něco rozbité (triangly, missing shapes), debug další.
+- Možná polish bevel parametry / outline thickness u ExtrudeGeometry.
+- Edge cases: walls s holes (hollow ring), disjointné komponenty, walls na grid edge.
+
+**Empty slot / Hidden slot 3D** (zatím neuděláno):
+- Empty slot (null) → 3D **recessed** mesh (vnitřní stín, hluboký) — vizuálně jako díra v desce.
+- Hidden slot (?) → 3D **capped** mesh s ? glyph nahoře.
+- Použít stejnou architekturu jako carrier slot (InstancedMesh per row, hot-swap geometry z GLB).
+
+**Garage / Rocket** (otevřená otázka):
+- Zachovat 2D (s emoji 🏠 / 🚀) nebo udělat 3D modely?
+- Pokud 3D: nové GLB assety potřeba.
+
+**Falling animation pro carriers:**
+- Tooling pro „koule vypadávají z nosiče dolů (gravity → pending zóna)" — animace při kliku.
+- Aktuálně máme `triggerCarrierFire` ghost anim (lift up + tilt). Pro „falling" by se rozšířilo o gravity simulation.
+
+**Tech debt:**
+- Wall meshes se recreate při každém `updateWalls()` call (dispose + new ExtrudeGeometry). Pokud perf issue, cache by component cells hash.
+- `MAX_WALL_INSTANCES = 50` constant nedávno už nevyužitý (od v72.18 přešli jsme na dynamic Meshes). Lze odebrat.
+
+#### 📂 Kde najít kód
+
+- `gamee/js/render3d_bottom.js`:
+  - `_findWallComponents(columns)` (cca ř. 1091) — BFS
+  - `_buildComponentPolygon(...)` (cca ř. 1123) — grid trace + CSS conversion
+  - `updateWalls(columns)` (cca ř. 1186) — main entry, dispose + recreate
+  - `_disposeWallMeshes()` (cca ř. 1172) — cleanup
+  - `slotMatOuter` + `slotMatInner` setup (cca ř. 313) — carrier materials
+  - HSL darken shader injection (cca ř. 320) — slotMatInner.onBeforeCompile
+- `gamee/js/game.js`:
+  - `drawCarriers()` (cca ř. 5713) — volá `updateCarriers` + `updateWalls`
+  - `_recomputeCarrierLayout()` (cca ř. 5630) — resize handler
+- `gamee/assets/3d/carrier.glb` — split mesh s 2 material slots (Material.001 = top inner, Material.002 = shell)
+- `gamee/css/game.css`:
+  - `body.renderer-3d .wall-block { visibility: hidden }` — 2D walls hidden v 3D mode
+
+#### Známé quirky
+
+- **Rounded corners na walls:** ExtrudeGeometry s `bevelEnabled: true, bevelThickness: 2, bevelSize: 2` dává jemné rounded edges. Pokud user chce výraznější rounded, zvýšit bevel hodnoty.
+- **Polygon corner positions:** inside corners (concave) se umístí na midpoint mezi cells (= `(cell.right + halfCol, cell.bottom + halfRow)`). Sharp 90° inside corner by vyžadoval snap na cell corner místo midpoint.
+- **Ghost mesh při fire** používá `geomOuter` (outer shell), ne polygon — protože ghost je jen jeden nosič mid-animation, ne komponenta.
 
 ### M9: 3D vizuál — image + BG + funnel finalization (v73+)
 
@@ -259,7 +301,18 @@ Pravděpodobně nebude potřeba, viz user note výše.
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
 | v72.1 | `a6e6d52` | 2026-05-12 | Depth illusion via shader injection — vertex color approach z v72.0 user 'neviděl'. Switch na per-fragment darkening v slotMat.onBeforeCompile (object-space vSlotLocal varying). Funguje regardless of GLB vertex density. Stronger contrast (0.40 min, threshold 0.40). |
-| v72.0 | `3f24949` | 2026-05-12 | **M8 start** — depth illusion na carrier slots přes vertex colors (option 1). Per-vertex tint po GLB load: top center 0.45 (darker), edges/bottom 1.0. slotMat.vertexColors=true násobí instance color × tint. Outline mat neaffectován. (REPLACED v72.1 — vertex colors nešly vidět, vergeben shader injection) |
+| v72.20 | `333476b` | 2026-05-12 | Fix wall polygon trace — grid-coord trace + CSS conversion via cornerCSS helper. v72.19 CSS-coord trace selhával na concave corners (L/T) kvůli inflated rect mismatched endpoints → incomplete polygon → triangles. Grid corners jsou integer, vždy matchují. |
+| v72.19 | `785856a` | 2026-05-12 | Walls TRUE monolith — BFS components + ExtrudeGeometry z polygon outline. Pro libovolný shape (L/T/+/U) jediný mesh bez seams. Inflated cell rects fill gaps. |
+| v72.18 | `4382656` | 2026-05-12 | Walls technique 3 — per-rect Mesh s custom RoundedBoxGeometry (rounded corners uniform regardless of size, vs InstancedMesh scaled BoxGeometry v v72.17). |
+| v72.17 | `c4b98dc` | 2026-05-12 | Wall greedy rect decomposition — InstancedMesh + scaled BoxGeometry. Adjacent walls v row/col mergují do jednoho rectu. L/T/+ decomposed. (Replaced v v72.18.) |
+| v72.16 | `e5d998d` | 2026-05-12 | Per-cell 3D walls — procedural RoundedBox, depth 18, color z --carriers-3d-bg theme-aware. Žádné merging zatím (= v72.17). |
+| v72.15 | `dbaf619` | 2026-05-12 | Parallel inner ghost mesh — fix 'black top face' během fire anim. Při kliku ghost mesh outer + inner lift sync, top face se nepropadne na BG color. |
+| v72.14 | `147d326` | 2026-05-12 | HSL darken pro slotMatInner — preserve hue+saturation, reduce lightness × 0.55. Tmavomodrá zůstane modrá místo načernalá. Shader injection v onBeforeCompile. |
+| v72.13 | `7783190` | 2026-05-12 | Swap inner/outer geometry — Material.001 = top (darker), Material.002 = shell (full color). Z user Blender convention. |
+| v72.12 | `dd7fbac` | 2026-05-12 | Separate inner InstancedMesh per row — bulletproof multi-material. Dva paralelní InstancedMesh (outer + inner), each své geom + material. Per carrier same matrix + same color na obou. |
+| v72.11 | `006f68e` | 2026-05-12 | Merge multiple GLB primitives — fix split-mesh ignoring half. GLTFLoader vytváří 2 separate Mesh per primitive, můj kód grabbed jen první. _mergeWithGroups concat positions/normals/indices + addGroup per material. (Replaced v72.12 — InstancedMesh multi-material nereliable.) |
+| v72.10 | `29f44cf` | 2026-05-12 | Split-mesh approach (v72.10) — two material slots z user updated GLB, slotMatOuter + slotMatInner s color 0x666666 × 0.4 darker. (Replaced v72.11/12 — single mesh multi-material nešlo.) |
+| v72.0–9 | various | 2026-05-12 | Carrier inner depth illusion iterations — vertex colors → shader injection per-fragment → strict threshold → revert tries. v72.9 strict 0.95-0.99 threshold byl ready ale user chtěl split approach (v72.10+). |
 | v71.27 | `0bfb7b1` | 2026-05-12 | Ball offset faktor 0.18 → 0.195 — dorovnat v71.25 vzhled spacingu při 54 carrier (po v71.26 base-unit fixu balls 1.56 px blíže). Final offset @ 54 = 10.53 (vs 10.50 původně). |
 | v71.26 | `a560918` | 2026-05-12 | Fix double scaling ball offsets — offX/offY z SLOT_SIZE base units místo cr.width. Bug: offset se násobil 2× slotScale (cr.width × × slotScale) → balls při shrinku kolabovaly do středu kvadraticky. Po fixu: konstantní offset/radius ratio 0.82 napříč všemi velikostmi. |
 | v71.25 | `8b09f9c` | 2026-05-12 | Revert sphere segments (user: 'nebyl to ten problem') + ball offsets 0.21 → 0.18 cw/ch v 2×2 mřížce. Balls blíže k sobě, outline overlaps zvětšeny → jednotnější vzhled místo 4 separated balls. |
