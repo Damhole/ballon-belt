@@ -1205,7 +1205,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v72.81');
+          gamee.updateScore(score,playTime,'balloon-belt-v72.82');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5649,6 +5649,13 @@ if (window.visualViewport) {
 function drawCarriers(){
   _setAdaptiveCarrierSize(columns);
   const el=document.getElementById('carriers-grid');
+  // v72.82: event delegation pro denial shake — jednou attach na grid parent.
+  // Per-element listeners selhávaly na iOS Safari (inner cbox transparent).
+  if(!el._denialDelegated){
+    el.addEventListener('click', _handleDenialDelegated);
+    el.addEventListener('touchstart', _handleDenialDelegated, {passive: true});
+    el._denialDelegated = true;
+  }
   el.innerHTML='';
   for(let c=0;c<COLS;c++){
     const col=document.createElement('div');
@@ -5709,12 +5716,11 @@ function drawCarriers(){
       }
       const isDestroyable=isGarage&&active&&slot.destroyable;
       if((active&&!isGarage)||isDestroyable){div.dataset.col=c;div.dataset.row=r;div.addEventListener('click',onCarrierClick);}
-      // v72.78: denial shake na klik inactive / mystery hiddenq carrier — vizuální feedback že nejde použít.
-      // v72.80: touchstart navíc — iOS Safari někdy nedoručí 'click' na non-pointer cursor elementech.
+      // v72.82: denial shake přes event delegation na #carriers-grid (níž). Per-element
+       // listeners byly nespolehlivé na iOS Safari pro "neviditelné" elementy (cbox/cbox-hid
+       // mají v 3D transparent background). Zde jen dataset pro delegated handler.
       else if(!empty && !isGarage && (hidden || !active)){
         div.dataset.col=c;div.dataset.row=r;
-        div.addEventListener('click', onDenialCarrierClick);
-        div.addEventListener('touchstart', onDenialCarrierClick, {passive: true});
       }
       col.appendChild(div);
     }
@@ -5780,6 +5786,21 @@ function onDenialCarrierClick(e){
   const c=+e.currentTarget.dataset.col, r=+e.currentTarget.dataset.row;
   if(RENDERER_MODE==='3d' && window.render3dBottom && window.render3dBottom.triggerCarrierDenial){
     window.render3dBottom.triggerCarrierDenial(c, r);
+  }
+}
+
+// v72.82: delegated handler na #carriers-grid pro denial shake. Najde .carrier ancestor
+// klikem, ignoruje active/garage (ti mají vlastní listener), trigger denial pro inactive/hiddenq.
+function _handleDenialDelegated(e){
+  const carrier = e.target.closest('.carrier');
+  if(!carrier) return;
+  if(carrier.classList.contains('active')) return;   // active = vlastní onCarrierClick
+  if(carrier.classList.contains('garage')) return;   // garage = vlastní handler
+  if(carrier.classList.contains('empty')) return;    // empty = nic
+  const col = carrier.dataset.col, row = carrier.dataset.row;
+  if(col === undefined || row === undefined) return;
+  if(RENDERER_MODE==='3d' && window.render3dBottom && window.render3dBottom.triggerCarrierDenial){
+    window.render3dBottom.triggerCarrierDenial(+col, +row);
   }
 }
 
@@ -6316,7 +6337,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v72.81');
+    gamee.updateScore(score,playTime,'balloon-belt-v72.82');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6444,7 +6465,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v72.81');
+  gamee.updateScore(score,playTime,'balloon-belt-v72.82');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7277,7 +7298,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v72.81');
+      gamee.updateScore(score,playTime,'balloon-belt-v72.82');
       event.detail.callback();
     });
 
