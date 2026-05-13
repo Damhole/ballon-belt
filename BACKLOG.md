@@ -356,7 +356,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
-| v73.50 | TBD | 2026-05-13 | **M9 day 1** — image-area 3D frame (ražba/cavity look), rounded 3D pixely s capsule top, breathing gap (PIXEL_INSET 0.70), height pattern variants (random/wave-h/wave-v/wave-diag/radial/flat), squash&stretch + outline + spark + motion trail na projektily. |
+| v73.50 | `da122b0` | 2026-05-13 | **M9 day 1** — image-area 3D frame (ražba/cavity look), rounded 3D pixely s capsule top, breathing gap (PIXEL_INSET 0.70), height pattern variants (random/wave-h/wave-v/wave-diag/radial/flat), squash&stretch + outline + spark + motion trail na projektily. |
 | v73.0 | `58b6814` | 2026-05-13 | **M8 closeout** + M9 start marker. M8 (Sjednocený 3D grid) hotov: 3D walls, mystery 3D + reveal anim, cascade pop, denial shake, layout polish. Deferred: empty/garage/rocket 3D, falling anim, tech debt. M9 začíná = 3D vizuál (image area depth, BG atmosphere, funnel finalization). |
 | v72.82 | `44543d6` | 2026-05-13 | Event delegation pro denial shake — fix iOS Safari nereagování. Per-element listeners selhávaly na `.carrier.inactive`/`.hiddenq` (inner `.cbox`/`.cbox-hid` mají v 3D transparent bg). Delegated handler na `#carriers-grid` parent + `closest('.carrier')`. |
 | v72.79 | `82e8b6b` | 2026-05-13 | Denial shake bundle — klik na inactive/mystery carrier spustí Y-axis rotation oscillation (±13°, dampened sin, 3.5 cyklů, 0.32s). State v `carrierDenialAnim` Map, trigger přes `triggerCarrierDenial` API. CSS cursor:pointer + pointer-events:auto. `.controls` v 3D width = `--funnel-deck-w` (lícuje s deckem). |
