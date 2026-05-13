@@ -1205,7 +1205,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v72.79');
+          gamee.updateScore(score,playTime,'balloon-belt-v72.80');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5709,10 +5709,12 @@ function drawCarriers(){
       }
       const isDestroyable=isGarage&&active&&slot.destroyable;
       if((active&&!isGarage)||isDestroyable){div.dataset.col=c;div.dataset.row=r;div.addEventListener('click',onCarrierClick);}
-      // v72.78: denial shake na klik inactive / mystery hiddenq carrier — vizuální feedback že nejde použít
+      // v72.78: denial shake na klik inactive / mystery hiddenq carrier — vizuální feedback že nejde použít.
+      // v72.80: touchstart navíc — iOS Safari někdy nedoručí 'click' na non-pointer cursor elementech.
       else if(!empty && !isGarage && (hidden || !active)){
         div.dataset.col=c;div.dataset.row=r;
         div.addEventListener('click', onDenialCarrierClick);
+        div.addEventListener('touchstart', onDenialCarrierClick, {passive: true});
       }
       col.appendChild(div);
     }
@@ -6314,7 +6316,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v72.79');
+    gamee.updateScore(score,playTime,'balloon-belt-v72.80');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6442,7 +6444,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v72.79');
+  gamee.updateScore(score,playTime,'balloon-belt-v72.80');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7275,7 +7277,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v72.79');
+      gamee.updateScore(score,playTime,'balloon-belt-v72.80');
       event.detail.callback();
     });
 
