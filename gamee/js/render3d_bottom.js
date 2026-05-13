@@ -37,7 +37,7 @@ const SLOT_BEVEL      = 1.6;  // bevel pro hladké hrany
 
 // Outline (inverted-hull technique) — scale faktor pro outline mesh
 const OUTLINE_SCALE_BALL = 1.13;  // koule outline 13 %
-const OUTLINE_SCALE_SLOT = 1.07;  // slot outline 7 %
+const OUTLINE_SCALE_SLOT = 1.05;  // v73.51: slot outline 7 % → 5 % (jemnější)
 const WALL_OUTLINE_PX    = 1.6;   // wall outline — pevná tloušťka v CSS px (uniform, ne scale)
 const OUTLINE_COLOR      = 0x000000;  // čistá černá (cartoon look)
 
