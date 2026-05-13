@@ -6917,6 +6917,7 @@ function setupDOM(){
 
 // ── Animation loop ───────────────────────────────────────────────────────────
 function beltLoop(ts){
+  if(window._bbStats) window._bbStats.begin();
   // Profiler frame gap — vzdálenost mezi rAF callbacky. ~16.7 = 60fps; > 30 = throttle.
   const _loopStart=performance.now();
   if(_profLastTs){
@@ -7144,6 +7145,7 @@ function beltLoop(ts){
   _profAccum.totalLoop+=performance.now()-_loopStart;
   _profAccum.frames++;
   _updateFpsCounter(ts);
+  if(window._bbStats) window._bbStats.end();
   requestAnimationFrame(beltLoop);
 }
 

@@ -116,5 +116,16 @@
 </script>
 <!-- Debug overlay — dev only, not included in index.html / prod zip -->
 <script src="./js/debug.js"></script>
+<!-- stats.js — dev only. FPS + MS + MB panels. Klik na panel přepíná mezi nimi. -->
+<script src="https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js"></script>
+<script>
+(function(){
+  if(typeof Stats === 'undefined') return;
+  const s = new Stats();
+  s.dom.style.cssText = 'position:fixed;bottom:0;left:0;z-index:9999;opacity:0.85';
+  document.body.appendChild(s.dom);
+  window._bbStats = s;
+})();
+</script>
 </body>
 </html>
