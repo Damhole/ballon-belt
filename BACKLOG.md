@@ -24,8 +24,8 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | M5 | Curve editor | v60–v68 | ✅ | Křivky obtížnosti, mutation designer, simulated annealing auto-tune |
 | M6 | 2.5D upgrade | v69–v70.11 | ✅ | Three.js, 3D pixely/bloky/projektily/carriers/belt, 10 témat |
 | M7 | Responsive + rows | v71.0–21 | ✅ | Adaptive carriers (38–54 px), 7 řad, 3D mesh sync s 2D, iOS safe area, PWA, touch fix |
-| M8 | Sjednocený 3D grid | v72.x | 🚧 | Všechny grid prvky (empty/hidden/wall) jako 3D meshes pro vizuální konzistenci. Falling animation. Plus carrier inner depth illusion. |
-| M9 | 3D vizuál: image + BG + funnel | v73+ | 📋 | Finální 3D vizuální polish — pixel image area depth/highlights, background atmosphere/depth, jeden trvalý tvar funnelu (FUNNEL_3D z v71.22). |
+| M8 | Sjednocený 3D grid | v72.0–82 | ✅ | Carrier inner depth, 3D walls (monolith ExtrudeGeometry, rounded corners, outline), 3D mystery carriers (animovaná ? texture, circular wipe reveal), cascade pop, denial shake. Empty slot 3D + Garage/Rocket 3D + falling animation **deferred**. |
+| M9 | 3D vizuál: image + BG + funnel | v73+ | 🚧 | Finální 3D vizuální polish — pixel image area depth/highlights, background atmosphere/depth, jeden trvalý tvar funnelu (FUNNEL_3D z v71.22). |
 | M10 | Replay & scrub | v74+ | 📋 | Curve editor Úr. 1.5 — timeline scrubber, mini canvas, .webm export |
 | M11 | Editor polish | future | 💡 | Copy/paste bloků, multi-select, playtester mode, vizuální garáž |
 | M12 | Gameplay | future | 💡 | Adaptivní obtížnost, procedurální levely |
@@ -66,7 +66,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 
 ## 📋 Plánováno
 
-### M8: Sjednocený 3D grid (v72.x — 🚧 in progress)
+### M8: Sjednocený 3D grid (v72.0–82 — ✅ done 2026-05-13)
 
 **Cíl M8:** všechny grid cells jako 3D meshes pro jednotnou scénu (empty / hidden / wall / carrier inner depth).
 
@@ -100,27 +100,47 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 - Three.js InstancedMesh pokus 2× crashnul celý 3D render (z neznámého důvodu — slotGeom i ShapeGeometry obojí).
 - Aktuálně: CSS filter rule je zakomentovaný v `game.css` jako reference, vrátíme se k tomu.
 
-#### 📋 Zbývá v M8
+#### ✅ Hotovo v M8 — pokračování (v72.45–82)
 
-**Walls polish:**
-- Edge cases: walls s holes (hollow ring), disjointné komponenty, walls na grid edge — potřeba ověřit.
+**Mystery carriers 3D** (v72.46–61):
+- 3D rounded box (slotGeom clone s custom UV 0-1) s animovanou `?` texturou (CanvasTexture, 3×3 grid tilted glyphs, diagonal scroll přes offset.x+offset.y).
+- `MeshToonMaterial` s `map` → depth shading konzistentní s carriery, dark navy bg `#010206`, ? glyphy semi-transparent white se subtle stroke outline.
+- Per-row `InstancedMesh` + black BackSide outline mesh.
+- DOM detekce přes class `hiddenq` (slot.hidden flag je permanent, visual reveal pouze když má null souseda → active).
+- 2D `?` glyph v `.cbox-hid` schovaný v 3D módu (transparent bg/border/color).
 
-**Empty slot / Hidden slot 3D** (zatím neuděláno):
-- Empty slot (null) → 3D **recessed** mesh (vnitřní stín, hluboký) — vizuálně jako díra v desce.
-- Hidden slot (?) → 3D **capped** mesh s ? glyph nahoře.
-- Použít stejnou architekturu jako carrier slot (InstancedMesh per row, hot-swap geometry z GLB).
+**Mystery reveal animace** (v72.62–66):
+- Circular wipe — one-off `ShaderMaterial` Mesh per reveal s discard fragmentu na základě `length(vLocalPos.xy) < uRevealT * MAX_DIST`.
+- Object-space XY distance místo UV → uniform wipe přes top i side faces (UV by způsobilo two-phase bug: top má 0-1, sides perimeter).
+- `transparent:false + depthTest:false + depthWrite:false`, renderOrder 144 → překryje carrier balls (depthTest by jinak nechal balls prosvítat) ale pending balls (renderOrder 150) draw přes.
+- Smooth edge přes `smoothstep` discard hranice.
 
-**Garage / Rocket** (otevřená otázka):
-- Zachovat 2D (s emoji 🏠 / 🚀) nebo udělat 3D modely?
-- Pokud 3D: nové GLB assety potřeba.
+**Cascade pop animace** (v72.67):
+- Slot pops scale 0.78 → 1.15 → 1.0 over 0.30s (existing).
+- Balls pop sequentially: ball 0 startuje v 0.15s (slot peak), každý další +0.05s stagger, sám pop scale 0 → 1.15 → 1.0 over 0.20s.
+- Total cascade 0.55s. Pop entry žije po celou cascade duration.
 
-**Falling animation pro carriers:**
-- Tooling pro „koule vypadávají z nosiče dolů (gravity → pending zóna)" — animace při kliku.
-- Aktuálně máme `triggerCarrierFire` ghost anim (lift up + tilt). Pro „falling" by se rozšířilo o gravity simulation.
+**Denial shake** (v72.78–82):
+- Klik na inactive/mystery (hiddenq) carrier → Y-axis rotation oscillation (dampened sin, ±0.22 rad ≈ 13°, 3.5 cyklů přes 0.32s).
+- Event delegation na `#carriers-grid` — iOS Safari nedoručí click na "neviditelný" inner `.cbox`/`.cbox-hid` (transparent bg v 3D). Bubble up + `closest('.carrier')` najde target.
 
-**Tech debt:**
-- Wall meshes se recreate při každém `updateWalls()` call (dispose + new ExtrudeGeometry). Pokud perf issue, cache by component cells hash.
-- `MAX_WALL_INSTANCES = 50` constant nedávno už nevyužitý (od v72.18 přešli jsme na dynamic Meshes). Lze odebrat.
+**Layout & responsivity polish** (v72.68–76):
+- `clearCarrierState()` voláno ze `startLevel` — žádné falešné pop animace z mystery cache předchozího levelu.
+- `CARR_TARGET_GAP` 6 → 4 (uspora 12 px na 7 řadách).
+- `CARR_MIN_SIZE` clamp jen pokud at MIN nepřetéká usable space (fit má prioritu).
+- Canvas `H` buffer +90 → +400 (worst case pro MAX_ROWS level switch — bez resize který by rozbil staticky pozicovaný belt track).
+- Ghost (tilting) renderOrder 140-142 → 147-148 (nad mystery reveal 144, pod pending 150).
+- `.controls` v 3D `width: --funnel-deck-w` (lícuje s deckem, theme select chevron uvnitř).
+
+#### 📋 Deferred (přesunuto z M8 na později)
+
+- **Empty slot 3D** (null → recessed mesh s vnitřním stínem).
+- **Garage / Rocket 3D** (zatím 2D emoji — viz UX otázka, jestli vůbec stojí za to).
+- **Falling animation** pro carriers (gravity → pending) — `triggerCarrierFire` ghost anim aktuálně dělá lift+tilt; pro „falling" by se rozšířilo o gravity sim.
+- **Tech debt:**
+  - Wall meshes recreate při každém `updateWalls()` call → caching by component hash, pokud perf issue.
+  - `MAX_WALL_INSTANCES = 50` constant nevyužitý od v72.18 — k odebrání.
+  - Wall edge cases (holes, disjointné komponenty, grid edge) — potřeba systematicky ověřit.
 
 #### 📂 Kde najít kód
 
@@ -312,6 +332,10 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v73.0 | TBD | 2026-05-13 | **M8 closeout** + M9 start marker. M8 (Sjednocený 3D grid) hotov: 3D walls, mystery 3D + reveal anim, cascade pop, denial shake, layout polish. Deferred: empty/garage/rocket 3D, falling anim, tech debt. M9 začíná = 3D vizuál (image area depth, BG atmosphere, funnel finalization). |
+| v72.82 | `44543d6` | 2026-05-13 | Event delegation pro denial shake — fix iOS Safari nereagování. Per-element listeners selhávaly na `.carrier.inactive`/`.hiddenq` (inner `.cbox`/`.cbox-hid` mají v 3D transparent bg). Delegated handler na `#carriers-grid` parent + `closest('.carrier')`. |
+| v72.79 | `82e8b6b` | 2026-05-13 | Denial shake bundle — klik na inactive/mystery carrier spustí Y-axis rotation oscillation (±13°, dampened sin, 3.5 cyklů, 0.32s). State v `carrierDenialAnim` Map, trigger přes `triggerCarrierDenial` API. CSS cursor:pointer + pointer-events:auto. `.controls` v 3D width = `--funnel-deck-w` (lícuje s deckem). |
+| v72.76 | `1e3a048` | 2026-05-13 | Mystery 3D + cascade pop + reveal anim — 3D mystery box s animovanou `?` texturou (3×3 grid tilted glyphs diagonal scroll), circular wipe reveal (one-off ShaderMaterial + object-space discard), cascade pop (slot pops then balls staggered +50ms). `clearCarrierState()` ze startLevel. Layout fixes: CARR_TARGET_GAP 6→4, CARR_MIN_SIZE clamp jen pokud fits, canvas H buffer +400 pro level switch worst case, ghost renderOrder nad mystery reveal. |
 | v72.44 | `128a394` | 2026-05-12 | Wall polish bundle — concave corner snap (v72.21–22 fix gap-midpoint stair-step → cell-edge intersection), polygon offset outline (v72.25 `_offsetPolygonOutward` uniform tloušťka, místo scale), trailing-vertex dedup (v72.26 fix tenký šev), rounded silhouette (v72.29–30 `_buildRoundedShape` quadraticCurveTo radius 4.5), outline barva wall × 0.38 (v72.31), wall lightness +0.02 HSL (v72.32–34), disabled shadow filter experiment (v72.41–44). |
 | v72.1 | `a6e6d52` | 2026-05-12 | Depth illusion via shader injection — vertex color approach z v72.0 user 'neviděl'. Switch na per-fragment darkening v slotMat.onBeforeCompile (object-space vSlotLocal varying). Funguje regardless of GLB vertex density. Stronger contrast (0.40 min, threshold 0.40). |
 | v72.20 | `333476b` | 2026-05-12 | Fix wall polygon trace — grid-coord trace + CSS conversion via cornerCSS helper. v72.19 CSS-coord trace selhával na concave corners (L/T) kvůli inflated rect mismatched endpoints → incomplete polygon → triangles. Grid corners jsou integer, vždy matchují. |
