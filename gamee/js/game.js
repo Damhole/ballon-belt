@@ -1205,7 +1205,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v72.44');
+          gamee.updateScore(score,playTime,'balloon-belt-v72.45');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5606,21 +5606,16 @@ function _setAdaptiveCarrierSize(columnsArr){
   }
   // Cbox inner space: padding 2×2 + gap 1 = 5 px → cell = (carrier-5)/2
   const ballSize = Math.max(14, Math.floor((carrierSize - 5) / 2));
-  // Adaptivní top padding (v71.18 + v71.19 boost) — když carriers fit v TARGET
-  // velikosti a něco zbylo, hra dostane top breathing space od horní hrany
-  // telefonu. Při tight space (shrink) zůstává natlačeno nahoru jako dosud.
-  // v71.19: snížen threshold (30→16), zvýšen ratio (/3→/2), cap (48→72) aby
-  // padding byl viditelný i při menší rezervě a nestal se neviditelným.
-  let topExtra = 0;
-  if (carrierSize === CARR_TARGET_SIZE) {
-    const leftover = usable - neededAtTarget;
-    if (leftover >= 16) topExtra = Math.min(72, Math.floor(leftover / 2));
-  }
+  // v72.45: Removed adaptive top padding (`--game-top-extra` zůstává 0).
+  // Důvod: výpočet četl carrWrap.top který už zahrnoval předchozí topExtra
+  // → při změně levelu (jiný numRows) se použila špatná available space →
+  // carrier size se nesprávně shrinkoval. Jednodušší fix než oscillation
+  // prevention je floating offset úplně zrušit.
   const r = document.documentElement.style;
   r.setProperty('--carrier-size',  carrierSize + 'px');
   r.setProperty('--ball-size',     ballSize + 'px');
   r.setProperty('--row-gap',       rowGap + 'px');
-  r.setProperty('--game-top-extra', topExtra + 'px');
+  r.setProperty('--game-top-extra', '0px');
 }
 // Recompute on resize (rotation, desktop window resize).
 // MUSÍ trigger i 3D mesh update — updateCarriers() čte cbox.getBoundingClientRect()
@@ -6298,7 +6293,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v72.44');
+    gamee.updateScore(score,playTime,'balloon-belt-v72.45');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6426,7 +6421,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v72.44');
+  gamee.updateScore(score,playTime,'balloon-belt-v72.45');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7256,7 +7251,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v72.44');
+      gamee.updateScore(score,playTime,'balloon-belt-v72.45');
       event.detail.callback();
     });
 
