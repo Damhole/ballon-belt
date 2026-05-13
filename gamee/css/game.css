@@ -210,6 +210,9 @@ html,body{margin:0;padding:0}
 #belt-label{display:none}
 #belt-svg{width:360px;height:64px;display:block}
 .controls{width:360px;display:flex;flex-direction:column;gap:8px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-secondary);border-radius:12px;padding:10px 14px;overflow:hidden}
+/* v72.77: V 3D módu controls licuje šířkou s bottom-deck (420px), jinak theme
+   select chevron přesahuje rounded corner. */
+body.renderer-3d .controls{width:var(--funnel-deck-w, 420px)}
 .ctrl-row-top{display:flex;justify-content:space-between;align-items:flex-end;gap:8px}
 .specials-wrap{border-top:0.5px solid var(--color-border-secondary);padding-top:6px}
 .specials-header{display:flex;justify-content:space-between;align-items:center;width:100%;background:none;border:none;cursor:pointer;padding:0;color:inherit}
@@ -262,8 +265,10 @@ body.renderer-3d.theme-mono-light .theme-select{color:#fff}
 .carrier{user-select:none}
 .carrier.active{cursor:pointer;opacity:1}
 .carrier.active:hover .cbox{transform:scale(1.08)}
-.carrier.inactive{opacity:0.25;cursor:default;pointer-events:none}
-.carrier.hiddenq{opacity:1;cursor:default;pointer-events:none}
+/* v72.79: pointer-events povolen pro denial shake. Cursor default (jen visual rozdíl
+   active vs inactive carrier stačí — explicit ban symbol je overkill). */
+.carrier.inactive{opacity:0.25;cursor:default}
+.carrier.hiddenq{opacity:1;cursor:default}
 .carrier.empty{opacity:0;pointer-events:none;width:48px;height:48px;display:block}
 /* Wall (top-down vzhled) — velmi nevýrazný rounded block, jen lehce světlejší
    než pozadí. Žádné výrazné gradienty / shadow ornamenty, aby splýval v jednolitou

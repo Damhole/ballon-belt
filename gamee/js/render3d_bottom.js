@@ -85,6 +85,8 @@ const st = {
   // Per-reveal one-off Mesh + ShaderMaterial s circular discard, v72.62
   // Map<carrierKey, { mesh, mat, t0, uniforms }>
   mysteryRevealMeshes: new Map(),
+  // v72.78: denial shake anim (klik na inactive / mystery) — Map<carrierKey, t0>
+  carrierDenialAnim: new Map(),
   // Tilt struktura: pivot (centerO) → tiltGroup (rotace -TILT_RAD okolo X) → contentGroup (posun zpět)
   pivot:        null,
   tiltGroup:    null,
@@ -860,13 +862,14 @@ function updateCarriers(columns, colorsArr) {
         const xWh   = xCSSh;
         const yWh   = _worldY(yCSSh);
         const dynScaleH = crH.width / SLOT_SIZE;
+        const denialRotY = _computeDenialRotation(mysteryKey);  // v72.78
         const rowIdxH = Math.min(r, st.rowMysteryMeshes.length - 1);
         const myMesh = st.rowMysteryMeshes[rowIdxH];
         const myOutMesh = st.rowMysteryOutlineMeshes[rowIdxH];
         const myIdx = rowMysteryIdx[rowIdxH];
         if (myMesh && myIdx < myMesh.instanceMatrix.count) {
           dummy.position.set(xWh, yWh, 0);
-          dummy.rotation.set(0, 0, 0);
+          dummy.rotation.set(0, denialRotY, 0);
           dummy.scale.set(dynScaleH, dynScaleH, dynScaleH);
           dummy.updateMatrix();
           myMesh.setMatrixAt(myIdx, dummy.matrix);
@@ -957,9 +960,10 @@ function updateCarriers(columns, colorsArr) {
 
       // 3D slot container (per-row mesh)
       const slotInstIdx = rowSlotIdx[rowIdx];
+      const denialRotYReg = _computeDenialRotation(carrierKey);  // v72.78
       if (slotInstIdx < slotMesh.count + slotMesh.instanceMatrix.count) {
         dummy.position.set(xW, yW, 0);
-        dummy.rotation.set(0, 0, 0);
+        dummy.rotation.set(0, denialRotYReg, 0);
         dummy.scale.set(slotScale, slotScale, slotScale);
         dummy.updateMatrix();
         slotMesh.setMatrixAt(slotInstIdx, dummy.matrix);
@@ -1196,10 +1200,31 @@ function triggerCarrierFire(col, row, hexColor, fillCount, canvasX, canvasY, cbo
   });
 }
 
+// v72.78: trigger denial shake anim (klik na inactive / mystery carrier).
+function triggerCarrierDenial(col, row) {
+  if (!st.ready) return;
+  st.carrierDenialAnim.set(col + ',' + row, performance.now());
+}
+
 function _hasActiveCarrierAnim() {
   return (st.carrierAnim && st.carrierAnim.size > 0)
       || (st.carrierPopAnim && st.carrierPopAnim.size > 0)
-      || (st.mysteryRevealMeshes && st.mysteryRevealMeshes.size > 0);
+      || (st.mysteryRevealMeshes && st.mysteryRevealMeshes.size > 0)
+      || (st.carrierDenialAnim && st.carrierDenialAnim.size > 0);
+}
+
+// v72.78: compute Y rotation pro denial shake. Vrací { rotY, active } nebo null.
+// Curve: dampened sin oscillation, amplitude 0.14 rad (~8°), 3.5 cykly přes 0.32s.
+function _computeDenialRotation(carrierKey) {
+  const t0 = st.carrierDenialAnim.get(carrierKey);
+  if (t0 === undefined) return 0;
+  const t = (performance.now() - t0) / 1000;
+  const DUR = 0.32;
+  if (t >= DUR) { st.carrierDenialAnim.delete(carrierKey); return 0; }
+  const tt = t / DUR;
+  const decay = 1 - tt;            // amplituda klesá
+  const wave  = Math.sin(tt * Math.PI * 7);  // 3.5 cykly
+  return 0.22 * decay * wave;
 }
 
 // Helper: převede canvasY v souřadnicích bottom3d-canvas → FUN.y
@@ -1778,6 +1803,7 @@ function clearCarrierState() {
   if (st.carrierActiveCache) st.carrierActiveCache.clear();
   if (st.carrierHiddenCache) st.carrierHiddenCache.clear();
   if (st.carrierPopAnim) st.carrierPopAnim.clear();
+  if (st.carrierDenialAnim) st.carrierDenialAnim.clear();   // v72.78
   if (st.mysteryRevealAnim) st.mysteryRevealAnim.clear();
   if (st.mysteryRevealMeshes) {
     for (const [, entry] of st.mysteryRevealMeshes) {
@@ -1788,5 +1814,5 @@ function clearCarrierState() {
   }
 }
 
-window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize };
+window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize };
 window._r3dBState = st;  // debug
