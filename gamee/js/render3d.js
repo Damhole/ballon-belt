@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 
 const SCALE = 10;
-const PIXEL_DEPTH = 18;       // baseline hloubka pixel-kostky (z-extent)
+const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
 const PIXEL_LIFT = PIXEL_DEPTH / 2; // střed baseline kostky nad rovinou z=0
 const PIXEL_INSET = 0.98;     // 1.0 = full size, <1 vytvoří mezery (2% = jen vlasový gap)
 const BLOCK_DEPTH = 32;       // bloky výrazně vyšší než pixely (puzzle wall feel)
@@ -67,11 +67,12 @@ function _buildImageFrameGeom(W, H, opts) {
   const bevel  = opts.bevel  || 2;
   const bevelSegs = opts.bevelSegs || 3;
   // v73.4: extendBottom hide bottom side wall (tilt = bottom blízko kameře, side wall by jinak
-  // čouhal). Top se NErozšiřuje. Hole inset uniformly pad od outer (vč. extended bottom) →
-  // top face stejně silný v lokálních coords na všech 4 stranách.
-  const extendBottom = opts.extendBottom !== undefined ? opts.extendBottom : 22;
+  // čouhal). Hole inset uniformly pad od outer → top face stejně silný v lokálních coords.
+  // v73.20: extendTop pro extend top edge — frame top by jinak nedosáhl canvas top hrany.
+  const extendBottom = opts.extendBottom !== undefined ? opts.extendBottom : 13;
+  const extendTop    = opts.extendTop    !== undefined ? opts.extendTop    : 5;
   const x0 = 0, x1 = W;
-  const y0 = -extendBottom, y1 = H;
+  const y0 = -extendBottom, y1 = H + extendTop;
   const shape = new THREE.Shape();
   shape.moveTo(x0 + outerR, y0);
   shape.lineTo(x1 - outerR, y0);
@@ -456,9 +457,11 @@ function init(canvas, opts) {
   // Pixely jdou do contentGroup (tilted) místo přímo do scene.
   // v73.8: pixelsGroup uvnitř contentGroup — scale 0.92 toward center, takže
   // pixely a bloky se nezasahují s 3D frame. Frame zůstává v contentGroup přímo.
+  // v73.16: shift down by SHIFT_DOWN_Y (snižuje cavity floor visible pod pixely).
   const PIXELS_SCALE = 0.97;
+  const SHIFT_DOWN_Y = -14;  // negative Y = down v contentGroup local (Y-up)
   state.pixelsGroup = new THREE.Group();
-  state.pixelsGroup.position.set((1 - PIXELS_SCALE) * W / 2, (1 - PIXELS_SCALE) * H / 2, 0);
+  state.pixelsGroup.position.set((1 - PIXELS_SCALE) * W / 2, (1 - PIXELS_SCALE) * H / 2 + SHIFT_DOWN_Y, 0);
   state.pixelsGroup.scale.set(PIXELS_SCALE, PIXELS_SCALE, 1);
   state.contentGroup.add(state.pixelsGroup);
   state.pixelsGroup.add(state.pixelMesh);
@@ -467,7 +470,7 @@ function init(canvas, opts) {
   // s bevel + rounded corners. Pixel art je vidět skrz hole, frame okolo = "ražba"
   // do case panelu. Frame v contentGroup → tiltuje s pixely (case je součást devicu).
   const frameGeom = _buildImageFrameGeom(W, H, {
-    outerR: 14, innerR: 8, pad: 4, depth: 30, bevel: 2, bevelSegs: 3,
+    outerR: 14, innerR: 8, pad: 4, depth: 50, bevel: 2, bevelSegs: 3,
   });
   // v73.11: MeshLambertMaterial (stejný shader jako pixel blocks) ale BEZ mapy —
   // bevel texture je per-pixel-cell pattern (černé okraje pro cell outline), na velké
@@ -475,7 +478,8 @@ function init(canvas, opts) {
   const frameMat = new THREE.MeshLambertMaterial({ color: 0xf4b8c8 });
   state.imageFrame = new THREE.Mesh(frameGeom, frameMat);
   // Frame top face at z=30, bottom at z=0 — pixel art (z=0..18) je INSIDE cavity.
-  state.imageFrame.position.set(0, 0, 0);
+  // v73.16: shift down v Y sync s pixelsGroup
+  state.imageFrame.position.set(0, -14, 0);
   state.imageFrame.castShadow = false;
   state.imageFrame.receiveShadow = true;
   state.contentGroup.add(state.imageFrame);

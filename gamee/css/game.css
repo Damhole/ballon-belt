@@ -513,8 +513,9 @@ body.renderer-3d #image-area {
    stretched na CSS = ~16 px). Bez tohoto canvas má sharp corners přesahuje frame. */
 body.renderer-3d #image-area canvas {
   border-radius: 10px;
-  /* v73.14: box-shadow s positive spread = outline okolo canvas, follows border-radius. */
-  box-shadow: 0 0 0 1.5px #1a1a1a;
+  /* v73.21: outline = tmavší odstín hlavního růžového bg (--bg-3d-bottom × 0.55).
+     Méně kontrastní než černá, harmonizuje s case barvou. */
+  box-shadow: 0 0 0 1.5px #8a5066;
 }
 /* Všechny canvasy uvnitř image area se scalují na full size (přebije
    inline width/height přes !important — particle-canvas má inline z game.js). */
