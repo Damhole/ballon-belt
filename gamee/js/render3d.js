@@ -927,7 +927,7 @@ function updateProjectiles(particles) {
     if (p.phase !== 'fly') continue;
     if (i >= MAX_PROJECTILES) break;
     // v73.50: motion trail — každých ~40 ms spawn drobný shard za projektilem.
-    if (false && state.shardMesh && (!p._lastTrail || now - p._lastTrail > 40)) {
+    if (state.shardMesh && (!p._lastTrail || now - p._lastTrail > 40)) {
       p._lastTrail = now;
       state.shards.push({
         x: p.x, y: p.y, z: PROJECTILE_Z,
