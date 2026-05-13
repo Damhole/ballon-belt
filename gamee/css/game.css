@@ -502,6 +502,19 @@ body.renderer-3d .cbox {
 body.renderer-3d #image-area {
   width: 420px;
   height: 362px;
+  /* v73.14: outline přes box-shadow na canvas (níž) — image-area border nešel
+     vidět napravo/dole, canvas s !important full size ho překrýval. */
+  border: 0;
+  background: var(--image-3d-bg, #6a2f4d);
+  border-radius: 10px;
+  overflow: visible;
+}
+/* v73.5: rounded corners na canvasech aby matchovaly s 3D frame outerR (14 px ve worldu,
+   stretched na CSS = ~16 px). Bez tohoto canvas má sharp corners přesahuje frame. */
+body.renderer-3d #image-area canvas {
+  border-radius: 10px;
+  /* v73.14: box-shadow s positive spread = outline okolo canvas, follows border-radius. */
+  box-shadow: 0 0 0 1.5px #1a1a1a;
 }
 /* Všechny canvasy uvnitř image area se scalují na full size (přebije
    inline width/height přes !important — particle-canvas má inline z game.js). */

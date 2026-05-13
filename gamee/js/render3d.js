@@ -57,6 +57,55 @@ const state = {
 
 const _dummy = new THREE.Object3D();
 
+// v73.1: image-area frame — outer rounded rect s vnitřním otvorem (hole) přes ExtrudeGeometry.
+// Vytvoří dojem "ražby" / cavity v case panelu, pixel art je vidět skrz hole.
+function _buildImageFrameGeom(W, H, opts) {
+  const outerR = opts.outerR || 14;
+  const innerR = opts.innerR || 10;
+  const pad    = opts.pad    || 10;     // padding od outer hrany k hole
+  const depth  = opts.depth  || 25;
+  const bevel  = opts.bevel  || 2;
+  const bevelSegs = opts.bevelSegs || 3;
+  // v73.4: extendBottom hide bottom side wall (tilt = bottom blízko kameře, side wall by jinak
+  // čouhal). Top se NErozšiřuje. Hole inset uniformly pad od outer (vč. extended bottom) →
+  // top face stejně silný v lokálních coords na všech 4 stranách.
+  const extendBottom = opts.extendBottom !== undefined ? opts.extendBottom : 22;
+  const x0 = 0, x1 = W;
+  const y0 = -extendBottom, y1 = H;
+  const shape = new THREE.Shape();
+  shape.moveTo(x0 + outerR, y0);
+  shape.lineTo(x1 - outerR, y0);
+  shape.quadraticCurveTo(x1, y0, x1, y0 + outerR);
+  shape.lineTo(x1, y1 - outerR);
+  shape.quadraticCurveTo(x1, y1, x1 - outerR, y1);
+  shape.lineTo(x0 + outerR, y1);
+  shape.quadraticCurveTo(x0, y1, x0, y1 - outerR);
+  shape.lineTo(x0, y0 + outerR);
+  shape.quadraticCurveTo(x0, y0, x0 + outerR, y0);
+  // Hole — inset uniformly by pad from outer (vč. extended bottom). Top face thickness = pad.
+  const ix0 = pad, iy0 = y0 + pad, ix1 = W - pad, iy1 = y1 - pad;
+  const hole = new THREE.Path();
+  hole.moveTo(ix0 + innerR, iy0);
+  hole.lineTo(ix1 - innerR, iy0);
+  hole.quadraticCurveTo(ix1, iy0, ix1, iy0 + innerR);
+  hole.lineTo(ix1, iy1 - innerR);
+  hole.quadraticCurveTo(ix1, iy1, ix1 - innerR, iy1);
+  hole.lineTo(ix0 + innerR, iy1);
+  hole.quadraticCurveTo(ix0, iy1, ix0, iy1 - innerR);
+  hole.lineTo(ix0, iy0 + innerR);
+  hole.quadraticCurveTo(ix0, iy0, ix0 + innerR, iy0);
+  shape.holes.push(hole);
+  const geom = new THREE.ExtrudeGeometry(shape, {
+    depth: depth,
+    bevelEnabled: true,
+    bevelThickness: bevel,
+    bevelSize: bevel,
+    bevelSegments: bevelSegs,
+    curveSegments: 4,
+  });
+  return geom;
+}
+
 function _getColor(hex) {
   if (!state.colorCache[hex]) state.colorCache[hex] = new THREE.Color(hex);
   return state.colorCache[hex];
@@ -405,7 +454,31 @@ function init(canvas, opts) {
   state.pixelMesh.castShadow = true;
   state.pixelMesh.receiveShadow = true;
   // Pixely jdou do contentGroup (tilted) místo přímo do scene.
-  state.contentGroup.add(state.pixelMesh);
+  // v73.8: pixelsGroup uvnitř contentGroup — scale 0.92 toward center, takže
+  // pixely a bloky se nezasahují s 3D frame. Frame zůstává v contentGroup přímo.
+  const PIXELS_SCALE = 0.97;
+  state.pixelsGroup = new THREE.Group();
+  state.pixelsGroup.position.set((1 - PIXELS_SCALE) * W / 2, (1 - PIXELS_SCALE) * H / 2, 0);
+  state.pixelsGroup.scale.set(PIXELS_SCALE, PIXELS_SCALE, 1);
+  state.contentGroup.add(state.pixelsGroup);
+  state.pixelsGroup.add(state.pixelMesh);
+
+  // v73.1: image-area frame — outer rounded rect s vnitřním otvorem. ExtrudeGeometry
+  // s bevel + rounded corners. Pixel art je vidět skrz hole, frame okolo = "ražba"
+  // do case panelu. Frame v contentGroup → tiltuje s pixely (case je součást devicu).
+  const frameGeom = _buildImageFrameGeom(W, H, {
+    outerR: 14, innerR: 8, pad: 4, depth: 30, bevel: 2, bevelSegs: 3,
+  });
+  // v73.11: MeshLambertMaterial (stejný shader jako pixel blocks) ale BEZ mapy —
+  // bevel texture je per-pixel-cell pattern (černé okraje pro cell outline), na velké
+  // ploše frame by se tilovala a frame by vypadal černý. Smooth shading bez mapy.
+  const frameMat = new THREE.MeshLambertMaterial({ color: 0xf4b8c8 });
+  state.imageFrame = new THREE.Mesh(frameGeom, frameMat);
+  // Frame top face at z=30, bottom at z=0 — pixel art (z=0..18) je INSIDE cavity.
+  state.imageFrame.position.set(0, 0, 0);
+  state.imageFrame.castShadow = false;
+  state.imageFrame.receiveShadow = true;
+  state.contentGroup.add(state.imageFrame);
 
   // GROUND PLANE — neviditelný plane na z=0 přijímá stíny od kostek.
   // ShadowMaterial = renderuje JEN stíny, plane sám je transparentní.
@@ -416,7 +489,7 @@ function init(canvas, opts) {
   state.shadowGround = new THREE.Mesh(groundGeom, groundMat);
   state.shadowGround.position.set(W / 2, imgCenterY, 0);
   state.shadowGround.receiveShadow = true;
-  state.contentGroup.add(state.shadowGround);
+  state.pixelsGroup.add(state.shadowGround);   // v73.8: do pixelsGroup pro scale
 
   // BLOCK MESH — bloky jako InstancedMesh cubes BEZ bevel textury a BEZ insetu.
   // Cells stejného bloku tedy splývají v jeden „celistvý" wall povrch (bez seams,
@@ -446,7 +519,7 @@ function init(canvas, opts) {
   state.blockMesh.frustumCulled = false;
   state.blockMesh.castShadow = true;
   state.blockMesh.receiveShadow = true;
-  state.contentGroup.add(state.blockMesh);
+  state.pixelsGroup.add(state.blockMesh);   // v73.8
 
   // PROJECTILE MESH (Fáze 4) — 3D sphere instances pro létající balónky.
   // Low-poly (12×8 segments) pro mobile, MeshLambertMaterial dává sphere shading
@@ -471,7 +544,7 @@ function init(canvas, opts) {
   state.projectileMesh.frustumCulled = false;
   state.projectileMesh.castShadow = true; // projektily vrhají stín na ground
   // Záměrně ne receiveShadow (sphere by self-shadowoval kvůli Lambert + low-poly)
-  state.contentGroup.add(state.projectileMesh);
+  state.pixelsGroup.add(state.projectileMesh);   // v73.8
 
   // SHARD MESH — pro pixel destruction animace (collapse + shatter).
   // Sdílí bevel texturu s pixely, takže shards vypadají jako mini verze pixelů.
@@ -497,7 +570,7 @@ function init(canvas, opts) {
   state.shardMesh.count = 0;
   state.shardMesh.frustumCulled = false;
   state.shardMesh.castShadow = true;
-  state.contentGroup.add(state.shardMesh);
+  state.pixelsGroup.add(state.shardMesh);   // v73.8
 
   state.ready = true;
   return true;
