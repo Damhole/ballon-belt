@@ -17,7 +17,7 @@ import * as THREE from 'three';
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
 const PIXEL_LIFT = PIXEL_DEPTH / 2; // střed baseline kostky nad rovinou z=0
-const PIXEL_INSET = 0.98;     // 1.0 = full size, <1 vytvoří mezery (2% = jen vlasový gap)
+const PIXEL_INSET = 0.70;     // v73.42: 0.65 → 0.70
 const BLOCK_DEPTH = 32;       // bloky výrazně vyšší než pixely (puzzle wall feel)
 const BLOCK_INSET = 1.0;      // bloky lícují bez mezer — cells stejného bloku splývají v jeden „celistvý" povrch
 const MAX_BLOCK_INSTANCES = 600; // většina bloků je velkých (rect 12×17 = 204 cells)
@@ -38,9 +38,20 @@ const BEVEL_TEX_SIZE = 128;   // rozlišení bevel textury (vyšší = ostřejš
 // Per-pixel height variation — některé kostky vyšší, aby povrch nebyl rovnoměrný.
 // 3 tiery, deterministicky vybrané přes hash(x,y). Bottom plane všech kostek
 // zůstává na z=0 (cube se „natáhne" nahoru). Chceš to vypnout? Nastav VARIANCE_AMPL=0.
-const HEIGHT_TIERS = [1.0, 1.3, 1.5]; // násobiče PIXEL_DEPTH
-const TIER_PROBS = [0.90, 0.08, 0.02]; // 90 % baseline, 8 % medium, 2 % tall
-const VARIANCE_AMPL = 1.0;            // 0 = vše stejně vysoké, 1 = plná varianta
+const HEIGHT_TIERS = [1.0, 1.3, 1.5]; // (legacy) — nahrazeno v73.43 jednoduchou random variance
+const TIER_PROBS = [0.90, 0.08, 0.02]; // (legacy)
+const VARIANCE_AMPL = 1.0;            // 1 = full random variance
+const HEIGHT_VAR_RANGE = 0.025;       // v73.45: per-pixel výška ±2.5 % (0.975..1.025 × PIXEL_DEPTH)
+// v73.45: height pattern — určuje SHAPE varianty pixelové výšky. Per-level feel.
+// 'random' (default) | 'wave-h' | 'wave-v' | 'wave-diag' | 'radial' | 'flat'
+// URL param: ?height=wave-h
+const HEIGHT_PATTERN = (function(){
+  try {
+    const p = new URLSearchParams(location.search).get('height');
+    if (['random','wave-h','wave-v','wave-diag','radial','flat'].includes(p)) return p;
+  } catch(_e) {}
+  return 'random';
+})();
 
 const state = {
   scene: null,
@@ -123,18 +134,23 @@ function _hash01(x, y) {
 
 // Vrátí výškový tier (násobič PIXEL_DEPTH) pro pixel na pozici (x, y).
 function _heightFor(x, y) {
-  if (VARIANCE_AMPL <= 0) return 1.0;
-  const r = _hash01(x, y);
-  let acc = 0;
-  for (let i = 0; i < TIER_PROBS.length; i++) {
-    acc += TIER_PROBS[i];
-    if (r < acc) {
-      const tier = HEIGHT_TIERS[i];
-      // Lerp mezi 1.0 a tier dle VARIANCE_AMPL (umožní soft tuning v jednom místě).
-      return 1.0 + (tier - 1.0) * VARIANCE_AMPL;
+  // v73.45: per-pixel multiplier dle HEIGHT_PATTERN.
+  // 'random' = hash noise. Wave/radial = deterministické shapy pro per-level feel.
+  if (HEIGHT_PATTERN === 'flat' || VARIANCE_AMPL <= 0) return 1.0;
+  let n;  // normalized -1..+1
+  switch (HEIGHT_PATTERN) {
+    case 'wave-h':    n = Math.sin(x * 0.40); break;
+    case 'wave-v':    n = Math.sin(y * 0.40); break;
+    case 'wave-diag': n = Math.sin((x + y) * 0.28); break;
+    case 'radial': {
+      const cx = (state.GW || 36) / 2, cy = (state.IMG_GH || 27) / 2;
+      n = Math.sin(Math.hypot(x - cx, y - cy) * 0.45);
+      break;
     }
+    case 'random':
+    default:          n = (_hash01(x, y) - 0.5) * 2; break;
   }
-  return HEIGHT_TIERS[HEIGHT_TIERS.length - 1];
+  return 1.0 + n * HEIGHT_VAR_RANGE * VARIANCE_AMPL;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -205,9 +221,8 @@ function _texDefault() {
   g = ctx.createLinearGradient(N - edge, 0, N, 0);
   g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, `rgba(0,0,0,${SH})`);
   ctx.fillStyle = g; ctx.fillRect(N - edge, 0, edge, N);
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.fillRect(0, 0, N, 2); ctx.fillRect(0, N - 2, N, 2);
-  ctx.fillRect(0, 0, 2, N); ctx.fillRect(N - 2, 0, 2, N);
+  // v73.25: black 2px border removed — BackSide outline mesh (v73.24) už dělá silhouette
+  // outline kolem každého pixel cube, internal cell border v textuře byl redundant.
   const spec = ctx.createRadialGradient(N * 0.5, N * 0.30, 0, N * 0.5, N * 0.30, N * 0.30);
   spec.addColorStop(0, 'rgba(255,255,255,0.32)');
   spec.addColorStop(1, 'rgba(255,255,255,0)');
@@ -429,22 +444,65 @@ function init(canvas, opts) {
 
   // InstancedMesh pro pixely — max GW*IMG_GH (jen image area, ne belt rows)
   const maxInstances = state.GW * state.IMG_GH; // 36*27 = 972
-  const geom = new THREE.BoxGeometry(SCALE * PIXEL_INSET, SCALE * PIXEL_INSET, PIXEL_DEPTH);
+  // v73.38: zpět fixed bevel hodnoty (3.5/4/6 — vrch capsule look user měl rád), jen
+  // mírně menší aby seděly s INSET=0.55 (pSize=5.5, bevelSize must be < pSize/2 = 2.75).
+  const pSize = SCALE * PIXEL_INSET;
+  const geom = (function _pixelRoundedGeom() {
+    const half = pSize / 2;
+    const radius = 1.5;
+    const shape = new THREE.Shape();
+    shape.moveTo(-half + radius, -half);
+    shape.lineTo(half - radius, -half);
+    shape.quadraticCurveTo(half, -half, half, -half + radius);
+    shape.lineTo(half, half - radius);
+    shape.quadraticCurveTo(half, half, half - radius, half);
+    shape.lineTo(-half + radius, half);
+    shape.quadraticCurveTo(-half, half, -half, half - radius);
+    shape.lineTo(-half, -half + radius);
+    shape.quadraticCurveTo(-half, -half, -half + radius, -half);
+    const g = new THREE.ExtrudeGeometry(shape, {
+      depth: PIXEL_DEPTH,
+      bevelEnabled: true,
+      bevelSize: 2.4,
+      bevelThickness: 3.2,
+      bevelSegments: 6,
+      curveSegments: 6,
+    });
+    g.translate(0, 0, -PIXEL_DEPTH / 2);
+    return g;
+  })();
   state.style = _resolveStyle();
   const bevelTex = _makeBevelTexture(state.style);
-  // Material setup per style. NEON style má emissive map → kostky září vlastní
-  // barvou nezávisle na světle. Ostatní styly = standard MeshLambertMaterial.
+  // v73.23: MeshToonMaterial s gradientMap (stejný shader jako carriery) +
+  // bevel texture jako color map. 3-band cel-shading na pixelech.
+  const toonGradData = new Uint8Array([120, 200, 255]);
+  const toonGrad = new THREE.DataTexture(toonGradData, toonGradData.length, 1, THREE.RedFormat);
+  toonGrad.minFilter = THREE.NearestFilter;
+  toonGrad.magFilter = THREE.NearestFilter;
+  toonGrad.generateMipmaps = false;
+  toonGrad.needsUpdate = true;
+  // v73.29: MeshLambertMaterial pro smooth shading (žádný toon banding) — match reference
+  // s rounded 3D pixely. Žádná map texture (3D bevel z geometry sám dělá highlight/shadow).
   const matOpts = {
     color: 0xffffff,
-    map: bevelTex,
     transparent: false,
   };
   if (state.style === 'neon') {
     matOpts.emissive = 0xffffff;
-    matOpts.emissiveMap = bevelTex;
-    matOpts.emissiveIntensity = 0.9;
+    matOpts.emissiveIntensity = 0.6;
   }
   const mat = new THREE.MeshLambertMaterial(matOpts);
+  // v73.24: inverted-hull outline pro pixely (stejný princip jako carriery — BackSide
+  // black mesh, scaled up). Silhouette outline kolem každého pixel cube.
+  const pixelOutlineMat = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    side: THREE.BackSide,
+    fog: false,
+  });
+  state.pixelOutlineMesh = new THREE.InstancedMesh(geom, pixelOutlineMat, state.GW * state.IMG_GH);
+  state.pixelOutlineMesh.count = 0;
+  state.pixelOutlineMesh.frustumCulled = false;
+  state.pixelOutlineMesh.renderOrder = -1;  // před pixelMesh
   state.pixelMesh = new THREE.InstancedMesh(geom, mat, maxInstances);
   state.pixelMesh.instanceColor = new THREE.InstancedBufferAttribute(
     new Float32Array(maxInstances * 3),
@@ -465,6 +523,7 @@ function init(canvas, opts) {
   state.pixelsGroup.scale.set(PIXELS_SCALE, PIXELS_SCALE, 1);
   state.contentGroup.add(state.pixelsGroup);
   state.pixelsGroup.add(state.pixelMesh);
+  state.pixelsGroup.add(state.pixelOutlineMesh);  // v73.24
 
   // v73.1: image-area frame — outer rounded rect s vnitřním otvorem. ExtrudeGeometry
   // s bevel + rounded corners. Pixel art je vidět skrz hole, frame okolo = "ražba"
@@ -549,6 +608,17 @@ function init(canvas, opts) {
   state.projectileMesh.castShadow = true; // projektily vrhají stín na ground
   // Záměrně ne receiveShadow (sphere by self-shadowoval kvůli Lambert + low-poly)
   state.pixelsGroup.add(state.projectileMesh);   // v73.8
+  // v73.47: inverted-hull outline pro projektily — match pixely/carriery vizuál.
+  const projOutlineMat = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    side: THREE.BackSide,
+    fog: false,
+  });
+  state.projectileOutlineMesh = new THREE.InstancedMesh(projGeom, projOutlineMat, MAX_PROJECTILES);
+  state.projectileOutlineMesh.count = 0;
+  state.projectileOutlineMesh.frustumCulled = false;
+  state.projectileOutlineMesh.renderOrder = -1;
+  state.pixelsGroup.add(state.projectileOutlineMesh);
 
   // SHARD MESH — pro pixel destruction animace (collapse + shatter).
   // Sdílí bevel texturu s pixely, takže shards vypadají jako mini verze pixelů.
@@ -578,6 +648,33 @@ function init(canvas, opts) {
 
   state.ready = true;
   return true;
+}
+
+// v73.49: lehký cartoon spark effect při wall bounce — 4 mini shardy explodujou ven
+// z impact pointu, perpendicular k incoming velocity. Krátký life.
+function triggerBounceSpark(gridX, gridY, vx, vy, hexColor) {
+  if (!state.ready || !state.shardMesh) return;
+  const color = _getColor(hexColor).clone();
+  const wx = gridX, wy = gridY;
+  const count = 4;
+  // Perpendicular direction (impact normal approx)
+  const speed = 35;
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+    state.shards.push({
+      x: wx, y: wy, z: PIXEL_LIFT * 0.9,
+      vx: Math.cos(angle) * speed * (0.6 + Math.random() * 0.6),
+      vy: Math.sin(angle) * speed * 0.3,
+      vz: 25 + Math.random() * 30,
+      rot: Math.random() * Math.PI,
+      vRot: (Math.random() - 0.5) * 8,
+      scaleStart: 0.35,
+      scaleEnd: 0,
+      t: 0, life: 0.22,
+      color: color.clone(),
+      gravity: true,
+    });
+  }
 }
 
 // ── Pixel destruction trigger ─────────────────────────────────────────────
@@ -748,12 +845,18 @@ function updateGrid(grid, COLORS) {
       state.pixelMesh.setMatrixAt(i, _dummy.matrix);
       const col = _getColor(COLORS[c]);
       state.pixelMesh.instanceColor.setXYZ(i, col.r, col.g, col.b);
+      // v73.24: outline mesh — same position, scaled up po XYZ (BackSide inverted hull)
+      _dummy.scale.set(1.08, 1.08, h * 1.04);
+      _dummy.updateMatrix();
+      state.pixelOutlineMesh.setMatrixAt(i, _dummy.matrix);
       i++;
     }
   }
   state.pixelMesh.count = i;
   state.pixelMesh.instanceMatrix.needsUpdate = true;
   state.pixelMesh.instanceColor.needsUpdate = true;
+  state.pixelOutlineMesh.count = i;
+  state.pixelOutlineMesh.instanceMatrix.needsUpdate = true;
 }
 
 function render() {
@@ -819,21 +922,64 @@ function updateProjectiles(particles) {
   const H = state.GH * SCALE;
   const mesh = state.projectileMesh;
   let i = 0;
+  const now = performance.now();
   for (const p of particles) {
     if (p.phase !== 'fly') continue;
     if (i >= MAX_PROJECTILES) break;
+    // v73.50: motion trail — každých ~40 ms spawn drobný shard za projektilem.
+    if (state.shardMesh && (!p._lastTrail || now - p._lastTrail > 40)) {
+      p._lastTrail = now;
+      state.shards.push({
+        x: p.x, y: p.y, z: PROJECTILE_Z,
+        vx: 0, vy: 0, vz: 0,
+        rot: 0, vRot: 0,
+        scaleStart: 0.28,
+        scaleEnd: 0,
+        t: 0, life: 0.18,
+        color: _getColor(p.color).clone(),
+        gravity: false,
+      });
+    }
+    // v73.46: squash & stretch po bounce — XY squash (smáčknuté), Z stretch (vytažené dolů).
+    // Curve: 0..0.18 s. Peak squash hned po bouncu, oscillation back to normal.
+    let sx = 1, sy = 1, sz = 1;
+    if (p.bounceT0 !== undefined) {
+      const t = (now - p.bounceT0) / 1000;
+      const DUR = 0.18;
+      if (t < DUR) {
+        // dampened sin amplitude: silnější na začátku, klesá k 0
+        const tt = t / DUR;
+        const decay = 1 - tt;
+        const wave = Math.sin(tt * Math.PI);
+        const k = 0.55 * decay * wave;  // v73.48: squash strength 0.35 → 0.55 (výraznější)
+        sx = 1 + k;          // wide
+        sy = 1 + k;          // wide (XY)
+        sz = 1 - k * 0.9;    // short (Z)
+      }
+    }
     _dummy.position.set(p.x, H - p.y, PROJECTILE_Z); // Y-flip: canvas Y → world Y
     _dummy.rotation.set(0, 0, 0);
-    _dummy.scale.set(1, 1, 1);
+    _dummy.scale.set(sx, sy, sz);
     _dummy.updateMatrix();
     mesh.setMatrixAt(i, _dummy.matrix);
     const col = _getColor(p.color);
     mesh.instanceColor.setXYZ(i, col.r, col.g, col.b);
+    // v73.47: outline mesh — same matrix but scaled up by OUTLINE_SCALE.
+    if (state.projectileOutlineMesh) {
+      const oS = 1.12;
+      _dummy.scale.set(sx * oS, sy * oS, sz * oS);
+      _dummy.updateMatrix();
+      state.projectileOutlineMesh.setMatrixAt(i, _dummy.matrix);
+    }
     i++;
   }
   mesh.count = i;
   mesh.instanceMatrix.needsUpdate = true;
   if (i > 0) mesh.instanceColor.needsUpdate = true;
+  if (state.projectileOutlineMesh) {
+    state.projectileOutlineMesh.count = i;
+    state.projectileOutlineMesh.instanceMatrix.needsUpdate = true;
+  }
 }
 
 // Vystavit API na window pro game.js (klasický script).
@@ -844,6 +990,7 @@ if (typeof window !== 'undefined') {
     updateBlocks,
     updateProjectiles,
     triggerPixelDestroy,
+    triggerBounceSpark,   // v73.49
     updateAnimations,
     render,
     isReady,

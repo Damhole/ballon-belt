@@ -165,11 +165,35 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 - **Ghost mesh při fire** používá `geomOuter` (outer shell), ne polygon — protože ghost je jen jeden nosič mid-animation, ne komponenta.
 - **Shadow Three.js mesh experimenty crashují render:** přidání jakékoliv InstancedMesh + MeshBasicMaterial(transparent) na contentGroup způsobí ztrátu celé 3D scény. Příčina neznámá (slotGeom + ShapeGeometry obojí selhalo). CSS filter funguje, ale aktuálně disabled.
 
-### M9: 3D vizuál — image + BG + funnel finalization (v73+)
+### M9: 3D vizuál — image + BG + funnel finalization (v73+) — 🚧 in progress
 
 **Východisko (po M8):** 3D grid v bottom decku bude vizuálně konzistentní. Image area + BG ale zůstává v "hybridním" stavu z M6 — pixel-canvas (2D) + three-canvas (3D pixely) + block-overlay-canvas (HP). Plus BG je jen CSS gradient přes theme tokeny.
 
 **Cíl M9:** dokončit celkový 3D vizuální dojem hry. Po M9 by hra měla vypadat jako jeden coherent 3D scenérie shora dolů.
+
+#### ✅ Hotovo v M9 (v73.1–50)
+
+**Image-area 3D frame** (v73.1–22):
+- `_buildImageFrameGeom()` — outer rounded rect + inner hole přes `THREE.Shape.holes`, ExtrudeGeometry s bevel. Vytvoří "ražba"/cavity look — pixel art skrz hole, frame = case panel okolo.
+- Tilt-compensation: outer extendTop=5, extendBottom=13 (frame outer dosahuje canvas top/bottom hran, asymetrie kvůli tilt projection)
+- `border-radius: 10px` + `box-shadow: 0 0 0 1.5px #8a5066` na canvas (mauve-pink outline matchuje case bg)
+- Frame mesh: MeshLambertMaterial pink, smooth shading (bevel texture pro velkou plochu nešla = tilovala se)
+- shift down -14 pixelsGroup + imageFrame → vyrovnání asymetrie cavity floor
+
+**Pixel rendering polish** (v73.23–45):
+- Geometry: ExtrudeGeometry s rounded XY corners (radius 1.5) + bevel (size 2.4, thickness 3.2, 6 segments) — proper 3D zaoblený cube s capsule-ish top
+- `PIXEL_INSET = 0.70` → 30 % gap mezi pixely (breathing room)
+- `PIXEL_DEPTH = 28` (zvětšeno z 18)
+- BackSide outline mesh per pixel (scale 1.08, renderOrder -1)
+- `MeshLambertMaterial` (smooth shading)
+- `HEIGHT_VAR_RANGE = 0.025` (±2.5 % random per-pixel variance) + `HEIGHT_PATTERN` URL param (`?height=random|wave-h|wave-v|wave-diag|radial|flat`) — per-level feel
+- `_texDefault` bez 2px black border (outline mesh je redundant)
+
+**Projektil cartoon effects** (v73.46–50):
+- **Squash & stretch po bounce** — `p.bounceT0` timestamp, scale curve dampened sin přes 0.18 s, k=0.55 (peak XY widen 1.55, Z squash 0.51)
+- **BackSide outline mesh** na projektilech (scale 1.12)
+- **`triggerBounceSpark()`** — 4 mini shardy explodují ven z impact pointu při wall bounce, gravity:true, life 0.22s, color matching
+- **Motion trail** — každých ~40 ms drobný shard (scale 0.28 → 0, life 0.18s) v aktuální pozici projektilu
 
 **Klíčové oblasti:**
 
@@ -332,6 +356,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v73.50 | TBD | 2026-05-13 | **M9 day 1** — image-area 3D frame (ražba/cavity look), rounded 3D pixely s capsule top, breathing gap (PIXEL_INSET 0.70), height pattern variants (random/wave-h/wave-v/wave-diag/radial/flat), squash&stretch + outline + spark + motion trail na projektily. |
 | v73.0 | `58b6814` | 2026-05-13 | **M8 closeout** + M9 start marker. M8 (Sjednocený 3D grid) hotov: 3D walls, mystery 3D + reveal anim, cascade pop, denial shake, layout polish. Deferred: empty/garage/rocket 3D, falling anim, tech debt. M9 začíná = 3D vizuál (image area depth, BG atmosphere, funnel finalization). |
 | v72.82 | `44543d6` | 2026-05-13 | Event delegation pro denial shake — fix iOS Safari nereagování. Per-element listeners selhávaly na `.carrier.inactive`/`.hiddenq` (inner `.cbox`/`.cbox-hid` mají v 3D transparent bg). Delegated handler na `#carriers-grid` parent + `closest('.carrier')`. |
 | v72.79 | `82e8b6b` | 2026-05-13 | Denial shake bundle — klik na inactive/mystery carrier spustí Y-axis rotation oscillation (±13°, dampened sin, 3.5 cyklů, 0.32s). State v `carrierDenialAnim` Map, trigger přes `triggerCarrierDenial` API. CSS cursor:pointer + pointer-events:auto. `.controls` v 3D width = `--funnel-deck-w` (lícuje s deckem). |
