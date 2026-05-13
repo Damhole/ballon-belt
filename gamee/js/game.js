@@ -1205,7 +1205,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v72.45');
+          gamee.updateScore(score,playTime,'balloon-belt-v72.76');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5554,7 +5554,7 @@ function isCarrierActive(c,r){
 //   3) Jinak shrink: solve size × (rows + (rows-1)×0.10) = usable
 //   4) Gap ≈ 10 % carrier size, ball ≈ (carrier-5)/2 (cbox inner)
 const CARR_TARGET_SIZE = 54;
-const CARR_TARGET_GAP  = 6;
+const CARR_TARGET_GAP  = 4;      // v72.70: 6 → 4 (uspora 12 px na 7 řadách → 7. řada fits at TARGET)
 const CARR_MIN_SIZE    = 38;
 const CARR_WRAP_PAD    = 26;     // #carriers-wrap padding (4 top + 22 bottom)
 // Memoize last-computed inputs aby drawCarriers() na každý klik nepřepočítával
@@ -5599,9 +5599,17 @@ function _setAdaptiveCarrierSize(columnsArr){
     rowGap = CARR_TARGET_GAP;
   } else {
     // Shrink — gap drží ~10 % size. Solve: size × (rows + (rows-1)×0.10) = usable
+    // v72.73: CARR_MIN_SIZE clamp jen pokud at MIN se grid vejde do usable.
+    // Jinak by 7 rows × 38 + gaps overflowlo viewport → poslední řada cut-off.
     const denom = numRows + (numRows - 1) * 0.10;
     const ideal = usable / denom;
-    carrierSize = Math.max(CARR_MIN_SIZE, Math.min(CARR_TARGET_SIZE, Math.floor(ideal)));
+    carrierSize = Math.min(CARR_TARGET_SIZE, Math.floor(ideal));
+    if (carrierSize < CARR_MIN_SIZE) {
+      const minGap = Math.max(3, Math.round(CARR_MIN_SIZE * 0.10));
+      const minGrid = numRows * CARR_MIN_SIZE + (numRows - 1) * minGap;
+      if (minGrid <= usable) carrierSize = CARR_MIN_SIZE;
+      // else: keep smaller computed size — fit má prioritu nad MIN_SIZE
+    }
     rowGap = Math.max(3, Math.round(carrierSize * 0.10));
   }
   // Cbox inner space: padding 2×2 + gap 1 = 5 px → cell = (carrier-5)/2
@@ -6293,7 +6301,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v72.45');
+    gamee.updateScore(score,playTime,'balloon-belt-v72.76');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6421,7 +6429,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v72.45');
+  gamee.updateScore(score,playTime,'balloon-belt-v72.76');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -6449,6 +6457,9 @@ function startLevel(){
   if(!beltLoopStarted){beltLoopStarted=true;lastBeltTime=null;requestAnimationFrame(beltLoop);}
   grid=makeGrid();belt=[];pending=[];nudgeTimer=0;funnelWarnTimer=0;score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
   particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;
+  // v72.68: reset 3D carrier transition caches — jinak by se carriery nového levelu
+  // detekovaly jako "inactive → active" z předchozího levelu (falešné pop animace).
+  if(window.render3dBottom&&window.render3dBottom.clearCarrierState)window.render3dBottom.clearCarrierState();
   // Hydrate bloky z definice levelu PŘED makeColumns, aby generátor nosičů
   // započítal HP bloků do potřebných barev (přes countPixelsAndBlocks).
   const levelDef=getLevelDef(currentLevel);
@@ -7251,7 +7262,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v72.45');
+      gamee.updateScore(score,playTime,'balloon-belt-v72.76');
       event.detail.callback();
     });
 

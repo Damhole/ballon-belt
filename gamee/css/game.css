@@ -209,7 +209,7 @@ html,body{margin:0;padding:0}
 /* Dev label — vždy skrytý, nikdy se nezobrazí hráči */
 #belt-label{display:none}
 #belt-svg{width:360px;height:64px;display:block}
-.controls{width:360px;display:flex;flex-direction:column;gap:8px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-secondary);border-radius:12px;padding:10px 14px}
+.controls{width:360px;display:flex;flex-direction:column;gap:8px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-secondary);border-radius:12px;padding:10px 14px;overflow:hidden}
 .ctrl-row-top{display:flex;justify-content:space-between;align-items:flex-end;gap:8px}
 .specials-wrap{border-top:0.5px solid var(--color-border-secondary);padding-top:6px}
 .specials-header{display:flex;justify-content:space-between;align-items:center;width:100%;background:none;border:none;cursor:pointer;padding:0;color:inherit}
@@ -544,6 +544,15 @@ body.renderer-3d .carrier.inactive .cbox {
   background: transparent !important;
   border-color: transparent !important;
   box-shadow: none !important;
+}
+/* Mystery (hiddenq) carriers v 3D — 2D ? text + dark bg schované, 3D mesh
+   s animovanou texturou je nahrazuje. Layout zůstává (getBoundingClientRect
+   čte pozici cbox-hid pro 3D mesh placement). v72.46. */
+body.renderer-3d .cbox-hid {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  color: transparent !important;
 }
 /* Drop shadow přímo na 3D canvas — generuje shadow ze silhouette všeho renderovaného
    v canvasu (carriery, walls, balls). Auto-match s 3D mesh state (scale, position).

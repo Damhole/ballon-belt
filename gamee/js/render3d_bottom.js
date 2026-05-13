@@ -78,6 +78,13 @@ const st = {
   carrierPopAnim: new Map(),
   // Cache active state per carrier pro detekci přechodu inactive→active
   carrierActiveCache: new Map(),
+  // Mystery → active reveal anim: Map<carrierKey, t0>, v72.58
+  mysteryRevealAnim: new Map(),
+  // Cache hidden visual state per carrier pro detekci mystery → reveal přechodu
+  carrierHiddenCache: new Map(),
+  // Per-reveal one-off Mesh + ShaderMaterial s circular discard, v72.62
+  // Map<carrierKey, { mesh, mat, t0, uniforms }>
+  mysteryRevealMeshes: new Map(),
   // Tilt struktura: pivot (centerO) → tiltGroup (rotace -TILT_RAD okolo X) → contentGroup (posun zpět)
   pivot:        null,
   tiltGroup:    null,
@@ -177,6 +184,123 @@ function _outlineMat() {
   });
 }
 
+// Mystery texture — 4×4 grid malých `?` glyphů, každý natočený 45°.
+// Wrap S i T s repeat=(1.5, 1.5) → 1:1 aspect, glyphy klouzají diagonálně přes
+// offset.x i offset.y v render(). Tmavá desaturovaná modrá base.
+function _buildMysteryTexture() {
+  const S = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = S; canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  // Velmi tmavá desaturovaná modrá base
+  ctx.fillStyle = '#010206';
+  ctx.fillRect(0, 0, S, S);
+  // 3×3 grid středně velkých tilted ?s + jemný tmavý outline (stroke před fill).
+  ctx.font = 'bold 40px system-ui, -apple-system, Segoe UI, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.lineWidth = 2.5;
+  ctx.lineJoin = 'round';
+  const N = 3;
+  const cell = S / N;
+  for (let row = 0; row < N; row++) {
+    for (let col = 0; col < N; col++) {
+      const cx = col * cell + cell / 2;
+      const cy = row * cell + cell / 2;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(-Math.PI / 4);
+      // Outline (stroke first, then fill overlays)
+      ctx.strokeText('?', 0, 0);
+      ctx.fillStyle = 'rgba(220, 225, 240, 0.55)';
+      ctx.fillText('?', 0, 0);
+      ctx.restore();
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  tex.repeat.set(0.7, 0.7);   // ~2×2 glyphů visible per slot, větší rozestupy
+  return tex;
+}
+
+// Reveal shader material — kruhový "wipe" od středu UV (0.5, 0.5). uRevealT 0→1.
+// Sdílí texturu + offset s rowMysteryMeshes (st._mysteryTex), aby ? glyphy
+// pokračovaly v animaci i během reveal. mapRepeat sync s st._mysteryTex.repeat.
+function _buildRevealMaterial(mysteryTex) {
+  const uniforms = {
+    map:       { value: mysteryTex },
+    mapOffset: { value: new THREE.Vector2(0, 0) },
+    mapRepeat: { value: new THREE.Vector2(mysteryTex.repeat.x, mysteryTex.repeat.y) },
+    uRevealT:  { value: 0 },
+  };
+  const MAX_DIST = SLOT_SIZE * 0.72;  // ~36 pro SLOT_SIZE=50 — dist od středu k rohu boxu
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `
+      varying vec2 vUv;
+      varying vec3 vLocalPos;
+      void main() {
+        vUv = uv;
+        vLocalPos = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D map;
+      uniform vec2 mapOffset;
+      uniform vec2 mapRepeat;
+      uniform float uRevealT;
+      varying vec2 vUv;
+      varying vec3 vLocalPos;
+      void main() {
+        // Radial discard v object-space XY — uniformní přes top i side faces
+        // (UV based wipe by tvořil two-phase bug: top má 0-1 UV, sides perimetr).
+        float dist = length(vLocalPos.xy);
+        float cutR = uRevealT * ${MAX_DIST.toFixed(2)};
+        if (dist < cutR) discard;
+        // Soft edge pro plynulý přechod (1 unit = 1 px world)
+        float edge = smoothstep(cutR - 1.5, cutR, dist);
+        vec2 sampleUV = vUv * mapRepeat + mapOffset;
+        vec4 tex = texture2D(map, sampleUV);
+        gl_FragColor = vec4(tex.rgb, tex.a * edge);
+      }
+    `,
+    // v72.66: opaque místo transparent — pending balls (renderOrder 150) jinak
+    // renderují AŽ po transparent pass = reveal mesh by je překryl. S transparent:false
+    // jsme v opaque pass kde renderOrder 144 < 150 → pending balls draw po reveal mesh.
+    // Smooth edge alpha už nebude (discard je hard), což je acceptable trade-off.
+    transparent: false,
+    depthTest: false,   // carrier balls z=9.75 by jinak failed test → balls by prosvítaly
+                        // od t=0. Bez depth testu reveal vždy překryje carriers (renderOrder
+                        // mezi nimi a pending balls), ale pending balls se přes ně dál vykreslí.
+    depthWrite: false,
+    fog: false,
+  });
+  return { mat, uniforms };
+}
+
+// ExtrudeGeometry mapuje top-face UV na world coords (-25..25). Pro mystery slot
+// chceme 0-1 UV → naklonujeme slotGeom a přepíšeme UV bufferAttribute.
+function _buildMysterySlotGeom(slotGeom) {
+  const geom = slotGeom.clone();
+  const uvAttr = geom.attributes.uv;
+  const posAttr = geom.attributes.position;
+  const half = SLOT_SIZE / 2;
+  for (let i = 0; i < uvAttr.count; i++) {
+    const x = posAttr.getX(i);
+    const y = posAttr.getY(i);
+    // Normalize -half..half → 0..1
+    uvAttr.setXY(i, (x + half) / SLOT_SIZE, (y + half) / SLOT_SIZE);
+  }
+  uvAttr.needsUpdate = true;
+  return geom;
+}
+
 // ─── Inicializace ────────────────────────────────────────────────────────────
 
 function init() {
@@ -204,8 +328,10 @@ function init() {
   if (pendWrapEl && pendWrapEl.getBoundingClientRect().width > widestRect.width) widestRect = pendWrapEl.getBoundingClientRect();
 
   const W = Math.ceil(widestRect.width);
-  // +90 px pod carriery — víc prostoru pro balls / fyziku / vizuál bez clippingu
-  const H = Math.max(180, Math.ceil(bottomRect.bottom - beltRect.top) + 90);
+  // v72.75: +400 px buffer (was +90) — canvas musí pojmout MAX_ROWS=7 i když init
+  // bežel s menším levelem. Level switch by jinak vyžadoval canvas resize, který
+  // by rozbil staticky pozicovaný belt track. Extra prostor = neviditelný (pod deckem).
+  const H = Math.max(180, Math.ceil(bottomRect.bottom - beltRect.top) + 400);
 
   st.W = W;
   st.H = H;
@@ -398,6 +524,21 @@ function init() {
   st.rowSlotOutlineMeshes = [];
   st.rowBallMeshes = [];
   st.rowBallOutlineMeshes = [];
+  st.rowMysteryMeshes = [];     // mystery slots (hidden=true) — animated ? texture, v72.46
+  st.rowMysteryOutlineMeshes = []; // outline pro mystery — black BackSide, v72.53
+
+  // Mystery texture + material — single texture sdílená všemi rows. Animace v render().
+  // MeshToonMaterial s texturou jako map: toon gradient ztlumí side faces jako u
+  // běžných carrierů (depth/shading konzistentní), texture color × toon lighting band.
+  st._mysteryTex = _buildMysteryTexture();
+  st._mysteryMat = new THREE.MeshToonMaterial({
+    gradientMap: toonGrad,
+    map: st._mysteryTex,
+    fog: false,
+  });
+  // Mystery geometry — clone slotGeom s přepsaným UV mappingem 0-1 na top face
+  // (default ExtrudeGeometry UVs jsou world coords -25..25 → texture wraps 100×).
+  st._mysterySlotGeom = _buildMysterySlotGeom(slotGeom);
   for (let row = 0; row < ROW_COUNT_MAX; row++) {
     // Slot mesh — OUTER
     const sm = new THREE.InstancedMesh(slotGeom, slotMatOuter, PER_ROW_SLOTS);
@@ -436,6 +577,19 @@ function init() {
     bo.renderOrder = 100 + row * 4 + 1;      // between slot main and ball
     contentGroup.add(bo);
     st.rowBallOutlineMeshes.push(bo);
+    // Mystery slot mesh — uses _mysterySlotGeom (cloned slotGeom + remapped UVs 0-1).
+    const mm = new THREE.InstancedMesh(st._mysterySlotGeom, st._mysteryMat, PER_ROW_SLOTS);
+    mm.count = 0;
+    mm.frustumCulled = false;
+    mm.renderOrder = 100 + row * 4;
+    contentGroup.add(mm);
+    st.rowMysteryMeshes.push(mm);
+    // Mystery outline — black BackSide, scaled up. Darker than mystery slot color
+    // (slot je #03060d, outline je 0x000000) → vizuálně odděluje slot od bg.
+    const mo = mkOutline(slotGeom, PER_ROW_SLOTS);
+    mo.renderOrder = 100 + row * 4 - 1;
+    contentGroup.add(mo);
+    st.rowMysteryOutlineMeshes.push(mo);
   }
 
   // Legacy single meshes pro carrier-fire ghost anim (zatím)
@@ -443,7 +597,7 @@ function init() {
   st.carrierSlotMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARRIER_SLOTS * 3), 3);
   st.carrierSlotMesh.count = 0;
   st.carrierSlotMesh.frustumCulled = false;
-  st.carrierSlotMesh.renderOrder = 140;   // ghost nad row carriery (100-114) ale POD pending balls (150)
+  st.carrierSlotMesh.renderOrder = 147;   // v72.76: ghost (tilting) nad mystery reveal (144), pod pending (150)
   contentGroup.add(st.carrierSlotMesh);
   // v72.15: parallel inner ghost mesh — během fire animace lift drží i top
   // face (jinak inner mizí ze row mesh, top face vypadá černá).
@@ -451,10 +605,10 @@ function init() {
   st.carrierSlotInnerMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARRIER_SLOTS * 3), 3);
   st.carrierSlotInnerMesh.count = 0;
   st.carrierSlotInnerMesh.frustumCulled = false;
-  st.carrierSlotInnerMesh.renderOrder = 140.5;  // mezi outer ghost (140) a balls (150)
+  st.carrierSlotInnerMesh.renderOrder = 147.5;  // v72.76: mezi outer ghost (147) a ghost balls (148)
   contentGroup.add(st.carrierSlotInnerMesh);
   st.carrierSlotOutlineMesh = mkOutline(slotGeom, MAX_CARRIER_SLOTS);
-  st.carrierSlotOutlineMesh.renderOrder = 139;
+  st.carrierSlotOutlineMesh.renderOrder = 146;   // v72.76: pod ghost slot (147), nad mystery reveal (144)
   contentGroup.add(st.carrierSlotOutlineMesh);
 
   // v72.18: Walls — technique 3 (per-rect Mesh s custom RoundedBoxGeometry).
@@ -534,10 +688,10 @@ function init() {
   st.carrierMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARRIER_BALLS * 3), 3);
   st.carrierMesh.count = 0;
   st.carrierMesh.frustumCulled = false;
-  st.carrierMesh.renderOrder = 142;
+  st.carrierMesh.renderOrder = 148;  // v72.76: ghost balls nad ghost slot (147), pod pending (150)
   contentGroup.add(st.carrierMesh);
   st.carrierOutlineMesh = mkOutline(carrierGeom, MAX_CARRIER_BALLS);
-  st.carrierOutlineMesh.renderOrder = 141;
+  st.carrierOutlineMesh.renderOrder = 147.8;  // v72.76: mezi ghost slot (147) a ghost balls (148)
   contentGroup.add(st.carrierOutlineMesh);
 
   // ─── Pending balls ───
@@ -654,6 +808,7 @@ function updateCarriers(columns, colorsArr) {
   let slotIdx  = 0;   // ghost mesh slot index
   const rowSlotIdx = [0, 0, 0, 0, 0, 0, 0];  // per-row slot indices (max 7)
   const rowBallIdx = [0, 0, 0, 0, 0, 0, 0];  // per-row ball indices  (max 7)
+  const rowMysteryIdx = [0, 0, 0, 0, 0, 0, 0]; // per-row mystery slot indices, v72.46
 
   const colDivs = gridEl.querySelectorAll('.carrier-col');
 
@@ -666,35 +821,108 @@ function updateCarriers(columns, colorsArr) {
       // Přeskočíme prázdné, wall, garages a rockets (renderuje CSS)
       if (!slot || slot.wall || slot.type === 'garage' || slot.type === 'rocket') continue;
 
+      // v72.46/57: mystery (hidden) carrier — separate branch, renderuje na rowMysteryMeshes
+      // s animovanou ? texturou. Skip regular slot/ball rendering.
+      // Pozor: slot.hidden zůstává true napořád (data flag) — "odhalení" je pouze
+      // visual když má null souseda (= active). DOM má class 'hiddenq' jen pokud
+      // je NEodhalená (= !active && slot.hidden). Proto kontrolujeme DOM class.
+      const isHiddenVisual = slotDivs[r].classList.contains('hiddenq');
+      const mysteryKey = c + ',' + r;
+      const wasHidden = st.carrierHiddenCache.get(mysteryKey) === true;
+      // Detekce transition: mystery → reveal — spustíme circular-wipe shader anim
+      // přes one-off Mesh (ne shrink na rowMysteryMeshes).
+      if (wasHidden && !isHiddenVisual) {
+        // Spočítej pozici z .cbox (nyní revealed slot)
+        const cboxR = slotDivs[r].querySelector('.cbox');
+        if (cboxR) {
+          const crR = cboxR.getBoundingClientRect();
+          const xWR = crR.left + crR.width / 2 - canvasRect.left;
+          const yWR = _worldY(crR.top + crR.height / 2 - canvasRect.top);
+          const dynR = crR.width / SLOT_SIZE;
+          const { mat, uniforms } = _buildRevealMaterial(st._mysteryTex);
+          const mesh = new THREE.Mesh(st._mysterySlotGeom, mat);
+          mesh.position.set(xWR, yWR, 0);
+          mesh.scale.set(dynR, dynR, dynR);
+          mesh.renderOrder = 144;
+          mesh.frustumCulled = false;
+          st.contentGroup.add(mesh);
+          st.mysteryRevealMeshes.set(mysteryKey, { mesh, mat, uniforms, t0: performance.now() });
+        }
+        st.mysteryRevealAnim.set(mysteryKey, performance.now());
+      }
+      st.carrierHiddenCache.set(mysteryKey, isHiddenVisual);
+      if (isHiddenVisual) {
+        const cboxHid = slotDivs[r].querySelector('.cbox-hid');
+        if (!cboxHid) continue;
+        const crH = cboxHid.getBoundingClientRect();
+        const xCSSh = crH.left + crH.width  / 2 - canvasRect.left;
+        const yCSSh = crH.top  + crH.height / 2 - canvasRect.top;
+        const xWh   = xCSSh;
+        const yWh   = _worldY(yCSSh);
+        const dynScaleH = crH.width / SLOT_SIZE;
+        const rowIdxH = Math.min(r, st.rowMysteryMeshes.length - 1);
+        const myMesh = st.rowMysteryMeshes[rowIdxH];
+        const myOutMesh = st.rowMysteryOutlineMeshes[rowIdxH];
+        const myIdx = rowMysteryIdx[rowIdxH];
+        if (myMesh && myIdx < myMesh.instanceMatrix.count) {
+          dummy.position.set(xWh, yWh, 0);
+          dummy.rotation.set(0, 0, 0);
+          dummy.scale.set(dynScaleH, dynScaleH, dynScaleH);
+          dummy.updateMatrix();
+          myMesh.setMatrixAt(myIdx, dummy.matrix);
+          // Outline — scaled up by OUTLINE_SCALE_SLOT
+          if (myOutMesh) {
+            const oS = dynScaleH * OUTLINE_SCALE_SLOT;
+            dummy.scale.set(oS, oS, oS);
+            dummy.updateMatrix();
+            myOutMesh.setMatrixAt(myIdx, dummy.matrix);
+          }
+          rowMysteryIdx[rowIdxH]++;
+        }
+        continue;
+      }
+
       const cbox = slotDivs[r].querySelector('.cbox');
       if (!cbox) continue;
+
+      // v72.62: reveal anim se renderuje přes one-off ShaderMaterial Mesh
+      // (circular wipe) — vytvořený v transition detection (viz výše).
+      // Animace uniforms + dispose probíhá v render().
 
       // Active vs inactive — inactive carrier je menší (scale 0.78) bez koulí.
       // Při přechodu inactive→active spustíme pop anim (overshoot scale).
       const isActive = slotDivs[r].classList.contains('active');
       const carrierKey = c + ',' + r;
       const prevActive = st.carrierActiveCache.get(carrierKey);
-      if (prevActive === false && isActive) {
+      // v72.63: nepouštět pop anim když transition vznikla z mystery reveal —
+      // circular wipe sám stačí jako vizuální efekt, double-anim by byl rušivý.
+      if (prevActive === false && isActive && !st.mysteryRevealMeshes.has(carrierKey)) {
         st.carrierPopAnim.set(carrierKey, performance.now());
       }
       st.carrierActiveCache.set(carrierKey, isActive);
 
       // Compute scale: inactive=0.78, active=1.0, pop anim přidává overshoot křivku
       let slotScale = isActive ? 1.0 : 0.78;
+      // v72.67: pop entry žije po celou cascade duration (0.55s) — slot anim jen
+      // v prvních 0.30s, zbytek je ball cascade. popT shared pro ball-loop níže.
+      const POP_TOTAL = 0.55;
       const popT0 = st.carrierPopAnim.get(carrierKey);
+      let popT = -1;
       if (popT0 !== undefined) {
-        const popT = (performance.now() - popT0) / 1000;
-        if (popT >= 0.30) {
+        popT = (performance.now() - popT0) / 1000;
+        if (popT >= POP_TOTAL) {
           st.carrierPopAnim.delete(carrierKey);
+          popT = -1;
         } else if (popT < 0.15) {
           // Fáze 1: 0.78 → 1.15 (ease-out)
           const t = popT / 0.15;
           slotScale = 0.78 + (1.15 - 0.78) * (1 - Math.pow(1 - t, 2));
-        } else {
+        } else if (popT < 0.30) {
           // Fáze 2: 1.15 → 1.0 (settle)
           const t = (popT - 0.15) / 0.15;
           slotScale = 1.15 - (1.15 - 1.0) * (1 - Math.pow(1 - t, 2));
         }
+        // popT 0.30..0.55: slot settled at 1.0, ball cascade runs
       }
 
       const cr = cbox.getBoundingClientRect();
@@ -763,18 +991,43 @@ function updateCarriers(columns, colorsArr) {
       const ballZ = SLOT_DEPTH / 2 + R_CARRIER * 0.25;
       const filled = _countFilled(slot.projectiles);
 
+      // v72.67: cascade pop — pokud popT je active, každá koule popne s offsetem.
+      // Slot popne v 0..0.30s, balls follow s staggerem: ball 0 začne v 0.15s (slot peak),
+      // ball 1 v 0.20s, ball 2 v 0.25s, ball 3 v 0.30s. Každá ball anim 0.20s (0 → 1.15 → 1.0).
+      const BALL_FIRST_START = 0.15;
+      const BALL_STAGGER = 0.05;
+      const BALL_DUR = 0.20;
       let bi = 0;
       outer: for (let bRow = 0; bRow < 2; bRow++) {
         for (let col2 = 0; col2 < 2; col2++) {
           if (bi >= filled) break outer;
+          const ballIdx0 = bi;  // 0-based pro cascade
           bi++;
+          // Per-ball pop scale (vůči slotScale)
+          let ballPopScale = 1.0;
+          if (popT >= 0) {
+            const ballT = popT - (BALL_FIRST_START + ballIdx0 * BALL_STAGGER);
+            if (ballT < 0) {
+              ballPopScale = 0;  // not yet started → invisible
+            } else if (ballT < BALL_DUR / 2) {
+              // Fáze 1: 0 → 1.15 (ease-out)
+              const t = ballT / (BALL_DUR / 2);
+              ballPopScale = 1.15 * (1 - Math.pow(1 - t, 2));
+            } else if (ballT < BALL_DUR) {
+              // Fáze 2: 1.15 → 1.0 (settle)
+              const t = (ballT - BALL_DUR / 2) / (BALL_DUR / 2);
+              ballPopScale = 1.15 - (1.15 - 1.0) * (1 - Math.pow(1 - t, 2));
+            }
+            // ballT >= BALL_DUR → ballPopScale = 1.0 (settled, default)
+          }
+          const effBallScale = slotScale * ballPopScale;
           const bIdx = rowBallIdx[rowIdx];
           dummy.position.set(xW + offX[col2] * slotScale, yW + offY[1 - bRow] * slotScale, ballZ);
-          dummy.scale.set(slotScale, slotScale, slotScale);
+          dummy.scale.set(effBallScale, effBallScale, effBallScale);
           dummy.updateMatrix();
           ballMesh.setMatrixAt(bIdx, dummy.matrix);
           ballMesh.setColorAt(bIdx, c3);
-          const oB = slotScale * OUTLINE_SCALE_BALL;
+          const oB = effBallScale * OUTLINE_SCALE_BALL;
           dummy.scale.set(oB, oB, oB);
           dummy.updateMatrix();
           ballOutMesh.setMatrixAt(bIdx, dummy.matrix);
@@ -899,6 +1152,16 @@ function updateCarriers(columns, colorsArr) {
     if (st.rowBallMeshes[row].instanceColor) st.rowBallMeshes[row].instanceColor.needsUpdate = true;
     st.rowBallOutlineMeshes[row].count = bCount;
     st.rowBallOutlineMeshes[row].instanceMatrix.needsUpdate = true;
+    // Mystery mesh count, v72.46 + outline v72.53
+    if (st.rowMysteryMeshes && st.rowMysteryMeshes[row]) {
+      const myCount = rowMysteryIdx[row] || 0;
+      st.rowMysteryMeshes[row].count = myCount;
+      st.rowMysteryMeshes[row].instanceMatrix.needsUpdate = true;
+      if (st.rowMysteryOutlineMeshes && st.rowMysteryOutlineMeshes[row]) {
+        st.rowMysteryOutlineMeshes[row].count = myCount;
+        st.rowMysteryOutlineMeshes[row].instanceMatrix.needsUpdate = true;
+      }
+    }
   }
 
   // Ghost mesh counts (only for tilt anim — single legacy mesh)
@@ -934,7 +1197,9 @@ function triggerCarrierFire(col, row, hexColor, fillCount, canvasX, canvasY, cbo
 }
 
 function _hasActiveCarrierAnim() {
-  return (st.carrierAnim && st.carrierAnim.size > 0) || (st.carrierPopAnim && st.carrierPopAnim.size > 0);
+  return (st.carrierAnim && st.carrierAnim.size > 0)
+      || (st.carrierPopAnim && st.carrierPopAnim.size > 0)
+      || (st.mysteryRevealMeshes && st.mysteryRevealMeshes.size > 0);
 }
 
 // Helper: převede canvasY v souřadnicích bottom3d-canvas → FUN.y
@@ -1066,6 +1331,43 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
 
 function render() {
   if (!st.ready) return;
+  const now = performance.now();
+  // v72.49: animace mystery textury — diagonální scroll (offset.x i offset.y).
+  if (st._mysteryTex) {
+    if (st._mysteryLastTs !== undefined) {
+      const dt = Math.min(0.1, (now - st._mysteryLastTs) / 1000);
+      const speed = 0.04;
+      st._mysteryTex.offset.x = (st._mysteryTex.offset.x - dt * speed) % 1;
+      st._mysteryTex.offset.y = (st._mysteryTex.offset.y - dt * speed) % 1;
+    }
+    st._mysteryLastTs = now;
+  }
+  // v72.62: reveal meshes — animate uRevealT 0→1 over 0.45s, sync mapOffset s main tex,
+  // dispose když anim skončí.
+  if (st.mysteryRevealMeshes && st.mysteryRevealMeshes.size > 0) {
+    const REVEAL_DUR = 0.45;
+    const toDelete = [];
+    for (const [key, entry] of st.mysteryRevealMeshes) {
+      const t = (now - entry.t0) / 1000;
+      if (t >= REVEAL_DUR) {
+        toDelete.push(key);
+        continue;
+      }
+      entry.uniforms.uRevealT.value = t / REVEAL_DUR;
+      // Sync texture offset so glyphs keep scrolling during reveal
+      if (st._mysteryTex) {
+        entry.uniforms.mapOffset.value.copy(st._mysteryTex.offset);
+      }
+    }
+    for (const key of toDelete) {
+      const entry = st.mysteryRevealMeshes.get(key);
+      if (entry) {
+        st.contentGroup.remove(entry.mesh);
+        entry.mat.dispose();
+      }
+      st.mysteryRevealMeshes.delete(key);
+    }
+  }
   st.renderer.render(st.scene, st.camera);
 }
 
@@ -1411,5 +1713,80 @@ function updateWalls(columns) {
 
 // ─── Export ──────────────────────────────────────────────────────────────────
 
-window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose };
+// v72.74: re-měření layoutu + canvas/renderer/camera resize. Voláno z game.js
+// při level switchi nebo viewport resize, kde se může změnit výška decku
+// (nový level s víc řadami = vyšší deck). Bez resize by se bottom rows renderovaly
+// MIMO canvas (clipped).
+function resize() {
+  if (!st.ready || !st.canvas) return;
+  const gameEl   = document.getElementById('game');
+  const beltWrap = document.getElementById('belt-wrap');
+  if (!gameEl || !beltWrap) return;
+  const gameRect = gameEl.getBoundingClientRect();
+  const beltRect = beltWrap.getBoundingClientRect();
+  const bottomEl = document.getElementById('bottom-deck') ||
+                   document.getElementById('carriers-wrap');
+  const bottomRect = bottomEl ? bottomEl.getBoundingClientRect() : beltRect;
+  const carrEl     = document.getElementById('carriers-wrap');
+  const pendWrapEl = document.getElementById('pending-wrap');
+  let widestRect = beltRect;
+  if (carrEl && carrEl.getBoundingClientRect().width > widestRect.width) widestRect = carrEl.getBoundingClientRect();
+  if (pendWrapEl && pendWrapEl.getBoundingClientRect().width > widestRect.width) widestRect = pendWrapEl.getBoundingClientRect();
+  const W = Math.ceil(widestRect.width);
+  const H = Math.max(180, Math.ceil(bottomRect.bottom - beltRect.top) + 90);
+  if (W === st.W && H === st.H) return;
+  st.W = W;
+  st.H = H;
+  st.canvas.width  = W;
+  st.canvas.height = H;
+  st.canvas.style.width  = W + 'px';
+  st.canvas.style.height = H + 'px';
+  if (st.renderer) st.renderer.setSize(W, H, false);
+  if (st.camera) {
+    st.camera.left   = 0;
+    st.camera.right  = W;
+    st.camera.top    = H;
+    st.camera.bottom = 0;
+    st.camera.updateProjectionMatrix();
+  }
+  if (st.pivot) st.pivot.position.set(W / 2, H / 2, 0);
+  if (st.contentGroup) st.contentGroup.position.set(-W / 2, -H / 2, 0);
+  // Update measured position refs (used by updateBelt / updatePending / canvasYtoFunY)
+  const canvasTop = Math.round(beltRect.top - gameRect.top);
+  const beltSvgEl = document.getElementById('belt-svg');
+  const pendEl    = document.getElementById('pending-canvas');
+  if (beltSvgEl) {
+    const r = beltSvgEl.getBoundingClientRect();
+    const offY = Math.round(r.top - gameRect.top) - canvasTop;
+    st.beltCenterY = offY + Math.round(r.height / 2);
+  }
+  if (pendEl) {
+    const r = pendEl.getBoundingClientRect();
+    st.pendingTopCSS = Math.round(r.top - gameRect.top) - canvasTop;
+  }
+  if (carrEl) {
+    const cR = carrEl.getBoundingClientRect();
+    st.carriersTopCSS    = Math.round(cR.top    - gameRect.top) - canvasTop;
+    st.carriersBottomCSS = Math.round(cR.bottom - gameRect.top) - canvasTop;
+  }
+}
+
+// v72.68: clear per-carrier caches + animace — voláno z game.js startLevel, aby
+// se carriery nového levelu nedetekovaly jako transition z předchozího levelu
+// (falešné pop animace na startu levelu).
+function clearCarrierState() {
+  if (st.carrierActiveCache) st.carrierActiveCache.clear();
+  if (st.carrierHiddenCache) st.carrierHiddenCache.clear();
+  if (st.carrierPopAnim) st.carrierPopAnim.clear();
+  if (st.mysteryRevealAnim) st.mysteryRevealAnim.clear();
+  if (st.mysteryRevealMeshes) {
+    for (const [, entry] of st.mysteryRevealMeshes) {
+      if (st.contentGroup && entry.mesh) st.contentGroup.remove(entry.mesh);
+      if (entry.mat) entry.mat.dispose();
+    }
+    st.mysteryRevealMeshes.clear();
+  }
+}
+
+window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize };
 window._r3dBState = st;  // debug
