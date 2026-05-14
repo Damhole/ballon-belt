@@ -1303,15 +1303,19 @@ function _initUnifiedFrame() {
     const funYtoCanvasY = (funY) => TOP_CSS + (funY - F.narrowY);
     const coords = [];
     for (const p of debugPts) coords.push(p.x, _worldY(funYtoCanvasY(p.y)), 0);
-    const colliderGeom = new THREE.BufferGeometry();
-    colliderGeom.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
-    const colliderMat = new THREE.LineBasicMaterial({ color: 0x00ff00 });
-    const colliderLine = new THREE.Line(colliderGeom, colliderMat);
-    colliderLine.position.set(0, 0, 0);
-    colliderLine.renderOrder = 200;
-    colliderLine.frustumCulled = false;
-    st.contentGroup.add(colliderLine);
-    st.colliderDebugLine = colliderLine;
+    // v73.114: debug line vypnutá v produkci. Pro debug zapnout `DEBUG_COLLIDER_LINE = true`
+    const DEBUG_COLLIDER_LINE = false;
+    if (DEBUG_COLLIDER_LINE) {
+      const colliderGeom = new THREE.BufferGeometry();
+      colliderGeom.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
+      const colliderMat = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+      const colliderLine = new THREE.Line(colliderGeom, colliderMat);
+      colliderLine.position.set(0, 0, 0);
+      colliderLine.renderOrder = 200;
+      colliderLine.frustumCulled = false;
+      st.contentGroup.add(colliderLine);
+      st.colliderDebugLine = colliderLine;
+    }
   }
 
   console.log('[render3d_bottom] mask+outline built — band:', BAND_WIDTH,

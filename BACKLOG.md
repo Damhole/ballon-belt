@@ -195,6 +195,54 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 - **`triggerBounceSpark()`** — 4 mini shardy explodují ven z impact pointu při wall bounce, gravity:true, life 0.22s, color matching
 - **Motion trail** — každých ~40 ms drobný shard (scale 0.28 → 0, life 0.18s) v aktuální pozici projektilu
 
+#### ✅ Hotovo v M9 day 2 (v73.51–114)
+
+**Bottom unified frame** (v73.54–94):
+- Belt + skulina + arena jako **jeden vizuální 3D tvar** s "vylomenou" dírou — match feeling image area frame
+- **Hole path**: 13 segmentů (belt rectangle + bridge + skulina + arch + arena + zaoblené dolní rohy + zrcadlo). Arch je 2-segment cubic Bezier per side (matches user-provided `curve_2.svg` reference)
+- **Miter offset s self-intersection clipping** (`_miterOffsetPolygon` + `_clipSelfIntersections`):
+  - Naivní miter approach selhal na úzké skulině (4 px) — miter body se překrývaly
+  - Solution: detect flip (offset segment proti směru original) + far miter check (>3×distance) + segment-segment intersection clipping (splajzne polygon kde se non-adjacent edges křižují)
+  - Algoritmus zvládá až ~30 px offset bez self-intersection bugs
+- **Stencil clipping**: mask (filled bandOuter shape) napíše stencil=1, band `MeshLambertMaterial` testuje stencil EQUAL 1 → outer side walls jsou clipnuté, inner cavity walls (skrz hole) viditelné. Klíč: `stencilWrite: true` + `stencilWriteMask: 0` aktivuje testing bez psaní.
+- **Floor mesh** ve tvaru hole (ShapeGeometry, dark mauve) — přesné kopírování shape místo CSS rectangle bg co přesahoval
+- **CSS bottom-deck** transparent v 3D → jen floor mesh poskytuje dark cavity
+- **Responzivní rebuild** (`_rebuildUnifiedFrame` memoizovaný přes `beltCenterY|carriersTopCSS|carriersBottomCSS` key) — frame se aktualizuje při level changes / viewport resize
+
+**Sjednocení s image frame** (v73.95–102):
+- **Materials** identické: `MeshLambertMaterial({ color: 0xf4b8c8 })`, bez emissive
+- **Lighting** identický: `DirectionalLight(1.55) + HemisphereLight(skyColor=#ffe8f0, groundColor=#a090a8, 1.85)` — předchozí bottom Math.PI=3.14 by způsobil přesvícení
+- **ExtrudeGeometry** depth=50, bevel=2, bevelSegs=3 — match
+- Visual matching color × visual matching lighting → automaticky stejný výsledný odstín
+
+**Layout polish** (v73.103–105):
+- **Carriers top padding** (CSS var `--carriers-pad-top`) — JS set podle dostupného prostoru (18px když fits at max, 4px jinak)
+- **Pin grid to bottom**: wrap padding-bottom 22→6, arena bottom offset +20→+6 → odstraní nevyužité místo
+- **Side gap**: wrap padding-sides 10→16 → carriers dál od krajů frame
+
+**Funnel collider polish** (v73.106–113):
+- `physicsArenaPad: 6` nová FUNNEL_3D konstanta — match `FRAME_ARENA_PAD`, FUN.wideL/R na 6/414 místo 0/420
+- `physicsNarrowHalf` 36→32 (match new visual skulina FRAME_SKULINA_HALF=32)
+- **Multi-segment bezier collider**: render3d_bottom samples obě arch curves (20 segmentů per side), converts to FUN coords, exposes jako `window.FUN.archSegmentsLeft/Right`. game.js `collideFunnelSeg` iteruje přes pole → polygon collision kopíruje visual bezier shape (40 line segmentů total).
+- **Arch shift down 16 px** — kompenzace tilt projekce zadní stěny kavity (depth=50 × sin(19.2°) ≈ 16). Bez shift balls bouncovaly o "přední" stěnu, ne tu hlubší kde visuálně vypadalo že klouzají.
+- `FUN.slopeEndY` auto-updated z posledního archSegment Y → vertikální arena walls navazují přesně na konec archu.
+
+**Frame visual tunables (final):**
+- `FRAME_DEPTH = 50, FRAME_BEVEL = 2` — match image frame
+- `FRAME_SKULINA_HALF = 32` (64 px wide throat, ≈ 2-3 balónky)
+- `FRAME_ARENA_PAD = 6` (arena bounds tight k canvas edges)
+- `skulinaBotCSS = beltBotCSS + 14` (arch top níž, "hlubší" linie)
+- `arenaBotCSS = carriersBottomCSS + 6` (pin to grid bottom)
+- `FLOOR_SHIFT_Y = 12` (floor dno přesun)
+- `BAND_WIDTH = 6` (miter offset width)
+
+#### 📋 Open v M9 (zbývá)
+
+- **Background atmosphere** — současný stav: CSS gradient `--bg-3d-top → --bg-3d-bottom` per theme. Bod 2 původního scope.
+- **Image area sjednocení vizuálu s bottom frame** — color/lighting/bevel již matched (v73.95–102), ale možná další polish (theme-awareness barvy frame, atd.).
+- **FUNNEL_3D constants finalization** — bod 3 původního scope. v73.110–113 už dělají heavy lifting.
+- **Theme cleanup** — pick 3-5 finálních témat pro production (souběžně).
+
 **Klíčové oblasti:**
 
 1. **Pixel image area depth**
@@ -356,6 +404,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v73.114 | (next) | 2026-05-14 | **M9 day 2 — Bottom frame complete.** Belt + skulina + arena jako jeden tvar přes miter offset s self-intersection clipping, stencil clipping skryje outer side walls, shaped floor, responzivní rebuild při layout změnách. Multi-segment bezier collider kopíruje visual arch (40 segmentů). Sjednocené světla/materiály s image frame (Lambert, dir 1.55 + hemi 1.85, color #f4b8c8). |
 | v73.50 | `da122b0` | 2026-05-13 | **M9 day 1** — image-area 3D frame (ražba/cavity look), rounded 3D pixely s capsule top, breathing gap (PIXEL_INSET 0.70), height pattern variants (random/wave-h/wave-v/wave-diag/radial/flat), squash&stretch + outline + spark + motion trail na projektily. |
 | v73.0 | `58b6814` | 2026-05-13 | **M8 closeout** + M9 start marker. M8 (Sjednocený 3D grid) hotov: 3D walls, mystery 3D + reveal anim, cascade pop, denial shake, layout polish. Deferred: empty/garage/rocket 3D, falling anim, tech debt. M9 začíná = 3D vizuál (image area depth, BG atmosphere, funnel finalization). |
 | v72.82 | `44543d6` | 2026-05-13 | Event delegation pro denial shake — fix iOS Safari nereagování. Per-element listeners selhávaly na `.carrier.inactive`/`.hiddenq` (inner `.cbox`/`.cbox-hid` mají v 3D transparent bg). Delegated handler na `#carriers-grid` parent + `closest('.carrier')`. |
