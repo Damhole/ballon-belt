@@ -1021,10 +1021,22 @@ function _disposeUnifiedFrame() {
   st.unifiedFrameFloor = null;
 }
 
+// v73.104: nastavuje --carriers-pad-top CSS var podle dostupného prostoru.
+// Když je carrier-size na MAX (TARGET, ~54), máme místo → padding 18 px (breathing
+// room mezi obloukem a první řadou). Když shrunknuté, padding 4 px (default).
+function _setCarriersPadTop() {
+  const carrierSize = parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--carrier-size')
+  ) || 54;
+  const pad = (carrierSize >= 50) ? 18 : 4;
+  document.documentElement.style.setProperty('--carriers-pad-top', pad + 'px');
+}
+
 // v73.103: rebuild frame na základě aktuálních DOM pozic. Memoized — pokud
 // klíčové měření nezměnilo, skip.
 function _rebuildUnifiedFrame() {
   if (!st.ready) return;
+  _setCarriersPadTop();  // nastav CSS var PŘED měřením
   _measureFramePositions();
   // Memoization key — pokud nezměnilo, skip
   const key = `${st.beltCenterY}|${st.carriersTopCSS}|${st.carriersBottomCSS}`;
