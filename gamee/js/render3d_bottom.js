@@ -1061,9 +1061,16 @@ function _initUnifiedFrame() {
   // pak band se renderuje s stencilFunc: EQUAL 1 → fragmenty mimo mask region se
   // automaticky discardují → visible outer side walls jsou clipnuté.
 
-  // Stencil mask = flat ShapeGeometry s bandShape (= band's XY footprint).
-  // Mask renderuje JEN do stencil bufferu, neviditelná (colorWrite=false).
-  const maskGeom = new THREE.ShapeGeometry(bandShape, 4);
+  // Stencil mask = FILLED shape do bandOuter (BEZ hole na innerPts) → stencil=1
+  // všude uvnitř bandOuter včetně hole interior. Outer side walls projektující
+  // ven jsou clipnuté; inner side walls projektující do hole zůstávají viditelné.
+  const maskShape = new THREE.Shape();
+  const bandOuterCCW = bandOuterPts.slice().reverse();
+  maskShape.moveTo(bandOuterCCW[0].x, bandOuterCCW[0].y);
+  for (let i = 1; i < bandOuterCCW.length; i++) {
+    maskShape.lineTo(bandOuterCCW[i].x, bandOuterCCW[i].y);
+  }
+  const maskGeom = new THREE.ShapeGeometry(maskShape, 4);
   const maskMat = new THREE.MeshBasicMaterial({
     colorWrite:    false,
     depthWrite:    false,
