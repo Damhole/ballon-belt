@@ -1057,40 +1057,65 @@ function _initUnifiedFrame() {
   const bandShape    = _buildShape(bandOuterPts.slice().reverse(),    innerPts);
   const outlineShape = _buildShape(outlineOuterPts.slice().reverse(), bandOuterPts);
 
-  // ExtrudeGeometry s depth ALE BEZ BEVELU — bevel by vytvořil 2D-fake-looking
-  // slanted surfaces v úzkých částech (skulina bridges). Bez bevelu jsou jen
-  // vertikální side walls a flat top face.
+  // v73.87: STENCIL CLIPPING — mask shape se vykreslí do stencil bufferu jako "1",
+  // pak band se renderuje s stencilFunc: EQUAL 1 → fragmenty mimo mask region se
+  // automaticky discardují → visible outer side walls jsou clipnuté.
+
+  // Stencil mask = flat ShapeGeometry s bandShape (= band's XY footprint).
+  // Mask renderuje JEN do stencil bufferu, neviditelná (colorWrite=false).
+  const maskGeom = new THREE.ShapeGeometry(bandShape, 4);
+  const maskMat = new THREE.MeshBasicMaterial({
+    colorWrite:    false,
+    depthWrite:    false,
+    stencilWrite:  true,
+    stencilRef:    1,
+    stencilFunc:   THREE.AlwaysStencilFunc,
+    stencilZPass:  THREE.ReplaceStencilOp,
+  });
+  const maskMesh = new THREE.Mesh(maskGeom, maskMat);
+  maskMesh.position.set(0, 0, 0);  // anywhere, stencil ignoruje depth/color
+  maskMesh.renderOrder   = 0;       // RENDER PRVNÍ
+  maskMesh.frustumCulled = false;
+  st.contentGroup.add(maskMesh);
+  st.unifiedFrameMaskStencil = maskMesh;
+
+  // ExtrudeGeometry s depth — band's 3D bulk.
   const extrudeOpts = {
     depth:        FRAME_DEPTH,
     bevelEnabled: false,
   };
-  const bandGeom    = new THREE.ExtrudeGeometry(bandShape,    extrudeOpts);
-  const outlineGeom = new THREE.ExtrudeGeometry(outlineShape, extrudeOpts);
+  const bandGeom = new THREE.ExtrudeGeometry(bandShape, extrudeOpts);
 
-  // Materials — MeshLambertMaterial s emissive lift pro vnitřní side walls
+  // Materials — Lambert s emissive lift. Stencil test = render JEN kde stencil==1.
   const cs    = getComputedStyle(document.documentElement);
   const bgTop = (cs.getPropertyValue('--bg-3d-top') || '').trim() || '#ee9bb1';
   const bandMat = new THREE.MeshLambertMaterial({
-    color:    new THREE.Color(bgTop),
-    emissive: new THREE.Color(FRAME_EMISSIVE),
-  });
-  const outlineMat = new THREE.MeshLambertMaterial({
-    color:    new THREE.Color(0x000000),
-    emissive: new THREE.Color(FRAME_OUTLINE_COLOR),
+    color:        new THREE.Color(bgTop),
+    emissive:     new THREE.Color(FRAME_EMISSIVE),
+    stencilWrite: false,
+    stencilRef:   1,
+    stencilFunc:  THREE.EqualStencilFunc,
   });
 
   const frameZ = -(FRAME_DEPTH + 2);
 
   const bandMesh = new THREE.Mesh(bandGeom, bandMat);
   bandMesh.position.set(0, 0, frameZ);
-  bandMesh.renderOrder   = 1;
+  bandMesh.renderOrder   = 1;      // RENDER PO MASCE
   bandMesh.frustumCulled = false;
   st.contentGroup.add(bandMesh);
   st.unifiedFrameMesh = bandMesh;
 
+  // Outline mesh vypnuté zatím (řešíme krok po kroku)
+  const outlineMat = new THREE.MeshLambertMaterial({
+    color:    new THREE.Color(0x000000),
+    emissive: new THREE.Color(FRAME_OUTLINE_COLOR),
+  });
+  const outlineGeom = new THREE.ExtrudeGeometry(outlineShape, extrudeOpts);
   const outlineMesh = new THREE.Mesh(outlineGeom, outlineMat);
   outlineMesh.position.set(0, 0, frameZ - 0.5);
   outlineMesh.renderOrder   = 0;
+  outlineMesh.visible = false;  // zatím vypnuto
   outlineMesh.frustumCulled = false;
   st.contentGroup.add(outlineMesh);
   st.unifiedFrameOutline = outlineMesh;
