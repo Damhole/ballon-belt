@@ -811,7 +811,7 @@ function _buildBeltTrack(parent, W, toonGrad, beltCenterY) {
 //
 // Souřadnice: world Y (Y-up) — viz _worldY(cssY) = st.H - cssY.
 
-const FRAME_SKULINA_HALF = 40;  // ½ šířky skuliny (80px ≈ 3 balónky × 24px diameter)
+const FRAME_SKULINA_HALF = 32;  // v73.112: 40→32, užší hrdlo (64 px wide, 2-3 balónky)
 const FRAME_ARENA_PAD    = 6;   // tloušťka rámu na bocích arény (px)
 const FRAME_DEPTH        = 50;  // ExtrudeGeometry depth — match image frame v73.63
 const FRAME_BEVEL        = 2;   // bevel size + thickness — match image frame v73.63
@@ -1066,7 +1066,7 @@ function _initUnifiedFrame() {
   // Skulina = úzké hrdlo TĚSNĚ pod belt (kde se balls přelévají).
   // skulinaBotCSS = kde oblouk ZAČÍNÁ (vrchol oblouku — úzká část).
   // Posunuto blízko belt aby výška oblouku byla velká → výrazný spád od skuliny.
-  const skulinaBotCSS = beltBotCSS + 4;
+  const skulinaBotCSS = beltBotCSS + 14;  // v73.112: 4→14, arch top níž (kopíruje hlubší linii)
 
   // Arena = carriers oblast; arenaTopCSS je kde oblouk KONČÍ (plná šířka)
   // Vertikální rozdíl skulinaBotCSS→arenaTopCSS = výška oblouku (čím větší, tím výraznější)
