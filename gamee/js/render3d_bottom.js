@@ -978,6 +978,62 @@ function _buildHolePath(p) {
   return hole;
 }
 
+// v73.103: re-measure DOM pozice (volat z updateCarriers / resize).
+// Updates st.beltCenterY, st.pendingTopCSS, st.carriersTopCSS, st.carriersBottomCSS.
+function _measureFramePositions() {
+  if (!st.canvas) return;
+  const gameEl = document.getElementById('game');
+  if (!gameEl) return;
+  const gameRect = gameEl.getBoundingClientRect();
+  const canvasRect = st.canvas.getBoundingClientRect();
+  const canvasTop = canvasRect.top - gameRect.top;
+
+  const beltSvgEl = document.getElementById('belt-svg');
+  if (beltSvgEl) {
+    const r = beltSvgEl.getBoundingClientRect();
+    const offY = Math.round(r.top - gameRect.top) - canvasTop;
+    st.beltCenterY = offY + Math.round(r.height / 2);
+  }
+  const pendEl = document.getElementById('pending-canvas');
+  if (pendEl) {
+    const r = pendEl.getBoundingClientRect();
+    st.pendingTopCSS = Math.round(r.top - gameRect.top) - canvasTop;
+  }
+  const carrEl = document.getElementById('carriers-wrap');
+  if (carrEl) {
+    const cR = carrEl.getBoundingClientRect();
+    st.carriersTopCSS    = Math.round(cR.top    - gameRect.top) - canvasTop;
+    st.carriersBottomCSS = Math.round(cR.bottom - gameRect.top) - canvasTop;
+  }
+}
+
+// v73.103: dispose existing frame meshes (band, mask, floor) — pro rebuild.
+function _disposeUnifiedFrame() {
+  const meshes = [st.unifiedFrameMesh, st.unifiedFrameMaskStencil, st.unifiedFrameFloor];
+  for (const m of meshes) {
+    if (!m) continue;
+    if (st.contentGroup) st.contentGroup.remove(m);
+    if (m.geometry) m.geometry.dispose();
+    if (m.material) m.material.dispose();
+  }
+  st.unifiedFrameMesh = null;
+  st.unifiedFrameMaskStencil = null;
+  st.unifiedFrameFloor = null;
+}
+
+// v73.103: rebuild frame na základě aktuálních DOM pozic. Memoized — pokud
+// klíčové měření nezměnilo, skip.
+function _rebuildUnifiedFrame() {
+  if (!st.ready) return;
+  _measureFramePositions();
+  // Memoization key — pokud nezměnilo, skip
+  const key = `${st.beltCenterY}|${st.carriersTopCSS}|${st.carriersBottomCSS}`;
+  if (key === st.lastFrameKey) return;
+  st.lastFrameKey = key;
+  _disposeUnifiedFrame();
+  _initUnifiedFrame();
+}
+
 function _initUnifiedFrame() {
   const W = st.W;
   const H = st.H;
@@ -1467,6 +1523,9 @@ function _clipSelfIntersections(points) {
 
 function updateCarriers(columns, colorsArr) {
   if (!st.ready || !columns) return;
+
+  // v73.103: rebuild frame pokud carriers pozice změnila (responzivní layout)
+  _rebuildUnifiedFrame();
 
   const canvasRect = st.canvas.getBoundingClientRect();
   const gridEl = document.getElementById('carriers-grid');
