@@ -1071,7 +1071,7 @@ function _renderMiterOffsetTest(params, distance, colorHex) {
 
   // Sample hole, offset, build thin ring shape
   const innerPts = hole.getPoints(30);
-  const outerPts = _offsetPolygonOutward(innerPts, distance);
+  const outerPts = _miterOffsetPolygon(innerPts, distance);
 
   // Shape: outer = outerPts reversed (CCW), hole = innerPts (CW)
   const ringShape = new THREE.Shape();
@@ -1096,7 +1096,9 @@ function _renderMiterOffsetTest(params, distance, colorHex) {
 }
 
 // v73.68: helper — proper polygon offset s miter joins (Blender Inset-style).
-function _offsetPolygonOutward(points, distance) {
+// Pojmenováno _miterOffsetPolygon aby nekolidovalo s existujícím _offsetPolygonOutward
+// (wall outline, řádek ~1781, jiný algoritmus, používá se pro 3D walls).
+function _miterOffsetPolygon(points, distance) {
   const n = points.length;
   const segments = [];
   for (let i = 0; i < n; i++) {
