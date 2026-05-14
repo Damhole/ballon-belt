@@ -1072,7 +1072,9 @@ function _renderMiterOffsetTest(params, distance, colorHex) {
 
   // Sample hole, offset, build thin ring shape
   const innerPts = hole.getPoints(30);
-  const outerPts = _miterOffsetPolygon(innerPts, distance);
+  let outerPts = _miterOffsetPolygon(innerPts, distance);
+  // v73.76: clip self-intersections (cross-overs mezi non-adjacent edges)
+  outerPts = _clipSelfIntersections(outerPts);
 
   // Shape: outer = outerPts reversed (CCW), hole = innerPts (CW)
   const ringShape = new THREE.Shape();
@@ -1248,6 +1250,57 @@ function _lineLineIntersect(p1, p2, p3, p4) {
   if (Math.abs(denom) < 1e-9) return null;
   const t = ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) / denom;
   return new THREE.Vector2(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
+}
+
+// v73.76: FINITE segment intersection — vrátí intersection POUZE pokud leží
+// uvnitř obou segmentů (t ∈ [0,1] pro oba). Null pokud segments nekříží.
+function _segSegIntersect(p1, p2, p3, p4) {
+  const denom = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
+  if (Math.abs(denom) < 1e-9) return null;
+  const t = ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) / denom;
+  const u = -((p1.x - p2.x) * (p1.y - p3.y) - (p1.y - p2.y) * (p1.x - p3.x)) / denom;
+  // Tolerance EPS na okrajích aby adjacent segments které sdílí endpoint nevyhodily false positive
+  const EPS = 1e-6;
+  if (t < EPS || t > 1 - EPS || u < EPS || u > 1 - EPS) return null;
+  return new THREE.Vector2(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
+}
+
+// v73.76: Self-intersection clipping. Pro polygon points najdi všechny dvojice
+// non-adjacent edges (i, j) které se křižují uvnitř, a splice polygon — nahraď
+// vnitřní loop jediným bodem v průsečíku.
+function _clipSelfIntersections(points) {
+  if (points.length < 4) return points;
+  const n = points.length;
+  const result = [];
+  let i = 0;
+  let iter = 0;
+  while (i < n && iter < n * 2) {
+    iter++;
+    result.push(points[i]);
+    const p1 = points[i];
+    const p2 = points[(i + 1) % n];
+    // Hledej intersection s nejdřív vzdálenějším future edge (greedy skip)
+    let bestJ = -1;
+    let bestIsect = null;
+    for (let j = i + 2; j < n; j++) {
+      if ((j + 1) % n === i) continue;  // last edge wraps back to start
+      const p3 = points[j];
+      const p4 = points[(j + 1) % n];
+      const isect = _segSegIntersect(p1, p2, p3, p4);
+      if (isect) {
+        bestJ = j;
+        bestIsect = isect;
+        break;  // greedy — vezmi PRVNÍ intersection
+      }
+    }
+    if (bestIsect) {
+      result.push(bestIsect);
+      i = bestJ + 1;
+    } else {
+      i++;
+    }
+  }
+  return result;
 }
 
 // ─── updateCarriers ──────────────────────────────────────────────────────────
