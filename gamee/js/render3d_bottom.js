@@ -1039,9 +1039,6 @@ function _initUnifiedFrame() {
   let bandOuterPts = _miterOffsetPolygon(innerPts, BAND_WIDTH);
   bandOuterPts = _clipSelfIntersections(bandOuterPts);
 
-  let outlineOuterPts = _miterOffsetPolygon(innerPts, BAND_WIDTH + OUTLINE_W);
-  outlineOuterPts = _clipSelfIntersections(outlineOuterPts);
-
   // Shape builder helper
   const _buildShape = (outerPts, holePts) => {
     const sh = new THREE.Shape();
@@ -1054,8 +1051,7 @@ function _initUnifiedFrame() {
     return sh;
   };
 
-  const bandShape    = _buildShape(bandOuterPts.slice().reverse(),    innerPts);
-  const outlineShape = _buildShape(outlineOuterPts.slice().reverse(), bandOuterPts);
+  const bandShape = _buildShape(bandOuterPts.slice().reverse(), innerPts);
 
   // Layered architecture (v73.85 — outline OFF):
   //   1. Band 3D (ExtrudeGeometry depth 50, BG color) — cavity walls visible přes hole
@@ -1109,7 +1105,7 @@ function _initUnifiedFrame() {
 
   // Outline mesh úmyslně VYPNUTÉ — řešíme krok po kroku
   console.log('[render3d_bottom] layered mask (no outline) — band:', BAND_WIDTH,
-    '| cover:', COVER_W, '| inner:', innerPts.length, '| band outer:', bandOuterPts.length);
+    '| cover: full canvas | inner:', innerPts.length, '| band outer:', bandOuterPts.length);
 }
 
 // v73.68: minimal safe test rendering — paralelní offset jako tenká bright ring.
