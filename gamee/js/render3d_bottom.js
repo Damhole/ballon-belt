@@ -918,6 +918,58 @@ function _buildUnifiedFrameGeom(W, p) {
   });
 }
 
+// v73.77: extract hole path building do samostatné funkce (reuse mezi
+// _initUnifiedFrame a _renderMiterOffsetTest). Vrací THREE.Path (CW v Y-up).
+function _buildHolePath(p) {
+  const hole = new THREE.Path();
+  hole.moveTo(p.beltLeft,     p.beltTopW);
+  hole.lineTo(p.beltRight,    p.beltTopW);
+  hole.lineTo(p.beltRight,    p.beltBotW);
+  hole.lineTo(p.skulinaRight, p.skulinaTopW);
+  hole.lineTo(p.skulinaRight, p.skulinaBotW);
+  const arcW_r = p.arenaRight - p.skulinaRight;
+  const arcH_r = p.skulinaBotW - p.arenaTopW;
+  hole.bezierCurveTo(
+    p.skulinaRight,                    p.skulinaBotW,
+    p.skulinaRight + arcW_r * 0.505,  p.skulinaBotW - arcH_r * 0.130,
+    p.skulinaRight + arcW_r * 0.785,  p.skulinaBotW - arcH_r * 0.411
+  );
+  hole.bezierCurveTo(
+    p.skulinaRight + arcW_r * 0.959,  p.skulinaBotW - arcH_r * 0.637,
+    p.arenaRight,                       p.arenaTopW,
+    p.arenaRight,                       p.arenaTopW
+  );
+  hole.lineTo(p.arenaRight, p.arenaBotW + CORNER_R_BOT);
+  hole.bezierCurveTo(
+    p.arenaRight,                          p.arenaBotW + CORNER_R_BOT * 0.448,
+    p.arenaRight - CORNER_R_BOT * 0.448,  p.arenaBotW,
+    p.arenaRight - CORNER_R_BOT,           p.arenaBotW
+  );
+  hole.lineTo(p.arenaLeft + CORNER_R_BOT, p.arenaBotW);
+  hole.bezierCurveTo(
+    p.arenaLeft + CORNER_R_BOT * 0.448,   p.arenaBotW,
+    p.arenaLeft,                            p.arenaBotW + CORNER_R_BOT * 0.448,
+    p.arenaLeft,                            p.arenaBotW + CORNER_R_BOT
+  );
+  hole.lineTo(p.arenaLeft, p.arenaTopW);
+  const arcW_l = p.skulinaLeft - p.arenaLeft;
+  const arcH_l = p.skulinaBotW - p.arenaTopW;
+  hole.bezierCurveTo(
+    p.arenaLeft,                       p.arenaTopW,
+    p.arenaLeft + arcW_l * 0.041,     p.arenaTopW + arcH_l * 0.363,
+    p.arenaLeft + arcW_l * 0.215,     p.arenaTopW + arcH_l * 0.589
+  );
+  hole.bezierCurveTo(
+    p.arenaLeft + arcW_l * 0.495,     p.arenaTopW + arcH_l * 0.870,
+    p.skulinaLeft,                     p.skulinaBotW,
+    p.skulinaLeft,                     p.skulinaBotW
+  );
+  hole.lineTo(p.skulinaLeft,  p.skulinaTopW);
+  hole.lineTo(p.beltLeft,     p.beltBotW);
+  hole.lineTo(p.beltLeft,     p.beltTopW);
+  return hole;
+}
+
 function _initUnifiedFrame() {
   const W = st.W;
   const H = st.H;
