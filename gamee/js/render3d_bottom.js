@@ -1284,17 +1284,16 @@ function _initUnifiedFrame() {
     F.archSegmentsRight = archRightPts.map(pt => ({ x: pt.x, y: toFunY(pt.y) }));
     F.archSegmentsLeft  = archLeftPts.map(pt  => ({ x: pt.x, y: toFunY(pt.y) }));
 
-    // DEBUG outline: trace both arches as zelená line (visualization)
+    // DEBUG outline: trace both arches as zelená line. Order musí být CW (clockwise)
+    // bez self-intersection: narrowR → archRight (top→bot) → wide bottom → archLeft
+    // (bot→top, native order since archLeft samples START at arena corner) → narrowL.
     const debugPts = [];
-    // Right side: skulina top → arch → arena top corner → down → bottom
-    debugPts.push({ x: F.narrowR, y: F.narrowY });
-    for (const p of F.archSegmentsRight) debugPts.push(p);
-    debugPts.push({ x: F.wideR, y: F.wideY });
-    debugPts.push({ x: F.wideL, y: F.wideY });
-    // Left side reversed: bottom → arena top corner → arch (reversed) → skulina top
-    const leftRev = F.archSegmentsLeft.slice().reverse();
-    for (const p of leftRev) debugPts.push(p);
-    debugPts.push({ x: F.narrowL, y: F.narrowY });
+    debugPts.push({ x: F.narrowR, y: F.narrowY });           // top-right of narrow
+    for (const p of F.archSegmentsRight) debugPts.push(p);   // right arch top → bottom
+    debugPts.push({ x: F.wideR, y: F.wideY });               // bottom-right of arena
+    debugPts.push({ x: F.wideL, y: F.wideY });               // bottom-left of arena
+    for (const p of F.archSegmentsLeft) debugPts.push(p);    // left arch bot → top (native)
+    debugPts.push({ x: F.narrowL, y: F.narrowY });           // top-left of narrow
 
     const funYtoCanvasY = (funY) => TOP_CSS + (funY - F.narrowY);
     const coords = [];
