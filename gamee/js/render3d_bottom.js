@@ -808,7 +808,6 @@ const FRAME_ARENA_PAD    = 6;   // tloušťka rámu na bocích arény (px)
 const FRAME_DEPTH        = 12;  // ExtrudeGeometry depth (Z tloušťka)
 const FRAME_BEVEL        = 3;   // bevel size + thickness
 const FRAME_BEVEL_SEGS   = 3;   // bevel segments
-const FRAME_ARCH_R       = 55;  // radius zaoblení horních rohů arény
 
 function _buildUnifiedFrameGeom(W, p) {
   // Outer shape: velký obdélník přes celou viditelnou oblast (CCW v Y-up)
@@ -819,40 +818,49 @@ function _buildUnifiedFrameGeom(W, p) {
   shape.lineTo(0,  p.frameTopW);
   shape.lineTo(0,  p.frameBotW);
 
-  // Jeden spojený hole: belt → bridge → skulina → arena (CW v Y-up)
-  const R = p.archR;
+  // Jeden spojený hole: belt → bridge → skulina → arch → arena (CW v Y-up)
+  //
+  // Klíčový tvar: skulina (úzká, nahoře) se quadratic Bezier obloukem rozevírá
+  // do plné šířky arény (dole). Oblouk = ta "hezká část" — control point je
+  // na straně arény ve výšce skuliny, což vytvoří plynulý sweep outward+down.
+  //
+  //   skulinaRight ──╮            ╭── skulinaLeft
+  //                   \          /
+  //    (quadratic)     \        /   (quadratic)
+  //                     ╰──────╯
+  //   arenaRight ────────────────── arenaLeft   ← arenaTopW (níže)
+
   const hole = new THREE.Path();
 
   // 1. Start: belt top-left (belt hole dosahuje canvas top)
-  hole.moveTo(p.beltLeft,   p.beltTopW);
+  hole.moveTo(p.beltLeft,     p.beltTopW);
   // 2. Belt top edge → doprava
-  hole.lineTo(p.beltRight,  p.beltTopW);
-  // 3. Belt pravá strana → dolů
-  hole.lineTo(p.beltRight,  p.beltBotW);
-  // 4. Bridge: krok dovnitř na skulinu pravou
+  hole.lineTo(p.beltRight,    p.beltTopW);
+  // 3. Belt pravá strana → dolů na belt-bottom
+  hole.lineTo(p.beltRight,    p.beltBotW);
+  // 4. Bridge pravá: krok dovnitř na skulinu pravou (stejná Y)
   hole.lineTo(p.skulinaRight, p.skulinaTopW);
-  // 5. Skulina pravá → dolů
+  // 5. Skulina pravá → dolů na skulina-bottom (vrchol pravého oblouku)
   hole.lineTo(p.skulinaRight, p.skulinaBotW);
-  // 6. Rozevřít na arena pravou (flat část nahoře arény)
-  hole.lineTo(p.arenaRight - R, p.arenaTopW);
-  // 7. Zaoblení pravého horního rohu arény
-  hole.quadraticCurveTo(p.arenaRight, p.arenaTopW, p.arenaRight, p.arenaTopW - R);
-  // 8. Arena pravá strana → dolů
-  hole.lineTo(p.arenaRight,  p.arenaBotW);
-  // 9. Arena spodek → doleva
-  hole.lineTo(p.arenaLeft,   p.arenaBotW);
-  // 10. Arena levá strana → nahoru (k začátku rohu)
-  hole.lineTo(p.arenaLeft,   p.arenaTopW - R);
-  // 11. Zaoblení levého horního rohu arény
-  hole.quadraticCurveTo(p.arenaLeft, p.arenaTopW, p.arenaLeft + R, p.arenaTopW);
-  // 12. Zúžit na skulinu levou
-  hole.lineTo(p.skulinaLeft,  p.skulinaBotW);
-  // 13. Skulina levá → nahoru
+  // 6. ARCH vpravo: plynulý Bezier sweep z skulinaRight dolů na arenaRight
+  //    Control point = (arenaRight, skulinaBotW) → pull vpravo při výšce skuliny,
+  //    pak oblukově dolu → výsledek = konvexní oblouk směrem ven
+  hole.quadraticCurveTo(p.arenaRight, p.skulinaBotW,  p.arenaRight, p.arenaTopW);
+  // 7. Arena pravá strana → dolů
+  hole.lineTo(p.arenaRight,   p.arenaBotW);
+  // 8. Arena spodek → doleva
+  hole.lineTo(p.arenaLeft,    p.arenaBotW);
+  // 9. Arena levá strana → nahoru na arenaTop
+  hole.lineTo(p.arenaLeft,    p.arenaTopW);
+  // 10. ARCH vlevo: plynulý Bezier sweep z arenaLeft nahoru na skulinaLeft
+  //     Symetricky — control point = (arenaLeft, skulinaBotW)
+  hole.quadraticCurveTo(p.arenaLeft, p.skulinaBotW,  p.skulinaLeft, p.skulinaBotW);
+  // 11. Skulina levá → nahoru
   hole.lineTo(p.skulinaLeft,  p.skulinaTopW);
-  // 14. Bridge: krok ven na belt levou
-  hole.lineTo(p.beltLeft,    p.beltBotW);
-  // 15. Belt levá strana → nahoru
-  hole.lineTo(p.beltLeft,    p.beltTopW);
+  // 12. Bridge levá: krok ven na belt levou
+  hole.lineTo(p.beltLeft,     p.beltBotW);
+  // 13. Belt levá strana → nahoru
+  hole.lineTo(p.beltLeft,     p.beltTopW);
   hole.closePath();
 
   shape.holes.push(hole);
@@ -863,7 +871,7 @@ function _buildUnifiedFrameGeom(W, p) {
     bevelThickness: FRAME_BEVEL,
     bevelSize:      FRAME_BEVEL,
     bevelSegments:  FRAME_BEVEL_SEGS,
-    curveSegments:  6,
+    curveSegments:  8,
   });
 }
 
@@ -879,38 +887,39 @@ function _initUnifiedFrame() {
   const beltRight = W - beltLeft;
 
   // CSS Y souřadnice (Y-down od vrcholu canvasu)
-  const beltBotCSS    = beltCY + TRACK_H / 2 + 6;   // těsně pod belt
-  const skulinaTopCSS = beltBotCSS;
-  const skulinaLeft   = W / 2 - FRAME_SKULINA_HALF;
-  const skulinaRight  = W / 2 + FRAME_SKULINA_HALF;
+  const beltBotCSS  = beltCY + TRACK_H / 2 + 6;   // těsně pod belt
+  const skulinaLeft  = W / 2 - FRAME_SKULINA_HALF;
+  const skulinaRight = W / 2 + FRAME_SKULINA_HALF;
 
-  // Skulina sahá od belt-bottom do carrier-top (= pending area zone)
-  const skulinaBotCSS = st.carriersTopCSS != null
-    ? st.carriersTopCSS - 4
-    : beltBotCSS + 56;
+  // Skulina = krátký úsek hned pod belt (kde pending fyzika probíhá)
+  // skulinaBotCSS = kde oblouk ZAČÍNÁ (vrchol oblouku — úzká část)
+  const skulinaBotCSS = st.pendingTopCSS != null
+    ? st.pendingTopCSS + 8
+    : beltBotCSS + 20;
 
-  const arenaLeft  = FRAME_ARENA_PAD;
-  const arenaRight = W - FRAME_ARENA_PAD;
-  const arenaTopCSS = skulinaBotCSS;
+  // Arena = carriers oblast; arenaTopCSS je kde oblouk KONČÍ (plná šířka)
+  // Vertikální rozdíl skulinaBotCSS→arenaTopCSS = výška oblouku (čím větší, tím výraznější)
+  const arenaLeft   = FRAME_ARENA_PAD;
+  const arenaRight  = W - FRAME_ARENA_PAD;
+  const arenaTopCSS = st.carriersTopCSS != null ? st.carriersTopCSS - 4 : skulinaBotCSS + 50;
   const arenaBotCSS = (st.carriersBottomCSS || H - 30) + 20;
   const frameBotCSS = arenaBotCSS + 6;
 
   const params = {
-    frameTopW:    wy(0),
-    frameBotW:    wy(frameBotCSS),
-    beltTopW:     wy(0),          // belt hole dosahuje canvas top (otevřený nahoře)
-    beltBotW:     wy(beltBotCSS),
+    frameTopW:   wy(0),
+    frameBotW:   wy(frameBotCSS),
+    beltTopW:    wy(0),           // belt hole dosahuje canvas top
+    beltBotW:    wy(beltBotCSS),
     beltLeft,
     beltRight,
-    skulinaTopW:  wy(skulinaTopCSS),
-    skulinaBotW:  wy(skulinaBotCSS),
+    skulinaTopW: wy(beltBotCSS),  // skulina začíná hned pod belt
+    skulinaBotW: wy(skulinaBotCSS),  // vrchol oblouku (úzká část)
     skulinaLeft,
     skulinaRight,
-    arenaTopW:    wy(arenaTopCSS),
-    arenaBotW:    wy(arenaBotCSS),
+    arenaTopW:   wy(arenaTopCSS),    // spodek oblouku (plná šířka arény)
+    arenaBotW:   wy(arenaBotCSS),
     arenaLeft,
     arenaRight,
-    archR:        FRAME_ARCH_R,
   };
 
   const geom = _buildUnifiedFrameGeom(W, params);
@@ -921,13 +930,13 @@ function _initUnifiedFrame() {
   const mat   = new THREE.MeshLambertMaterial({ color: new THREE.Color(bgTop) });
 
   const mesh = new THREE.Mesh(geom, mat);
-  // Frame sedí jako background layer — Z posun dozadu aby bevel nepřekryl carriery
   mesh.position.set(0, 0, -(FRAME_DEPTH + FRAME_BEVEL + 2));
-  mesh.renderOrder  = 1;   // draw first, carriers jsou 100+
+  mesh.renderOrder   = 1;
   mesh.frustumCulled = false;
   st.contentGroup.add(mesh);
   st.unifiedFrameMesh = mesh;
-  console.log('[render3d_bottom] unified frame built, skulina CSS Y:', skulinaTopCSS, '→', skulinaBotCSS);
+  console.log('[render3d_bottom] unified frame — arch height CSS px:',
+    arenaTopCSS - skulinaBotCSS, '| skulinaBot:', skulinaBotCSS, '| arenaTop:', arenaTopCSS);
 }
 
 // ─── updateCarriers ──────────────────────────────────────────────────────────
