@@ -803,7 +803,7 @@ function _buildBeltTrack(parent, W, toonGrad, beltCenterY) {
 //
 // Souřadnice: world Y (Y-up) — viz _worldY(cssY) = st.H - cssY.
 
-const FRAME_SKULINA_HALF = 90;  // ½ šířky skuliny — match FUNNEL_3D.visualNarrowHalf
+const FRAME_SKULINA_HALF = 40;  // ½ šířky skuliny (80px ≈ 3 balónky × 24px diameter)
 const FRAME_ARENA_PAD    = 6;   // tloušťka rámu na bocích arény (px)
 const FRAME_DEPTH        = 12;  // ExtrudeGeometry depth (Z tloušťka)
 const FRAME_BEVEL        = 3;   // bevel size + thickness
