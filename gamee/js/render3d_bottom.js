@@ -1124,6 +1124,7 @@ function _miterOffsetPolygon(points, distance) {
       offsetP2:  new THREE.Vector2(p2.x + nx * distance, p2.y + ny * distance),
       tangentX:  dx / len,
       tangentY:  dy / len,
+      corner:    new THREE.Vector2(p1.x, p1.y),  // original start corner pro miter distance check
     });
   }
   const ns = segs.length;
@@ -1139,15 +1140,22 @@ function _miterOffsetPolygon(points, distance) {
                 || cur.offsetP1.clone();
   }
 
-  // 3. Detect flipped segments. Offset segment od miters[i] do miters[(i+1)%ns]
-  //    by měl jít stejným směrem jako original tangent segs[i]. Pokud dot < 0,
-  //    miters se překryly = flip = SELF-INTERSECTION.
+  // 3. Detect problematic segments:
+  //    a) FLIPPED — offset segment goes proti směru original (miters překryly)
+  //    b) FAR MITER — miter je dál než 3*distance od původního rohu (nearly parallel
+  //       offset lines u smooth Bezier curves → intersection v "nekonečnu")
+  const MITER_LIMIT_DIST = distance * 3;
   const flipped = new Array(ns).fill(false);
   for (let i = 0; i < ns; i++) {
+    // 3a) Flip check
     const m1 = miters[i];
     const m2 = miters[(i + 1) % ns];
     const dot = (m2.x - m1.x) * segs[i].tangentX + (m2.y - m1.y) * segs[i].tangentY;
-    if (dot < 0) flipped[i] = true;
+    if (dot < 0) { flipped[i] = true; continue; }
+    // 3b) Far miter check — miters[i] vůči segs[i].corner (původní roh = start segs[i])
+    const corner = segs[i].corner;
+    const dCorner = Math.hypot(miters[i].x - corner.x, miters[i].y - corner.y);
+    if (dCorner > MITER_LIMIT_DIST) flipped[i] = true;
   }
 
   // 4. Walk přes ns segments. Valid runs jdou normal, flipped runs nahradíme
