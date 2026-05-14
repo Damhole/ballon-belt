@@ -431,14 +431,11 @@ function init() {
   sun.position.set(-300, 800, 600);
   scene.add(sun);
 
-  // v73.96: HemisphereLight match image scéna (render3d.js line ~403).
-  // Layer 2 → JEN pro band mesh (lift dark side walls). Carriers a další na default
-  // layer 0 nedostanou ambient → toon shading nedotčený.
-  const FRAME_LIGHT_LAYER = 2;
+  // v73.97 DEBUG: HemisphereLight BEZ layer omezení — affektuje vše.
+  // Pokud band se rozjasní → layers byly problém. Pokud ne → hemisphere neaktivní.
   const hemi = new THREE.HemisphereLight(0xffe8f0, 0xa090a8, 1.85);
-  hemi.layers.set(FRAME_LIGHT_LAYER);
   scene.add(hemi);
-  st.frameLightLayer = FRAME_LIGHT_LAYER;
+  st.frameLightLayer = 0;  // dummy, layers off
 
   st.scene    = scene;
   st.camera   = camera;
