@@ -843,9 +843,9 @@ function _buildUnifiedFrameGeom(W, p) {
   // 5. Skulina pravá → dolů na skulina-bottom (vrchol pravého oblouku)
   hole.lineTo(p.skulinaRight, p.skulinaBotW);
   // 6. ARCH vpravo: plynulý Bezier sweep z skulinaRight dolů na arenaRight
-  //    Control point = (arenaRight, skulinaBotW) → pull vpravo při výšce skuliny,
-  //    pak oblukově dolu → výsledek = konvexní oblouk směrem ven
-  hole.quadraticCurveTo(p.arenaRight, p.skulinaBotW,  p.arenaRight, p.arenaTopW);
+  //    Control point = (skulinaRight, arenaTopW) → vertikální departure z hrdla,
+  //    horizontální arrival na arenu → "swooping" S-like arc, sexy stretched look
+  hole.quadraticCurveTo(p.skulinaRight, p.arenaTopW,  p.arenaRight, p.arenaTopW);
   // 7. Arena pravá strana → dolů
   hole.lineTo(p.arenaRight,   p.arenaBotW);
   // 8. Arena spodek → doleva
@@ -853,8 +853,8 @@ function _buildUnifiedFrameGeom(W, p) {
   // 9. Arena levá strana → nahoru na arenaTop
   hole.lineTo(p.arenaLeft,    p.arenaTopW);
   // 10. ARCH vlevo: plynulý Bezier sweep z arenaLeft nahoru na skulinaLeft
-  //     Symetricky — control point = (arenaLeft, skulinaBotW)
-  hole.quadraticCurveTo(p.arenaLeft, p.skulinaBotW,  p.skulinaLeft, p.skulinaBotW);
+  //     Symetricky — control point = (skulinaLeft, arenaTopW)
+  hole.quadraticCurveTo(p.skulinaLeft, p.arenaTopW,  p.skulinaLeft, p.skulinaBotW);
   // 11. Skulina levá → nahoru
   hole.lineTo(p.skulinaLeft,  p.skulinaTopW);
   // 12. Bridge levá: krok ven na belt levou
