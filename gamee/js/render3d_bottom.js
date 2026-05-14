@@ -1115,7 +1115,7 @@ function _initUnifiedFrame() {
   // Side walls budou lit přes HemisphereLight stejně jako image frame.
   const cs    = getComputedStyle(document.documentElement);
   const bandMat = new THREE.MeshLambertMaterial({
-    color:            0xf4b8c8,   // match render3d.js imageFrame
+    color:            0xe9a6ba,   // calibrated tak aby měřený výsledek ≈ image frame
     stencilWrite:     true,
     stencilWriteMask: 0x00,
     stencilRef:       1,
