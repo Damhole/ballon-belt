@@ -431,11 +431,14 @@ function init() {
   sun.position.set(-300, 800, 600);
   scene.add(sun);
 
-  // v73.97 DEBUG: HemisphereLight BEZ layer omezení — affektuje vše.
-  // Pokud band se rozjasní → layers byly problém. Pokud ne → hemisphere neaktivní.
-  const hemi = new THREE.HemisphereLight(0xffe8f0, 0xa090a8, 1.85);
+  // v73.98: HemisphereLight scoped na layer 2 (jen pro band), nižší intensity
+  // protože bottom scéna má DirectionalLight Math.PI (vs 1.55 v image scéně).
+  // Aby band visuálně matchoval image frame: hemi intensity ~0.8.
+  const FRAME_LIGHT_LAYER = 2;
+  const hemi = new THREE.HemisphereLight(0xffe8f0, 0xa090a8, 0.8);
+  hemi.layers.set(FRAME_LIGHT_LAYER);
   scene.add(hemi);
-  st.frameLightLayer = 0;  // dummy, layers off
+  st.frameLightLayer = FRAME_LIGHT_LAYER;
 
   st.scene    = scene;
   st.camera   = camera;
