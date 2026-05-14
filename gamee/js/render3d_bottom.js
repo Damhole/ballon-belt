@@ -1004,6 +1004,143 @@ function _initUnifiedFrame() {
   st.unifiedFrameMesh = mesh;
   console.log('[render3d_bottom] unified frame — arch height CSS px:',
     arenaTopCSS - skulinaBotCSS, '| skulinaBot:', skulinaBotCSS, '| arenaTop:', arenaTopCSS);
+
+  // v73.68: DEBUG TEST — proper miter offset s tiny safe distance.
+  // Cíl: ověřit že offset algoritmus funguje. 2 px je menší než výška skuliny
+  // (4 px), takže miter body se nepřekryjí na concave rozích. Pokud uvidíme
+  // tenký bright outline po obvodu díry, algoritmus je validní → můžeme dál.
+  try {
+    _renderMiterOffsetTest(params, 2, 0x00ff00);
+    console.log('[render3d_bottom] miter offset test SUCCESS');
+  } catch (err) {
+    console.error('[render3d_bottom] miter offset test FAILED:', err);
+  }
+}
+
+// v73.68: minimal safe test rendering — paralelní offset jako tenká bright ring.
+function _renderMiterOffsetTest(params, distance, colorHex) {
+  // Build hole path z params (stejně jako v _buildUnifiedFrameGeom)
+  const W = st.W;
+  const hole = new THREE.Path();
+  const p = params;
+  hole.moveTo(p.beltLeft,     p.beltTopW);
+  hole.lineTo(p.beltRight,    p.beltTopW);
+  hole.lineTo(p.beltRight,    p.beltBotW);
+  hole.lineTo(p.skulinaRight, p.skulinaTopW);
+  hole.lineTo(p.skulinaRight, p.skulinaBotW);
+  const arcW_r = p.arenaRight - p.skulinaRight;
+  const arcH_r = p.skulinaBotW - p.arenaTopW;
+  hole.bezierCurveTo(
+    p.skulinaRight,                    p.skulinaBotW,
+    p.skulinaRight + arcW_r * 0.505,  p.skulinaBotW - arcH_r * 0.130,
+    p.skulinaRight + arcW_r * 0.785,  p.skulinaBotW - arcH_r * 0.411
+  );
+  hole.bezierCurveTo(
+    p.skulinaRight + arcW_r * 0.959,  p.skulinaBotW - arcH_r * 0.637,
+    p.arenaRight,                       p.arenaTopW,
+    p.arenaRight,                       p.arenaTopW
+  );
+  hole.lineTo(p.arenaRight, p.arenaBotW + CORNER_R_BOT);
+  hole.bezierCurveTo(
+    p.arenaRight,                          p.arenaBotW + CORNER_R_BOT * 0.448,
+    p.arenaRight - CORNER_R_BOT * 0.448,  p.arenaBotW,
+    p.arenaRight - CORNER_R_BOT,           p.arenaBotW
+  );
+  hole.lineTo(p.arenaLeft + CORNER_R_BOT, p.arenaBotW);
+  hole.bezierCurveTo(
+    p.arenaLeft + CORNER_R_BOT * 0.448,   p.arenaBotW,
+    p.arenaLeft,                            p.arenaBotW + CORNER_R_BOT * 0.448,
+    p.arenaLeft,                            p.arenaBotW + CORNER_R_BOT
+  );
+  hole.lineTo(p.arenaLeft, p.arenaTopW);
+  const arcW_l = p.skulinaLeft - p.arenaLeft;
+  const arcH_l = p.skulinaBotW - p.arenaTopW;
+  hole.bezierCurveTo(
+    p.arenaLeft,                       p.arenaTopW,
+    p.arenaLeft + arcW_l * 0.041,     p.arenaTopW + arcH_l * 0.363,
+    p.arenaLeft + arcW_l * 0.215,     p.arenaTopW + arcH_l * 0.589
+  );
+  hole.bezierCurveTo(
+    p.arenaLeft + arcW_l * 0.495,     p.arenaTopW + arcH_l * 0.870,
+    p.skulinaLeft,                     p.skulinaBotW,
+    p.skulinaLeft,                     p.skulinaBotW
+  );
+  hole.lineTo(p.skulinaLeft,  p.skulinaTopW);
+  hole.lineTo(p.beltLeft,     p.beltBotW);
+  hole.lineTo(p.beltLeft,     p.beltTopW);
+
+  // Sample hole, offset, build thin ring shape
+  const innerPts = hole.getPoints(30);
+  const outerPts = _offsetPolygonOutward(innerPts, distance);
+
+  // Shape: outer = outerPts reversed (CCW), hole = innerPts (CW)
+  const ringShape = new THREE.Shape();
+  const outerReversed = outerPts.slice().reverse();
+  ringShape.moveTo(outerReversed[0].x, outerReversed[0].y);
+  for (let i = 1; i < outerReversed.length; i++) ringShape.lineTo(outerReversed[i].x, outerReversed[i].y);
+  const ringHole = new THREE.Path();
+  ringHole.moveTo(innerPts[0].x, innerPts[0].y);
+  for (let i = 1; i < innerPts.length; i++) ringHole.lineTo(innerPts[i].x, innerPts[i].y);
+  ringShape.holes.push(ringHole);
+
+  // Flat 2D geometry (ShapeGeometry → žádná hloubka, žádná triangulace složitosti)
+  const ringGeom = new THREE.ShapeGeometry(ringShape, 4);
+  const ringMat  = new THREE.MeshBasicMaterial({ color: colorHex });
+  const ringMesh = new THREE.Mesh(ringGeom, ringMat);
+  // Position v front of main frame ale za carriery
+  ringMesh.position.set(0, 0, -1);
+  ringMesh.renderOrder   = 50;
+  ringMesh.frustumCulled = false;
+  st.contentGroup.add(ringMesh);
+  st.miterTestMesh = ringMesh;
+}
+
+// v73.68: helper — proper polygon offset s miter joins (Blender Inset-style).
+function _offsetPolygonOutward(points, distance) {
+  const n = points.length;
+  const segments = [];
+  for (let i = 0; i < n; i++) {
+    const p1 = points[i];
+    const p2 = points[(i + 1) % n];
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-9) continue;
+    const nx = -dy / len;
+    const ny =  dx / len;
+    segments.push({
+      offsetP1: new THREE.Vector2(p1.x + nx * distance, p1.y + ny * distance),
+      offsetP2: new THREE.Vector2(p2.x + nx * distance, p2.y + ny * distance),
+      corner:   p1,
+    });
+  }
+  const ns = segments.length;
+  const MITER_LIMIT = distance * 5;
+  const result = [];
+  for (let i = 0; i < ns; i++) {
+    const prev = segments[(i - 1 + ns) % ns];
+    const cur  = segments[i];
+    const miter = _lineLineIntersect(prev.offsetP1, prev.offsetP2, cur.offsetP1, cur.offsetP2);
+    if (miter) {
+      const miterDist = Math.hypot(miter.x - cur.corner.x, miter.y - cur.corner.y);
+      if (miterDist < MITER_LIMIT) {
+        result.push(miter);
+      } else {
+        result.push(prev.offsetP2);
+        result.push(cur.offsetP1);
+      }
+    } else {
+      result.push(cur.offsetP1);
+    }
+  }
+  return result;
+}
+
+function _lineLineIntersect(p1, p2, p3, p4) {
+  const denom = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
+  if (Math.abs(denom) < 1e-9) return null;
+  const t = ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) / denom;
+  return new THREE.Vector2(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
 }
 
 // ─── updateCarriers ──────────────────────────────────────────────────────────
