@@ -1057,38 +1057,39 @@ function _initUnifiedFrame() {
   const bandShape    = _buildShape(bandOuterPts.slice().reverse(),    innerPts);
   const outlineShape = _buildShape(outlineOuterPts.slice().reverse(), bandOuterPts);
 
-  // Layered architecture:
-  //   1. Band 3D (ExtrudeGeometry depth 50) — drží Z bulk + cavity walls
-  //   2. Cover (flat, BG color) — širší než band, zakrývá visible outer side walls
-  //   3. Outline (flat, dark) — tenký rim na vnější hraně coveru
-  const COVER_W = 14;  // šířka coveru za bandem (zakryje side wall projections)
-  let coverOuterPts = _miterOffsetPolygon(innerPts, BAND_WIDTH + COVER_W);
-  coverOuterPts = _clipSelfIntersections(coverOuterPts);
-  // Outline outer = coverOuter + OUTLINE_W (přesun outline na vnější hranu coveru)
-  outlineOuterPts = _miterOffsetPolygon(innerPts, BAND_WIDTH + COVER_W + OUTLINE_W);
-  outlineOuterPts = _clipSelfIntersections(outlineOuterPts);
+  // Layered architecture (v73.85 — outline OFF):
+  //   1. Band 3D (ExtrudeGeometry depth 50, BG color) — cavity walls visible přes hole
+  //   2. Cover: full canvas rect s hole na bandOuter, BG color → tvoří "stůl"
+  //      kolem díry. Pink stůl pak splývá s body BG mimo canvas.
 
-  // Outline shape: thin ring AT THE OUTER EDGE OF COVER (mezi coverOuter a outlineOuter)
-  const outlineShape2 = _buildShape(outlineOuterPts.slice().reverse(), coverOuterPts);
-  // Cover shape: BG-colored ring mezi bandOuter a coverOuter
-  const coverShape = _buildShape(coverOuterPts.slice().reverse(), bandOuterPts);
+  // Cover shape: full canvas rect (s mírným přesahem aby splynul s body BG),
+  // hole = bandOuter. Bude pokrývat celou plochu canvasu kromě středu.
+  const COVER_PAD = 30;  // overhang za canvas (přechod nezůstane vidět)
+  const coverShape = new THREE.Shape();
+  coverShape.moveTo(-COVER_PAD,          -COVER_PAD);
+  coverShape.lineTo(W + COVER_PAD,        -COVER_PAD);
+  coverShape.lineTo(W + COVER_PAD, H + COVER_PAD);
+  coverShape.lineTo(-COVER_PAD,    H + COVER_PAD);
+  coverShape.lineTo(-COVER_PAD,          -COVER_PAD);
+  // Hole = bandOuter (CW already, perfect)
+  const coverHole = new THREE.Path();
+  coverHole.moveTo(bandOuterPts[0].x, bandOuterPts[0].y);
+  for (let i = 1; i < bandOuterPts.length; i++) coverHole.lineTo(bandOuterPts[i].x, bandOuterPts[i].y);
+  coverShape.holes.push(coverHole);
 
   // Band 3D s depth (drží cavity)
-  const bandGeom = new THREE.ExtrudeGeometry(bandShape, { depth: FRAME_DEPTH, bevelEnabled: false });
-  // Cover a outline FLAT (žádné side walls)
-  const coverGeom    = new THREE.ShapeGeometry(coverShape, 4);
-  const outlineGeom = new THREE.ShapeGeometry(outlineShape2, 4);
+  const bandGeom  = new THREE.ExtrudeGeometry(bandShape, { depth: FRAME_DEPTH, bevelEnabled: false });
+  // Cover FLAT
+  const coverGeom = new THREE.ShapeGeometry(coverShape, 4);
 
   // Materials — všechno BasicMaterial, žádné shading artefakty
   const cs    = getComputedStyle(document.documentElement);
   const bgTop = (cs.getPropertyValue('--bg-3d-top') || '').trim() || '#ee9bb1';
-  const bandMat    = new THREE.MeshBasicMaterial({ color: new THREE.Color(bgTop) });
-  const coverMat   = new THREE.MeshBasicMaterial({ color: new THREE.Color(bgTop) });
-  const outlineMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(FRAME_OUTLINE_COLOR) });
+  const bandMat  = new THREE.MeshBasicMaterial({ color: new THREE.Color(bgTop) });
+  const coverMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(bgTop) });
 
-  const bandZ    = -(FRAME_DEPTH + 2);  // Band hluboko vzadu
-  const coverZ   = -1;                   // Cover vepředu (zakrývá band side walls)
-  const outlineZ = -1;                   // Outline u coveru
+  const bandZ  = -(FRAME_DEPTH + 2);  // Band hluboko vzadu
+  const coverZ = -1;                  // Cover vepředu (zakrývá band side walls + bottom-deck bg)
 
   // Band: 3D extruded, hluboko vzadu, BG color → cavity walls visible přes hole
   const bandMesh = new THREE.Mesh(bandGeom, bandMat);
