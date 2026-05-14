@@ -1009,10 +1009,10 @@ function _initUnifiedFrame() {
   // Cíl: ověřit že offset algoritmus funguje. 2 px je menší než výška skuliny
   // (4 px), takže miter body se nepřekryjí na concave rozích. Pokud uvidíme
   // tenký bright outline po obvodu díry, algoritmus je validní → můžeme dál.
-  // v73.70: test self-intersection clipping s offset 20 (>> 4px skulina height)
+  // v73.71: test s offset 6 (cílový max range pro mask + outline)
   try {
-    _renderMiterOffsetTest(params, 20, 0x00ff00);
-    console.log('[render3d_bottom] miter offset test SUCCESS (offset 20, with clipping)');
+    _renderMiterOffsetTest(params, 6, 0x00ff00);
+    console.log('[render3d_bottom] miter offset test SUCCESS (offset 6)');
   } catch (err) {
     console.error('[render3d_bottom] miter offset test FAILED:', err);
   }
