@@ -391,7 +391,7 @@ function init() {
   st.canvas = canvas;
 
   // Three.js renderer — toon look nepotřebuje shadow mapy (cel-shading je flat)
-  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, stencil: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(W, H, false);
   renderer.setClearColor(0, 0);
@@ -1067,14 +1067,17 @@ function _initUnifiedFrame() {
   const maskMat = new THREE.MeshBasicMaterial({
     colorWrite:    false,
     depthWrite:    false,
+    depthTest:     false,            // always pass depth → mask vždy zapíše do stencil
     stencilWrite:  true,
     stencilRef:    1,
     stencilFunc:   THREE.AlwaysStencilFunc,
     stencilZPass:  THREE.ReplaceStencilOp,
+    stencilFail:   THREE.ReplaceStencilOp,
+    stencilZFail:  THREE.ReplaceStencilOp,
   });
   const maskMesh = new THREE.Mesh(maskGeom, maskMat);
   maskMesh.position.set(0, 0, 0);  // anywhere, stencil ignoruje depth/color
-  maskMesh.renderOrder   = 0;       // RENDER PRVNÍ
+  maskMesh.renderOrder   = -1;     // RENDER JAKO ÚPLNĚ PRVNÍ
   maskMesh.frustumCulled = false;
   st.contentGroup.add(maskMesh);
   st.unifiedFrameMaskStencil = maskMesh;
