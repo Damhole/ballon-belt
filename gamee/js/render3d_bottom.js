@@ -996,9 +996,8 @@ function _initUnifiedFrame() {
 
   const holePath = _buildHolePath(params);
   // getPoints(N) tessellates each Bezier curve into N subdivisions; lineTo segments
-  // přidají jen své endpointy. Pro náš path (~6 Bezier + ~10 lineTo) dostaneme
-  // ~80-100 bodů, dostatečně hustých pro smooth offset.
-  const innerPts = holePath.getPoints(16);
+  // přidají jen své endpointy. Vyšší N = hustší body = smoother offset na curves.
+  const innerPts = holePath.getPoints(24);
 
   const bandOuterPts    = _offsetPointsOutward(innerPts, FRAME_BAND_WIDTH);
   const outlineOuterPts = _offsetPointsOutward(innerPts, FRAME_BAND_WIDTH + FRAME_OUTLINE_W);
@@ -1007,27 +1006,21 @@ function _initUnifiedFrame() {
   const bandShape    = _shapeFromPoints(bandOuterPts.slice().reverse(),    innerPts);
   const outlineShape = _shapeFromPoints(outlineOuterPts.slice().reverse(), bandOuterPts);
 
-  const extrudeOpts = {
-    depth:          FRAME_DEPTH,
-    bevelEnabled:   true,
-    bevelThickness: FRAME_BEVEL,
-    bevelSize:      FRAME_BEVEL,
-    bevelSegments:  FRAME_BEVEL_SEGS,
-    curveSegments:  4,
-  };
-  const bandGeom    = new THREE.ExtrudeGeometry(bandShape,    extrudeOpts);
-  const outlineGeom = new THREE.ExtrudeGeometry(outlineShape, { ...extrudeOpts, bevelEnabled: false });
+  // ShapeGeometry = čistě 2D flat shape (žádná hloubka, žádné side walls).
+  // Vyhneme se "dark inner walls" problému z ExtrudeGeometry, protože Lambert
+  // shading na side walls facing hole interior je vždy tmavý.
+  const bandGeom    = new THREE.ShapeGeometry(bandShape, 12);
+  const outlineGeom = new THREE.ShapeGeometry(outlineShape, 12);
 
-  // Materials
+  // MeshBasicMaterial = žádné lighting, konstantní barva → band = perfektně BG color,
+  // outline = perfektně dark color, regardless of camera angle.
   const cs    = getComputedStyle(document.documentElement);
   const bgTop = (cs.getPropertyValue('--bg-3d-top') || '').trim() || '#ee9bb1';
-  const bandMat    = new THREE.MeshLambertMaterial({ color: new THREE.Color(bgTop) });
-  const outlineMat = new THREE.MeshLambertMaterial({
-    color:    new THREE.Color(0x000000),
-    emissive: new THREE.Color(FRAME_OUTLINE_COLOR),
-  });
+  const bandMat    = new THREE.MeshBasicMaterial({ color: new THREE.Color(bgTop) });
+  const outlineMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(FRAME_OUTLINE_COLOR) });
 
-  const frameZ = -(FRAME_DEPTH + FRAME_BEVEL + 2);
+  // Z pozice — frame layer těsně za carriery
+  const frameZ = -2;
 
   const bandMesh = new THREE.Mesh(bandGeom, bandMat);
   bandMesh.position.set(0, 0, frameZ);
@@ -1037,8 +1030,8 @@ function _initUnifiedFrame() {
   st.unifiedFrameMesh = bandMesh;
 
   const outlineMesh = new THREE.Mesh(outlineGeom, outlineMat);
-  outlineMesh.position.set(0, 0, frameZ);
-  outlineMesh.renderOrder   = 0;  // pod band meshem
+  outlineMesh.position.set(0, 0, frameZ - 0.5);  // za band meshem
+  outlineMesh.renderOrder   = 0;
   outlineMesh.frustumCulled = false;
   st.contentGroup.add(outlineMesh);
   st.unifiedFrameOutline = outlineMesh;
