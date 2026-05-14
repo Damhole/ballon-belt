@@ -805,13 +805,12 @@ function _buildBeltTrack(parent, W, toonGrad, beltCenterY) {
 
 const FRAME_SKULINA_HALF = 40;  // ½ šířky skuliny (80px ≈ 3 balónky × 24px diameter)
 const FRAME_ARENA_PAD    = 6;   // tloušťka rámu na bocích arény (px)
-const FRAME_DEPTH        = 50;  // ExtrudeGeometry depth — match image frame v73.63
-const FRAME_BEVEL        = 2;   // bevel size + thickness — match image frame v73.63
+const FRAME_DEPTH        = 50;  // ExtrudeGeometry depth — match image frame
+const FRAME_BEVEL        = 2;   // bevel size + thickness — match image frame
 const FRAME_BEVEL_SEGS   = 3;   // bevel segments — match image frame
-const FRAME_OUTLINE_PX   = 2;   // tloušťka outline rimu (odpovídá CSS box-shadow 1.5px image)
-const FRAME_COLOR        = 0xf4b8c8;  // match image frame color (render3d.js line ~537)
-const FRAME_EMISSIVE     = 0x4a2f3d;  // mauve fill — lifts dark inner walls bez ambient light
-const FRAME_OUTLINE_COLOR= 0x8a5066;  // mauve-pink rim — match image area box-shadow
+// v73.64: dual-material — top face matches body BG (blends), side walls = dark outline rim.
+// FRAME_COLOR čteno z CSS var --bg-3d-top za běhu (theme-aware).
+const FRAME_OUTLINE_COLOR= 0x3a1a28;  // dark mauve — outline rim podle obvodu díry
 const CORNER_R_BOT       = 20;  // radius zaoblení dolních rohů arény (~5% šířky)
 
 function _buildUnifiedFrameGeom(W, p) {
@@ -966,37 +965,25 @@ function _initUnifiedFrame() {
 
   const geom = _buildUnifiedFrameGeom(W, params);
 
-  // Material — match image frame v73.63:
-  //   - color: hardcoded #f4b8c8 (stejně jako render3d.js imageFrame line ~537)
-  //   - emissive: dark mauve fill, lifts inner bevel walls bez nutnosti ambient
-  //     (ambient by rozbil toon shading carrierů)
-  const mat = new THREE.MeshLambertMaterial({
-    color:    new THREE.Color(FRAME_COLOR),
-    emissive: new THREE.Color(FRAME_EMISSIVE),
-  });
+  // Theme-aware barva top face — match body BG (frame blends in s pozadím)
+  const cs    = getComputedStyle(document.documentElement);
+  const bgTop = (cs.getPropertyValue('--bg-3d-top') || '').trim() || '#ee9bb1';
 
-  // Outline mesh — inverted hull technika (BackSide, mírně zvětšený, dark mauve).
-  // Match image area CSS box-shadow: 0 0 0 1.5px #8a5066.
-  const outlineMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(FRAME_OUTLINE_COLOR),
-    side:  THREE.BackSide,
+  // Dual material — ExtrudeGeometry generuje 2 groups:
+  //   - matIdx 0 (top + bottom caps): barva BG, frame splývá s pozadím těla
+  //   - matIdx 1 (side walls + bevel): tmavý outline = dark rim po obvodu díry
+  // Emissive na side mat = konstantní tmavá barva, immune k lighting (jinak by
+  // bevel surfaces u skuliny byly téměř černé kvůli úhlu k directional lightu).
+  const matTop = new THREE.MeshLambertMaterial({
+    color: new THREE.Color(bgTop),
+  });
+  const matSide = new THREE.MeshLambertMaterial({
+    color:    new THREE.Color(0x000000),
+    emissive: new THREE.Color(FRAME_OUTLINE_COLOR),
   });
 
   const frameZ = -(FRAME_DEPTH + FRAME_BEVEL + 2);
-
-  const outlineMesh = new THREE.Mesh(geom, outlineMat);
-  outlineMesh.position.set(0, 0, frameZ - 0.5);
-  // Scale XY only (Z scale 1 → zachová Z extent). Origin geometry ≈ (W/2, H/2)
-  // — scaleAround není přímo Three feature, ale ExtrudeGeometry je centered enough
-  // že uniform XY scale dá thin rim po obvodu.
-  const SCALE_XY = 1 + FRAME_OUTLINE_PX / Math.min(st.W, st.H);
-  outlineMesh.scale.set(SCALE_XY, SCALE_XY, 1);
-  outlineMesh.renderOrder   = 0;  // před frame meshem (renderOrder 1)
-  outlineMesh.frustumCulled = false;
-  st.contentGroup.add(outlineMesh);
-  st.unifiedFrameOutline = outlineMesh;
-
-  const mesh = new THREE.Mesh(geom, mat);
+  const mesh = new THREE.Mesh(geom, [matTop, matSide]);
   mesh.position.set(0, 0, frameZ);
   mesh.renderOrder   = 1;
   mesh.frustumCulled = false;
