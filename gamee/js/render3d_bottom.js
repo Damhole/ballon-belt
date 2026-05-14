@@ -964,58 +964,75 @@ function _initUnifiedFrame() {
     arenaRight,
   };
 
-  const geom = _buildUnifiedFrameGeom(W, params);
+  // v73.77: REAL MASK + OUTLINE via miter offset + self-intersection clipping.
+  //
+  // Mask = pás konstantní šířky kolem hole (= body BG color, splývá s pozadím).
+  // Outline = tenký dark rim na vnější hraně masky.
+  //
+  // Algoritmus:
+  //   1. Build hole path (CW v Y-up)
+  //   2. Sample (Bezier tessellation 30 subdivs)
+  //   3. _miterOffsetPolygon(samples, BAND_WIDTH) → outer offset
+  //      _clipSelfIntersections → splajzne self-intersections (bridge × arch crosses)
+  //   4. Stejně pro outline (BAND_WIDTH + OUTLINE_W)
+  //   5. Band Shape: outer = bandOuter reversed (CCW), hole = samples (CW)
+  //      Outline Shape: outer = outlineOuter reversed, hole = bandOuter (CW)
+  //   6. ShapeGeometry (flat 2D) — žádné depth artefakty
+  const BAND_WIDTH  = 6;   // šířka masky
+  const OUTLINE_W   = 2;   // tenkost rim
 
-  // Material — match image frame v73.63:
-  //   - color: hardcoded #f4b8c8 (stejně jako render3d.js imageFrame line ~537)
-  //   - emissive: dark mauve fill, lifts inner bevel walls bez nutnosti ambient
-  //     (ambient by rozbil toon shading carrierů)
-  const mat = new THREE.MeshLambertMaterial({
-    color:    new THREE.Color(FRAME_COLOR),
-    emissive: new THREE.Color(FRAME_EMISSIVE),
-  });
+  const holePath = _buildHolePath(params);
+  const innerPts = holePath.getPoints(30);
 
-  // Outline mesh — inverted hull technika (BackSide, mírně zvětšený, dark mauve).
-  // Match image area CSS box-shadow: 0 0 0 1.5px #8a5066.
-  const outlineMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(FRAME_OUTLINE_COLOR),
-    side:  THREE.BackSide,
-  });
+  let bandOuterPts = _miterOffsetPolygon(innerPts, BAND_WIDTH);
+  bandOuterPts = _clipSelfIntersections(bandOuterPts);
 
-  const frameZ = -(FRAME_DEPTH + FRAME_BEVEL + 2);
+  let outlineOuterPts = _miterOffsetPolygon(innerPts, BAND_WIDTH + OUTLINE_W);
+  outlineOuterPts = _clipSelfIntersections(outlineOuterPts);
 
-  const outlineMesh = new THREE.Mesh(geom, outlineMat);
+  // Shape builder helper
+  const _buildShape = (outerPts, holePts) => {
+    const sh = new THREE.Shape();
+    sh.moveTo(outerPts[0].x, outerPts[0].y);
+    for (let i = 1; i < outerPts.length; i++) sh.lineTo(outerPts[i].x, outerPts[i].y);
+    const h = new THREE.Path();
+    h.moveTo(holePts[0].x, holePts[0].y);
+    for (let i = 1; i < holePts.length; i++) h.lineTo(holePts[i].x, holePts[i].y);
+    sh.holes.push(h);
+    return sh;
+  };
+
+  const bandShape    = _buildShape(bandOuterPts.slice().reverse(),    innerPts);
+  const outlineShape = _buildShape(outlineOuterPts.slice().reverse(), bandOuterPts);
+
+  const bandGeom    = new THREE.ShapeGeometry(bandShape, 4);
+  const outlineGeom = new THREE.ShapeGeometry(outlineShape, 4);
+
+  // Materials
+  const cs    = getComputedStyle(document.documentElement);
+  const bgTop = (cs.getPropertyValue('--bg-3d-top') || '').trim() || '#ee9bb1';
+  const bandMat    = new THREE.MeshBasicMaterial({ color: new THREE.Color(bgTop) });
+  const outlineMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(FRAME_OUTLINE_COLOR) });
+
+  const frameZ = -2;
+
+  const bandMesh = new THREE.Mesh(bandGeom, bandMat);
+  bandMesh.position.set(0, 0, frameZ);
+  bandMesh.renderOrder   = 1;
+  bandMesh.frustumCulled = false;
+  st.contentGroup.add(bandMesh);
+  st.unifiedFrameMesh = bandMesh;
+
+  const outlineMesh = new THREE.Mesh(outlineGeom, outlineMat);
   outlineMesh.position.set(0, 0, frameZ - 0.5);
-  // Scale XY only (Z scale 1 → zachová Z extent). Origin geometry ≈ (W/2, H/2)
-  // — scaleAround není přímo Three feature, ale ExtrudeGeometry je centered enough
-  // že uniform XY scale dá thin rim po obvodu.
-  const SCALE_XY = 1 + FRAME_OUTLINE_PX / Math.min(st.W, st.H);
-  outlineMesh.scale.set(SCALE_XY, SCALE_XY, 1);
-  outlineMesh.renderOrder   = 0;  // před frame meshem (renderOrder 1)
+  outlineMesh.renderOrder   = 0;
   outlineMesh.frustumCulled = false;
   st.contentGroup.add(outlineMesh);
   st.unifiedFrameOutline = outlineMesh;
 
-  const mesh = new THREE.Mesh(geom, mat);
-  mesh.position.set(0, 0, frameZ);
-  mesh.renderOrder   = 1;
-  mesh.frustumCulled = false;
-  st.contentGroup.add(mesh);
-  st.unifiedFrameMesh = mesh;
-  console.log('[render3d_bottom] unified frame — arch height CSS px:',
-    arenaTopCSS - skulinaBotCSS, '| skulinaBot:', skulinaBotCSS, '| arenaTop:', arenaTopCSS);
-
-  // v73.68: DEBUG TEST — proper miter offset s tiny safe distance.
-  // Cíl: ověřit že offset algoritmus funguje. 2 px je menší než výška skuliny
-  // (4 px), takže miter body se nepřekryjí na concave rozích. Pokud uvidíme
-  // tenký bright outline po obvodu díry, algoritmus je validní → můžeme dál.
-  // v73.71: test s offset 6 (cílový max range pro mask + outline)
-  try {
-    _renderMiterOffsetTest(params, 6, 0x00ff00);
-    console.log('[render3d_bottom] miter offset test SUCCESS (offset 6)');
-  } catch (err) {
-    console.error('[render3d_bottom] miter offset test FAILED:', err);
-  }
+  console.log('[render3d_bottom] mask+outline built — band:', BAND_WIDTH,
+    '| outline:', OUTLINE_W, '| inner:', innerPts.length,
+    '| band outer:', bandOuterPts.length, '| outline outer:', outlineOuterPts.length);
 }
 
 // v73.68: minimal safe test rendering — paralelní offset jako tenká bright ring.
