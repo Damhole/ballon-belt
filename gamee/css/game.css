@@ -418,10 +418,10 @@ body.renderer-3d {
   --funnel-corner-r: 18px;
 }
 body.renderer-3d #bottom-deck {
-  /* v73.54: clip-path odstraněn — 3D frame mesh (_initUnifiedFrame) definuje
-     vizuální tvar. CSS background (--carriers-3d-bg) zůstává jako barva podlahy
-     arény a skuliny viditelná skrz díry v 3D meshe. */
-  background: var(--carriers-3d-bg);
+  /* v73.92: background transparent — floor mesh v 3D scéně (přesný tvar hole)
+     poskytuje dark mauve podklad. CSS background by jinak přesahoval ven přes
+     stencil clipping zónu (canvas alpha mimo band = transparent → body BG). */
+  background: transparent;
   width: var(--funnel-deck-w);
   margin-left: auto;
   margin-right: auto;
