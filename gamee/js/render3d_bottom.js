@@ -427,13 +427,15 @@ function init() {
   // Light z 3/4 úhlu (top-front-left) → přirozený 3D shading, ne flat-front.
   // Highlight na top-left, shadow na bottom-right. Klasické art-school 3/4 lighting.
   // Intensity = π kompenzuje BRDF_Diffuse_Lambert dělení / π → full saturation.
-  const sun = new THREE.DirectionalLight(0xffffff, Math.PI);
+  // v73.102: světla EXACTNĚ match image scéna (render3d.js):
+  //   - DirectionalLight intensity 1.55 (bylo Math.PI = 3.14)
+  //   - HemisphereLight intensity 1.85 (bylo 1.2)
+  // Aby band visuálně matchoval image frame, materiály i světla musí být stejné.
+  const sun = new THREE.DirectionalLight(0xffffff, 1.55);
   sun.position.set(-300, 800, 600);
   scene.add(sun);
 
-  // v73.100: HemisphereLight match image scéna (render3d.js), žádné layers.
-  // Intensity 1.2 (kompromis: image používá 1.85, ale tady máme silnější directional).
-  const hemi = new THREE.HemisphereLight(0xffe8f0, 0xa090a8, 1.2);
+  const hemi = new THREE.HemisphereLight(0xffe8f0, 0xa090a8, 1.85);
   scene.add(hemi);
   st.frameLightLayer = 0;
 
@@ -1115,7 +1117,7 @@ function _initUnifiedFrame() {
   // Side walls budou lit přes HemisphereLight stejně jako image frame.
   const cs    = getComputedStyle(document.documentElement);
   const bandMat = new THREE.MeshLambertMaterial({
-    color:            0xe9a6ba,   // calibrated tak aby měřený výsledek ≈ image frame
+    color:            0xf4b8c8,   // EXACT match image frame (render3d.js line ~537)
     stencilWrite:     true,
     stencilWriteMask: 0x00,
     stencilRef:       1,
