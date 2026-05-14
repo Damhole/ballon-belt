@@ -730,6 +730,7 @@ function init() {
   contentGroup.add(st.beltOutlineMesh);
 
   _buildBeltTrack(contentGroup, W, toonGrad, st.beltCenterY);
+  _initUnifiedFrame();  // v73.54: belt + skulina + arena jako jeden 3D povrch
 
   st.ready = true;
   return true;
@@ -789,6 +790,144 @@ function _buildBeltTrack(parent, W, toonGrad, beltCenterY) {
   rollerROut.renderOrder = -1;
   parent.add(rollerROut);
   st.beltRollerROutline = rollerROut;
+}
+
+// ─── Unified surface frame ───────────────────────────────────────────────────
+// v73.54: Belt slot + skulina + arena = jeden 3D povrch s proraženými otvory.
+// Pattern stejný jako _buildImageFrameGeom v render3d.js — ExtrudeGeometry s
+// bevel dává rámu 3D hloubku a depth.
+//
+// Geometrie: outer rect (full canvas width × visible area height) s jedním
+// spojeným hole (belt slot → bridge sides → skulina → arena). Bridge materiál
+// na bocích skuliny vizuálně spojuje belt a arenu jako jeden kus.
+//
+// Souřadnice: world Y (Y-up) — viz _worldY(cssY) = st.H - cssY.
+
+const FRAME_SKULINA_HALF = 90;  // ½ šířky skuliny — match FUNNEL_3D.visualNarrowHalf
+const FRAME_ARENA_PAD    = 6;   // tloušťka rámu na bocích arény (px)
+const FRAME_DEPTH        = 12;  // ExtrudeGeometry depth (Z tloušťka)
+const FRAME_BEVEL        = 3;   // bevel size + thickness
+const FRAME_BEVEL_SEGS   = 3;   // bevel segments
+const FRAME_ARCH_R       = 55;  // radius zaoblení horních rohů arény
+
+function _buildUnifiedFrameGeom(W, p) {
+  // Outer shape: velký obdélník přes celou viditelnou oblast (CCW v Y-up)
+  const shape = new THREE.Shape();
+  shape.moveTo(0,  p.frameBotW);
+  shape.lineTo(W,  p.frameBotW);
+  shape.lineTo(W,  p.frameTopW);
+  shape.lineTo(0,  p.frameTopW);
+  shape.lineTo(0,  p.frameBotW);
+
+  // Jeden spojený hole: belt → bridge → skulina → arena (CW v Y-up)
+  const R = p.archR;
+  const hole = new THREE.Path();
+
+  // 1. Start: belt top-left (belt hole dosahuje canvas top)
+  hole.moveTo(p.beltLeft,   p.beltTopW);
+  // 2. Belt top edge → doprava
+  hole.lineTo(p.beltRight,  p.beltTopW);
+  // 3. Belt pravá strana → dolů
+  hole.lineTo(p.beltRight,  p.beltBotW);
+  // 4. Bridge: krok dovnitř na skulinu pravou
+  hole.lineTo(p.skulinaRight, p.skulinaTopW);
+  // 5. Skulina pravá → dolů
+  hole.lineTo(p.skulinaRight, p.skulinaBotW);
+  // 6. Rozevřít na arena pravou (flat část nahoře arény)
+  hole.lineTo(p.arenaRight - R, p.arenaTopW);
+  // 7. Zaoblení pravého horního rohu arény
+  hole.quadraticCurveTo(p.arenaRight, p.arenaTopW, p.arenaRight, p.arenaTopW - R);
+  // 8. Arena pravá strana → dolů
+  hole.lineTo(p.arenaRight,  p.arenaBotW);
+  // 9. Arena spodek → doleva
+  hole.lineTo(p.arenaLeft,   p.arenaBotW);
+  // 10. Arena levá strana → nahoru (k začátku rohu)
+  hole.lineTo(p.arenaLeft,   p.arenaTopW - R);
+  // 11. Zaoblení levého horního rohu arény
+  hole.quadraticCurveTo(p.arenaLeft, p.arenaTopW, p.arenaLeft + R, p.arenaTopW);
+  // 12. Zúžit na skulinu levou
+  hole.lineTo(p.skulinaLeft,  p.skulinaBotW);
+  // 13. Skulina levá → nahoru
+  hole.lineTo(p.skulinaLeft,  p.skulinaTopW);
+  // 14. Bridge: krok ven na belt levou
+  hole.lineTo(p.beltLeft,    p.beltBotW);
+  // 15. Belt levá strana → nahoru
+  hole.lineTo(p.beltLeft,    p.beltTopW);
+  hole.closePath();
+
+  shape.holes.push(hole);
+
+  return new THREE.ExtrudeGeometry(shape, {
+    depth:          FRAME_DEPTH,
+    bevelEnabled:   true,
+    bevelThickness: FRAME_BEVEL,
+    bevelSize:      FRAME_BEVEL,
+    bevelSegments:  FRAME_BEVEL_SEGS,
+    curveSegments:  6,
+  });
+}
+
+function _initUnifiedFrame() {
+  const W = st.W;
+  const H = st.H;
+  const wy = (cssY) => H - cssY;
+
+  // Belt rozměry — match _buildBeltTrack (trackH=28, beltOffsetX)
+  const TRACK_H   = 28;
+  const beltCY    = st.beltCenterY || 32;
+  const beltLeft  = st.beltOffsetX || 30;
+  const beltRight = W - beltLeft;
+
+  // CSS Y souřadnice (Y-down od vrcholu canvasu)
+  const beltBotCSS    = beltCY + TRACK_H / 2 + 6;   // těsně pod belt
+  const skulinaTopCSS = beltBotCSS;
+  const skulinaLeft   = W / 2 - FRAME_SKULINA_HALF;
+  const skulinaRight  = W / 2 + FRAME_SKULINA_HALF;
+
+  // Skulina sahá od belt-bottom do carrier-top (= pending area zone)
+  const skulinaBotCSS = st.carriersTopCSS != null
+    ? st.carriersTopCSS - 4
+    : beltBotCSS + 56;
+
+  const arenaLeft  = FRAME_ARENA_PAD;
+  const arenaRight = W - FRAME_ARENA_PAD;
+  const arenaTopCSS = skulinaBotCSS;
+  const arenaBotCSS = (st.carriersBottomCSS || H - 30) + 20;
+  const frameBotCSS = arenaBotCSS + 6;
+
+  const params = {
+    frameTopW:    wy(0),
+    frameBotW:    wy(frameBotCSS),
+    beltTopW:     wy(0),          // belt hole dosahuje canvas top (otevřený nahoře)
+    beltBotW:     wy(beltBotCSS),
+    beltLeft,
+    beltRight,
+    skulinaTopW:  wy(skulinaTopCSS),
+    skulinaBotW:  wy(skulinaBotCSS),
+    skulinaLeft,
+    skulinaRight,
+    arenaTopW:    wy(arenaTopCSS),
+    arenaBotW:    wy(arenaBotCSS),
+    arenaLeft,
+    arenaRight,
+    archR:        FRAME_ARCH_R,
+  };
+
+  const geom = _buildUnifiedFrameGeom(W, params);
+
+  // Barva: --bg-3d-top CSS var (theme-aware)
+  const cs    = getComputedStyle(document.documentElement);
+  const bgTop = (cs.getPropertyValue('--bg-3d-top') || '').trim() || '#ee9bb1';
+  const mat   = new THREE.MeshLambertMaterial({ color: new THREE.Color(bgTop) });
+
+  const mesh = new THREE.Mesh(geom, mat);
+  // Frame sedí jako background layer — Z posun dozadu aby bevel nepřekryl carriery
+  mesh.position.set(0, 0, -(FRAME_DEPTH + FRAME_BEVEL + 2));
+  mesh.renderOrder  = 1;   // draw first, carriers jsou 100+
+  mesh.frustumCulled = false;
+  st.contentGroup.add(mesh);
+  st.unifiedFrameMesh = mesh;
+  console.log('[render3d_bottom] unified frame built, skulina CSS Y:', skulinaTopCSS, '→', skulinaBotCSS);
 }
 
 // ─── updateCarriers ──────────────────────────────────────────────────────────

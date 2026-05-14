@@ -418,45 +418,14 @@ body.renderer-3d {
   --funnel-corner-r: 18px;
 }
 body.renderer-3d #bottom-deck {
+  /* v73.54: clip-path odstraněn — 3D frame mesh (_initUnifiedFrame) definuje
+     vizuální tvar. CSS background (--carriers-3d-bg) zůstává jako barva podlahy
+     arény a skuliny viditelná skrz díry v 3D meshe. */
   background: var(--carriers-3d-bg);
   width: var(--funnel-deck-w);
   margin-left: auto;
   margin-right: auto;
   align-self: center;
-  /* Narrow top „spice" → expanduje diagonálně k FULL bottom. Polygon má více
-     bodů kolem rohů → simulované rounded corners. Coords parametrické přes
-     calc() + CSS vars. Diagonal intermediate body proporčně k slope-h. */
-  clip-path: polygon(
-    /* TOP narrow center, simulované zaoblení horních rohů */
-    calc(50% - var(--funnel-narrow-half) - 5px) 3px,
-    calc(50% - var(--funnel-narrow-half)) 0,
-    calc(50% + var(--funnel-narrow-half)) 0,
-    calc(50% + var(--funnel-narrow-half) + 5px) 3px,
-    /* Diagonal smoothly expanding outward (proporčně k slope-h) */
-    calc(100% - 50px) calc(var(--funnel-slope-h) * 0.568),
-    calc(100% - 10px) calc(var(--funnel-slope-h) * 0.841),
-    100% var(--funnel-slope-h),
-    /* Right side down with rounded bottom corner */
-    100% calc(100% - var(--funnel-corner-r)),
-    calc(100% - 4px) calc(100% - 6px),
-    calc(100% - var(--funnel-corner-r)) 100%,
-    /* Bottom edge */
-    var(--funnel-corner-r) 100%,
-    4px calc(100% - 6px),
-    0 calc(100% - var(--funnel-corner-r)),
-    /* Left side up */
-    0 var(--funnel-slope-h),
-    10px calc(var(--funnel-slope-h) * 0.841),
-    50px calc(var(--funnel-slope-h) * 0.568),
-    /* Left diagonal back to top */
-    calc(50% - var(--funnel-narrow-half) - 5px) 3px
-  );
-  box-shadow:
-    inset 0 8px 16px rgba(0, 0, 0, 0.50),
-    inset 6px 0 12px rgba(0, 0, 0, 0.30),
-    inset -6px 0 12px rgba(0, 0, 0, 0.30),
-    inset 0 -6px 12px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 var(--carriers-3d-rim);
 }
 /* Inner panely transparentní — wrapper drží podklad + shape */
 body.renderer-3d #bottom-deck #pending-wrap,
