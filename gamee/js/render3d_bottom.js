@@ -1179,16 +1179,26 @@ function _miterOffsetPolygon(points, distance) {
         prevValid.offsetP1, prevValid.offsetP2,
         nextValid.offsetP1, nextValid.offsetP2
       );
+      // Distance check — pokud intersection je MOC DALEKO (offset přímky skoro paralelní
+      // jako u bridge+arch s opačnými směry), fallback na BEVEL = připoj prev endpoint na next start.
+      // Tím zabráníme "ouškům" které vznikaly extrapolací na vzdálené průsečíky.
+      const CLIP_LIMIT = distance * 3;
       if (isect) {
-        result.push(isect);
+        const dEnd = Math.hypot(isect.x - prevValid.offsetP2.x, isect.y - prevValid.offsetP2.y);
+        const dStart = Math.hypot(isect.x - nextValid.offsetP1.x, isect.y - nextValid.offsetP1.y);
+        if (dEnd > CLIP_LIMIT || dStart > CLIP_LIMIT) {
+          // Bevel — 2 body, přímá spojnice
+          result.push(prevValid.offsetP2);
+          result.push(nextValid.offsetP1);
+        } else {
+          result.push(isect);
+        }
       } else {
-        // Parallel — fallback: midpoint
-        result.push(new THREE.Vector2(
-          (prevValid.offsetP2.x + nextValid.offsetP1.x) / 2,
-          (prevValid.offsetP2.y + nextValid.offsetP1.y) / 2
-        ));
+        // Paralelní (denom = 0) — bevel
+        result.push(prevValid.offsetP2);
+        result.push(nextValid.offsetP1);
       }
-      // Skip miters[i] — intersection becomes new corner at start of segs[i]
+      // Skip miters[i] — intersection/bevel becomes new corner at start of segs[i]
       i = (i + 1) % ns;
     }
   } while (i !== startIdx);
