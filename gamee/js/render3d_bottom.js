@@ -1009,9 +1009,10 @@ function _initUnifiedFrame() {
   // Cíl: ověřit že offset algoritmus funguje. 2 px je menší než výška skuliny
   // (4 px), takže miter body se nepřekryjí na concave rozích. Pokud uvidíme
   // tenký bright outline po obvodu díry, algoritmus je validní → můžeme dál.
+  // v73.70: test self-intersection clipping s offset 20 (>> 4px skulina height)
   try {
-    _renderMiterOffsetTest(params, 2, 0x00ff00);
-    console.log('[render3d_bottom] miter offset test SUCCESS');
+    _renderMiterOffsetTest(params, 20, 0x00ff00);
+    console.log('[render3d_bottom] miter offset test SUCCESS (offset 20, with clipping)');
   } catch (err) {
     console.error('[render3d_bottom] miter offset test FAILED:', err);
   }
@@ -1096,45 +1097,102 @@ function _renderMiterOffsetTest(params, distance, colorHex) {
 }
 
 // v73.68: helper — proper polygon offset s miter joins (Blender Inset-style).
+// v73.69: Proper polygon offset s miter joins + SELF-INTERSECTION CLIPPING.
+// Algoritmus:
+//   1. Pro každý segment spočítej offset přímku
+//   2. Compute naivní miter v každém rohu (= intersection sousedních offset přímek)
+//   3. Detect flipped runs — kde offset segment jde proti směru původního (= miters se překryly)
+//   4. Pro každý flipped run najdi intersection valid prev × valid next offset line
+//      → replace flipped miters jedním bodem
+//
 // Pojmenováno _miterOffsetPolygon aby nekolidovalo s existujícím _offsetPolygonOutward
 // (wall outline, řádek ~1781, jiný algoritmus, používá se pro 3D walls).
 function _miterOffsetPolygon(points, distance) {
-  const n = points.length;
-  const segments = [];
-  for (let i = 0; i < n; i++) {
+  // 1. Build segments
+  const segs = [];
+  for (let i = 0; i < points.length; i++) {
     const p1 = points[i];
-    const p2 = points[(i + 1) % n];
+    const p2 = points[(i + 1) % points.length];
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
     const len = Math.hypot(dx, dy);
     if (len < 1e-9) continue;
     const nx = -dy / len;
     const ny =  dx / len;
-    segments.push({
-      offsetP1: new THREE.Vector2(p1.x + nx * distance, p1.y + ny * distance),
-      offsetP2: new THREE.Vector2(p2.x + nx * distance, p2.y + ny * distance),
-      corner:   p1,
+    segs.push({
+      offsetP1:  new THREE.Vector2(p1.x + nx * distance, p1.y + ny * distance),
+      offsetP2:  new THREE.Vector2(p2.x + nx * distance, p2.y + ny * distance),
+      tangentX:  dx / len,
+      tangentY:  dy / len,
     });
   }
-  const ns = segments.length;
-  const MITER_LIMIT = distance * 5;
-  const result = [];
+  const ns = segs.length;
+  if (ns === 0) return [];
+
+  // 2. Naive miters — intersection předchozího offset segmentu s aktuálním.
+  //    miters[i] = roh na začátku segs[i] (= konec segs[i-1]).
+  const miters = new Array(ns);
   for (let i = 0; i < ns; i++) {
-    const prev = segments[(i - 1 + ns) % ns];
-    const cur  = segments[i];
-    const miter = _lineLineIntersect(prev.offsetP1, prev.offsetP2, cur.offsetP1, cur.offsetP2);
-    if (miter) {
-      const miterDist = Math.hypot(miter.x - cur.corner.x, miter.y - cur.corner.y);
-      if (miterDist < MITER_LIMIT) {
-        result.push(miter);
-      } else {
-        result.push(prev.offsetP2);
-        result.push(cur.offsetP1);
-      }
-    } else {
-      result.push(cur.offsetP1);
-    }
+    const prev = segs[(i - 1 + ns) % ns];
+    const cur  = segs[i];
+    miters[i] = _lineLineIntersect(prev.offsetP1, prev.offsetP2, cur.offsetP1, cur.offsetP2)
+                || cur.offsetP1.clone();
   }
+
+  // 3. Detect flipped segments. Offset segment od miters[i] do miters[(i+1)%ns]
+  //    by měl jít stejným směrem jako original tangent segs[i]. Pokud dot < 0,
+  //    miters se překryly = flip = SELF-INTERSECTION.
+  const flipped = new Array(ns).fill(false);
+  for (let i = 0; i < ns; i++) {
+    const m1 = miters[i];
+    const m2 = miters[(i + 1) % ns];
+    const dot = (m2.x - m1.x) * segs[i].tangentX + (m2.y - m1.y) * segs[i].tangentY;
+    if (dot < 0) flipped[i] = true;
+  }
+
+  // 4. Walk přes ns segments. Valid runs jdou normal, flipped runs nahradíme
+  //    jedním intersection bodem mezi valid sousedy.
+  // Najdi start non-flipped segmentu (aby cyklus nezačal uprostřed runu)
+  let startIdx = 0;
+  while (startIdx < ns && flipped[startIdx]) startIdx++;
+  if (startIdx === ns) return miters;  // všechny flipped → degenerate, fallback na naive
+
+  const result = [];
+  let i = startIdx;
+  do {
+    if (!flipped[i]) {
+      result.push(miters[i]);
+      i = (i + 1) % ns;
+    } else {
+      // Start of flipped run. Find end.
+      const runStart = i;
+      let runLen = 0;
+      while (flipped[i] && runLen < ns) {
+        i = (i + 1) % ns;
+        runLen++;
+      }
+      // Segs[runStart..i-1] jsou flipped (s wraparound). Najdi intersection
+      // offset line předchozího valid segmentu s offset line následujícího.
+      const prevValid = segs[(runStart - 1 + ns) % ns];
+      const nextValid = segs[i];
+      const isect = _lineLineIntersect(
+        prevValid.offsetP1, prevValid.offsetP2,
+        nextValid.offsetP1, nextValid.offsetP2
+      );
+      if (isect) {
+        result.push(isect);
+      } else {
+        // Parallel — fallback: midpoint
+        result.push(new THREE.Vector2(
+          (prevValid.offsetP2.x + nextValid.offsetP1.x) / 2,
+          (prevValid.offsetP2.y + nextValid.offsetP1.y) / 2
+        ));
+      }
+      // Skip miters[i] — intersection becomes new corner at start of segs[i]
+      i = (i + 1) % ns;
+    }
+  } while (i !== startIdx);
+
   return result;
 }
 
