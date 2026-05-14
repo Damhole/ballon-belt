@@ -1082,9 +1082,12 @@ function _initUnifiedFrame() {
     stencilFail:   THREE.ReplaceStencilOp,
     stencilZFail:  THREE.ReplaceStencilOp,
   });
+  // v73.93: posun celého tvaru o 12 px NAHORU (positive Y v world = up)
+  const FRAME_SHIFT_Y = 12;
+
   const maskMesh = new THREE.Mesh(maskGeom, maskMat);
-  maskMesh.position.set(0, 0, 0);  // anywhere, stencil ignoruje depth/color
-  maskMesh.renderOrder   = -1;     // RENDER JAKO ÚPLNĚ PRVNÍ
+  maskMesh.position.set(0, FRAME_SHIFT_Y, 0);
+  maskMesh.renderOrder   = -1;
   maskMesh.frustumCulled = false;
   st.contentGroup.add(maskMesh);
   st.unifiedFrameMaskStencil = maskMesh;
@@ -1116,7 +1119,7 @@ function _initUnifiedFrame() {
   const frameZ = -(FRAME_DEPTH + 2);
 
   const bandMesh = new THREE.Mesh(bandGeom, bandMat);
-  bandMesh.position.set(0, 0, frameZ);
+  bandMesh.position.set(0, FRAME_SHIFT_Y, frameZ);
   bandMesh.renderOrder   = 1;      // RENDER PO MASCE
   bandMesh.frustumCulled = false;
   st.contentGroup.add(bandMesh);
@@ -1135,7 +1138,7 @@ function _initUnifiedFrame() {
   const carriersBg = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
   const floorMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(carriersBg) });
   const floorMesh = new THREE.Mesh(floorGeom, floorMat);
-  floorMesh.position.set(0, 0, frameZ + 1);  // těsně před band's back face = dno kavity
+  floorMesh.position.set(0, FRAME_SHIFT_Y, frameZ + 1);  // těsně před band's back face = dno kavity
   floorMesh.renderOrder   = 0;  // render brzy
   floorMesh.frustumCulled = false;
   st.contentGroup.add(floorMesh);
