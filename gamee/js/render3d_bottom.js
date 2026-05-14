@@ -431,6 +431,15 @@ function init() {
   sun.position.set(-300, 800, 600);
   scene.add(sun);
 
+  // v73.96: HemisphereLight match image scéna (render3d.js line ~403).
+  // Layer 2 → JEN pro band mesh (lift dark side walls). Carriers a další na default
+  // layer 0 nedostanou ambient → toon shading nedotčený.
+  const FRAME_LIGHT_LAYER = 2;
+  const hemi = new THREE.HemisphereLight(0xffe8f0, 0xa090a8, 1.85);
+  hemi.layers.set(FRAME_LIGHT_LAYER);
+  scene.add(hemi);
+  st.frameLightLayer = FRAME_LIGHT_LAYER;
+
   st.scene    = scene;
   st.camera   = camera;
   st.renderer = renderer;
@@ -1125,6 +1134,7 @@ function _initUnifiedFrame() {
   bandMesh.position.set(0, 0, frameZ);
   bandMesh.renderOrder   = 1;      // RENDER PO MASCE
   bandMesh.frustumCulled = false;
+  bandMesh.layers.enable(st.frameLightLayer);  // přijímá hemisphere light
   st.contentGroup.add(bandMesh);
   st.unifiedFrameMesh = bandMesh;
 
