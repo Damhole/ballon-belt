@@ -1122,6 +1122,25 @@ function _initUnifiedFrame() {
   st.contentGroup.add(bandMesh);
   st.unifiedFrameMesh = bandMesh;
 
+  // v73.91: FLOOR — flat ShapeGeometry s tvarem innerPts (= hole shape).
+  // Vyplní dno kavity přesně podle tvaru naší díry. Tmavá mauve barva
+  // matching --carriers-3d-bg. Pozice hluboko za bandem.
+  const innerCCW = innerPts.slice().reverse();
+  const floorShape = new THREE.Shape();
+  floorShape.moveTo(innerCCW[0].x, innerCCW[0].y);
+  for (let i = 1; i < innerCCW.length; i++) {
+    floorShape.lineTo(innerCCW[i].x, innerCCW[i].y);
+  }
+  const floorGeom = new THREE.ShapeGeometry(floorShape, 4);
+  const carriersBg = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
+  const floorMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(carriersBg) });
+  const floorMesh = new THREE.Mesh(floorGeom, floorMat);
+  floorMesh.position.set(0, 0, frameZ + 1);  // těsně před band's back face = dno kavity
+  floorMesh.renderOrder   = 0;  // render brzy
+  floorMesh.frustumCulled = false;
+  st.contentGroup.add(floorMesh);
+  st.unifiedFrameFloor = floorMesh;
+
   // Outline mesh vypnuté zatím (řešíme krok po kroku)
   const outlineMat = new THREE.MeshLambertMaterial({
     color:    new THREE.Color(0x000000),
