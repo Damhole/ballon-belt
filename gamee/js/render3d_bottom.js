@@ -842,14 +842,17 @@ function _buildUnifiedFrameGeom(W, p) {
   hole.lineTo(p.skulinaRight, p.skulinaTopW);
   // 5. Skulina pravá → dolů na skulina-bottom (vrchol pravého oblouku)
   hole.lineTo(p.skulinaRight, p.skulinaBotW);
-  // 6. ARCH vpravo: cubic Bezier sweep — 2 control pointy pro plynulejší tvar
-  //    CP1 (skulinaRight + 40, skulinaBotW) → horizontální drift z hrdla
-  //    CP2 (arenaRight, arenaTopW + 30) → vertikální nájezd k aréně
-  //    Výsledek = stretched S-arc, hladká ramena (jako v referenci)
+  // 6. ARCH vpravo: cubic Bezier — stretched outward bulge.
+  //    Oba CP v upper-right zóně (mimo arenu) → konkavita směrem ven.
+  //    CP1 (60% mezi skulinaRight a arenaRight, na výšce hrdla) → horizontální sweep top
+  //    CP2 (arenaRight, 40% dolů od hrdla)                       → vertikální arrival na arena edge
+  //    Proporcionální offsety (arcW/arcH) drží tvar konzistentní napříč velikostmi.
+  const arcW_r = p.arenaRight - p.skulinaRight;
+  const arcH_r = p.skulinaBotW - p.arenaTopW;
   hole.bezierCurveTo(
-    p.skulinaRight + 40, p.skulinaBotW,
-    p.arenaRight,        p.arenaTopW + 30,
-    p.arenaRight,        p.arenaTopW
+    p.skulinaRight + arcW_r * 0.60, p.skulinaBotW,
+    p.arenaRight,                    p.arenaTopW + arcH_r * 0.40,
+    p.arenaRight,                    p.arenaTopW
   );
   // 7. Arena pravá strana → dolů
   hole.lineTo(p.arenaRight,   p.arenaBotW);
@@ -857,11 +860,13 @@ function _buildUnifiedFrameGeom(W, p) {
   hole.lineTo(p.arenaLeft,    p.arenaBotW);
   // 9. Arena levá strana → nahoru na arenaTop
   hole.lineTo(p.arenaLeft,    p.arenaTopW);
-  // 10. ARCH vlevo: cubic Bezier sweep — symetricky k pravému
+  // 10. ARCH vlevo: cubic Bezier — symetricky (oba CP v upper-left zóně mimo arenu)
+  const arcW_l = p.skulinaLeft - p.arenaLeft;
+  const arcH_l = p.skulinaBotW - p.arenaTopW;
   hole.bezierCurveTo(
-    p.arenaLeft,        p.arenaTopW + 30,
-    p.skulinaLeft - 40, p.skulinaBotW,
-    p.skulinaLeft,      p.skulinaBotW
+    p.arenaLeft,                    p.arenaTopW + arcH_l * 0.40,
+    p.skulinaLeft - arcW_l * 0.60, p.skulinaBotW,
+    p.skulinaLeft,                  p.skulinaBotW
   );
   // 11. Skulina levá → nahoru
   hole.lineTo(p.skulinaLeft,  p.skulinaTopW);
