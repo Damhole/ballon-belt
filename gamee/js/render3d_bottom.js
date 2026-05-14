@@ -1057,41 +1057,66 @@ function _initUnifiedFrame() {
   const bandShape    = _buildShape(bandOuterPts.slice().reverse(),    innerPts);
   const outlineShape = _buildShape(outlineOuterPts.slice().reverse(), bandOuterPts);
 
-  // Minimální depth (4 px) — drží 3D feel z hlediska Z layeringu, ale visible
-  // side walls jsou tak tenké že nejsou rušivé. MeshBasicMaterial = constant color
-  // (bez shadingu) → side walls mají stejnou barvu jako top face = splývají s body BG.
-  const SHALLOW_DEPTH = 4;
-  const extrudeOpts = {
-    depth:        SHALLOW_DEPTH,
-    bevelEnabled: false,
-  };
-  const bandGeom    = new THREE.ExtrudeGeometry(bandShape,    extrudeOpts);
-  const outlineGeom = new THREE.ExtrudeGeometry(outlineShape, extrudeOpts);
+  // Layered architecture:
+  //   1. Band 3D (ExtrudeGeometry depth 50) — drží Z bulk + cavity walls
+  //   2. Cover (flat, BG color) — širší než band, zakrývá visible outer side walls
+  //   3. Outline (flat, dark) — tenký rim na vnější hraně coveru
+  const COVER_W = 14;  // šířka coveru za bandem (zakryje side wall projections)
+  let coverOuterPts = _miterOffsetPolygon(innerPts, BAND_WIDTH + COVER_W);
+  coverOuterPts = _clipSelfIntersections(coverOuterPts);
+  // Outline outer = coverOuter + OUTLINE_W (přesun outline na vnější hranu coveru)
+  outlineOuterPts = _miterOffsetPolygon(innerPts, BAND_WIDTH + COVER_W + OUTLINE_W);
+  outlineOuterPts = _clipSelfIntersections(outlineOuterPts);
 
+  // Outline shape: thin ring AT THE OUTER EDGE OF COVER (mezi coverOuter a outlineOuter)
+  const outlineShape2 = _buildShape(outlineOuterPts.slice().reverse(), coverOuterPts);
+  // Cover shape: BG-colored ring mezi bandOuter a coverOuter
+  const coverShape = _buildShape(coverOuterPts.slice().reverse(), bandOuterPts);
+
+  // Band 3D s depth (drží cavity)
+  const bandGeom = new THREE.ExtrudeGeometry(bandShape, { depth: FRAME_DEPTH, bevelEnabled: false });
+  // Cover a outline FLAT (žádné side walls)
+  const coverGeom    = new THREE.ShapeGeometry(coverShape, 4);
+  const outlineGeom = new THREE.ShapeGeometry(outlineShape2, 4);
+
+  // Materials — všechno BasicMaterial, žádné shading artefakty
   const cs    = getComputedStyle(document.documentElement);
   const bgTop = (cs.getPropertyValue('--bg-3d-top') || '').trim() || '#ee9bb1';
   const bandMat    = new THREE.MeshBasicMaterial({ color: new THREE.Color(bgTop) });
+  const coverMat   = new THREE.MeshBasicMaterial({ color: new THREE.Color(bgTop) });
   const outlineMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(FRAME_OUTLINE_COLOR) });
 
-  const frameZ = -(SHALLOW_DEPTH + 2);
+  const bandZ    = -(FRAME_DEPTH + 2);  // Band hluboko vzadu
+  const coverZ   = -1;                   // Cover vepředu (zakrývá band side walls)
+  const outlineZ = -1;                   // Outline u coveru
 
+  // Band: 3D extruded, hluboko vzadu, BG color → cavity walls visible přes hole
   const bandMesh = new THREE.Mesh(bandGeom, bandMat);
-  bandMesh.position.set(0, 0, frameZ);
+  bandMesh.position.set(0, 0, bandZ);
   bandMesh.renderOrder   = 1;
   bandMesh.frustumCulled = false;
   st.contentGroup.add(bandMesh);
   st.unifiedFrameMesh = bandMesh;
 
+  // Cover: flat BG-color ring před bandem, zakrývá band's outer side walls
+  const coverMesh = new THREE.Mesh(coverGeom, coverMat);
+  coverMesh.position.set(0, 0, coverZ);
+  coverMesh.renderOrder   = 3;
+  coverMesh.frustumCulled = false;
+  st.contentGroup.add(coverMesh);
+  st.unifiedFrameCover = coverMesh;
+
+  // Outline: flat dark thin rim na vnější hraně coveru
   const outlineMesh = new THREE.Mesh(outlineGeom, outlineMat);
-  outlineMesh.position.set(0, 0, frameZ - 0.5);
-  outlineMesh.renderOrder   = 0;
+  outlineMesh.position.set(0, 0, outlineZ);
+  outlineMesh.renderOrder   = 2;
   outlineMesh.frustumCulled = false;
   st.contentGroup.add(outlineMesh);
   st.unifiedFrameOutline = outlineMesh;
 
-  console.log('[render3d_bottom] mask+outline built — band:', BAND_WIDTH,
-    '| outline:', OUTLINE_W, '| inner:', innerPts.length,
-    '| band outer:', bandOuterPts.length, '| outline outer:', outlineOuterPts.length);
+  console.log('[render3d_bottom] layered mask built — band:', BAND_WIDTH,
+    '| cover:', COVER_W, '| outline:', OUTLINE_W,
+    '| inner:', innerPts.length, '| band outer:', bandOuterPts.length);
 }
 
 // v73.68: minimal safe test rendering — paralelní offset jako tenká bright ring.
