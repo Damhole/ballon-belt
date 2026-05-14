@@ -1094,6 +1094,21 @@ function _renderMiterOffsetTest(params, distance, colorHex) {
   ringMesh.frustumCulled = false;
   st.contentGroup.add(ringMesh);
   st.miterTestMesh = ringMesh;
+
+  // v73.75: BLACK OUTLINE tracing přesně outer offset path — uvidíme kde se
+  // linie zlomí / přeskakuje (každý bod offset polygonu = vertex v line).
+  const outlineCoords = [];
+  for (const pt of outerPts) outlineCoords.push(pt.x, pt.y, 0);
+  outlineCoords.push(outerPts[0].x, outerPts[0].y, 0);  // close loop
+  const lineGeom = new THREE.BufferGeometry();
+  lineGeom.setAttribute('position', new THREE.Float32BufferAttribute(outlineCoords, 3));
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x000000 });
+  const lineMesh = new THREE.Line(lineGeom, lineMat);
+  lineMesh.position.set(0, 0, -0.5);  // nad ring mesh (ke kameře)
+  lineMesh.renderOrder   = 51;
+  lineMesh.frustumCulled = false;
+  st.contentGroup.add(lineMesh);
+  st.miterTestOutline = lineMesh;
 }
 
 // v73.68: helper — proper polygon offset s miter joins (Blender Inset-style).
