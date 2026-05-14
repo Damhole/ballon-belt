@@ -1205,7 +1205,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.105');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.106');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5983,7 +5983,8 @@ const FUNNEL_3D = {
   narrowY:           14,   // Top opening Y offset (gap mezi belt a funnel top)
   slopeEndY:         44,   // Kde diagonal slope končí, začíná vertikální (CSS+JS sync)
   visualNarrowHalf:  40,   // (legacy clip-path, už nepoužíváno — 3D frame definuje vizuál)
-  physicsNarrowHalf: 36,   // FUN.narrow: ½ fyzicky průchodné šířky (mírně užší než vizuál 40)
+  physicsNarrowHalf: 38,   // FUN.narrow: ½ fyzicky průchodné šířky (≈ visual 40, mírně užší)
+  physicsArenaPad:    6,   // v73.106: FUN.wide: pad od kraje canvasu — match FRAME_ARENA_PAD
   cornerR:           18,   // CSS clip-path: poloměr rounded corners
 };
 if (RENDERER_MODE === '3d') {
@@ -5994,8 +5995,9 @@ if (RENDERER_MODE === '3d') {
   FUN.wideY = _F.fullH - _F.narrowY;                  // ~ h - narrowY (zrcadlí top offset)
   FUN.narrowL = (_F.deckW / 2) - _F.physicsNarrowHalf;
   FUN.narrowR = (_F.deckW / 2) + _F.physicsNarrowHalf;
-  FUN.wideL = 0;
-  FUN.wideR = _F.deckW;
+  // v73.106: wide bounds match visual frame arena (FRAME_ARENA_PAD)
+  FUN.wideL = _F.physicsArenaPad;
+  FUN.wideR = _F.deckW - _F.physicsArenaPad;
   FUN.slopeEndY = _F.slopeEndY;
   // Sync CSS vars — clip-path v game.css je čte přes calc()
   const _rs = document.documentElement.style;
@@ -6343,7 +6345,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.105');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.106');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6471,7 +6473,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.105');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.106');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7306,7 +7308,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.105');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.106');
       event.detail.callback();
     });
 
