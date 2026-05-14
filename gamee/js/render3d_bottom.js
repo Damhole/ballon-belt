@@ -891,11 +891,10 @@ function _initUnifiedFrame() {
   const skulinaLeft  = W / 2 - FRAME_SKULINA_HALF;
   const skulinaRight = W / 2 + FRAME_SKULINA_HALF;
 
-  // Skulina = krátký úsek hned pod belt (kde pending fyzika probíhá)
-  // skulinaBotCSS = kde oblouk ZAČÍNÁ (vrchol oblouku — úzká část)
-  const skulinaBotCSS = st.pendingTopCSS != null
-    ? st.pendingTopCSS + 8
-    : beltBotCSS + 20;
+  // Skulina = úzké hrdlo TĚSNĚ pod belt (kde se balls přelévají).
+  // skulinaBotCSS = kde oblouk ZAČÍNÁ (vrchol oblouku — úzká část).
+  // Posunuto blízko belt aby výška oblouku byla velká → výrazný spád od skuliny.
+  const skulinaBotCSS = beltBotCSS + 4;
 
   // Arena = carriers oblast; arenaTopCSS je kde oblouk KONČÍ (plná šířka)
   // Vertikální rozdíl skulinaBotCSS→arenaTopCSS = výška oblouku (čím větší, tím výraznější)
