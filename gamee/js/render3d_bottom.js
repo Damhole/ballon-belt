@@ -1280,9 +1280,14 @@ function _initUnifiedFrame() {
     );
     const archLeftPts = archLeft.getPoints(20);
 
-    // Expose pro game.js collision — points v FUN coords (x = canvas X, y = FUN Y)
-    F.archSegmentsRight = archRightPts.map(pt => ({ x: pt.x, y: toFunY(pt.y) }));
-    F.archSegmentsLeft  = archLeftPts.map(pt  => ({ x: pt.x, y: toFunY(pt.y) }));
+    // v73.113: shift arch dolů o ARCH_Y_SHIFT px aby kolizoval s "hlubší" linií
+    // (zadní stěnou kavity, kterou vidíme přes tilt 3D projekce).
+    // FRAME_DEPTH=50 × sin(TILT_RAD ≈ 0.335) ≈ 16 px screen offset.
+    const ARCH_Y_SHIFT = 16;
+    F.archSegmentsRight = archRightPts.map(pt => ({ x: pt.x, y: toFunY(pt.y) + ARCH_Y_SHIFT }));
+    F.archSegmentsLeft  = archLeftPts.map(pt  => ({ x: pt.x, y: toFunY(pt.y) + ARCH_Y_SHIFT }));
+    // Update slopeEndY aby vertikální arena walls navazovaly na nový arch konec
+    F.slopeEndY = F.archSegmentsRight[F.archSegmentsRight.length - 1].y;
 
     // DEBUG outline: trace both arches as zelená line. Order musí být CW (clockwise)
     // bez self-intersection: narrowR → archRight (top→bot) → wide bottom → archLeft
