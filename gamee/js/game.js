@@ -1205,7 +1205,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.109');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.110');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6110,13 +6110,26 @@ function updatePending(dt){
     const has3DShape=FUN.slopeEndY!==undefined;
     for(const b of pending){
       if(has3DShape){
-        // Slope (narrowL,narrowY) → (wideL,slopeEndY) levá strana
-        collideFunnelSeg(b,FUN.narrowL,FUN.narrowY,FUN.wideL,FUN.slopeEndY);
-        // Vertical (wideL,slopeEndY) → (wideL,wideY) levá vertikála
+        // v73.110: BEZIER ARCH collider — iterace přes sampled arch segments z
+        // render3d_bottom.js. Pokud archSegments nedostupné, fallback na linear slope.
+        if(FUN.archSegmentsLeft && FUN.archSegmentsRight){
+          // Left arch curve
+          for(let i=0;i<FUN.archSegmentsLeft.length-1;i++){
+            const p1=FUN.archSegmentsLeft[i], p2=FUN.archSegmentsLeft[i+1];
+            collideFunnelSeg(b,p1.x,p1.y,p2.x,p2.y);
+          }
+          // Right arch curve
+          for(let i=0;i<FUN.archSegmentsRight.length-1;i++){
+            const p1=FUN.archSegmentsRight[i], p2=FUN.archSegmentsRight[i+1];
+            collideFunnelSeg(b,p1.x,p1.y,p2.x,p2.y);
+          }
+        } else {
+          // Fallback: linear slope
+          collideFunnelSeg(b,FUN.narrowL,FUN.narrowY,FUN.wideL,FUN.slopeEndY);
+          collideFunnelSeg(b,FUN.narrowR,FUN.narrowY,FUN.wideR,FUN.slopeEndY);
+        }
+        // Vertical arena walls (po skončení slope/arch dolů k arena bottom)
         collideFunnelSeg(b,FUN.wideL,FUN.slopeEndY,FUN.wideL,FUN.wideY);
-        // Slope pravá strana
-        collideFunnelSeg(b,FUN.narrowR,FUN.narrowY,FUN.wideR,FUN.slopeEndY);
-        // Vertical pravá vertikála
         collideFunnelSeg(b,FUN.wideR,FUN.slopeEndY,FUN.wideR,FUN.wideY);
       } else {
         // Klasické V (2D)
@@ -6345,7 +6358,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.109');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.110');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6473,7 +6486,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.109');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.110');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7308,7 +7321,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.109');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.110');
       event.detail.callback();
     });
 

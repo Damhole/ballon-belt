@@ -1239,32 +1239,71 @@ function _initUnifiedFrame() {
   st.contentGroup.add(outlineMesh);
   st.unifiedFrameOutline = outlineMesh;
 
-  // v73.108: DEBUG outline collideru (FUN funnel shape) — zelené line tracing
-  // narrowL/R, wideL/R bounds, slope diagonal. Vidíme přesně kde fyzika kolizuje.
+  // v73.110: BEZIER ARCH COLLIDER — sample left+right arch curves, convert na
+  // FUN coords a expose pro multi-segment collision detection v game.js.
   if (window.FUN) {
     const F = window.FUN;
     const TOP_CSS = st.beltCenterY + R_BELT + 2;
+    const toFunY = (worldY) => (st.H - worldY) - TOP_CSS + F.narrowY;
+
+    // Right arch: 2 bezier segmenty — replikujeme z _buildHolePath
+    const archRight = new THREE.Path();
+    const arcW_r = params.arenaRight - params.skulinaRight;
+    const arcH_r = params.skulinaBotW - params.arenaTopW;
+    archRight.moveTo(params.skulinaRight, params.skulinaBotW);
+    archRight.bezierCurveTo(
+      params.skulinaRight,                    params.skulinaBotW,
+      params.skulinaRight + arcW_r * 0.505,  params.skulinaBotW - arcH_r * 0.130,
+      params.skulinaRight + arcW_r * 0.785,  params.skulinaBotW - arcH_r * 0.411
+    );
+    archRight.bezierCurveTo(
+      params.skulinaRight + arcW_r * 0.959,  params.skulinaBotW - arcH_r * 0.637,
+      params.arenaRight,                       params.arenaTopW,
+      params.arenaRight,                       params.arenaTopW
+    );
+    const archRightPts = archRight.getPoints(20);
+
+    // Left arch: 2 bezier segmenty
+    const archLeft = new THREE.Path();
+    const arcW_l = params.skulinaLeft - params.arenaLeft;
+    const arcH_l = params.skulinaBotW - params.arenaTopW;
+    archLeft.moveTo(params.arenaLeft, params.arenaTopW);
+    archLeft.bezierCurveTo(
+      params.arenaLeft,                       params.arenaTopW,
+      params.arenaLeft + arcW_l * 0.041,     params.arenaTopW + arcH_l * 0.363,
+      params.arenaLeft + arcW_l * 0.215,     params.arenaTopW + arcH_l * 0.589
+    );
+    archLeft.bezierCurveTo(
+      params.arenaLeft + arcW_l * 0.495,     params.arenaTopW + arcH_l * 0.870,
+      params.skulinaLeft,                     params.skulinaBotW,
+      params.skulinaLeft,                     params.skulinaBotW
+    );
+    const archLeftPts = archLeft.getPoints(20);
+
+    // Expose pro game.js collision — points v FUN coords (x = canvas X, y = FUN Y)
+    F.archSegmentsRight = archRightPts.map(pt => ({ x: pt.x, y: toFunY(pt.y) }));
+    F.archSegmentsLeft  = archLeftPts.map(pt  => ({ x: pt.x, y: toFunY(pt.y) }));
+
+    // DEBUG outline: trace both arches as zelená line (visualization)
+    const debugPts = [];
+    // Right side: skulina top → arch → arena top corner → down → bottom
+    debugPts.push({ x: F.narrowR, y: F.narrowY });
+    for (const p of F.archSegmentsRight) debugPts.push(p);
+    debugPts.push({ x: F.wideR, y: F.wideY });
+    debugPts.push({ x: F.wideL, y: F.wideY });
+    // Left side reversed: bottom → arena top corner → arch (reversed) → skulina top
+    const leftRev = F.archSegmentsLeft.slice().reverse();
+    for (const p of leftRev) debugPts.push(p);
+    debugPts.push({ x: F.narrowL, y: F.narrowY });
+
     const funYtoCanvasY = (funY) => TOP_CSS + (funY - F.narrowY);
-    const pts = [
-      // Left wall: narrow top → slope end → wide bottom
-      { x: F.narrowL, y: funYtoCanvasY(F.narrowY) },
-      { x: F.wideL,   y: funYtoCanvasY(F.slopeEndY) },
-      { x: F.wideL,   y: funYtoCanvasY(F.wideY) },
-      // Bottom edge
-      { x: F.wideR,   y: funYtoCanvasY(F.wideY) },
-      // Right wall: wide bottom → slope end → narrow top
-      { x: F.wideR,   y: funYtoCanvasY(F.slopeEndY) },
-      { x: F.narrowR, y: funYtoCanvasY(F.narrowY) },
-      // Top close
-      { x: F.narrowL, y: funYtoCanvasY(F.narrowY) },
-    ];
     const coords = [];
-    for (const p of pts) coords.push(p.x, _worldY(p.y), 0);
+    for (const p of debugPts) coords.push(p.x, _worldY(funYtoCanvasY(p.y)), 0);
     const colliderGeom = new THREE.BufferGeometry();
     colliderGeom.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
     const colliderMat = new THREE.LineBasicMaterial({ color: 0x00ff00 });
     const colliderLine = new THREE.Line(colliderGeom, colliderMat);
-    colliderLine.position.set(0, 0, 0);  // forward in Z = visible above all
+    colliderLine.position.set(0, 0, 0);
     colliderLine.renderOrder = 200;
     colliderLine.frustumCulled = false;
     st.contentGroup.add(colliderLine);
