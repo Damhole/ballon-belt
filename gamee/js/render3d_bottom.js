@@ -1130,14 +1130,28 @@ function _miterOffsetPolygon(points, distance) {
   const ns = segs.length;
   if (ns === 0) return [];
 
-  // 2. Naive miters — intersection předchozího offset segmentu s aktuálním.
-  //    miters[i] = roh na začátku segs[i] (= konec segs[i-1]).
+  // 2. Compute corner points:
+  //    - SMOOTH corners (small angle change, jako Bezier samples): use midpoint of
+  //      adjacent offset endpoints → no far-miter artifact
+  //    - SHARP corners (angle > ~18°): use miter intersection (line-line intersect)
+  //    cos(18°) ≈ 0.95
+  const SMOOTH_COS_THRESHOLD = 0.95;
   const miters = new Array(ns);
   for (let i = 0; i < ns; i++) {
     const prev = segs[(i - 1 + ns) % ns];
     const cur  = segs[i];
-    miters[i] = _lineLineIntersect(prev.offsetP1, prev.offsetP2, cur.offsetP1, cur.offsetP2)
-                || cur.offsetP1.clone();
+    const cosA = prev.tangentX * cur.tangentX + prev.tangentY * cur.tangentY;
+    if (cosA > SMOOTH_COS_THRESHOLD) {
+      // Smooth — offset přímky téměř paralelní, midpoint adjacent endpoints
+      miters[i] = new THREE.Vector2(
+        (prev.offsetP2.x + cur.offsetP1.x) / 2,
+        (prev.offsetP2.y + cur.offsetP1.y) / 2
+      );
+    } else {
+      // Sharp — line-line intersection
+      miters[i] = _lineLineIntersect(prev.offsetP1, prev.offsetP2, cur.offsetP1, cur.offsetP2)
+                  || cur.offsetP1.clone();
+    }
   }
 
   // 3. Detect problematic segments:
