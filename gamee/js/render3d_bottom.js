@@ -1090,14 +1090,20 @@ function _initUnifiedFrame() {
   const bandGeom = new THREE.ExtrudeGeometry(bandShape, extrudeOpts);
 
   // Materials — Lambert s emissive lift. Stencil test = render JEN kde stencil==1.
+  // POZOR: stencilWrite musí být TRUE aby Three.js aktivoval stencil testing,
+  // i když nechci psát. Použiju stencilWriteMask=0 pro disable writing.
   const cs    = getComputedStyle(document.documentElement);
   const bgTop = (cs.getPropertyValue('--bg-3d-top') || '').trim() || '#ee9bb1';
   const bandMat = new THREE.MeshLambertMaterial({
-    color:        new THREE.Color(bgTop),
-    emissive:     new THREE.Color(FRAME_EMISSIVE),
-    stencilWrite: false,
-    stencilRef:   1,
-    stencilFunc:  THREE.EqualStencilFunc,
+    color:           new THREE.Color(bgTop),
+    emissive:        new THREE.Color(FRAME_EMISSIVE),
+    stencilWrite:    true,    // ENABLE stencil testing
+    stencilWriteMask: 0x00,   // ale nepiš (jen testuj)
+    stencilRef:      1,
+    stencilFunc:     THREE.EqualStencilFunc,
+    stencilFail:     THREE.KeepStencilOp,
+    stencilZFail:    THREE.KeepStencilOp,
+    stencilZPass:    THREE.KeepStencilOp,
   });
 
   const frameZ = -(FRAME_DEPTH + 2);
