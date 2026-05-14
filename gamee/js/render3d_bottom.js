@@ -431,9 +431,11 @@ function init() {
   sun.position.set(-300, 800, 600);
   scene.add(sun);
 
-  // v73.99: bez hemisphere — místo toho emissive na band material lift dark walls.
-  // Layers s HemisphereLight nefungovaly spolehlivě u Lambert (v73.96, v73.98).
-  st.frameLightLayer = 0;  // dummy
+  // v73.100: HemisphereLight match image scéna (render3d.js), žádné layers.
+  // Intensity 1.2 (kompromis: image používá 1.85, ale tady máme silnější directional).
+  const hemi = new THREE.HemisphereLight(0xffe8f0, 0xa090a8, 1.2);
+  scene.add(hemi);
+  st.frameLightLayer = 0;
 
   st.scene    = scene;
   st.camera   = camera;
@@ -1109,12 +1111,11 @@ function _initUnifiedFrame() {
   };
   const bandGeom = new THREE.ExtrudeGeometry(bandShape, extrudeOpts);
 
-  // MeshLambertMaterial s emissive — emissive lift simuluje hemisphere ground fill,
-  // takže side walls nejsou černé jako bez ambient light.
+  // MeshLambertMaterial — match image frame exact (žádné emissive).
+  // Side walls budou lit přes HemisphereLight stejně jako image frame.
   const cs    = getComputedStyle(document.documentElement);
   const bandMat = new THREE.MeshLambertMaterial({
     color:            0xf4b8c8,   // match render3d.js imageFrame
-    emissive:         0x3a2530,   // dark mauve fill (simuluje hemi ground)
     stencilWrite:     true,
     stencilWriteMask: 0x00,
     stencilRef:       1,
