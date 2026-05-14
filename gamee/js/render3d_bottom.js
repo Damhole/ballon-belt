@@ -808,6 +808,7 @@ const FRAME_ARENA_PAD    = 6;   // tloušťka rámu na bocích arény (px)
 const FRAME_DEPTH        = 12;  // ExtrudeGeometry depth (Z tloušťka)
 const FRAME_BEVEL        = 3;   // bevel size + thickness
 const FRAME_BEVEL_SEGS   = 3;   // bevel segments
+const CORNER_R_BOT       = 20;  // radius zaoblení dolních rohů arény (~5% šířky)
 
 function _buildUnifiedFrameGeom(W, p) {
   // Outer shape: velký obdélník přes celou viditelnou oblast (CCW v Y-up)
@@ -842,31 +843,56 @@ function _buildUnifiedFrameGeom(W, p) {
   hole.lineTo(p.skulinaRight, p.skulinaTopW);
   // 5. Skulina pravá → dolů na skulina-bottom (vrchol pravého oblouku)
   hole.lineTo(p.skulinaRight, p.skulinaBotW);
-  // 6. ARCH vpravo: cubic Bezier — stretched outward bulge (matches curve.svg reference).
-  //    Curve "hugs" top ~80% cesty, pak prudce padá vertikálně na arena edge.
-  //    CP1 (80% od hrdla, na výšce hrdla) → curve drží horizontální nahoře
-  //    CP2 (arenaRight, 80% nad arena edge) → curve padá svisle dolů
-  //    Konkavita ven (oba CP v upper-right zóně, mimo arenu).
+  // 6. ARCH vpravo: DVA cubic Bezier segmenty (matches curve_2.svg reference).
+  //    Segment 1: horizontální sweep s degenerate tangent na hrdle, sweeps 79% width / 41% height
+  //    Segment 2: prudký vertikální drop na arena edge s degenerate tangent
+  //    Konkavita ven, plynulý smooth tvar jako v SVG referenci.
   const arcW_r = p.arenaRight - p.skulinaRight;
   const arcH_r = p.skulinaBotW - p.arenaTopW;
+  // 6a. Segment 1: smooth horizontal sweep z hrdla (CP1 = start = degenerate tangent)
   hole.bezierCurveTo(
-    p.skulinaRight + arcW_r * 0.80, p.skulinaBotW,
-    p.arenaRight,                    p.arenaTopW + arcH_r * 0.80,
-    p.arenaRight,                    p.arenaTopW
+    p.skulinaRight,                    p.skulinaBotW,                  // CP1 = start (degenerate)
+    p.skulinaRight + arcW_r * 0.505,  p.skulinaBotW - arcH_r * 0.130, // CP2: ~50% across, ~13% down
+    p.skulinaRight + arcW_r * 0.785,  p.skulinaBotW - arcH_r * 0.411  // End: ~79% across, ~41% down
   );
-  // 7. Arena pravá strana → dolů
-  hole.lineTo(p.arenaRight,   p.arenaBotW);
-  // 8. Arena spodek → doleva
-  hole.lineTo(p.arenaLeft,    p.arenaBotW);
+  // 6b. Segment 2: vertical drop na arena edge (CP2 = end = degenerate tangent)
+  hole.bezierCurveTo(
+    p.skulinaRight + arcW_r * 0.959,  p.skulinaBotW - arcH_r * 0.637, // CP1: 96% across, 64% down
+    p.arenaRight,                       p.arenaTopW,                    // CP2 = end (degenerate)
+    p.arenaRight,                       p.arenaTopW                     // End: arena top-right corner
+  );
+  // 7. Arena pravá strana → dolů (k zaoblenému spodnímu rohu)
+  hole.lineTo(p.arenaRight, p.arenaBotW + CORNER_R_BOT);
+  // 7b. Zaoblený pravý spodní roh (quarter-circle Bezier, SVG-style)
+  hole.bezierCurveTo(
+    p.arenaRight,                          p.arenaBotW + CORNER_R_BOT * 0.448,
+    p.arenaRight - CORNER_R_BOT * 0.448,  p.arenaBotW,
+    p.arenaRight - CORNER_R_BOT,           p.arenaBotW
+  );
+  // 8. Arena spodek → doleva (k zaoblenému spodnímu rohu vlevo)
+  hole.lineTo(p.arenaLeft + CORNER_R_BOT, p.arenaBotW);
+  // 8b. Zaoblený levý spodní roh
+  hole.bezierCurveTo(
+    p.arenaLeft + CORNER_R_BOT * 0.448,   p.arenaBotW,
+    p.arenaLeft,                            p.arenaBotW + CORNER_R_BOT * 0.448,
+    p.arenaLeft,                            p.arenaBotW + CORNER_R_BOT
+  );
   // 9. Arena levá strana → nahoru na arenaTop
-  hole.lineTo(p.arenaLeft,    p.arenaTopW);
-  // 10. ARCH vlevo: cubic Bezier — symetricky (oba CP v upper-left zóně mimo arenu)
+  hole.lineTo(p.arenaLeft, p.arenaTopW);
+  // 10. ARCH vlevo: DVA cubic Bezier segmenty (symetricky k pravému)
   const arcW_l = p.skulinaLeft - p.arenaLeft;
   const arcH_l = p.skulinaBotW - p.arenaTopW;
+  // 10a. Segment 1: rounded corner z arena bottom (CP1 = start = degenerate)
   hole.bezierCurveTo(
-    p.arenaLeft,                    p.arenaTopW + arcH_l * 0.80,
-    p.skulinaLeft - arcW_l * 0.80, p.skulinaBotW,
-    p.skulinaLeft,                  p.skulinaBotW
+    p.arenaLeft,                       p.arenaTopW,                    // CP1 = start (degenerate)
+    p.arenaLeft + arcW_l * 0.041,     p.arenaTopW + arcH_l * 0.363,   // CP2: 4% across, 36% up
+    p.arenaLeft + arcW_l * 0.215,     p.arenaTopW + arcH_l * 0.589    // End: 21% across, 59% up
+  );
+  // 10b. Segment 2: horizontální sweep do hrdla (CP2 = end = degenerate)
+  hole.bezierCurveTo(
+    p.arenaLeft + arcW_l * 0.495,     p.arenaTopW + arcH_l * 0.870,   // CP1: 50% across, 87% up
+    p.skulinaLeft,                     p.skulinaBotW,                   // CP2 = end (degenerate)
+    p.skulinaLeft,                     p.skulinaBotW                    // End: skulina edge
   );
   // 11. Skulina levá → nahoru
   hole.lineTo(p.skulinaLeft,  p.skulinaTopW);
