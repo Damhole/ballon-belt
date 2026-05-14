@@ -1057,29 +1057,23 @@ function _initUnifiedFrame() {
   const bandShape    = _buildShape(bandOuterPts.slice().reverse(),    innerPts);
   const outlineShape = _buildShape(outlineOuterPts.slice().reverse(), bandOuterPts);
 
-  // ExtrudeGeometry s depth ALE BEZ BEVELU — bevel by vytvořil 2D-fake-looking
-  // slanted surfaces v úzkých částech (skulina bridges). Bez bevelu jsou jen
-  // vertikální side walls a flat top face.
+  // Minimální depth (4 px) — drží 3D feel z hlediska Z layeringu, ale visible
+  // side walls jsou tak tenké že nejsou rušivé. MeshBasicMaterial = constant color
+  // (bez shadingu) → side walls mají stejnou barvu jako top face = splývají s body BG.
+  const SHALLOW_DEPTH = 4;
   const extrudeOpts = {
-    depth:        FRAME_DEPTH,
+    depth:        SHALLOW_DEPTH,
     bevelEnabled: false,
   };
   const bandGeom    = new THREE.ExtrudeGeometry(bandShape,    extrudeOpts);
   const outlineGeom = new THREE.ExtrudeGeometry(outlineShape, extrudeOpts);
 
-  // Materials — MeshLambertMaterial s emissive lift pro vnitřní side walls
   const cs    = getComputedStyle(document.documentElement);
   const bgTop = (cs.getPropertyValue('--bg-3d-top') || '').trim() || '#ee9bb1';
-  const bandMat = new THREE.MeshLambertMaterial({
-    color:    new THREE.Color(bgTop),
-    emissive: new THREE.Color(FRAME_EMISSIVE),
-  });
-  const outlineMat = new THREE.MeshLambertMaterial({
-    color:    new THREE.Color(0x000000),
-    emissive: new THREE.Color(FRAME_OUTLINE_COLOR),
-  });
+  const bandMat    = new THREE.MeshBasicMaterial({ color: new THREE.Color(bgTop) });
+  const outlineMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(FRAME_OUTLINE_COLOR) });
 
-  const frameZ = -(FRAME_DEPTH + 2);
+  const frameZ = -(SHALLOW_DEPTH + 2);
 
   const bandMesh = new THREE.Mesh(bandGeom, bandMat);
   bandMesh.position.set(0, 0, frameZ);
