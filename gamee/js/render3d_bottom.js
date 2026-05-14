@@ -1072,7 +1072,7 @@ function _initUnifiedFrame() {
   const arenaLeft   = FRAME_ARENA_PAD;
   const arenaRight  = W - FRAME_ARENA_PAD;
   const arenaTopCSS = st.carriersTopCSS != null ? st.carriersTopCSS - 4 : skulinaBotCSS + 50;
-  const arenaBotCSS = (st.carriersBottomCSS || H - 30) + 20;
+  const arenaBotCSS = (st.carriersBottomCSS || H - 30) + 6;  // v73.105: 20→6, pin to bottom
   const frameBotCSS = arenaBotCSS + 6;
 
   const params = {
