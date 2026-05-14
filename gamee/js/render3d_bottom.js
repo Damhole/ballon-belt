@@ -1009,7 +1009,7 @@ function _measureFramePositions() {
 
 // v73.103: dispose existing frame meshes (band, mask, floor) — pro rebuild.
 function _disposeUnifiedFrame() {
-  const meshes = [st.unifiedFrameMesh, st.unifiedFrameMaskStencil, st.unifiedFrameFloor];
+  const meshes = [st.unifiedFrameMesh, st.unifiedFrameMaskStencil, st.unifiedFrameFloor, st.colliderDebugLine];
   for (const m of meshes) {
     if (!m) continue;
     if (st.contentGroup) st.contentGroup.remove(m);
@@ -1019,6 +1019,7 @@ function _disposeUnifiedFrame() {
   st.unifiedFrameMesh = null;
   st.unifiedFrameMaskStencil = null;
   st.unifiedFrameFloor = null;
+  st.colliderDebugLine = null;
 }
 
 // v73.104: nastavuje --carriers-pad-top CSS var podle dostupného prostoru.
@@ -1237,6 +1238,38 @@ function _initUnifiedFrame() {
   outlineMesh.frustumCulled = false;
   st.contentGroup.add(outlineMesh);
   st.unifiedFrameOutline = outlineMesh;
+
+  // v73.108: DEBUG outline collideru (FUN funnel shape) — zelené line tracing
+  // narrowL/R, wideL/R bounds, slope diagonal. Vidíme přesně kde fyzika kolizuje.
+  if (window.FUN) {
+    const F = window.FUN;
+    const TOP_CSS = st.beltCenterY + R_BELT + 2;
+    const funYtoCanvasY = (funY) => TOP_CSS + (funY - F.narrowY);
+    const pts = [
+      // Left wall: narrow top → slope end → wide bottom
+      { x: F.narrowL, y: funYtoCanvasY(F.narrowY) },
+      { x: F.wideL,   y: funYtoCanvasY(F.slopeEndY) },
+      { x: F.wideL,   y: funYtoCanvasY(F.wideY) },
+      // Bottom edge
+      { x: F.wideR,   y: funYtoCanvasY(F.wideY) },
+      // Right wall: wide bottom → slope end → narrow top
+      { x: F.wideR,   y: funYtoCanvasY(F.slopeEndY) },
+      { x: F.narrowR, y: funYtoCanvasY(F.narrowY) },
+      // Top close
+      { x: F.narrowL, y: funYtoCanvasY(F.narrowY) },
+    ];
+    const coords = [];
+    for (const p of pts) coords.push(p.x, _worldY(p.y), 0);
+    const colliderGeom = new THREE.BufferGeometry();
+    colliderGeom.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
+    const colliderMat = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+    const colliderLine = new THREE.Line(colliderGeom, colliderMat);
+    colliderLine.position.set(0, 0, 0);  // forward in Z = visible above all
+    colliderLine.renderOrder = 200;
+    colliderLine.frustumCulled = false;
+    st.contentGroup.add(colliderLine);
+    st.colliderDebugLine = colliderLine;
+  }
 
   console.log('[render3d_bottom] mask+outline built — band:', BAND_WIDTH,
     '| outline:', OUTLINE_W, '| inner:', innerPts.length,
