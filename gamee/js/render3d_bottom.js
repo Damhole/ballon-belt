@@ -431,14 +431,9 @@ function init() {
   sun.position.set(-300, 800, 600);
   scene.add(sun);
 
-  // v73.98: HemisphereLight scoped na layer 2 (jen pro band), nižší intensity
-  // protože bottom scéna má DirectionalLight Math.PI (vs 1.55 v image scéně).
-  // Aby band visuálně matchoval image frame: hemi intensity ~0.8.
-  const FRAME_LIGHT_LAYER = 2;
-  const hemi = new THREE.HemisphereLight(0xffe8f0, 0xa090a8, 0.8);
-  hemi.layers.set(FRAME_LIGHT_LAYER);
-  scene.add(hemi);
-  st.frameLightLayer = FRAME_LIGHT_LAYER;
+  // v73.99: bez hemisphere — místo toho emissive na band material lift dark walls.
+  // Layers s HemisphereLight nefungovaly spolehlivě u Lambert (v73.96, v73.98).
+  st.frameLightLayer = 0;  // dummy
 
   st.scene    = scene;
   st.camera   = camera;
@@ -1114,13 +1109,14 @@ function _initUnifiedFrame() {
   };
   const bandGeom = new THREE.ExtrudeGeometry(bandShape, extrudeOpts);
 
-  // MeshLambertMaterial — match image frame exact (žádné emissive).
-  // Stencil testing aktivované přes stencilWrite=true + stencilWriteMask=0.
+  // MeshLambertMaterial s emissive — emissive lift simuluje hemisphere ground fill,
+  // takže side walls nejsou černé jako bez ambient light.
   const cs    = getComputedStyle(document.documentElement);
   const bandMat = new THREE.MeshLambertMaterial({
     color:            0xf4b8c8,   // match render3d.js imageFrame
-    stencilWrite:     true,       // ENABLE stencil testing
-    stencilWriteMask: 0x00,       // ale nepiš (jen testuj)
+    emissive:         0x3a2530,   // dark mauve fill (simuluje hemi ground)
+    stencilWrite:     true,
+    stencilWriteMask: 0x00,
     stencilRef:       1,
     stencilFunc:      THREE.EqualStencilFunc,
     stencilFail:      THREE.KeepStencilOp,
@@ -1134,7 +1130,7 @@ function _initUnifiedFrame() {
   bandMesh.position.set(0, 0, frameZ);
   bandMesh.renderOrder   = 1;      // RENDER PO MASCE
   bandMesh.frustumCulled = false;
-  bandMesh.layers.enable(st.frameLightLayer);  // přijímá hemisphere light
+  // (no layer enable — hemisphere replaced by emissive on material)
   st.contentGroup.add(bandMesh);
   st.unifiedFrameMesh = bandMesh;
 
