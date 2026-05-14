@@ -805,23 +805,19 @@ function _buildBeltTrack(parent, W, toonGrad, beltCenterY) {
 
 const FRAME_SKULINA_HALF = 40;  // ½ šířky skuliny (80px ≈ 3 balónky × 24px diameter)
 const FRAME_ARENA_PAD    = 6;   // tloušťka rámu na bocích arény (px)
-const FRAME_DEPTH        = 50;  // ExtrudeGeometry depth — match image frame
-const FRAME_BEVEL        = 2;   // bevel size + thickness — match image frame
-const FRAME_BEVEL_SEGS   = 3;   // bevel segments — match image frame
-// v73.64: dual-material — top face matches body BG (blends), side walls = dark outline rim.
-// FRAME_COLOR čteno z CSS var --bg-3d-top za běhu (theme-aware).
-const FRAME_OUTLINE_COLOR= 0x3a1a28;  // dark mauve — outline rim podle obvodu díry
+// v73.65: BAND approach. Frame = uniform-width strip kolem hole boundary.
+// Outside band = transparent canvas alpha → body BG se prosvítá.
+const FRAME_BAND_WIDTH   = 30;  // šířka viditelného pásu (uniform po celém obvodu)
+const FRAME_OUTLINE_W    = 2;   // tloušťka tmavého outline rimu na vnější hraně pásu
+const FRAME_DEPTH        = 12;  // ExtrudeGeometry depth (Z — modest, band je tenký)
+const FRAME_BEVEL        = 1.5; // jemný bevel pro 3D feel
+const FRAME_BEVEL_SEGS   = 2;
+const FRAME_OUTLINE_COLOR= 0x3a1a28;  // dark mauve outline rim
 const CORNER_R_BOT       = 20;  // radius zaoblení dolních rohů arény (~5% šířky)
 
-function _buildUnifiedFrameGeom(W, p) {
-  // Outer shape: velký obdélník přes celou viditelnou oblast (CCW v Y-up)
-  const shape = new THREE.Shape();
-  shape.moveTo(0,  p.frameBotW);
-  shape.lineTo(W,  p.frameBotW);
-  shape.lineTo(W,  p.frameTopW);
-  shape.lineTo(0,  p.frameTopW);
-  shape.lineTo(0,  p.frameBotW);
-
+// v73.65: vrací JEN inner hole path (CW v Y-up). Žádný outer rect.
+// Tento Path se pak samply a offsetne ven, aby vznikl uniform-width band.
+function _buildHolePath(p) {
   // Jeden spojený hole: belt → bridge → skulina → arch → arena (CW v Y-up)
   //
   // Klíčový tvar: skulina (úzká, nahoře) se quadratic Bezier obloukem rozevírá
@@ -901,20 +897,46 @@ function _buildUnifiedFrameGeom(W, p) {
   hole.lineTo(p.skulinaLeft,  p.skulinaTopW);
   // 12. Bridge levá: krok ven na belt levou
   hole.lineTo(p.beltLeft,     p.beltBotW);
-  // 13. Belt levá strana → nahoru
+  // 13. Belt levá strana → nahoru (close back to start)
   hole.lineTo(p.beltLeft,     p.beltTopW);
-  hole.closePath();
 
-  shape.holes.push(hole);
+  return hole;
+}
 
-  return new THREE.ExtrudeGeometry(shape, {
-    depth:          FRAME_DEPTH,
-    bevelEnabled:   true,
-    bevelThickness: FRAME_BEVEL,
-    bevelSize:      FRAME_BEVEL,
-    bevelSegments:  FRAME_BEVEL_SEGS,
-    curveSegments:  8,
-  });
+// v73.65: offset CW path outward by `distance` v Y-up convention.
+// Pro CW path je interior na pravé (v hole = carriers), outward = (-dy, dx).
+// Naivní point-by-point offsetting — funguje dobře pro smooth Bezier curves,
+// na 90° corners (belt-bottom, skulina-top) vytvoří mírný bevel místo true miter join.
+function _offsetPointsOutward(pts, distance) {
+  const n = pts.length;
+  const result = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const next = pts[(i + 1) % n];
+    const prev = pts[(i - 1 + n) % n];
+    let dx = next.x - prev.x;
+    let dy = next.y - prev.y;
+    const len = Math.hypot(dx, dy);
+    if (len > 0) { dx /= len; dy /= len; }
+    result[i] = new THREE.Vector2(
+      pts[i].x - dy * distance,
+      pts[i].y + dx * distance
+    );
+  }
+  return result;
+}
+
+// v73.65: build THREE.Shape z pole bodů — outer (CCW) + optional hole (CW).
+function _shapeFromPoints(outerPts, innerHolePts) {
+  const shape = new THREE.Shape();
+  shape.moveTo(outerPts[0].x, outerPts[0].y);
+  for (let i = 1; i < outerPts.length; i++) shape.lineTo(outerPts[i].x, outerPts[i].y);
+  if (innerHolePts && innerHolePts.length > 0) {
+    const h = new THREE.Path();
+    h.moveTo(innerHolePts[0].x, innerHolePts[0].y);
+    for (let i = 1; i < innerHolePts.length; i++) h.lineTo(innerHolePts[i].x, innerHolePts[i].y);
+    shape.holes.push(h);
+  }
+  return shape;
 }
 
 function _initUnifiedFrame() {
@@ -963,34 +985,66 @@ function _initUnifiedFrame() {
     arenaRight,
   };
 
-  const geom = _buildUnifiedFrameGeom(W, params);
+  // v73.65: BAND approach.
+  // 1. Build inner hole path (CW) — finální tvar díry s belt + skulina + arch + arena
+  // 2. Sample dense (lineTo + Bezier subdivisions) → pole bodů
+  // 3. Offset outward o BAND_WIDTH → outer boundary pásu
+  // 4. Band shape = (outer reversed = CCW, inner hole = CW samples)
+  // 5. Outline shape = (outline outer reversed, inner hole = band outer CW)
+  //    → tenký ring kolem vnější hrany pásu
+  // 6. Outside band's outer = transparent canvas alpha → body BG se prosvítá
 
-  // Theme-aware barva top face — match body BG (frame blends in s pozadím)
+  const holePath = _buildHolePath(params);
+  // getPoints(N) tessellates each Bezier curve into N subdivisions; lineTo segments
+  // přidají jen své endpointy. Pro náš path (~6 Bezier + ~10 lineTo) dostaneme
+  // ~80-100 bodů, dostatečně hustých pro smooth offset.
+  const innerPts = holePath.getPoints(16);
+
+  const bandOuterPts    = _offsetPointsOutward(innerPts, FRAME_BAND_WIDTH);
+  const outlineOuterPts = _offsetPointsOutward(innerPts, FRAME_BAND_WIDTH + FRAME_OUTLINE_W);
+
+  // Reverse outer pts → CCW pro Shape outer (Three.js convention)
+  const bandShape    = _shapeFromPoints(bandOuterPts.slice().reverse(),    innerPts);
+  const outlineShape = _shapeFromPoints(outlineOuterPts.slice().reverse(), bandOuterPts);
+
+  const extrudeOpts = {
+    depth:          FRAME_DEPTH,
+    bevelEnabled:   true,
+    bevelThickness: FRAME_BEVEL,
+    bevelSize:      FRAME_BEVEL,
+    bevelSegments:  FRAME_BEVEL_SEGS,
+    curveSegments:  4,
+  };
+  const bandGeom    = new THREE.ExtrudeGeometry(bandShape,    extrudeOpts);
+  const outlineGeom = new THREE.ExtrudeGeometry(outlineShape, { ...extrudeOpts, bevelEnabled: false });
+
+  // Materials
   const cs    = getComputedStyle(document.documentElement);
   const bgTop = (cs.getPropertyValue('--bg-3d-top') || '').trim() || '#ee9bb1';
-
-  // Dual material — ExtrudeGeometry generuje 2 groups:
-  //   - matIdx 0 (top + bottom caps): barva BG, frame splývá s pozadím těla
-  //   - matIdx 1 (side walls + bevel): tmavý outline = dark rim po obvodu díry
-  // Emissive na side mat = konstantní tmavá barva, immune k lighting (jinak by
-  // bevel surfaces u skuliny byly téměř černé kvůli úhlu k directional lightu).
-  const matTop = new THREE.MeshLambertMaterial({
-    color: new THREE.Color(bgTop),
-  });
-  const matSide = new THREE.MeshLambertMaterial({
+  const bandMat    = new THREE.MeshLambertMaterial({ color: new THREE.Color(bgTop) });
+  const outlineMat = new THREE.MeshLambertMaterial({
     color:    new THREE.Color(0x000000),
     emissive: new THREE.Color(FRAME_OUTLINE_COLOR),
   });
 
   const frameZ = -(FRAME_DEPTH + FRAME_BEVEL + 2);
-  const mesh = new THREE.Mesh(geom, [matTop, matSide]);
-  mesh.position.set(0, 0, frameZ);
-  mesh.renderOrder   = 1;
-  mesh.frustumCulled = false;
-  st.contentGroup.add(mesh);
-  st.unifiedFrameMesh = mesh;
-  console.log('[render3d_bottom] unified frame — arch height CSS px:',
-    arenaTopCSS - skulinaBotCSS, '| skulinaBot:', skulinaBotCSS, '| arenaTop:', arenaTopCSS);
+
+  const bandMesh = new THREE.Mesh(bandGeom, bandMat);
+  bandMesh.position.set(0, 0, frameZ);
+  bandMesh.renderOrder   = 1;
+  bandMesh.frustumCulled = false;
+  st.contentGroup.add(bandMesh);
+  st.unifiedFrameMesh = bandMesh;
+
+  const outlineMesh = new THREE.Mesh(outlineGeom, outlineMat);
+  outlineMesh.position.set(0, 0, frameZ);
+  outlineMesh.renderOrder   = 0;  // pod band meshem
+  outlineMesh.frustumCulled = false;
+  st.contentGroup.add(outlineMesh);
+  st.unifiedFrameOutline = outlineMesh;
+
+  console.log('[render3d_bottom] band frame — width:', FRAME_BAND_WIDTH,
+    '| outline:', FRAME_OUTLINE_W, '| samples:', innerPts.length);
 }
 
 // ─── updateCarriers ──────────────────────────────────────────────────────────
