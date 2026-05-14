@@ -1106,17 +1106,9 @@ function _initUnifiedFrame() {
   st.contentGroup.add(coverMesh);
   st.unifiedFrameCover = coverMesh;
 
-  // Outline: flat dark thin rim na vnější hraně coveru
-  const outlineMesh = new THREE.Mesh(outlineGeom, outlineMat);
-  outlineMesh.position.set(0, 0, outlineZ);
-  outlineMesh.renderOrder   = 2;
-  outlineMesh.frustumCulled = false;
-  st.contentGroup.add(outlineMesh);
-  st.unifiedFrameOutline = outlineMesh;
-
-  console.log('[render3d_bottom] layered mask built — band:', BAND_WIDTH,
-    '| cover:', COVER_W, '| outline:', OUTLINE_W,
-    '| inner:', innerPts.length, '| band outer:', bandOuterPts.length);
+  // Outline mesh úmyslně VYPNUTÉ — řešíme krok po kroku
+  console.log('[render3d_bottom] layered mask (no outline) — band:', BAND_WIDTH,
+    '| cover:', COVER_W, '| inner:', innerPts.length, '| band outer:', bandOuterPts.length);
 }
 
 // v73.68: minimal safe test rendering — paralelní offset jako tenká bright ring.
