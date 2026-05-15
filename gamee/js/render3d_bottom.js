@@ -324,6 +324,7 @@ function init() {
 
   // Canvas musí pokrýt nejširší area (carriers/pending = 420 px, belt = 360 px)
   const carrEl     = document.getElementById('carriers-wrap');
+  const carrGridEl = document.getElementById('carriers-grid');  // v73.122: skutečné řady (ne wrap s paddingem)
   const pendWrapEl = document.getElementById('pending-wrap');
   let widestRect = beltRect;
   if (carrEl && carrEl.getBoundingClientRect().width > widestRect.width) widestRect = carrEl.getBoundingClientRect();
@@ -364,8 +365,11 @@ function init() {
   if (pendRect) {
     st.pendingTopCSS = Math.round(pendRect.top - gameRect.top) - canvasTop;
   }
-  if (carrEl) {
-    const cR = carrEl.getBoundingClientRect();
+  // v73.122: měříme #carriers-grid místo #carriers-wrap → first row top + last row bottom
+  // (frame se anchoruje na reálné buňky, ne na wrap padding)
+  const carrGridForMeas = carrGridEl || carrEl;
+  if (carrGridForMeas) {
+    const cR = carrGridForMeas.getBoundingClientRect();
     st.carriersTopCSS    = Math.round(cR.top    - gameRect.top) - canvasTop;
     st.carriersBottomCSS = Math.round(cR.bottom - gameRect.top) - canvasTop;
   }
@@ -1000,7 +1004,8 @@ function _measureFramePositions() {
     const r = pendEl.getBoundingClientRect();
     st.pendingTopCSS = Math.round(r.top - gameRect.top) - canvasTop;
   }
-  const carrEl = document.getElementById('carriers-wrap');
+  // v73.122: měříme #carriers-grid místo #carriers-wrap → first row top / last row bottom
+  const carrEl = document.getElementById('carriers-grid') || document.getElementById('carriers-wrap');
   if (carrEl) {
     const cR = carrEl.getBoundingClientRect();
     st.carriersTopCSS    = Math.round(cR.top    - gameRect.top) - canvasTop;
@@ -1073,12 +1078,12 @@ function _initUnifiedFrame() {
   // Vertikální rozdíl skulinaBotCSS→arenaTopCSS = výška oblouku (čím větší, tím výraznější)
   const arenaLeft   = FRAME_ARENA_PAD;
   const arenaRight  = W - FRAME_ARENA_PAD;
-  // v73.121: arenaTopCSS (= konec oblouku) locknut na max FRAME_ARCH_HEIGHT pod
-  // skulinou. Když carriers shift dolů (v73.120 slack distribution), přebytek
-  // se rozloží jako vertikální stěny arény, ne jako stretched bezier oblouk.
-  const carriersBaseTopCSS = st.carriersTopCSS != null ? st.carriersTopCSS - 4 : skulinaBotCSS + 50;
+  // v73.121: arenaTopCSS (= konec oblouku) locknut na max FRAME_ARCH_HEIGHT pod skulinou.
+  // v73.122: anchory měřené z #carriers-grid (= reálné řady). Arch končí 15 px nad
+  // prvni horní řadou. Frame bottom = bottom poslední řady (pin tight).
+  const carriersBaseTopCSS = st.carriersTopCSS != null ? st.carriersTopCSS - 15 : skulinaBotCSS + 50;
   const arenaTopCSS = Math.min(skulinaBotCSS + FRAME_ARCH_HEIGHT, carriersBaseTopCSS);
-  const arenaBotCSS = (st.carriersBottomCSS || H - 30) + 6;  // v73.105: 20→6, pin to bottom
+  const arenaBotCSS = (st.carriersBottomCSS || H - 30);  // v73.122: pin to last row bottom (no +6)
   const frameBotCSS = arenaBotCSS + 6;
 
   const params = {
@@ -2614,8 +2619,10 @@ function resize() {
     const r = pendEl.getBoundingClientRect();
     st.pendingTopCSS = Math.round(r.top - gameRect.top) - canvasTop;
   }
-  if (carrEl) {
-    const cR = carrEl.getBoundingClientRect();
+  // v73.122: měříme #carriers-grid místo #carriers-wrap → first row top / last row bottom
+  const carrGridEl2 = document.getElementById('carriers-grid') || carrEl;
+  if (carrGridEl2) {
+    const cR = carrGridEl2.getBoundingClientRect();
     st.carriersTopCSS    = Math.round(cR.top    - gameRect.top) - canvasTop;
     st.carriersBottomCSS = Math.round(cR.bottom - gameRect.top) - canvasTop;
   }
