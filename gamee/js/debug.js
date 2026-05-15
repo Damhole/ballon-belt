@@ -202,7 +202,7 @@
     if (settingsBtn) {
       var btnSize = 22;
       settingsBtn.style.top  = (funnelTop + 4) + 'px';
-      settingsBtn.style.left = (imageRect.right - btnSize - 8) + 'px';
+      settingsBtn.style.left = (imageRect.right - btnSize - 3) + 'px';
     }
 
     // Overlay — zarovnaný s deckem (image-area X bounds), TOP nad funnel area.
