@@ -236,6 +236,48 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 - `FLOOR_SHIFT_Y = 12` (floor dno přesun)
 - `BAND_WIDTH = 6` (miter offset width)
 
+#### ✅ Hotovo v M9 day 3 (v73.115–167)
+
+**BG atmosphere** (v73.115):
+- Vignette (2. vrstva radial-gradient, dark edges)
+- Film grain (body::before SVG feTurbulence noise, 5.5% opacity)
+- Animated glow pulse (body::after, 9s breathing, 50%→100% opacity)
+- Sparkle particles canvas (30 částic, mix kruhů + 4-cípých hvězdiček, drift + twinkle, bílé) — funguje na všech tématech
+
+**Layout polish + 4-row fix** (v73.116–122):
+- Dev UI offsets (controls margin-top 16, ammo-audit/settings bar 10)
+- 4-row slack distribution: pro málo řad na velkém displeji slack → margin-top na carriers-wrap, MAX_CAVITY_ABOVE = 100 cap
+- Lock arch height: FRAME_ARCH_HEIGHT = 90 konstanta, vertikální stěny arény extendují místo deformace bezier
+- Frame anchory = `#carriers-grid` (reálné řady, ne wrap s paddingem). Arch končí 15 px nad první řadou, frame bottom pin na last row + 5 buffer
+
+**Collider polish** (v73.123–127):
+- DEBUG_COLLIDER_LINE zelená čára pro vizuální debug
+- Sliding kontakt (e=0.0): odebere jen normal komponentu velocity, tangenciální zůstane → ball klouže
+- Arch sampling 20 → 40 → 80 segmentů
+- Smoothed vertex normály: `_smoothPolylineNormals` v render3d_bottom (CCW rotace tangent), collideFunnelSeg lerpuje mezi p1.normal a p2.normal podle t. Kontinuální normal field, žádné step-funkce na hraně mezi segmenty
+
+**Dev UI refactor** (v73.128–135):
+- `#settings-toggle` floating ⚙ button (22 px, white 15% fill, hover 25%, active modrá) — top-right rohu funnel area
+- `#dev-overlay` popover (rounded, backdrop-filter blur, dark transparent bg) — nad funnel area, hidden default
+- `#version-badge` top-left rohu funnel area
+- `.controls` + `#ammo-audit` + safe zone toggle JSem přesunuty do overlay
+- Klik na ⚙ / klik mimo / Shift+D / ?debug=1 → otvírá/zavírá
+- Stats.js disabled v index_local
+
+**Anti-scroll saga + root cause** (v73.136–167):
+- v73.138: revertnuty anti-scroll hacky (position:fixed, touch-action:none, overflow:hidden) — pull-to-refresh musí fungovat
+- v73.139: `min-height: 100dvh` místo 100vh (dynamic viewport, iOS URL bar aware)
+- v73.140: `overflow: hidden` na `#game` — bottom3d-canvas má +400 buffer tail (absolute pos), bez overflow:hidden přispíval k document scroll height
+- v73.151–156: experimenty s body padding (40→0), 100dvh vs visualViewport, vše revertnuto
+- v73.158–165: iterace safeBottom 4/8/12/20/4/12, revert experiments hledající root cause
+- **v73.166 🎯 ROOT CAUSE:** `--carriers-pad-top` je v `render3d_bottom._setCarriersPadTop()` nastavený dynamicky (18 px pro `cellSize ≥ 50`, 4 px pro shrunk). Můj algo měl `WRAP_PAD_TOP = 4` HARDCODED → 14 px discrepance pro TARGET levely:
+  - 4-row TARGET cellSize 54 → real pad 18, algo myslel 4 → grid_top o 14 px níž → game.bottom o 14 px níž → overflow vh → body grows → scrollbar
+  - 5+ row shrunk cellSize < 50 → real pad 4 → consistent s algo → no overflow
+  - **Algo teď PREDIKUJE actual pad:** ESTIMATED_PAD = 18 pro cellSize compute (conservative), pak `actualPadTop = (carrierSize >= 50) ? 18 : 4` pro shift placement. Tím real grid_top = algo's expected.
+- v73.167: safeBottom 20 → 7 px (po root cause fix už není potřeba velký buffer)
+
+**Závěr M9 day 3:** vše funguje. Frame visualy konzistentní napříč levely + viewporty, žádný scrollbar, žádný horizontal jump grafiky na desktopu, sparkles + glow pulse animace, čistý dev UI overlay.
+
 #### 📋 Open v M9 (zbývá)
 
 - **Background atmosphere** — současný stav: CSS gradient `--bg-3d-top → --bg-3d-bottom` per theme. Bod 2 původního scope.
@@ -404,6 +446,23 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v73.167 | `c3e128b` | 2026-05-15 | **safeBottom 20 → 7** (o 2/3 menší). Po v73.166 root cause fix se algo dobře hlídá. |
+| v73.166 | `dcf25e0` | 2026-05-15 | **🎯 ROOT CAUSE fix scrollbar:** algo predikuje --carriers-pad-top podle cellSize (18 px pro TARGET, 4 px pro shrunk). Tím byla 14 px discrepance mezi 4-row a 5+ row levely — algo měl WRAP_PAD_TOP=4 hardcoded, render3d_bottom._setCarriersPadTop nastavil 18 pro TARGET. Algo používá ESTIMATED_PAD=18 pro cellSize compute, pak PREDIKUJE actual pad pro shift placement. |
+| v73.165 | `e4ffe33` | 2026-05-15 | Revert v73.164. |
+| v73.164 | `091b734` | 2026-05-15 | Ground-truth game.height měření (revertnuto). |
+| v73.158-163 | various | 2026-05-15 | Iterace safeBottom 4/8/12/20/4/12, revert experiments hledající root cause. |
+| v73.151-156 | various | 2026-05-15 | Experimenty s body padding (40 vs 0), 100dvh vs visualViewport, revertnuto. |
+| v73.150 | `e0f05b0` | 2026-05-15 | Revert v73.149 (fixed 4 px gap nepomohlo). |
+| v73.140-149 | various | 2026-05-15 | **Anti-scroll saga:** body min-height 100vh→100dvh, overflow:hidden na #game (= bottom3d-canvas +400 buffer tail nepřispěje k document scroll), iterace safeBottom. Cíl: žádný scrollbar napříč resize range. |
+| v73.139 | `2381365` | 2026-05-15 | body min-height: 100vh → 100dvh (dynamic viewport, iOS URL bar aware). |
+| v73.138 | `89222e6` | 2026-05-15 | Revert anti-scroll hacků (touch-action:none, position:fixed, overflow:hidden). Pull-to-refresh musí fungovat. |
+| v73.128-137 | various | 2026-05-15 | **Dev UI refactor:** floating ⚙ button (22 px, white 15% fill) + popover overlay nad funnel area (rounded, backdrop-filter blur). version badge top-left, settings top-right. .controls + #ammo-audit + safe zone toggle uvnitř overlay. Click outside / Shift+D / klik na ⚙ zavírá. Anti-scroll iterace. |
+| v73.123-127 | various | 2026-05-15 | **Collider polish:** debug collider line, sliding kontakt (e=0), 40→80 segmentů arch, smoothed normály na vrcholech polyline pro plynulý sliding skrz inflection point. |
+| v73.122 | `1525592` | 2026-05-15 | **Frame anchory = reálné carrier řady** (ne #carriers-wrap s paddingem). Měření z #carriers-grid. Arch končí 15 px nad první horní řadou, frame bottom pin na last row + 5 buffer. |
+| v73.121 | `a316709` | 2026-05-15 | **Lock arch height na 90 px:** arenaTopCSS = min(skulinaBot+90, carriersTopCSS-15). Pro shifted carriers se vertikální stěny arény natáhnou místo deformace bezier. |
+| v73.120 | `4f21207` | 2026-05-15 | **4-row slack distribution:** pro málo řad na vysokých displejích vznikalo mrtvé místo. Distribuujeme slack jako margin-top na #carriers-wrap → grid se posune dolů, frame se prodlouží. MAX_CAVITY_ABOVE = 100. |
+| v73.118-119 | various | 2026-05-15 | Dev UI offsets — controls margin-top 16 px, ammo-audit + settings bar margin-top 10 px. |
+| v73.116-117 | various | 2026-05-15 | Controls margin-bottom→top fixes (controls má order:100 = pod hrou). |
 | v73.115 | `e8d7c62` | 2026-05-15 | **M9 day 3 start — BG atmosphere.** Vignette (druhá vrstva radial-gradient), film grain (body::before SVG feTurbulence noise), animated glow pulse (body::after 9s breathing), sparkle particles (30 částic, mix kruhů + 4-cípých hvězdiček, pomalý drift + twinkle, bílé — funguje na všech tématech). |
 | v73.114 | `f142459` | 2026-05-14 | **M9 day 2 — Bottom frame complete.** Belt + skulina + arena jako jeden tvar přes miter offset s self-intersection clipping, stencil clipping skryje outer side walls, shaped floor, responzivní rebuild při layout změnách. Multi-segment bezier collider kopíruje visual arch (40 segmentů). Sjednocené světla/materiály s image frame (Lambert, dir 1.55 + hemi 1.85, color #f4b8c8). |
 | v73.50 | `da122b0` | 2026-05-13 | **M9 day 1** — image-area 3D frame (ražba/cavity look), rounded 3D pixely s capsule top, breathing gap (PIXEL_INSET 0.70), height pattern variants (random/wave-h/wave-v/wave-diag/radial/flat), squash&stretch + outline + spark + motion trail na projektily. |
