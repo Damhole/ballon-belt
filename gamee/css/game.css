@@ -177,10 +177,11 @@ body {
   font-family: var(--font-sans);
   background: #111;
   color: var(--color-text-primary);
-  /* v73.152: removed body min-height — 100dvh v CSS mohlo resolve o 1 px
-     větší než visualViewport.height v JS → body grow → scrollbar v middle
-     vh range. Body sedí na content (game), BG gradient fillne viewport přes
-     CSS canvas-level paint (body background standardně). */
+  /* v73.139: 100dvh místo 100vh — dynamic viewport respektuje iOS URL bar.
+     100vh by extend body za visible viewport (when URL bar visible) → scroll.
+     Fallback na 100vh pro old browsers. */
+  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: flex-start;
   justify-content: center;
