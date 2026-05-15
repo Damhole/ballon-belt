@@ -821,6 +821,7 @@ const FRAME_COLOR        = 0xf4b8c8;  // match image frame color (render3d.js li
 const FRAME_EMISSIVE     = 0x4a2f3d;  // mauve fill — lifts dark inner walls bez ambient light
 const FRAME_OUTLINE_COLOR= 0x8a5066;  // mauve-pink rim — match image area box-shadow
 const CORNER_R_BOT       = 20;  // radius zaoblení dolních rohů arény (~5% šířky)
+const FRAME_ARCH_HEIGHT  = 90;  // v73.121: locknutá výška oblouku skulina→arena; přebytek (carriers shift) se přidá k vertikálním stěnám arény místo deformace bezier
 
 function _buildUnifiedFrameGeom(W, p) {
   // Outer shape: velký obdélník přes celou viditelnou oblast (CCW v Y-up)
@@ -1072,7 +1073,11 @@ function _initUnifiedFrame() {
   // Vertikální rozdíl skulinaBotCSS→arenaTopCSS = výška oblouku (čím větší, tím výraznější)
   const arenaLeft   = FRAME_ARENA_PAD;
   const arenaRight  = W - FRAME_ARENA_PAD;
-  const arenaTopCSS = st.carriersTopCSS != null ? st.carriersTopCSS - 4 : skulinaBotCSS + 50;
+  // v73.121: arenaTopCSS (= konec oblouku) locknut na max FRAME_ARCH_HEIGHT pod
+  // skulinou. Když carriers shift dolů (v73.120 slack distribution), přebytek
+  // se rozloží jako vertikální stěny arény, ne jako stretched bezier oblouk.
+  const carriersBaseTopCSS = st.carriersTopCSS != null ? st.carriersTopCSS - 4 : skulinaBotCSS + 50;
+  const arenaTopCSS = Math.min(skulinaBotCSS + FRAME_ARCH_HEIGHT, carriersBaseTopCSS);
   const arenaBotCSS = (st.carriersBottomCSS || H - 30) + 6;  // v73.105: 20→6, pin to bottom
   const frameBotCSS = arenaBotCSS + 6;
 
