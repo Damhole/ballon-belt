@@ -1271,7 +1271,7 @@ function _initUnifiedFrame() {
       params.arenaRight,                       params.arenaTopW,
       params.arenaRight,                       params.arenaTopW
     );
-    const archRightPts = archRight.getPoints(40);  // v73.125: 20→40 finer polyline pro plynulejší sliding
+    const archRightPts = archRight.getPoints(80);  // v73.127: 40→80 dvojnásob jemnější polyline
 
     // Left arch: 2 bezier segmenty
     const archLeft = new THREE.Path();
@@ -1288,7 +1288,7 @@ function _initUnifiedFrame() {
       params.skulinaLeft,                     params.skulinaBotW,
       params.skulinaLeft,                     params.skulinaBotW
     );
-    const archLeftPts = archLeft.getPoints(40);  // v73.125: 20→40 finer polyline pro plynulejší sliding
+    const archLeftPts = archLeft.getPoints(80);  // v73.127: 40→80 dvojnásob jemnější polyline
 
     // v73.113: shift arch dolů o ARCH_Y_SHIFT px aby kolizoval s "hlubší" linií
     // (zadní stěnou kavity, kterou vidíme přes tilt 3D projekce).
