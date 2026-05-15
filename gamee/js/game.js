@@ -5656,12 +5656,8 @@ function _setAdaptiveCarrierSize(columnsArr){
   if (!carrWrap) return;
   const _cs = getComputedStyle(document.documentElement);
   const _insetBottom = parseFloat(_cs.getPropertyValue('--bb-safe-bottom')) || 0;
-  // v73.142: base 12 → 4. Math: game.bottom = grid_bottom + 14 (wrap pad 6 +
-  // game pad 8). Pro game.bottom ≤ vh potřebujeme safeBottom ≥ 3 (jinak body
-  // grows + scrollbar na desktopu → horizontální skok grafiky). 4 = minimal
-  // safety. Frame extenduje téměř k viewport hraně. iOS s notch:
-  // safeBottom = 4+34 = 38 → frame končí vh-38, home indicator respektován.
-  const safeBottom = 4 + _insetBottom;
+  // v73.159: safeBottom base 4 → 8.
+  const safeBottom = 8 + _insetBottom;
 
   // Step 1: měření naturalGridTop (= blue line). Subtrahuje currentShift, aby se
   // přečetla pozice "bez shift" (jinak by recompute s carrWrap.top měřeným
