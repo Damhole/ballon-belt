@@ -1314,7 +1314,8 @@ function _initUnifiedFrame() {
     const coords = [];
     for (const p of debugPts) coords.push(p.x, _worldY(funYtoCanvasY(p.y)), 0);
     // v73.114: debug line vypnutá v produkci. Pro debug zapnout `DEBUG_COLLIDER_LINE = true`
-    const DEBUG_COLLIDER_LINE = false;
+    // v73.123: zapnuto pro ladění frame anchor migrace (carriers-grid)
+    const DEBUG_COLLIDER_LINE = true;
     if (DEBUG_COLLIDER_LINE) {
       const colliderGeom = new THREE.BufferGeometry();
       colliderGeom.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
