@@ -1263,7 +1263,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.144');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.145');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5720,6 +5720,21 @@ function _setAdaptiveCarrierSize(columnsArr){
   r.setProperty('--row-gap',       rowGap + 'px');
   r.setProperty('--game-top-extra', '0px');
   r.setProperty('--carriers-wrap-shift', wrapShift + 'px');
+
+  // v73.145: post-check ground truth — měříme reálnou game.height po aplikaci
+  // shiftu. Status a další elementy mohou mít odlišnou výšku než moje estimace
+  // → game.height + shift > vh → body roste → scrollbar na desktopu → grafika
+  // skočí stranou (re-centering kvůli scrollbar width).
+  // Pokud overflowuje, redukujeme shift dokud game.bottom = vh - 1.
+  const gameEl = document.getElementById('game');
+  if (gameEl) {
+    const gameH = gameEl.getBoundingClientRect().height;
+    const overflow = gameH - (viewportH - 1);  // 1 px safety
+    if (overflow > 0) {
+      const adjustedShift = Math.max(0, wrapShift - Math.ceil(overflow));
+      r.setProperty('--carriers-wrap-shift', adjustedShift + 'px');
+    }
+  }
 }
 // Recompute on resize (rotation, desktop window resize).
 // MUSÍ trigger i 3D mesh update — updateCarriers() čte cbox.getBoundingClientRect()
@@ -6469,7 +6484,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.144');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.145');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6597,7 +6612,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.144');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.145');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7433,7 +7448,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.144');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.145');
       event.detail.callback();
     });
 
