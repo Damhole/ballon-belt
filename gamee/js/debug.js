@@ -197,12 +197,12 @@
       versionBadge.style.zIndex = '160';
     }
 
-    // Settings button — přilepený k pravému okraji #game (ne viewportu).
-    // Y: na úrovni dolní hrany image-area (top funnel area, vedle "60 fps" badge).
+    // Settings button — top-right rohu funnel area / kontejneru (zrcadlově
+    // k version badge vlevo). Uvnitř funnel area, ne vedle frame.
     if (settingsBtn) {
       var btnSize = 22;
-      settingsBtn.style.top  = (funnelTop - btnSize / 2) + 'px';
-      settingsBtn.style.left = (gameRect.right - btnSize - 4) + 'px';
+      settingsBtn.style.top  = (funnelTop + 4) + 'px';
+      settingsBtn.style.left = (imageRect.right - btnSize - 8) + 'px';
     }
 
     // Overlay — zarovnaný s deckem (image-area X bounds), TOP nad funnel area.
