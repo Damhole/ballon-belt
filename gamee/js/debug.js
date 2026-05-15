@@ -171,13 +171,15 @@
     if (state.safezone) refreshSafezone();
   }
 
-  // Dynamic positioning — version badge top-left funnel area, settings button
-  // vpravo na úrovni funnel area mid, overlay nad funnel area.
+  // Dynamic positioning — všechno relativně k #game rect (ne k viewportu),
+  // takže na širokém desktopu button neulítává mimo herní blok.
   function positionFloatingElements() {
-    var imageArea   = document.getElementById('image-area');
+    var game         = document.getElementById('game');
+    var imageArea    = document.getElementById('image-area');
     var carriersGrid = document.getElementById('carriers-grid');
-    if (!imageArea || !carriersGrid) return;
+    if (!game || !imageArea || !carriersGrid) return;
 
+    var gameRect     = game.getBoundingClientRect();
     var imageRect    = imageArea.getBoundingClientRect();
     var carriersRect = carriersGrid.getBoundingClientRect();
     var funnelTop    = imageRect.bottom;
@@ -185,26 +187,29 @@
     var funnelMid    = (funnelTop + funnelBot) / 2;
     var funnelHeight = Math.max(40, funnelBot - funnelTop);
 
-    // Version badge — top-left funnel area
+    // Version badge — top-left funnel area (relativně k image left = deck left)
     var versionBadge = document.getElementById('version-badge');
     if (versionBadge) {
       versionBadge.style.position = 'fixed';
-      versionBadge.style.top = (funnelTop + 6) + 'px';
-      versionBadge.style.left = Math.max(8, imageRect.left + 8) + 'px';
+      versionBadge.style.top   = (funnelTop + 6) + 'px';
+      versionBadge.style.left  = (imageRect.left + 8) + 'px';
       versionBadge.style.right = 'auto';
       versionBadge.style.zIndex = '160';
     }
 
-    // Settings button — pravá strana, vertikálně mid funnel
+    // Settings button — přilepený k pravému okraji #game (ne viewportu),
+    // takže na desktopu zůstává u herního bloku
     if (settingsBtn) {
-      settingsBtn.style.top = (funnelMid - 19) + 'px';
+      var btnSize = 22;
+      settingsBtn.style.top  = (funnelMid - btnSize / 2) + 'px';
+      settingsBtn.style.left = (gameRect.right - btnSize - 4) + 'px';
     }
 
-    // Overlay — pokrývá funnel area, zarovnaný s deckem
+    // Overlay — pokrývá funnel area, zarovnaný s deckem (image-area X bounds)
     if (overlay) {
       overlay.style.top    = (funnelTop + 4) + 'px';
-      overlay.style.left   = Math.max(8, imageRect.left) + 'px';
-      overlay.style.width  = Math.min(imageRect.width, window.innerWidth - 16) + 'px';
+      overlay.style.left   = imageRect.left + 'px';
+      overlay.style.width  = imageRect.width + 'px';
       overlay.style.maxHeight = Math.max(60, funnelHeight - 8) + 'px';
     }
   }
