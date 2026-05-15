@@ -197,11 +197,11 @@
       versionBadge.style.zIndex = '160';
     }
 
-    // Settings button — přilepený k pravému okraji #game (ne viewportu),
-    // takže na desktopu zůstává u herního bloku
+    // Settings button — přilepený k pravému okraji #game (ne viewportu).
+    // Y: na úrovni dolní hrany image-area (top funnel area, vedle "60 fps" badge).
     if (settingsBtn) {
       var btnSize = 22;
-      settingsBtn.style.top  = (funnelMid - btnSize / 2) + 'px';
+      settingsBtn.style.top  = (funnelTop - btnSize / 2) + 'px';
       settingsBtn.style.left = (gameRect.right - btnSize - 4) + 'px';
     }
 
