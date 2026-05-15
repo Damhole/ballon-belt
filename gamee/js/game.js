@@ -5698,7 +5698,12 @@ function _setAdaptiveCarrierSize(columnsArr){
   }
 
   // Step 5: placement — bottom-anchored s cavity cap.
-  const MAX_CAVITY_ABOVE = 100;  // max prázdný mauve prostor nad gridem (cap)
+  // v73.162: cap 100 → 37. 37 = bod kde arch dosáhne přesně full 90 px
+  // (grid_top - 15 - skulinaBot = 90 → grid_top = skulinaBot + 105 = blueLineY + 37).
+  // Pro málo řad: shift se zastaví na 37 → arch full, žádný extra mauve wall.
+  // Pro 5+ řad: bottom-anchored shift < 37 → arch bent (přirozeně).
+  // Konzistentní MAX grid_top napříč všemi levely.
+  const MAX_CAVITY_ABOVE = 37;
   const gridTopBottomAnchored = viewportGridBottomMax - gridHeight;
   const gridTopCavityCapped  = blueLineY + MAX_CAVITY_ABOVE;
   let gridTopFinal = Math.min(gridTopBottomAnchored, gridTopCavityCapped);
