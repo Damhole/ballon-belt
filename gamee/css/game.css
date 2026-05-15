@@ -185,11 +185,7 @@ body {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  /* v73.151: padding 20px 0 40px → 0. Body padding 60 px (top+bot) přidalo
-     k height a způsobilo body.height = game.height + 60 > 100dvh → scrollbar
-     na desktopu v middle vh range. #game má vlastní padding 8 px pro vnitřní
-     spacing — body padding redundantní. Pull-to-refresh + viewport-fit OK. */
-  padding: 0;
+  padding: 20px 0 40px;
 }
 /* Browser default body margin (8 px) je chrome — zrušit, nikdy nebude v ostré hře. */
 html,body{margin:0;padding:0}
