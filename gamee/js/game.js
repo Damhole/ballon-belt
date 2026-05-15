@@ -5665,15 +5665,25 @@ function _setAdaptiveCarrierSize(columnsArr){
   const currentShift = parseFloat(_cs.getPropertyValue('--carriers-wrap-shift')) || 0;
   const wrapTopNow = carrWrap.getBoundingClientRect().top;
   const naturalWrapTop = wrapTopNow - currentShift;
-  const WRAP_PAD_TOP = 4;  // matches CSS body.renderer-3d #bottom-deck #carriers-wrap padding-top
-  const blueLineY = naturalWrapTop + WRAP_PAD_TOP;
+
+  // v73.166: --carriers-pad-top je SET DYNAMICKY v render3d_bottom._setCarriersPadTop:
+  // 18 px když cellSize ≥ 50 (= TARGET breathing room), 4 px když shrunk (< 50).
+  // Algoritmus musí toto předpovědět, jinak shift counts s 14 px chybou:
+  // - 4-row level (TARGET cellSize): real pad = 18, algo zde počítal 4 → real
+  //   grid_top je 14 px níž → real game.bottom 14 px níž → overflow vh → scrollbar.
+  // - 5+ row level shrunk (pad = 4): consistent.
+  // Tím byly nekonzistence mezi 4-row a 5-row reportované userem.
 
   // Step 2: dolní limit gridu (= max grid_bottom Y).
   const FRAME_LIP_BELOW = 11;  // 5 buffer + 6 lip (grid_bottom → frame_outer_bottom)
-  const viewportGridBottomMax = Math.max(blueLineY + 60, viewportH - safeBottom - FRAME_LIP_BELOW);
+  // Conservative estimate: assume pad = 18 (worst case = less room). Pokud
+  // actual pad bude 4, máme víc room → cellSize stejně fit, jen víc empty BG.
+  const ESTIMATED_PAD_TOP = 18;
+  const estimatedBlueLineY = naturalWrapTop + ESTIMATED_PAD_TOP;
+  const viewportGridBottomMax = Math.max(estimatedBlueLineY + 60, viewportH - safeBottom - FRAME_LIP_BELOW);
 
-  // Step 3: max gridHeight (grid_top = blue, grid_bottom = viewportGridBottomMax).
-  const maxGridHeight = viewportGridBottomMax - blueLineY;
+  // Step 3: max gridHeight (grid_top = estimated blue, grid_bottom = viewportGridBottomMax).
+  const maxGridHeight = viewportGridBottomMax - estimatedBlueLineY;
 
   // Step 4: cellSize — co se vejde, capped TARGET 54. Pod MIN 38 jen pokud
   // MIN by overflowlo (= forced shrink). Gap ~ ratio 0.10.
@@ -5697,8 +5707,13 @@ function _setAdaptiveCarrierSize(columnsArr){
     gridHeight = numRows * carrierSize + (numRows - 1) * rowGap;
   }
 
-  // Step 5: placement — bottom-anchored s cavity cap.
-  const MAX_CAVITY_ABOVE = 100;  // max prázdný mauve prostor nad gridem (cap)
+  // Step 4.5: PREDICT actual pad based on final cellSize (= matches
+  // _setCarriersPadTop logic in render3d_bottom.js).
+  const actualPadTop = (carrierSize >= 50) ? 18 : 4;
+  const blueLineY = naturalWrapTop + actualPadTop;
+
+  // Step 5: placement — bottom-anchored s cavity cap. Použije ACTUAL blueLineY.
+  const MAX_CAVITY_ABOVE = 100;
   const gridTopBottomAnchored = viewportGridBottomMax - gridHeight;
   const gridTopCavityCapped  = blueLineY + MAX_CAVITY_ABOVE;
   let gridTopFinal = Math.min(gridTopBottomAnchored, gridTopCavityCapped);
