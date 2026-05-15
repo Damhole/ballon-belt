@@ -482,6 +482,9 @@ body.renderer-3d #bottom-deck #pending-wrap { padding: 6px 30px 4px; }
    místa pod gridem). Top je přes CSS var --carriers-pad-top (JS set podle místa). */
 body.renderer-3d #bottom-deck #carriers-wrap {
   padding: var(--carriers-pad-top, 4px) 16px 6px;
+  /* v73.120: shift dolů když 4-5 řad nechává prázdné místo na vysokých displejích.
+     JS _setAdaptiveCarrierSize() počítá hodnotu z (usable - neededAtTarget) × 0.6. */
+  margin-top: var(--carriers-wrap-shift, 0px);
 }
 /* Carriers cells — adaptivní velikost přes CSS var (--carrier-size).
    Default 54px (fallback v var()). JS _setAdaptiveCarrierSize() nastavuje
