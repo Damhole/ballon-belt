@@ -5656,8 +5656,9 @@ function _setAdaptiveCarrierSize(columnsArr){
   if (!carrWrap) return;
   const _cs = getComputedStyle(document.documentElement);
   const _insetBottom = parseFloat(_cs.getPropertyValue('--bb-safe-bottom')) || 0;
-  // v73.161: safeBottom base 20.
-  const safeBottom = 20 + _insetBottom;
+  // v73.167: safeBottom base 20 → 7 (= o 2/3 menší). Po v73.166 root cause
+  // fix se algo dobře hlídá, žádný velký buffer není potřeba.
+  const safeBottom = 7 + _insetBottom;
 
   // Step 1: měření naturalGridTop (= blue line). Subtrahuje currentShift, aby se
   // přečetla pozice "bez shift" (jinak by recompute s carrWrap.top měřeným
