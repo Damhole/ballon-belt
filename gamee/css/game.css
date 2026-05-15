@@ -170,23 +170,9 @@ body.theme-neon #carriers-wrap {
     inset 0 -8px 14px rgba(0, 0, 0, 0.70);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-/* v73.128/136/137: anti-scroll — hra musí vždy fit do viewportu, žádné drag-scroll.
-   position: fixed pouze na BODY (ne html) — html fixed rozbíjelo BG rendering.
-   touch-action: none blokuje mobile pan gesta. */
-html {
-  height: 100%;
-  overflow: hidden;
-}
-body {
-  height: 100%;
-  width: 100%;
-  overflow: hidden;
-  overscroll-behavior: none;
-  position: fixed;
-  top: 0;
-  left: 0;
-  touch-action: none;
-}
+/* v73.138: revert anti-scroll hacků — pull-to-refresh musí fungovat.
+   Místo toho zajistím že herní obsah se vejde do viewportu, takže není
+   co scrollovat. Žádný overflow:hidden, position:fixed, touch-action:none. */
 body {
   font-family: var(--font-sans);
   background: #111;
