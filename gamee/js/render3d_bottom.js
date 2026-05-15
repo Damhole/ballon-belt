@@ -1083,7 +1083,7 @@ function _initUnifiedFrame() {
   // prvni horní řadou. Frame bottom = bottom poslední řady (pin tight).
   const carriersBaseTopCSS = st.carriersTopCSS != null ? st.carriersTopCSS - 15 : skulinaBotCSS + 50;
   const arenaTopCSS = Math.min(skulinaBotCSS + FRAME_ARCH_HEIGHT, carriersBaseTopCSS);
-  const arenaBotCSS = (st.carriersBottomCSS || H - 30);  // v73.122: pin to last row bottom (no +6)
+  const arenaBotCSS = (st.carriersBottomCSS || H - 30) + 5;  // v73.124: 5 px buffer pod poslední řadou
   const frameBotCSS = arenaBotCSS + 6;
 
   const params = {
