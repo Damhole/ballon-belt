@@ -205,12 +205,14 @@
       settingsBtn.style.left = (gameRect.right - btnSize - 4) + 'px';
     }
 
-    // Overlay — pokrývá funnel area, zarovnaný s deckem (image-area X bounds)
+    // Overlay — zarovnaný s deckem (image-area X bounds), TOP nad funnel area.
+    // BEZ max-height: kdyby content přerostl funnel area, ať se roztáhne dolů
+    // (i přes carriers) místo aby scroll skryl level controls nahoře.
     if (overlay) {
       overlay.style.top    = (funnelTop + 4) + 'px';
       overlay.style.left   = imageRect.left + 'px';
       overlay.style.width  = imageRect.width + 'px';
-      overlay.style.maxHeight = Math.max(60, funnelHeight - 8) + 'px';
+      overlay.style.maxHeight = (window.innerHeight - funnelTop - 20) + 'px';  // jen viewport guard
     }
   }
 

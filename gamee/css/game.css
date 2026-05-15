@@ -681,13 +681,22 @@ body.renderer-3d #restart-btn:hover { background: #5a3050; }
   margin: 0 !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
+  flex-shrink: 0;
 }
 
-/* Override #ammo-audit when inside overlay */
+/* Override #ammo-audit when inside overlay — separator nad chipy */
 #dev-overlay #ammo-audit {
   width: 100% !important;
   margin: 0 !important;
-  padding: 0 !important;
+  padding: 10px 0 0 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
+  flex-shrink: 0;
+}
+
+/* Safe zone pill — top border separator */
+#dev-overlay .dbg-pill {
+  margin-top: 4px;
+  flex-shrink: 0;
 }
 
 /* Version badge — vždy viditelný (fixed pos JS-set), top-left funnel area */
