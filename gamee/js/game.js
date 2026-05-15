@@ -495,6 +495,64 @@ function initParticleCanvas(){
   particleCtx=particleCanvas.getContext('2d');
 }
 
+// ─── BG ATMOSPHERE: sparkle particles (v73.115) ──────────────────────────
+let _bgParticleRAF = null;
+function _initBgParticles(){
+  if(RENDERER_MODE!=='3d')return;
+  const canvas=document.getElementById('bg-canvas');
+  if(!canvas)return;
+  if(_bgParticleRAF){cancelAnimationFrame(_bgParticleRAF);_bgParticleRAF=null;}
+  const ctx=canvas.getContext('2d');
+  let W,H;
+  function resize(){W=canvas.width=window.innerWidth;H=canvas.height=window.innerHeight;}
+  resize();
+  window.addEventListener('resize',resize,{passive:true});
+  const N=30;
+  const pts=[];
+  for(let i=0;i<N;i++){
+    pts.push({
+      x:Math.random()*window.innerWidth,
+      y:Math.random()*window.innerHeight,
+      r:0.9+Math.random()*2.0,
+      star:Math.random()<0.4,
+      vx:(Math.random()-0.5)*0.22,
+      vy:-(0.22+Math.random()*0.42),
+      alpha:0.12+Math.random()*0.32,
+      ph:Math.random()*Math.PI*2,
+      spd:0.018+Math.random()*0.024,
+    });
+  }
+  function drawStar(x,y,r){
+    ctx.beginPath();
+    for(let i=0;i<8;i++){
+      const a=(i/8)*Math.PI*2-Math.PI/2;
+      const len=i%2===0?r:r*0.36;
+      i===0?ctx.moveTo(x+Math.cos(a)*len,y+Math.sin(a)*len)
+           :ctx.lineTo(x+Math.cos(a)*len,y+Math.sin(a)*len);
+    }
+    ctx.closePath();ctx.fill();
+  }
+  function tick(){
+    ctx.clearRect(0,0,W,H);
+    for(const p of pts){
+      p.ph+=p.spd;
+      p.x+=p.vx+Math.sin(p.ph*0.55)*0.16;
+      p.y+=p.vy;
+      if(p.y<-8){p.y=H+5;p.x=Math.random()*W;}
+      if(p.x<-8)p.x=W+5;
+      if(p.x>W+8)p.x=-5;
+      ctx.globalAlpha=p.alpha*(0.4+0.6*Math.abs(Math.sin(p.ph)));
+      ctx.fillStyle='#ffffff';
+      p.star?drawStar(p.x,p.y,p.r*1.7):
+        (ctx.beginPath(),ctx.arc(p.x,p.y,p.r,0,Math.PI*2),ctx.fill());
+    }
+    ctx.globalAlpha=1;
+    _bgParticleRAF=requestAnimationFrame(tick);
+  }
+  tick();
+}
+// ─────────────────────────────────────────────────────────────────────────
+
 // Najde nejbližší pixel dané barvy v gridu (display souřadnice)
 // Pozor: ignoruje pixely pod živými bloky (projektil by je nemohl trefit).
 function nearestSameColor(ci,px,py){
@@ -1205,7 +1263,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.114');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.115');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6358,7 +6416,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.114');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.115');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6486,7 +6544,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.114');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.115');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7275,6 +7333,7 @@ function initGame(){
   if(!_diffFromUrl)difficulty=resolveDefaultDifficulty(currentLevel);
   setupDOM();
   initParticleCanvas();
+  _initBgParticles();
   // beltLoop se spustí až ve startLevel (po inicializaci stavu) – jinak by crashnul na undefined belt/grid
 
   gamee.gameInit('FullScreen',{},['saveState'],function(error,data){
@@ -7321,7 +7380,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.114');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.115');
       event.detail.callback();
     });
 

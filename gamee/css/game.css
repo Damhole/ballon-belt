@@ -309,8 +309,43 @@ h1{font-size:16px;font-weight:500;color:var(--color-text-secondary);letter-spaci
    ═══════════════════════════════════════════════════════════════════════ */
 body.renderer-3d {
   background:
+    radial-gradient(ellipse 92% 88% at 50% 50%, transparent 52%, rgba(0,0,0,0.22) 100%),
     radial-gradient(ellipse at top, var(--bg-3d-top) 0%, var(--bg-3d-bottom) 80%);
   color: #fff;
+}
+/* A: film grain — jemná textura přes celý BG */
+body.renderer-3d::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.78' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  opacity: 0.055;
+  pointer-events: none;
+}
+/* B: animated soft glow — pomalu dýchá nahoře */
+body.renderer-3d::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse 100% 50% at 50% 0%, rgba(255,255,255,0.16) 0%, transparent 62%);
+  animation: bgGlow 9s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes bgGlow {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 1.0; }
+}
+/* C: sparkle canvas za hrou */
+#bg-canvas {
+  display: none;
+  position: fixed;
+  top: 0; left: 0;
+  width: 100vw; height: 100vh;
+  pointer-events: none;
+}
+body.renderer-3d #bg-canvas {
+  display: block;
 }
 body.renderer-3d #status {
   color: rgba(255, 255, 255, 0.92);
