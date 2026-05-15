@@ -1263,7 +1263,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.147');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.146');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5709,31 +5709,16 @@ function _setAdaptiveCarrierSize(columnsArr){
   gridTopFinal = Math.max(gridTopFinal, blueLineY);  // never above blue
 
   // Step 6: shift = grid_top - natural (= margin-top na carriers-wrap).
+  const wrapShift = Math.max(0, Math.round(gridTopFinal - blueLineY));
+
   // Cbox inner space: padding 2×2 + gap 1 = 5 px → cell = (carrier-5)/2
   const ballSize = Math.max(14, Math.floor((carrierSize - 5) / 2));
 
-  // v73.147: aplikuj cellSize NEJDŘÍV, pak změř game.height (ground truth).
-  // Status text height, gaps, paddings — nemusíme předpovídat z konstant,
-  // měříme reálně. Pak clamp shift tak, aby game.height + shift ≤ vh - 1.
-  // Tím zaručíme že body neporoste → žádný scrollbar appearance → žádný
-  // horizontal skok grafiky na desktopu při level/resize.
   const r = document.documentElement.style;
   r.setProperty('--carrier-size',  carrierSize + 'px');
   r.setProperty('--ball-size',     ballSize + 'px');
   r.setProperty('--row-gap',       rowGap + 'px');
   r.setProperty('--game-top-extra', '0px');
-
-  // Měření po aplikaci cellSize (DOM reflow forced by getBoundingClientRect).
-  // gameH = aktuální height (s OLD shift). naturalGameH = bez shift.
-  const gameEl = document.getElementById('game');
-  let maxShiftForFit = Infinity;
-  if (gameEl) {
-    const gameH = gameEl.getBoundingClientRect().height;
-    const naturalGameH = gameH - currentShift;
-    maxShiftForFit = Math.max(0, Math.floor(viewportH - naturalGameH - 1));
-  }
-  const desiredShift = Math.max(0, Math.round(gridTopFinal - blueLineY));
-  const wrapShift = Math.min(desiredShift, maxShiftForFit);
   r.setProperty('--carriers-wrap-shift', wrapShift + 'px');
 }
 // Recompute on resize (rotation, desktop window resize).
@@ -6484,7 +6469,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.147');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.146');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6612,7 +6597,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.147');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.146');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7448,7 +7433,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.147');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.146');
       event.detail.callback();
     });
 
