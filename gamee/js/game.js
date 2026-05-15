@@ -1263,7 +1263,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.140');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.141');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5627,71 +5627,80 @@ const CARR_WRAP_PAD    = 26;     // #carriers-wrap padding (4 top + 22 bottom)
 // inputs změní → cache invalidate → plný recompute.
 const _lastAdaptive = { numRows: -1, vhR: -1 };
 function _setAdaptiveCarrierSize(columnsArr){
+  // v73.141: viewport-based frame, bottom-anchored grid s cavity cap.
+  //
+  // Princip:
+  //   1) blueLineY = naturalGridTop (= kde by grid byl bez shift) = horní limit gridu
+  //   2) viewportGridBottomMax = viewportH - safeBottom - frame lip (= dolní limit gridu)
+  //   3) cellSize: největší co fit do (viewportGridBottomMax - blueLineY), capped TARGET 54
+  //   4) grid je BOTTOM-ANCHORED: grid_bottom = viewportGridBottomMax
+  //      ALE s cap MAX_CAVITY_ABOVE — pokud by mezera nad gridem byla > 100 px,
+  //      grid_top se zastaví u (blueLineY + 100). Frame pak nesah k viewport hraně,
+  //      pod ním zůstane BG (gradient + sparkles).
+  //   5) shift = grid_top - naturalGridTop (margin-top na #carriers-wrap)
+  //
+  // Důsledky:
+  //   - 5-7 řad: cellSize ~ TARGET (nebo shrink na úzkém viewportu). Grid fills frame.
+  //   - 3-4 řady na velkém displeji: cellSize = TARGET 54, grid sedí dole, max 100 px
+  //     cavity nad ním. Frame nesah úplně k spodní hraně.
+  //   - 3-4 řady na malém: grid bottom-anchored přímo k viewport bottom.
   const numRows = Math.max(0, ...columnsArr.map(c => c ? c.length : 0));
   if (numRows === 0) return;
-  // visualViewport.height respektuje iOS Safari URL bar (innerHeight někdy
-  // počítá full screen i s URL barem). Fallback na innerHeight pro desktop.
+  // visualViewport.height respektuje iOS Safari URL bar.
   const viewportH = (window.visualViewport && window.visualViewport.height) || window.innerHeight || 817;
-  const vhR = Math.round(viewportH);  // sub-pixel diffs by jinak triggerovaly recompute
+  const vhR = Math.round(viewportH);
   if (_lastAdaptive.numRows === numRows && _lastAdaptive.vhR === vhR) return;
   _lastAdaptive.numRows = numRows;
   _lastAdaptive.vhR = vhR;
   const carrWrap = document.getElementById('carriers-wrap');
-  // safeBottom = base 12 (chrome safety) + iOS home indicator (env safe-area).
-  // Dev UI (controls Level UI, ammo-audit Stats, settings bar) se IGNORUJE —
-  // carriers sizují jako by pod nimi nic nebylo. V dev mode můžou vizuálně
-  // překrývat dev UI, což je akceptovatelný trade-off vs. zbytečně malé
-  // carriers. V produkci žádné dev UI neexistuje → perfektní fit.
-  // CSS var --bb-safe-bottom drží env(safe-area-inset-bottom) hodnotu pro iOS
-  // home indicator (iPhone X+ ~34 px, iPhone SE 0 px).
+  if (!carrWrap) return;
   const _cs = getComputedStyle(document.documentElement);
   const _insetBottom = parseFloat(_cs.getPropertyValue('--bb-safe-bottom')) || 0;
   const safeBottom = 12 + _insetBottom;
-  let available;
-  if (carrWrap) {
-    const top = carrWrap.getBoundingClientRect().top;
-    available = Math.max(140, viewportH - top - safeBottom);
-  } else {
-    available = Math.max(140, viewportH - 540 - safeBottom);  // fallback estimate
+
+  // Step 1: měření naturalGridTop (= blue line). Subtrahuje currentShift, aby se
+  // přečetla pozice "bez shift" (jinak by recompute s carrWrap.top měřeným
+  // se starým shiftem dělal oscilaci — viz v72.45 historie).
+  const currentShift = parseFloat(_cs.getPropertyValue('--carriers-wrap-shift')) || 0;
+  const wrapTopNow = carrWrap.getBoundingClientRect().top;
+  const naturalWrapTop = wrapTopNow - currentShift;
+  const WRAP_PAD_TOP = 4;  // matches CSS body.renderer-3d #bottom-deck #carriers-wrap padding-top
+  const blueLineY = naturalWrapTop + WRAP_PAD_TOP;
+
+  // Step 2: dolní limit gridu (= max grid_bottom Y).
+  const FRAME_LIP_BELOW = 11;  // 5 buffer + 6 lip (grid_bottom → frame_outer_bottom)
+  const viewportGridBottomMax = Math.max(blueLineY + 60, viewportH - safeBottom - FRAME_LIP_BELOW);
+
+  // Step 3: max gridHeight (grid_top = blue, grid_bottom = viewportGridBottomMax).
+  const maxGridHeight = viewportGridBottomMax - blueLineY;
+
+  // Step 4: cellSize — co se vejde, capped TARGET 54. Pod MIN 38 jen pokud
+  // MIN by overflowlo (= forced shrink). Gap ~ ratio 0.10.
+  const denom = numRows + (numRows - 1) * 0.10;
+  const idealCellSize = maxGridHeight / denom;
+  let carrierSize = Math.min(CARR_TARGET_SIZE, Math.floor(idealCellSize));
+  if (carrierSize < CARR_MIN_SIZE) {
+    const minGap = Math.max(3, Math.round(CARR_MIN_SIZE * 0.10));
+    const minGrid = numRows * CARR_MIN_SIZE + (numRows - 1) * minGap;
+    if (minGrid <= maxGridHeight) carrierSize = CARR_MIN_SIZE;
+    // else: keep computed smaller — fit má prioritu nad MIN_SIZE
   }
-  const usable = available - CARR_WRAP_PAD;
-  const neededAtTarget = numRows * CARR_TARGET_SIZE + (numRows - 1) * CARR_TARGET_GAP;
-  let carrierSize, rowGap;
-  if (neededAtTarget <= usable) {
-    // Vejde se v plné velikosti — big phone / desktop
-    carrierSize = CARR_TARGET_SIZE;
-    rowGap = CARR_TARGET_GAP;
-  } else {
-    // Shrink — gap drží ~10 % size. Solve: size × (rows + (rows-1)×0.10) = usable
-    // v72.73: CARR_MIN_SIZE clamp jen pokud at MIN se grid vejde do usable.
-    // Jinak by 7 rows × 38 + gaps overflowlo viewport → poslední řada cut-off.
-    const denom = numRows + (numRows - 1) * 0.10;
-    const ideal = usable / denom;
-    carrierSize = Math.min(CARR_TARGET_SIZE, Math.floor(ideal));
-    if (carrierSize < CARR_MIN_SIZE) {
-      const minGap = Math.max(3, Math.round(CARR_MIN_SIZE * 0.10));
-      const minGrid = numRows * CARR_MIN_SIZE + (numRows - 1) * minGap;
-      if (minGrid <= usable) carrierSize = CARR_MIN_SIZE;
-      // else: keep smaller computed size — fit má prioritu nad MIN_SIZE
-    }
-    rowGap = Math.max(3, Math.round(carrierSize * 0.10));
-  }
+  const rowGap = Math.max(3, Math.round(carrierSize * 0.10));
+  const gridHeight = numRows * carrierSize + (numRows - 1) * rowGap;
+
+  // Step 5: placement — bottom-anchored s cavity cap.
+  const MAX_CAVITY_ABOVE = 100;  // max prázdný mauve prostor nad gridem (cap)
+  const gridTopBottomAnchored = viewportGridBottomMax - gridHeight;
+  const gridTopCavityCapped  = blueLineY + MAX_CAVITY_ABOVE;
+  let gridTopFinal = Math.min(gridTopBottomAnchored, gridTopCavityCapped);
+  gridTopFinal = Math.max(gridTopFinal, blueLineY);  // never above blue
+
+  // Step 6: shift = grid_top - natural (= margin-top na carriers-wrap).
+  const wrapShift = Math.max(0, Math.round(gridTopFinal - blueLineY));
+
   // Cbox inner space: padding 2×2 + gap 1 = 5 px → cell = (carrier-5)/2
   const ballSize = Math.max(14, Math.floor((carrierSize - 5) / 2));
-  // v72.45: Removed adaptive top padding (`--game-top-extra` zůstává 0).
-  // Důvod: výpočet četl carrWrap.top který už zahrnoval předchozí topExtra
-  // → při změně levelu (jiný numRows) se použila špatná available space →
-  // carrier size se nesprávně shrinkoval. Jednodušší fix než oscillation
-  // prevention je floating offset úplně zrušit.
-  // v73.120: pro 4-5 řad na vysokých displejích vzniká pod gridem mrtvý prostor.
-  // Distribuujeme slack jako margin-top na #carriers-wrap → grid se posune dolů,
-  // arch frame se automaticky prodlouží (frame memoize key čte carriersTopCSS).
-  // 60 % slack × clamp [0, 140] → 4 řad iPhone 13 Max ≈ +110 px; 7 řad ≈ 0 px.
-  let wrapShift = 0;
-  if (neededAtTarget < usable) {
-    const slack = usable - neededAtTarget;
-    wrapShift = Math.max(0, Math.min(Math.round(slack * 0.6), 140));
-  }
+
   const r = document.documentElement.style;
   r.setProperty('--carrier-size',  carrierSize + 'px');
   r.setProperty('--ball-size',     ballSize + 'px');
@@ -6443,7 +6452,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.140');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.141');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6571,7 +6580,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.140');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.141');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7407,7 +7416,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.140');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.141');
       event.detail.callback();
     });
 
