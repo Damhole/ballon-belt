@@ -5673,8 +5673,14 @@ function _setAdaptiveCarrierSize(columnsArr){
   const blueLineY = naturalWrapTop + WRAP_PAD_TOP;
 
   // Step 2: dolní limit gridu (= max grid_bottom Y).
+  // v73.155: subtrahujeme body padding-bottom — jinak game.bottom přesáhne
+  // body content area → body grows nad min-height: 100dvh → scrollbar appear
+  // na desktopu v middle vh range. Arch zůstává flexibilní (bendne pro tight
+  // layouty), algoritmus to zohlední přes správný viewport limit.
   const FRAME_LIP_BELOW = 11;  // 5 buffer + 6 lip (grid_bottom → frame_outer_bottom)
-  const viewportGridBottomMax = Math.max(blueLineY + 60, viewportH - safeBottom - FRAME_LIP_BELOW);
+  const bodyStyle = getComputedStyle(document.body);
+  const bodyPadBot = parseFloat(bodyStyle.paddingBottom) || 0;
+  const viewportGridBottomMax = Math.max(blueLineY + 60, viewportH - safeBottom - FRAME_LIP_BELOW - bodyPadBot);
 
   // Step 3: max gridHeight (grid_top = blue, grid_bottom = viewportGridBottomMax).
   const maxGridHeight = viewportGridBottomMax - blueLineY;
