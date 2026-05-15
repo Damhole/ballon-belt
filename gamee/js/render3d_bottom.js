@@ -1296,6 +1296,35 @@ function _initUnifiedFrame() {
     const ARCH_Y_SHIFT = 16;
     F.archSegmentsRight = archRightPts.map(pt => ({ x: pt.x, y: toFunY(pt.y) + ARCH_Y_SHIFT }));
     F.archSegmentsLeft  = archLeftPts.map(pt  => ({ x: pt.x, y: toFunY(pt.y) + ARCH_Y_SHIFT }));
+    // v73.126: precomputed smoothed interior normals per vertex (average of adjacent
+    // edge normals → continuous normal field). collideFunnelSeg lerpuje mezi p1/p2
+    // normálami podle t → ball klouže s plynule se měnící normálou, žádné skoky
+    // na segment-segment hraně. Pravidlo: CCW winding (right arch top→bot, left arch
+    // bot→top oba CCW v Y-down FUN coords), interior = rotace tangenty CCW 90° = (-dy, dx).
+    const _smoothNormals = (pts) => {
+      const n = pts.length;
+      const eN = new Array(n - 1);
+      for (let i = 0; i < n - 1; i++) {
+        const dx = pts[i+1].x - pts[i].x;
+        const dy = pts[i+1].y - pts[i].y;
+        const L = Math.hypot(dx, dy);
+        eN[i] = (L < 1e-4) ? { nx: 0, ny: 0 } : { nx: -dy / L, ny: dx / L };
+      }
+      for (let i = 0; i < n; i++) {
+        let nx, ny;
+        if (i === 0)            { nx = eN[0].nx;     ny = eN[0].ny; }
+        else if (i === n - 1)   { nx = eN[n-2].nx;   ny = eN[n-2].ny; }
+        else {
+          nx = (eN[i-1].nx + eN[i].nx) * 0.5;
+          ny = (eN[i-1].ny + eN[i].ny) * 0.5;
+          const L = Math.hypot(nx, ny);
+          if (L > 1e-4) { nx /= L; ny /= L; }
+        }
+        pts[i].nx = nx; pts[i].ny = ny;
+      }
+    };
+    _smoothNormals(F.archSegmentsRight);
+    _smoothNormals(F.archSegmentsLeft);
     // Update slopeEndY aby vertikální arena walls navazovaly na nový arch konec
     F.slopeEndY = F.archSegmentsRight[F.archSegmentsRight.length - 1].y;
 

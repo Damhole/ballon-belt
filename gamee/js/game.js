@@ -1263,7 +1263,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.125');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.126');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6098,7 +6098,7 @@ function addToPending(ball,spawnX,spawnY){
   ball.waggleThresh=0.18+Math.random()*0.35;
   pending.push(ball);
 }
-function collideFunnelSeg(b,x1,y1,x2,y2){
+function collideFunnelSeg(b,x1,y1,x2,y2,n1x,n1y,n2x,n2y){
   const sx=x2-x1, sy=y2-y1;
   const seg2=sx*sx+sy*sy;
   let t=((b.x-x1)*sx+(b.y-y1)*sy)/seg2;
@@ -6107,14 +6107,24 @@ function collideFunnelSeg(b,x1,y1,x2,y2){
   const dx=b.x-cx, dy=b.y-cy;
   const d=Math.hypot(dx,dy);
   if(d<b.r&&d>0.001){
-    const nx=dx/d, ny=dy/d;
+    let nx,ny;
+    // v73.126: smoothed normal interpolace mezi vertex normálami sousedních segmentů.
+    // Eliminuje step-change normály na segment-segment hraně (inflection point bezieru).
+    // Fallback: ball-to-contact direction (legacy chování pro straight segmenty).
+    if(n1x!==undefined){
+      nx=n1x+(n2x-n1x)*t;
+      ny=n1y+(n2y-n1y)*t;
+      const L=Math.hypot(nx,ny);
+      if(L>0.001){nx/=L;ny/=L;}
+      else{nx=dx/d;ny=dy/d;}
+    } else {
+      nx=dx/d; ny=dy/d;
+    }
     const ov=b.r-d;
     b.x+=nx*ov; b.y+=ny*ov;
     const vn=b.vx*nx+b.vy*ny;
     if(vn<0){
-      // v73.125: sliding kontakt — e=0 odebere jen normal komponentu, tangenciální
-      // zůstane → ball plynule klouže po polyline místo "kick inward" na každém
-      // segmentu (původně e=0.2 dělal stutter mezi sousedními bezier segmenty).
+      // v73.125: sliding kontakt — e=0 odebere jen normal komponentu, tangenciální zůstane
       const e=0.0;
       b.vx-=(1+e)*vn*nx;
       b.vy-=(1+e)*vn*ny;
@@ -6188,15 +6198,15 @@ function updatePending(dt){
         // v73.110: BEZIER ARCH collider — iterace přes sampled arch segments z
         // render3d_bottom.js. Pokud archSegments nedostupné, fallback na linear slope.
         if(FUN.archSegmentsLeft && FUN.archSegmentsRight){
-          // Left arch curve
+          // Left arch curve — v73.126: passing smoothed vertex normály
           for(let i=0;i<FUN.archSegmentsLeft.length-1;i++){
             const p1=FUN.archSegmentsLeft[i], p2=FUN.archSegmentsLeft[i+1];
-            collideFunnelSeg(b,p1.x,p1.y,p2.x,p2.y);
+            collideFunnelSeg(b,p1.x,p1.y,p2.x,p2.y,p1.nx,p1.ny,p2.nx,p2.ny);
           }
-          // Right arch curve
+          // Right arch curve — v73.126: passing smoothed vertex normály
           for(let i=0;i<FUN.archSegmentsRight.length-1;i++){
             const p1=FUN.archSegmentsRight[i], p2=FUN.archSegmentsRight[i+1];
-            collideFunnelSeg(b,p1.x,p1.y,p2.x,p2.y);
+            collideFunnelSeg(b,p1.x,p1.y,p2.x,p2.y,p1.nx,p1.ny,p2.nx,p2.ny);
           }
         } else {
           // Fallback: linear slope
@@ -6433,7 +6443,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.125');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.126');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6561,7 +6571,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.125');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.126');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7397,7 +7407,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.125');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.126');
       event.detail.callback();
     });
 
