@@ -5656,8 +5656,9 @@ function _setAdaptiveCarrierSize(columnsArr){
   if (!carrWrap) return;
   const _cs = getComputedStyle(document.documentElement);
   const _insetBottom = parseFloat(_cs.getPropertyValue('--bb-safe-bottom')) || 0;
-  // v73.161: safeBottom base 20.
-  const safeBottom = 20 + _insetBottom;
+  // v73.164: safeBottom base 4 (target gap od viewport edge). Ground-truth
+  // game.height check níž zaručí no overflow bez nutnosti velkého bufferu.
+  const safeBottom = 4 + _insetBottom;
 
   // Step 1: měření naturalGridTop (= blue line). Subtrahuje currentShift, aby se
   // přečetla pozice "bez shift" (jinak by recompute s carrWrap.top měřeným
@@ -5715,7 +5716,21 @@ function _setAdaptiveCarrierSize(columnsArr){
   r.setProperty('--ball-size',     ballSize + 'px');
   r.setProperty('--row-gap',       rowGap + 'px');
   r.setProperty('--game-top-extra', '0px');
-  r.setProperty('--carriers-wrap-shift', wrapShift + 'px');
+
+  // v73.164: ground-truth měření před aplikací shift. naturalGameH = co by
+  // game měl při shift=0 (= aktuální game.height - currentShift). maxShiftForFit
+  // = kolik shiftu se vejde do vh - 1 (= 1 px safety, body min-height: 100dvh).
+  // Arch bending + ostatní variabilní elementy jsou implicitly included
+  // (= reálné DOM). Tím se vyhneme pre-computed math fudge factoru.
+  const gameEl = document.getElementById('game');
+  let maxShiftForFit = Infinity;
+  if (gameEl) {
+    const gameH = gameEl.getBoundingClientRect().height;
+    const naturalGameH = gameH - currentShift;
+    maxShiftForFit = Math.max(0, Math.floor(viewportH - naturalGameH - 1));
+  }
+  const finalShift = Math.min(wrapShift, maxShiftForFit);
+  r.setProperty('--carriers-wrap-shift', finalShift + 'px');
 }
 // Recompute on resize (rotation, desktop window resize).
 // MUSÍ trigger i 3D mesh update — updateCarriers() čte cbox.getBoundingClientRect()
