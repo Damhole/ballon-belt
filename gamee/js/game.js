@@ -1263,7 +1263,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.141');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.142');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5656,7 +5656,12 @@ function _setAdaptiveCarrierSize(columnsArr){
   if (!carrWrap) return;
   const _cs = getComputedStyle(document.documentElement);
   const _insetBottom = parseFloat(_cs.getPropertyValue('--bb-safe-bottom')) || 0;
-  const safeBottom = 12 + _insetBottom;
+  // v73.142: base 12 → 4. Math: game.bottom = grid_bottom + 14 (wrap pad 6 +
+  // game pad 8). Pro game.bottom ≤ vh potřebujeme safeBottom ≥ 3 (jinak body
+  // grows + scrollbar na desktopu → horizontální skok grafiky). 4 = minimal
+  // safety. Frame extenduje téměř k viewport hraně. iOS s notch:
+  // safeBottom = 4+34 = 38 → frame končí vh-38, home indicator respektován.
+  const safeBottom = 4 + _insetBottom;
 
   // Step 1: měření naturalGridTop (= blue line). Subtrahuje currentShift, aby se
   // přečetla pozice "bez shift" (jinak by recompute s carrWrap.top měřeným
@@ -5685,8 +5690,16 @@ function _setAdaptiveCarrierSize(columnsArr){
     if (minGrid <= maxGridHeight) carrierSize = CARR_MIN_SIZE;
     // else: keep computed smaller — fit má prioritu nad MIN_SIZE
   }
-  const rowGap = Math.max(3, Math.round(carrierSize * 0.10));
-  const gridHeight = numRows * carrierSize + (numRows - 1) * rowGap;
+  let rowGap = Math.max(3, Math.round(carrierSize * 0.10));
+  let gridHeight = numRows * carrierSize + (numRows - 1) * rowGap;
+  // v73.142: safety loop — rowGap = round(cell × 0.1) může overshoot
+  // při floor(ideal) cellSize → gridHeight > maxGridHeight by způsobil overflow.
+  // Reduce cellSize o 1 dokud fits. Typicky 0-2 iterace.
+  while (gridHeight > maxGridHeight && carrierSize > 1) {
+    carrierSize -= 1;
+    rowGap = Math.max(3, Math.round(carrierSize * 0.10));
+    gridHeight = numRows * carrierSize + (numRows - 1) * rowGap;
+  }
 
   // Step 5: placement — bottom-anchored s cavity cap.
   const MAX_CAVITY_ABOVE = 100;  // max prázdný mauve prostor nad gridem (cap)
@@ -6452,7 +6465,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.141');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.142');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6580,7 +6593,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.141');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.142');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7416,7 +7429,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.141');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.142');
       event.detail.callback();
     });
 
