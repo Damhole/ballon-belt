@@ -170,10 +170,14 @@ body.theme-neon #carriers-wrap {
     inset 0 -8px 14px rgba(0, 0, 0, 0.70);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-/* v73.128/136: anti-scroll — hra musí vždy fit do viewportu, žádné drag-scroll.
-   Mobile potřebuje position:fixed + touch-action:none — jinak iOS Safari
-   povolí rubber-band pan i s overflow:hidden. */
-html, body {
+/* v73.128/136/137: anti-scroll — hra musí vždy fit do viewportu, žádné drag-scroll.
+   position: fixed pouze na BODY (ne html) — html fixed rozbíjelo BG rendering.
+   touch-action: none blokuje mobile pan gesta. */
+html {
+  height: 100%;
+  overflow: hidden;
+}
+body {
   height: 100%;
   width: 100%;
   overflow: hidden;
