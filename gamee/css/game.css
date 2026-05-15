@@ -210,8 +210,9 @@ html,body{margin:0;padding:0}
 #belt-label{display:none}
 #belt-svg{width:360px;height:64px;display:block}
 .controls{width:360px;display:flex;flex-direction:column;gap:8px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-secondary);border-radius:12px;padding:10px 14px;overflow:hidden}
-/* Dev controls vždy odsazené od herního obsahu nad nimi (order:100 = pod hrou) */
-body.renderer-3d .controls { margin-top: 16px; }
+/* Dev controls + stats bar vždy odsazené od herního obsahu nad nimi (order:100/200 = pod hrou) */
+body.renderer-3d .controls        { margin-top: 16px; }
+body.renderer-3d #dbg-settings-bar { margin-top: 10px; }
 
 /* v72.77: V 3D módu controls licuje šířkou s bottom-deck (420px), jinak theme
    select chevron přesahuje rounded corner. */
