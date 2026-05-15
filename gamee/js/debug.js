@@ -1,41 +1,40 @@
 // debug.js — dev-only overlay, loaded only by index_local.html
 //
-// Layout: #game je flex-column. Volitelné elementy (.controls, #ammo-audit)
-// dostávají CSS order:100/101 → vždy ZA herní plochou (image/belt/carriers).
-// #dbg-settings-bar je order:200 → úplně poslední flex item.
-// Žádný element hry se nepohybuje při zapínání/vypínání toggleů.
+// v73.128: refactor — floating settings button (⚙) na pravé straně + popover
+// overlay nad funnel area. Veškerá dev UI (level/complexity/theme/stats/safe zone)
+// se ovládá uvnitř overlay. Verze a button se vždy zobrazují, ostatní UI je
+// schované dokud user nezmáčkne ⚙.
 //
-// Klávesa Shift+D otvírá/zavírá settings panel.
-// URL param ?debug=1 auto-otevře panel.
+// Architektura:
+//   - #settings-toggle      = ⚙ floating button (fixed pos vpravo)
+//   - #dev-overlay          = popover container nad funnel area (hidden by default)
+//   - #version-badge        = top-left funnel area (vždy viditelný)
+//   - .controls + #ammo-audit jsou JSem přesunuty do #dev-overlay
+//   - Safe zone toggle = pill v overlay; aktivuje #dbg-info/marker/safe-top/overflow
+//
+// Otevírání: klik na ⚙ nebo Shift+D nebo ?debug=1
+// Zavírání: klik na ⚙ znovu / klik mimo overlay / Shift+D
 (function () {
   'use strict';
 
-  // BASE_W = šířka layout viewportu z <meta viewport content="width=460">.
-  // MIN_W_PHYS / MIN_H_PHYS = nejmenší cílový telefon (iPhone SE 1. gen 320×568 phys).
-  // Browser na takovém telefonu škáluje obsah: 460 CSS px = 320 phys px.
-  // → CSS px výška dostupná na nejmenším telefonu = 568 × (460/320) = 817.
-  // Stejně tak status bar 20 phys → 29 CSS px.
   var BASE_W       = 460;
   var MIN_W_PHYS   = 320;
   var MIN_H_PHYS   = 568;
   var SAFE_TOP_PHYS = 20;
-  var SCALE        = BASE_W / MIN_W_PHYS;          // 1.4375
-  var MIN_H        = Math.round(MIN_H_PHYS * SCALE);    // 817
-  var SAFE_TOP     = Math.round(SAFE_TOP_PHYS * SCALE); // 29
+  var SCALE        = BASE_W / MIN_W_PHYS;
+  var MIN_H        = Math.round(MIN_H_PHYS * SCALE);
+  var SAFE_TOP     = Math.round(SAFE_TOP_PHYS * SCALE);
 
   var panelOpen = false;
-  var state     = { levelui: false, stats: false, safezone: false };
+  var state     = { safezone: false };
 
-  var infoEl, markerEl, safeTopEl, overflowEl, settingsBar, panel;
-
-  // ── Persist ──────────────────────────────────────────────────────────────
+  var overlay, settingsBtn, safezonePill;
+  var infoEl, markerEl, safeTopEl, overflowEl;
 
   function loadState() {
     try {
       var s = JSON.parse(localStorage.getItem('bb-dbg') || '{}');
-      Object.keys(state).forEach(function (k) {
-        if (typeof s[k] === 'boolean') state[k] = s[k];
-      });
+      if (typeof s.safezone === 'boolean') state.safezone = s.safezone;
     } catch (e) {}
   }
 
@@ -43,7 +42,12 @@
     try { localStorage.setItem('bb-dbg', JSON.stringify(state)); } catch (e) {}
   }
 
-  // ── Build ─────────────────────────────────────────────────────────────────
+  function mkEl(tag, id, parent) {
+    var el = document.createElement(tag);
+    el.id  = id;
+    parent.appendChild(el);
+    return el;
+  }
 
   function build() {
     loadState();
@@ -51,22 +55,68 @@
     var game = document.getElementById('game');
     if (!game) return;
 
-    // Přesun volitelných elementů na spodek hry pomocí CSS order.
-    // #game je display:flex flex-direction:column → order funguje na přímých dětech.
-    var controls  = document.querySelector('.controls');
-    var ammoAudit = document.getElementById('ammo-audit');
+    // ── Floating ⚙ settings button — fixed position vpravo ─────────────
+    settingsBtn = document.createElement('button');
+    settingsBtn.id = 'settings-toggle';
+    settingsBtn.type = 'button';
+    settingsBtn.setAttribute('aria-label', 'Settings (Shift+D)');
+    settingsBtn.textContent = '⚙';
+    settingsBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      togglePanel();
+    });
+    document.body.appendChild(settingsBtn);
 
+    // ── Overlay container — nad funnel area, hidden by default ─────────
+    overlay = document.createElement('div');
+    overlay.id = 'dev-overlay';
+    overlay.hidden = true;
+    overlay.addEventListener('click', function (e) {
+      e.stopPropagation(); // klik uvnitř nezavírá
+    });
+    document.body.appendChild(overlay);
+
+    // ── Move .controls (level/complexity/theme) do overlay ─────────────
+    var controls = document.querySelector('.controls');
     if (controls) {
-      controls.style.order   = '100';
-      controls.style.display = 'none';   // skryto, dokud user nezapne Level UI
-    }
-    if (ammoAudit) {
-      ammoAudit.removeAttribute('hidden'); // přebíráme ovládání přes display
-      ammoAudit.style.order   = '101';
-      ammoAudit.style.display = 'none';   // skryto, dokud user nezapne Stats
+      // Reset legacy styly z předchozího designu (order, display)
+      controls.style.removeProperty('order');
+      controls.style.removeProperty('display');
+      overlay.appendChild(controls);
     }
 
-    // Overlay elementy (position:absolute uvnitř #game, mimo flex flow)
+    // ── Move #ammo-audit (stats chips) do overlay ──────────────────────
+    var ammoAudit = document.getElementById('ammo-audit');
+    if (ammoAudit) {
+      ammoAudit.removeAttribute('hidden');
+      ammoAudit.style.removeProperty('order');
+      ammoAudit.style.removeProperty('display');
+      overlay.appendChild(ammoAudit);
+    }
+
+    // ── Safe zone toggle pill ──────────────────────────────────────────
+    safezonePill = document.createElement('button');
+    safezonePill.type = 'button';
+    safezonePill.className = 'dbg-pill' + (state.safezone ? ' active' : '');
+    safezonePill.textContent = 'Safe zone';
+    safezonePill.addEventListener('click', function () {
+      state.safezone = !state.safezone;
+      safezonePill.classList.toggle('active', state.safezone);
+      applySafezone();
+      saveState();
+    });
+    overlay.appendChild(safezonePill);
+
+    // ── Move version-badge do body (out of #game flex) — vždy viditelný
+    var versionBadge = document.getElementById('version-badge');
+    if (versionBadge) {
+      versionBadge.style.removeProperty('position');
+      versionBadge.style.removeProperty('top');
+      versionBadge.style.removeProperty('right');
+      document.body.appendChild(versionBadge);
+    }
+
+    // ── Safe zone overlay markers (position:absolute uvnitř #game) ─────
     infoEl    = mkEl('pre', 'dbg-info',     game);
     markerEl  = mkEl('div', 'dbg-marker',   game);
     markerEl.style.top = MIN_H + 'px';
@@ -78,92 +128,86 @@
     safeTopEl.textContent = 'status bar ' + SAFE_TOP + 'px (= ' + SAFE_TOP_PHYS + 'phys)';
     overflowEl = mkEl('div', 'dbg-overflow', game);
 
-    // Settings bar — order:200, vždy poslední flex item v #game
-    settingsBar = mkEl('div', 'dbg-settings-bar', game);
-
-    // Settings panel — otevírá se nad barem (position:absolute, bottom:100%)
-    panel = mkEl('div', 'dbg-panel', settingsBar);
-
-    // Version badge — přesun z #game do settings baru (vlevo od ⚙)
-    var versionBadge = document.getElementById('version-badge');
-    if (versionBadge) {
-      settingsBar.appendChild(versionBadge);
-    }
-
-    var ITEMS = [
-      { key: 'levelui',  label: 'Level UI' },
-      { key: 'stats',    label: 'Stats' },
-      { key: 'safezone', label: 'Safe zone' },
-    ];
-
-    ITEMS.forEach(function (item) {
-      var pill = document.createElement('div');
-      pill.className = 'dbg-pill' + (state[item.key] ? ' active' : '');
-      pill.textContent = item.label;
-      pill.addEventListener('click', function () {
-        state[item.key] = !state[item.key];
-        pill.classList.toggle('active', state[item.key]);
-        applyKey(item.key);
-        saveState();
-      });
-      panel.appendChild(pill);
+    // ── Click outside overlay → close ─────────────────────────────────
+    document.addEventListener('click', function (e) {
+      if (!panelOpen) return;
+      if (overlay.contains(e.target)) return;
+      if (e.target === settingsBtn) return;
+      togglePanel();
     });
 
-    // ⚙ button — vpravo v settings baru
-    var btn = mkEl('div', 'dbg-btn', settingsBar);
-    btn.textContent = '⚙';
-    btn.title = 'Settings (Shift+D)';
-    btn.addEventListener('click', togglePanel);
-
+    // ── Shift+D shortcut ──────────────────────────────────────────────
     document.addEventListener('keydown', function (e) {
       if (e.shiftKey && e.key === 'D') togglePanel();
     });
 
-    // Aplikuj uložené stavy
-    Object.keys(state).forEach(applyKey);
+    // Apply persisted safezone state
+    applySafezone();
 
-    // Pravidelná aktualizace safe zone readoutu
+    // Periodic safe zone readout refresh
     setInterval(function () { if (state.safezone) refreshSafezone(); }, 500);
-    window.addEventListener('resize', function () { if (state.safezone) refreshSafezone(); });
+    window.addEventListener('resize', function () {
+      if (state.safezone) refreshSafezone();
+      positionFloatingElements();
+    });
 
-    // Auto-open přes ?debug
+    // Reposition na load + průběžně (carriers/funnel layout se mění při level switch)
+    positionFloatingElements();
+    setInterval(positionFloatingElements, 250);
+
+    // Auto-open ?debug
     if (new URLSearchParams(location.search).has('debug')) togglePanel();
   }
 
-  function mkEl(tag, id, parent) {
-    var el = document.createElement(tag);
-    el.id  = id;
-    parent.appendChild(el);
-    return el;
-  }
-
-  // ── Toggle panel ──────────────────────────────────────────────────────────
-
   function togglePanel() {
     panelOpen = !panelOpen;
-    panel.style.display = panelOpen ? 'flex' : 'none';
-    var btn = document.getElementById('dbg-btn');
-    if (btn) btn.classList.toggle('open', panelOpen);
+    overlay.hidden = !panelOpen;
+    if (settingsBtn) settingsBtn.classList.toggle('open', panelOpen);
+    if (panelOpen) positionFloatingElements();
   }
 
-  // ── Apply individual toggle ───────────────────────────────────────────────
-
-  function applyKey(key) {
-    if (key === 'levelui') {
-      var el = document.querySelector('.controls');
-      if (el) el.style.display = state.levelui ? '' : 'none';
-    }
-    if (key === 'stats') {
-      var el = document.getElementById('ammo-audit');
-      if (el) el.style.display = state.stats ? '' : 'none';
-    }
-    if (key === 'safezone') {
-      document.body.classList.toggle('dbg-active', state.safezone);
-      if (state.safezone) refreshSafezone();
-    }
+  function applySafezone() {
+    document.body.classList.toggle('dbg-active', state.safezone);
+    if (state.safezone) refreshSafezone();
   }
 
-  // ── Safe zone overlay refresh ─────────────────────────────────────────────
+  // Dynamic positioning — version badge top-left funnel area, settings button
+  // vpravo na úrovni funnel area mid, overlay nad funnel area.
+  function positionFloatingElements() {
+    var imageArea   = document.getElementById('image-area');
+    var carriersGrid = document.getElementById('carriers-grid');
+    if (!imageArea || !carriersGrid) return;
+
+    var imageRect    = imageArea.getBoundingClientRect();
+    var carriersRect = carriersGrid.getBoundingClientRect();
+    var funnelTop    = imageRect.bottom;
+    var funnelBot    = carriersRect.top;
+    var funnelMid    = (funnelTop + funnelBot) / 2;
+    var funnelHeight = Math.max(40, funnelBot - funnelTop);
+
+    // Version badge — top-left funnel area
+    var versionBadge = document.getElementById('version-badge');
+    if (versionBadge) {
+      versionBadge.style.position = 'fixed';
+      versionBadge.style.top = (funnelTop + 6) + 'px';
+      versionBadge.style.left = Math.max(8, imageRect.left + 8) + 'px';
+      versionBadge.style.right = 'auto';
+      versionBadge.style.zIndex = '160';
+    }
+
+    // Settings button — pravá strana, vertikálně mid funnel
+    if (settingsBtn) {
+      settingsBtn.style.top = (funnelMid - 19) + 'px';
+    }
+
+    // Overlay — pokrývá funnel area, zarovnaný s deckem
+    if (overlay) {
+      overlay.style.top    = (funnelTop + 4) + 'px';
+      overlay.style.left   = Math.max(8, imageRect.left) + 'px';
+      overlay.style.width  = Math.min(imageRect.width, window.innerWidth - 16) + 'px';
+      overlay.style.maxHeight = Math.max(60, funnelHeight - 8) + 'px';
+    }
+  }
 
   function refreshSafezone() {
     if (infoEl) infoEl.textContent = buildInfo();
@@ -181,7 +225,6 @@
     var vw = document.documentElement.clientWidth;
     var vh = document.documentElement.clientHeight;
     var SECTIONS = [
-      ['controls',      'ctrl'],
       ['image-area',    'img '],
       ['belt-wrap',     'belt'],
       ['pending-wrap',  'pend'],
@@ -191,7 +234,6 @@
     SECTIONS.forEach(function (s) {
       var el = document.getElementById(s[0]);
       if (!el) return;
-      // pomineme skryté elementy (display:none → height 0)
       var h = Math.round(el.getBoundingClientRect().height);
       if (h === 0) return;
       total += h;
@@ -213,8 +255,6 @@
     while (s.length < len) s = ' ' + s;
     return s;
   }
-
-  // ── Init ──────────────────────────────────────────────────────────────────
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', build);
