@@ -398,7 +398,8 @@ let _perfManual=false;
 let _perfLowSince=0;
 let _perfHighSince=0;
 let _perfLastChangeAt=0;            // v73.258: timestamp posledního tier change
-const PERF_FPS_DOWN=45;
+const PERF_FPS_DOWN=45;          // HIGH → MED threshold
+const PERF_FPS_DOWN_TO_LOW=29;   // v73.261: MED → LOW threshold (přísnější)
 const PERF_FPS_UP=55;
 const PERF_DOWN_HOLD_MS=4000;       // 2.5→4s — delší hold ať MED stihne zabrat
 const PERF_UP_HOLD_MS=8000;
@@ -432,7 +433,11 @@ function _perfAutoUpdate(fps, ts){
   // v73.258: cooldown po každé tier change → krátké okno bez dalších změn
   // (jinak HIGH→MED→LOW kaskáda dělala 2 flashe rychle za sebou).
   if(ts-_perfLastChangeAt < PERF_CHANGE_COOLDOWN_MS){ _perfLowSince=0; _perfHighSince=0; return; }
-  if(fps<PERF_FPS_DOWN){
+  // v73.261: práh pro downgrade se liší podle current tieru.
+  // HIGH → MED při fps < 45. MED → LOW jen když fps ≤ 29 (přísnější — LOW
+  // znamená sticky shadows-off, takže ji aktivujeme až když to opravdu hoří).
+  const downThreshold = _perfTier === 0 ? PERF_FPS_DOWN : PERF_FPS_DOWN_TO_LOW;
+  if(fps<downThreshold){
     if(!_perfLowSince) _perfLowSince=ts;
     _perfHighSince=0;
     if(_perfTier<2 && ts-_perfLowSince>=PERF_DOWN_HOLD_MS){
@@ -1405,7 +1410,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.260');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.261');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6676,7 +6681,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.260');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.261');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6804,7 +6809,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.260');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.261');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7642,7 +7647,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.260');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.261');
       event.detail.callback();
     });
 
