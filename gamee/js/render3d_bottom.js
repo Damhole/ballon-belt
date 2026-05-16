@@ -1232,7 +1232,7 @@ function _initUnifiedFrame() {
 
   // MeshLambertMaterial — match image frame exact (žádné emissive).
   // Side walls budou lit přes HemisphereLight stejně jako image frame.
-  const cs    = getComputedStyle(document.documentElement);
+  const cs    = getComputedStyle(document.body);
   const bandMat = new THREE.MeshLambertMaterial({
     color:            st._frameColorOverride || FRAME_COLOR,
     stencilWrite:     true,
@@ -2774,7 +2774,7 @@ function rebuildMysteryTexture() {
 function refreshFloorColor() {
   // Floor mesh color je hard-coded při init z --carriers-3d-bg. Refresh po color change.
   if (!st.unifiedFrameFloor) return;
-  const cs = getComputedStyle(document.documentElement);
+  const cs = getComputedStyle(document.body);
   const carriersBg = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
   st.unifiedFrameFloor.material.color.set(carriersBg);
 }
