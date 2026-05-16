@@ -2194,8 +2194,7 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
   const offset = (beltAnim || 0) % BELT_TOTAL;
 
   for (let i = 0; i < BELT_CAP; i++) {
-    if (i >= (beltArr ? beltArr.length : 0)) break;
-    const b = beltArr[i];
+    const b = beltArr ? beltArr[i] : null;
     if (!b) continue;
 
     const xCSSrel = BELT_STARTX + (i * BELT_SPACING + offset) % BELT_TOTAL;

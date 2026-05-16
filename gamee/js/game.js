@@ -382,6 +382,28 @@ const BELT_SPACING=(BELT_ENDX-BELT_STARTX)/(BELT_CAP-1); // ~20
 const BELT_TOTAL=BELT_CAP*BELT_SPACING;            // ~280
 const LAUNCH_X=180;                                // střed pásu – otvor
 const LAUNCH_TRACK=LAUNCH_X-BELT_STARTX;          // ~130
+
+// v73.189: Belt jako sparse pole délky BELT_CAP — null = prázdný slot, ball = obsazený.
+// Loading je position-aware: ball se naloží do slotu jehož vizuální pozice je nejblíž
+// ball.x, a jen pokud je ten slot prázdný. Jinak ball čeká.
+function beltCount(){let c=0;for(let i=0;i<BELT_CAP;i++)if(belt[i])c++;return c;}
+function beltIsFull(){return beltCount()>=BELT_CAP;}
+function beltIsEmpty(){for(let i=0;i<BELT_CAP;i++)if(belt[i])return false;return true;}
+function findBeltLoadSlot(ballX,beltAnim){
+  // ballX je v FUN coords (= canvas X). Belt-svg lokální coord = ballX - beltOffsetX.
+  // 2D: FUN.w=360, beltOffsetX=0. 3D: FUN.w=420, beltOffsetX=30.
+  const beltOffsetX=(FUN.w-360)/2;
+  const target=ballX-beltOffsetX-BELT_STARTX;  // target track pozice (= i*spacing+offset mod total)
+  const offset=beltAnim%BELT_TOTAL;
+  let bestSlot=0, bestDist=Infinity;
+  for(let i=0;i<BELT_CAP;i++){
+    const slotPos=(i*BELT_SPACING+offset)%BELT_TOTAL;
+    let dist=Math.abs(slotPos-target);
+    dist=Math.min(dist,BELT_TOTAL-dist);  // wrap-aware
+    if(dist<bestDist){bestDist=dist;bestSlot=i;}
+  }
+  return bestSlot;
+}
 let noMatchPasses=0;
 let stuckPassCount=0;   // kolikrát v řadě koule prošla bez konzumace (count===0)
 // === POJÍZDNÝ KANON ===
@@ -1263,7 +1285,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.188');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.189');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5566,8 +5588,8 @@ function drawBelt(){
   const ballGrp=mk('g',{'clip-path':'url(#bc)'});
   for(let i=0;i<BELT_CAP;i++){
     const bx=startX+(i*spacing+offset)%totalLen;
-    if(i<belt.length){
-      const b=belt[i];
+    const b=belt[i];
+    if(b){
       const color=COLORS[b.ci];
       if(b.rocket){
         // Raketová koule – tmavé jádro s barevným prstencem a ikonou rakety
@@ -5586,7 +5608,7 @@ function drawBelt(){
   }
   svg.appendChild(ballGrp);
 
-  document.getElementById('belt-count').textContent=belt.length;
+  document.getElementById('belt-count').textContent=beltCount();
 }
 function cntCarriers(){
   let n=0;
@@ -6248,7 +6270,7 @@ function updatePending(dt){
     }
     // Stěny — 3D má bottom-deck shape (narrow top → slope → vertical),
     // 2D klasické V (široko dole, úzko nahoře).
-    const gate=belt.length>=BELT_CAP;
+    const gate=beltIsFull();
     const has3DShape=FUN.slopeEndY!==undefined;
     for(const b of pending){
       if(has3DShape){
@@ -6351,10 +6373,14 @@ function updatePending(dt){
     for(let i=pending.length-1;i>=0;i--){
       const b=pending[i];
       if(b.y+b.r<FUN.narrowY-4){
-        if(belt.length<BELT_CAP){
+        // v73.189: Position-aware load — najdi slot pásu jehož vizuální pozice je nejblíž
+        // ball.x. Naloží jen pokud je ten slot prázdný. Pokud obsazený, kulička čeká
+        // (push down) dokud se prázdný slot nedostane na její pozici.
+        const slotIdx=findBeltLoadSlot(b.x,beltAnim);
+        if(belt[slotIdx]===null){
           pending.splice(i,1);
           delete b.x; delete b.y; delete b.vx; delete b.vy; delete b.r;
-          belt.push(b);
+          belt[slotIdx]=b;
           noMatchPasses=0;
           drawBelt();
         } else {
@@ -6393,7 +6419,7 @@ function drawPending(){
   ctx.moveTo(FUN.wideR,FUN.wideY); ctx.lineTo(FUN.narrowR,FUN.narrowY);
   ctx.stroke();
   // Gate – zobraz čárou nahoře když je pás plný
-  if(belt.length>=BELT_CAP){
+  if(beltIsFull()){
     ctx.strokeStyle='rgba(255,120,120,0.75)';
     ctx.beginPath();
     ctx.moveTo(FUN.narrowL,FUN.narrowY); ctx.lineTo(FUN.narrowR,FUN.narrowY);
@@ -6414,10 +6440,11 @@ function drawPending(){
   }
 }
 function checkLaunchPoint(prevAnim, curAnim){
-  if(!running||belt.length===0)return;
+  if(!running||beltIsEmpty())return;
   const prevOff=prevAnim%BELT_TOTAL;
   const curOff=curAnim%BELT_TOTAL;
-  for(let i=belt.length-1;i>=0;i--){
+  for(let i=BELT_CAP-1;i>=0;i--){
+    if(!belt[i])continue;  // sparse: skip prázdné sloty
     const prevTrack=(i*BELT_SPACING+prevOff)%BELT_TOTAL;
     const curTrack=(i*BELT_SPACING+curOff)%BELT_TOTAL;
     // Kulička prošla otvorem zleva doprava (bez wrap, wrap nemíří přes LAUNCH_TRACK)
@@ -6426,7 +6453,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     const ball=belt[i];
     const color=ball.ci;
     if(ball.ppu<=0){
-      belt.splice(i,1);
+      belt[i]=null;
       drainPending();
       drawBelt();drawPending();
       continue;
@@ -6435,14 +6462,14 @@ function checkLaunchPoint(prevAnim, curAnim){
     const pxNow=countPixels(grid);
     const hasBlockTarget=currentBlocks.some(b=>b.hp>0&&b.color===color);
     if((pxNow[color]||0)===0&&!hasBlockTarget){
-      belt.splice(i,1);
+      belt[i]=null;
       drainPending();
       drawBelt();drawPending();
       continue;
     }
     // Raketová koule – odpal přímo, bez kontroly dosahu / kolizí
     if(ball.rocket){
-      belt.splice(i,1);
+      belt[i]=null;
       drainPending();
       drawBelt();drawPending();
       launchRocket(color);
@@ -6464,11 +6491,12 @@ function checkLaunchPoint(prevAnim, curAnim){
       // Špatná barva – projede dál
       noMatchPasses++;
       // Okamžitá kontrola: pokud žádná barva na pásu nesedí → nemusíme čekat na kolečko
-      const beltColors=new Set(belt.map(b=>b.ci));
+      const beltColors=new Set();
+      for(let k=0;k<BELT_CAP;k++)if(belt[k])beltColors.add(belt[k].ci);
       const anyMatch=[...beltColors].some(c=>avail.has(c));
       if(!anyMatch||noMatchPasses>=BELT_CAP){
         noMatchPasses=0;
-        if(belt.length>=BELT_CAP){endGame(false);return;}
+        if(beltIsFull()){endGame(false);return;}
         if(anyLeft(grid)){
           if(!checkAndWarnAmmoDeficit()) setStatus('Žádná shoda – přidej jinou barvu');
         }
@@ -6503,7 +6531,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     // v průběhu ztratí veškerý target, queue item se popne bez výstřelu (visible loss).
     noMatchPasses=0;
     loops=0;
-    belt.splice(i,1);
+    belt[i]=null;
     drainPending();
     drawBelt();drawPending();
     const count=ball.ppu;
@@ -6512,10 +6540,10 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.188');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.189');
     setStatus('Zásah!');
 
-    if(belt.length===0&&anyLeft(grid)){
+    if(beltIsEmpty()&&anyLeft(grid)){
       setTimeout(()=>{
         if(!running||!anyLeft(grid))return;
         checkAndWarnAmmoDeficit();
@@ -6640,7 +6668,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.188');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.189');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -6666,7 +6694,7 @@ function startLevel(){
   playTimer=setInterval(function(){if(!paused&&running)playTime++;},1000);
   gamee.gameStart();
   if(!beltLoopStarted){beltLoopStarted=true;lastBeltTime=null;requestAnimationFrame(beltLoop);}
-  grid=makeGrid();belt=[];pending=[];nudgeTimer=0;funnelWarnTimer=0;score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
+  grid=makeGrid();belt=new Array(BELT_CAP).fill(null);pending=[];nudgeTimer=0;funnelWarnTimer=0;score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
   particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;
   // v72.68: reset 3D carrier transition caches — jinak by se carriery nového levelu
   // detekovaly jako "inactive → active" z předchozího levelu (falešné pop animace).
@@ -7136,7 +7164,7 @@ function beltLoop(ts){
         if(dHave<dNeed-0){
           const flyN=particles.filter(p=>p.phase==='fly').length;
           const popN=particles.filter(p=>p.phase==='pop').length;
-          console.warn('[BB-LEAK]',{dHave,dNeed,have:cur.totalHave,need:cur.totalNeed,gunQ:gunQueue.length,fly:flyN,pop:popN,belt:belt.length,pending:pending.length,prev:{have:prev.totalHave,need:prev.totalNeed}});
+          console.warn('[BB-LEAK]',{dHave,dNeed,have:cur.totalHave,need:cur.totalNeed,gunQ:gunQueue.length,fly:flyN,pop:popN,belt:beltCount(),pending:pending.length,prev:{have:prev.totalHave,need:prev.totalNeed}});
         }
       }
       window._driftPrev={totalHave:cur.totalHave,totalNeed:cur.totalNeed};
@@ -7375,7 +7403,7 @@ function _updateFpsCounter(ts){
     particles: typeof particles!=='undefined' ? particles.length : 0,
     flying: typeof particles!=='undefined' ? particles.filter(p=>p.phase==='fly').length : 0,
     pending: typeof pending!=='undefined' ? pending.length : 0,
-    belt: typeof belt!=='undefined' ? belt.length : 0,
+    belt: typeof belt!=='undefined' ? beltCount() : 0,
     blocks: typeof currentBlocks!=='undefined' ? currentBlocks.filter(b=>b.hp>0).length : 0,
     gunQueue: typeof gunQueue!=='undefined' ? gunQueue.length : 0,
   };
@@ -7476,7 +7504,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.188');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.189');
       event.detail.callback();
     });
 
