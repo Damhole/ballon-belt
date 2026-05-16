@@ -761,6 +761,7 @@ function init() {
   st.pendingShadowMesh.count = 0;
   st.pendingShadowMesh.frustumCulled = false;
   st.pendingShadowMesh.renderOrder = 148;
+  st.pendingShadowMesh.visible = false;  // v73.217: shadow disabled per user request
   contentGroup.add(st.pendingShadowMesh);
 
   // ─── Belt balls ───
