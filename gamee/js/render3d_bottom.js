@@ -453,7 +453,8 @@ function init() {
   st.contentGroup = contentGroup;
 
   // Per-theme point light — pozice se nastaví v _initUnifiedFrame po layoutu arény.
-  const themeLight = new THREE.PointLight(0xffffff, 0.0, 0);
+  // decay=0 → flat intensity bez quadratic falloff (jinak při px-rozměrech scény intenzita → 0)
+  const themeLight = new THREE.PointLight(0xffffff, 0.0, 0, 0);
   contentGroup.add(themeLight);
   st.themeLight = themeLight;
 
