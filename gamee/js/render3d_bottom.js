@@ -2137,14 +2137,14 @@ function updatePending(pendingArr, colorsArr) {
     const hexColor = colorsArr ? colorsArr[b.ci] : '#888888';
     c3.set(_hex(hexColor));
 
-    // Squash & stretch: při nárazu XY se rozšíří, Z se zploští, pak se vrátí
+    // Squash & stretch: intenzita úměrná síle nárazu (bounceAmp), max velmi subtilní
     let sx = 1, sz = 1;
     if (b.bounceT0) {
       const k = Math.min(1, (now - b.bounceT0) / SQUASH_DUR_MS);
       if (k < 1) {
-        const squash = Math.cos(k * Math.PI * 0.5) * (1 - k) * 0.28;
+        const squash = Math.cos(k * Math.PI * 0.5) * (1 - k) * 0.10 * (b.bounceAmp || 0);
         sx = 1 + squash;
-        sz = Math.max(0.5, 1 - squash * 0.8);
+        sz = Math.max(0.7, 1 - squash * 0.8);
       }
     }
 
