@@ -39,12 +39,15 @@ const MAX_GHOSTS   = 120;   // 2 per pixel, ~60 simultaneous pixels
 const CA_OFFSET_X  = 4.5;   // horizontal offset in world units
 const CA_OFFSET_Y  = 1.5;   // vertical lift in world units (ghosts float above pixel center)
 const CA_LIFE      = 0.18;  // fade duration (s)
-// v73.237: ambient dust motes — drobné částice klouzající po povrchu pixelů.
-// AdditiveBlending na PlaneGeometry, lehký drift + alpha oscilace = živost materiálu.
-const MAX_DUST       = 18;
-const DUST_SIZE      = 1.4;   // world units (~1.4 px)
-const DUST_SPEED     = 7;     // base drift speed
-const DUST_Z         = 28.6;  // mírně nad PIXEL_DEPTH (28) — vypadá jako klouzání po povrchu
+// v73.238: dust motes — spawn při zničení pixelu, dožijí ~3s a zmizí.
+// Pool pro mass destrukci, dropování nejstarších při přetečení.
+const MAX_DUST       = 60;
+const DUST_SIZE      = 1.6;   // world units (~1.6 px)
+const DUST_SPEED     = 9;     // base drift speed
+const DUST_Z         = 28.6;  // mírně nad PIXEL_DEPTH (28)
+const DUST_LIFE_MIN  = 2.2;   // sekund minimum
+const DUST_LIFE_MAX  = 3.6;   // sekund maximum
+const DUST_PER_HIT   = 2;     // kolik částic spawnuje jeden destroy
 const TILT_DEG = 19.2;        // tilt scény (°) — match Blender Camera.010 X rotation
 const BEVEL_TEX_SIZE = 128;   // rozlišení bevel textury (vyšší = ostřejší highlights)
 // Per-pixel height variation — některé kostky vyšší, aby povrch nebyl rovnoměrný.
@@ -697,25 +700,10 @@ function init(canvas, opts) {
   state.dustMesh.instanceColor = new THREE.InstancedBufferAttribute(
     new Float32Array(MAX_DUST * 3), 3
   );
-  state.dustMesh.count = MAX_DUST;
+  state.dustMesh.count = 0; // prázdné, plní se přes triggerDustBurst
   state.dustMesh.frustumCulled = false;
   state.dustMesh.renderOrder = 38; // pod ghosts, nad pixely
   state.pixelsGroup.add(state.dustMesh);
-  // Inicializace dust částic — náhodně rozprostřené po image area
-  const imgWorldH = state.IMG_GH * SCALE;
-  const fullH = state.GH * SCALE;
-  for (let i = 0; i < MAX_DUST; i++) {
-    const a = Math.random() * Math.PI * 2;
-    state.dust.push({
-      x: Math.random() * state.GW * SCALE,
-      y: (fullH - imgWorldH) + Math.random() * imgWorldH, // world Y v image area
-      vx: Math.cos(a) * DUST_SPEED * (0.5 + Math.random()),
-      vy: Math.sin(a) * DUST_SPEED * (0.3 + Math.random() * 0.7),
-      phase: Math.random() * Math.PI * 2,
-      freq: 0.8 + Math.random() * 1.6,
-      brightness: 0.35 + Math.random() * 0.45,
-    });
-  }
 
   state.ready = true;
   return true;
@@ -825,6 +813,29 @@ function triggerPixelCA(gx, gy, hexColor) {
     t: 0, life: CA_LIFE,
   });
   while (state.ghosts.length > MAX_GHOSTS) state.ghosts.shift();
+}
+
+// v73.238: spawne pár dust motes na zničeném pixelu. Dožijí DUST_LIFE_MIN..MAX
+// sekund, drifují jemně, alpha oscilace přes sin(phase) = šum/kmitání.
+function triggerDustBurst(gx, gy) {
+  if (!state.ready || !state.dustMesh) return;
+  const wx = gx * SCALE + SCALE / 2;
+  const wy = (state.GH - gy) * SCALE - SCALE / 2; // přímo world Y (ne flip přes H-y)
+  for (let i = 0; i < DUST_PER_HIT; i++) {
+    const a = Math.random() * Math.PI * 2;
+    state.dust.push({
+      x: wx + (Math.random() - 0.5) * 4,
+      y: wy + (Math.random() - 0.5) * 4,
+      vx: Math.cos(a) * DUST_SPEED * (0.5 + Math.random() * 0.6),
+      vy: Math.sin(a) * DUST_SPEED * (0.3 + Math.random() * 0.5),
+      phase: Math.random() * Math.PI * 2,
+      freq: 1.4 + Math.random() * 2.2,
+      brightness: 0.45 + Math.random() * 0.45,
+      t: 0,
+      life: DUST_LIFE_MIN + Math.random() * (DUST_LIFE_MAX - DUST_LIFE_MIN),
+    });
+  }
+  while (state.dust.length > MAX_DUST) state.dust.shift();
 }
 
 // Hit bounce při odrazu projektilu od špatné barvy — jen hit pixel + bezprostřední sousedi.
@@ -938,31 +949,42 @@ function updateAnimations(dt) {
     state.ghostMesh.instanceColor.needsUpdate = true;
   }
 
-  // v73.237: ambient dust motes — drift + alpha oscilace přes celé image area
-  if (state.dustMesh && state.dust.length) {
-    const W = state.GW * SCALE;
-    const imgWorldH = state.IMG_GH * SCALE;
-    const yMin = H - imgWorldH;
-    const yMax = H;
-    for (let di = 0; di < state.dust.length; di++) {
+  // v73.238: dust motes — spawned on destroy, drift + shimmer + lifetime fade, pak die
+  if (state.dustMesh) {
+    // 1) update + cull mrtvých (zezadu, aby splice nezbořilo index)
+    for (let di = state.dust.length - 1; di >= 0; di--) {
       const d = state.dust[di];
+      d.t += dt;
+      if (d.t >= d.life) { state.dust.splice(di, 1); continue; }
       d.x += d.vx * dt;
       d.y += d.vy * dt;
       d.phase += d.freq * dt;
-      // wrap přes okraje image area
-      if (d.x < 0) d.x += W; else if (d.x > W) d.x -= W;
-      if (d.y < yMin) d.y += imgWorldH; else if (d.y > yMax) d.y -= imgWorldH;
-      // alpha = 0..brightness, oscilace sinem (Math.max → nikdy negativní)
-      const alpha = d.brightness * Math.max(0, Math.sin(d.phase));
+      d.vx *= 0.985; // jemné tlumení driftu
+      d.vy *= 0.985;
+    }
+    // 2) render instancí
+    let di = 0;
+    for (const d of state.dust) {
+      if (di >= MAX_DUST) break;
+      const tn = d.t / d.life;
+      // envelope: fade in 0..0.15, full 0.15..0.6, fade out 0.6..1
+      let env;
+      if (tn < 0.15) env = tn / 0.15;
+      else if (tn < 0.6) env = 1;
+      else env = 1 - (tn - 0.6) / 0.4;
+      const shimmer = 0.55 + 0.45 * Math.sin(d.phase); // 0.1..1
+      const alpha = d.brightness * env * shimmer;
       _dummy.position.set(d.x, d.y, DUST_Z);
       _dummy.rotation.set(0, 0, 0);
       _dummy.scale.set(1, 1, 1);
       _dummy.updateMatrix();
       state.dustMesh.setMatrixAt(di, _dummy.matrix);
       state.dustMesh.instanceColor.setXYZ(di, alpha, alpha, alpha);
+      di++;
     }
+    state.dustMesh.count = di;
     state.dustMesh.instanceMatrix.needsUpdate = true;
-    state.dustMesh.instanceColor.needsUpdate = true;
+    if (di > 0) state.dustMesh.instanceColor.needsUpdate = true;
   }
 
   // Advance pixel wave timers; refresh grid každý frame dokud vlna běží
@@ -1214,6 +1236,7 @@ if (typeof window !== 'undefined') {
     updateProjectiles,
     triggerPixelDestroy,
     triggerPixelCA,       // v73.228
+    triggerDustBurst,     // v73.238
     triggerPixelWave,
     triggerPixelHit,
     triggerBounceSpark,   // v73.49
