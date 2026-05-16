@@ -57,6 +57,9 @@ const RENDERER_MODE = (function(){
 // v73.240: dočasné vypnutí kruhového 2D pop efektu (rázová vlna + bílý záblesk).
 // Zpátky zapnout: window._DEBUG_DISABLE_POP_CIRCLE = false v DevTools console.
 window._DEBUG_DISABLE_POP_CIRCLE = true;
+// v73.253: 2D rozstřikové shardy (spawnPopShards). 3D shards z render3d.js
+// dělají stejnou práci a nepřebíjí scénu 2D layer.
+window._DEBUG_DISABLE_POP_SHARDS = true;
 // Aktivuje CSS .renderer-3d na body — game.css má pod tím selektorem
 // celé environment styly (pink BG, soft shadows, rounded frames). Stane se
 // jakmile body existuje (může to být před DOMContentLoaded pokud jsme inline).
@@ -502,6 +505,7 @@ function spawnConfetti(){
   });
 }
 function spawnPopShards(x,y,color){
+  if(window._DEBUG_DISABLE_POP_SHARDS) return; // v73.253: 2D rozstřik vypnut, 3D verze v render3d.js
   const n=8;
   for(let i=0;i<n;i++){
     const ang=(i/n)*Math.PI*2+(Math.random()-0.5)*0.7;
@@ -1337,7 +1341,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.252');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.253');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6608,7 +6612,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.252');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.253');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6736,7 +6740,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.252');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.253');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7573,7 +7577,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.252');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.253');
       event.detail.callback();
     });
 

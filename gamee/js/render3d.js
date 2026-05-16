@@ -31,8 +31,8 @@ const MAX_PROJECTILES = 80;    // max projektilů ve vzduchu (real-game ~40)
 //   'shatter'  — pixel exploduje na 6 menších cubes s gravitací
 //   'none'     — žádná animace, instant disappear (legacy 2D look)
 // Aktivace: ?destroy=X v URL. Default = shatter (zábavnější).
-const DESTROY_SHARDS_PER_PIXEL = 6;
-const MAX_SHARDS = 280;
+const DESTROY_SHARDS_PER_PIXEL = 9;   // v73.253: 6 → 9 (bohatší výbuch)
+const MAX_SHARDS = 320;               // pool pro flash + víc shardů
 // v73.228: per-pixel chromatic aberration ghosts — spawned on pixel destroy.
 // 2 flat planes per pixel: red offset right, cyan offset left, AdditiveBlending, fade ~180ms.
 const MAX_GHOSTS   = 120;   // 2 per pixel, ~60 simultaneous pixels
@@ -758,34 +758,59 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
       color: color.clone(), gravity: false,
     });
   };
-  // Helper: spawn shatter shards (small cubes flying out with gravity)
+  // Helper: spawn shatter shards (small cubes flying out with gravity).
+  // v73.253: silnější výbuch — bohatší variace velikostí, počátečních pozic,
+  // rotací a rychlostí. 3 vrstvy: malé rychlé, středně velké, pomalé velké.
   const spawnShatter = (count, speedMul = 1.0, scaleMul = 1.0) => {
     for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
-      const speed = (50 + Math.random() * 60) * speedMul;  // rychlejší výlet (35-80 → 50-110)
+      const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.55;
+      const sizeRoll = Math.random(); // 0..1 dělí shards do velikostních kategorií
+      const isBig    = sizeRoll < 0.18;            // 18% velkých
+      const isSmall  = sizeRoll > 0.65;            // 35% drobných
+      const speed = (isBig ? 35 : (isSmall ? 75 : 55)) * (0.7 + Math.random() * 0.7) * speedMul;
+      const vz0   = (isBig ? 55 : (isSmall ? 110 : 85)) * (0.7 + Math.random() * 0.7) * speedMul;
+      const sSt   = (isBig ? 0.65 : (isSmall ? 0.30 : 0.48)) * scaleMul;
+      const sEn   = sSt * (0.30 + Math.random() * 0.30);
       state.shards.push({
-        x: wx, y: wy, z: PIXEL_LIFT * 1.1,
+        x: wx + (Math.random() - 0.5) * 2.5,
+        y: wy + (Math.random() - 0.5) * 2.5,
+        z: PIXEL_LIFT * (0.95 + Math.random() * 0.25),
         vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed * 0.35,
-        vz: (75 + Math.random() * 90) * speedMul,           // vyšší vz (55-125 → 75-165)
+        vy: Math.sin(angle) * speed * (0.30 + Math.random() * 0.25),
+        vz: vz0,
         rot: Math.random() * Math.PI * 2,
-        vRot: (Math.random() - 0.5) * 16,
-        scaleStart: 0.45 * scaleMul,
-        scaleEnd: 0.18 * scaleMul,
-        t: 0, life: 0.28,           // rychlejší fade (550 → 280ms)
+        vRot: (Math.random() - 0.5) * 22,
+        scaleStart: sSt,
+        scaleEnd: sEn,
+        t: 0, life: 0.24 + Math.random() * 0.18,   // 240–420 ms
         color: color.clone(), gravity: true,
       });
     }
+  };
+  // v73.253: krátký bílý "flash" shard v centru — měkký puls bezprostředně po
+  // destrukci. AdditiveBlending nemá BoxGeometry shard, ale použít bílou
+  // barvu + rychlý fade dává podobný dojem hot spotu.
+  const spawnFlash = () => {
+    state.shards.push({
+      x: wx, y: wy, z: PIXEL_LIFT * 1.2,
+      vx: 0, vy: 0, vz: 30,
+      rot: Math.random() * Math.PI, vRot: 6,
+      scaleStart: 1.05, scaleEnd: 0.20,
+      t: 0, life: 0.10,
+      color: new THREE.Color(0xffffff),
+      gravity: false,
+    });
   };
 
   if (state.destroyMode === 'collapse') {
     spawnCollapse();
   } else if (state.destroyMode === 'shatter') {
+    spawnFlash();                                  // v73.253: centrální puls
     spawnShatter(DESTROY_SHARDS_PER_PIXEL);
   } else if (state.destroyMode === 'combo') {
-    // Best of both — pixel se zhroutí AND zároveň vystřelí menší/méně shardů
     spawnCollapse();
-    spawnShatter(4, 0.85, 0.8); // 4 menší shardy s mírnějším speedem
+    spawnFlash();
+    spawnShatter(5, 0.85, 0.8);
   }
   // Limit shard pool — když přeteče, dropni nejstarší (FIFO)
   while (state.shards.length > MAX_SHARDS) state.shards.shift();
