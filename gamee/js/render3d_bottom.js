@@ -1126,7 +1126,9 @@ function _initUnifiedFrame() {
   let bandOuterPts = _miterOffsetPolygon(innerPts, BAND_WIDTH);
   bandOuterPts = _clipSelfIntersections(bandOuterPts);
 
-  let outlineOuterPts = _miterOffsetPolygon(innerPts, BAND_WIDTH + OUTLINE_W);
+  // v73.193: offsetuj outline z už vyčištěného bandOuter (ne z raw innerPts).
+  // Tím se eliminují self-intersection artifakty na úzkých místech (skulina/krk).
+  let outlineOuterPts = _miterOffsetPolygon(bandOuterPts, OUTLINE_W);
   outlineOuterPts = _clipSelfIntersections(outlineOuterPts);
 
   // Shape builder helper
