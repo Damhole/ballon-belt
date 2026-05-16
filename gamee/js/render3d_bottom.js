@@ -78,8 +78,6 @@ const st = {
   carrierPopAnim: new Map(),
   // Cache active state per carrier pro detekci přechodu inactive→active
   carrierActiveCache: new Map(),
-  // v73.241: ball materials s noise shaderem (uTime se updatuje v render())
-  _ballNoiseMaterials: [],
   // Mystery → active reveal anim: Map<carrierKey, t0>, v72.58
   mysteryRevealAnim: new Map(),
   // Cache hidden visual state per carrier pro detekci mystery → reveal přechodu
@@ -482,40 +480,8 @@ function init() {
   // Toon shader gradient — sdílený mezi všemi materiály
   const toonGrad = _makeToonGradient();
 
-  // v73.242: zviditelněný procedurální noise — vyšší amplituda + spatial freq,
-  // ±7% modulace gl_FragColor. Hash mixuje object-pos a animovaný čas.
-  const _injectBallNoise = (mat) => {
-    mat.onBeforeCompile = (shader) => {
-      shader.uniforms.uTime = { value: 0 };
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>',
-          '#include <common>\nvarying vec3 vBallObjPos;')
-        .replace('#include <begin_vertex>',
-          '#include <begin_vertex>\nvBallObjPos = position;');
-      shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>',
-          '#include <common>\nuniform float uTime;\nvarying vec3 vBallObjPos;\n' +
-          'float _ballHash(vec3 p){p=fract(p*0.3183099+0.1);p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}')
-        .replace('#include <dithering_fragment>',
-          '#include <dithering_fragment>\n' +
-          // v73.248: per-channel drift direction → patches klouzají rozdílně
-          'vec3 _bp_r = floor(vBallObjPos * 0.5 + vec3( uTime * 1.6,  0.0,           0.0));\n' +
-          'vec3 _bp_g = floor(vBallObjPos * 0.5 + vec3( 0.0,          uTime * 1.3,   0.0));\n' +
-          'vec3 _bp_b = floor(vBallObjPos * 0.5 + vec3(-uTime * 1.1,  0.0,           uTime * 0.8));\n' +
-          'float _br = _ballHash(_bp_r);\n' +
-          'float _bg = _ballHash(_bp_g + 13.7);\n' +
-          'float _bb = _ballHash(_bp_b + 27.3);\n' +
-          'gl_FragColor.rgb *= vec3(0.90 + _br*0.20, 0.90 + _bg*0.20, 0.90 + _bb*0.20);');
-      mat.userData.shader = shader;
-    };
-    st._ballNoiseMaterials.push(mat);
-  };
-
-  const ballMat = () => {
-    const m = new THREE.MeshToonMaterial({ gradientMap: toonGrad });
-    _injectBallNoise(m);
-    return m;
-  };
+  // v73.250: ball noise shader odstraněn — koule jsou zpět čistě toon-shaded.
+  const ballMat = () => new THREE.MeshToonMaterial({ gradientMap: toonGrad });
 
   // Carrier slot rounded boxes (3D containery pro koule).
   // v72.12: split-mesh approach — outer + inner separate InstancedMesh.
@@ -2341,15 +2307,6 @@ function render() {
         entry.mat.dispose();
       }
       st.mysteryRevealMeshes.delete(key);
-    }
-  }
-  // v73.241: update uTime na všech ball materiálech s noise shaderem
-  if (st._ballNoiseMaterials && st._ballNoiseMaterials.length) {
-    const tSec = now / 1000;
-    for (const m of st._ballNoiseMaterials) {
-      if (m.userData && m.userData.shader) {
-        m.userData.shader.uniforms.uTime.value = tSec;
-      }
     }
   }
   st.renderer.render(st.scene, st.camera);
