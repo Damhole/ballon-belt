@@ -47,7 +47,7 @@ const DUST_SPEED     = 9;     // base drift speed
 const DUST_Z         = 28.6;  // mírně nad PIXEL_DEPTH (28)
 const DUST_LIFE_MIN  = 2.2;   // sekund minimum
 const DUST_LIFE_MAX  = 3.6;   // sekund maximum
-const DUST_PER_HIT   = 2;     // kolik částic spawnuje jeden destroy
+// v73.251: o třetinu méně — 1 částice, s 33% šancí 2 (průměr ~1.33 místo 2)
 const TILT_DEG = 19.2;        // tilt scény (°) — match Blender Camera.010 X rotation
 const BEVEL_TEX_SIZE = 128;   // rozlišení bevel textury (vyšší = ostřejší highlights)
 // Per-pixel height variation — některé kostky vyšší, aby povrch nebyl rovnoměrný.
@@ -824,7 +824,8 @@ function triggerDustBurst(gx, gy, hexColor) {
   const wx = gx * SCALE + SCALE / 2;
   const wy = (state.GH - gy) * SCALE - SCALE / 2;
   const tintColor = hexColor ? _getColor(hexColor) : null;
-  for (let i = 0; i < DUST_PER_HIT; i++) {
+  const count = 1 + (Math.random() < 0.33 ? 1 : 0); // v73.251: avg 1.33 (−⅓ oproti 2)
+  for (let i = 0; i < count; i++) {
     const a = Math.random() * Math.PI * 2;
     const useTint = tintColor && Math.random() < DUST_TINT_CHANCE;
     state.dust.push({
