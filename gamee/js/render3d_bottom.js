@@ -1237,15 +1237,16 @@ function _initUnifiedFrame() {
   st.contentGroup.add(floorMesh);
   st.unifiedFrameFloor = floorMesh;
 
-  // v73.192: outline mesh zapnut — tenký mauve-pink rim okolo celého ramu, match image frame
-  const outlineMat = new THREE.MeshLambertMaterial({
-    color:    new THREE.Color(0x000000),
-    emissive: new THREE.Color(FRAME_OUTLINE_COLOR),
+  // v73.194: outline jako flat ShapeGeometry (2D, žádné side walls / bocnice).
+  // Polož na front face bandu — flat rim viditelný jako tenká linka kolem celého rámu.
+  const outlineMat = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(FRAME_OUTLINE_COLOR),
   });
-  const outlineGeom = new THREE.ExtrudeGeometry(outlineShape, extrudeOpts);
+  const outlineGeom = new THREE.ShapeGeometry(outlineShape, 4);
   const outlineMesh = new THREE.Mesh(outlineGeom, outlineMat);
-  outlineMesh.position.set(0, 0, frameZ - 0.5);
-  outlineMesh.renderOrder   = 0;
+  // Band extruduje z frameZ do frameZ+FRAME_DEPTH (+bevel ~2). Outline mírně nad front face.
+  outlineMesh.position.set(0, 0, frameZ + FRAME_DEPTH + 3);
+  outlineMesh.renderOrder   = 2;
   outlineMesh.frustumCulled = false;
   st.contentGroup.add(outlineMesh);
   st.unifiedFrameOutline = outlineMesh;
