@@ -573,11 +573,11 @@ function init() {
   st.rowMysteryOutlineMeshes = []; // outline pro mystery — black BackSide, v72.53
 
   // Mystery texture + material — single texture sdílená všemi rows. Animace v render().
-  // MeshToonMaterial s texturou jako map: toon gradient ztlumí side faces jako u
-  // běžných carrierů (depth/shading konzistentní), texture color × toon lighting band.
+  // v73.209: MeshBasicMaterial místo Toon — bez lightingu, rendered color =
+  // texture color přesně (match dev color picker hex). Bylo: Toon dělalo
+  // rendered výrazně jasnější než texture base (light × texture).
   st._mysteryTex = _buildMysteryTexture();
-  st._mysteryMat = new THREE.MeshToonMaterial({
-    gradientMap: toonGrad,
+  st._mysteryMat = new THREE.MeshBasicMaterial({
     map: st._mysteryTex,
     fog: false,
   });
