@@ -498,10 +498,13 @@ function init() {
           'float _ballHash(vec3 p){p=fract(p*0.3183099+0.1);p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}')
         .replace('#include <dithering_fragment>',
           '#include <dithering_fragment>\n' +
-          'vec3 _bp = floor(vBallObjPos * 0.5 + vec3(uTime * 1.8));\n' +
-          'float _br = _ballHash(_bp);\n' +
-          'float _bg = _ballHash(_bp + 13.7);\n' +
-          'float _bb = _ballHash(_bp + 27.3);\n' +
+          // v73.248: per-channel drift direction → patches klouzají rozdílně
+          'vec3 _bp_r = floor(vBallObjPos * 0.5 + vec3( uTime * 1.6,  0.0,           0.0));\n' +
+          'vec3 _bp_g = floor(vBallObjPos * 0.5 + vec3( 0.0,          uTime * 1.3,   0.0));\n' +
+          'vec3 _bp_b = floor(vBallObjPos * 0.5 + vec3(-uTime * 1.1,  0.0,           uTime * 0.8));\n' +
+          'float _br = _ballHash(_bp_r);\n' +
+          'float _bg = _ballHash(_bp_g + 13.7);\n' +
+          'float _bb = _ballHash(_bp_b + 27.3);\n' +
           'gl_FragColor.rgb *= vec3(0.90 + _br*0.20, 0.90 + _bg*0.20, 0.90 + _bb*0.20);');
       mat.userData.shader = shader;
     };
