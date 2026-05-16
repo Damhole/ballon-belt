@@ -1235,7 +1235,7 @@ function _initUnifiedFrame() {
   st.contentGroup.add(floorMesh);
   st.unifiedFrameFloor = floorMesh;
 
-  // Outline mesh vypnuté zatím (řešíme krok po kroku)
+  // v73.192: outline mesh zapnut — tenký mauve-pink rim okolo celého ramu, match image frame
   const outlineMat = new THREE.MeshLambertMaterial({
     color:    new THREE.Color(0x000000),
     emissive: new THREE.Color(FRAME_OUTLINE_COLOR),
@@ -1244,7 +1244,6 @@ function _initUnifiedFrame() {
   const outlineMesh = new THREE.Mesh(outlineGeom, outlineMat);
   outlineMesh.position.set(0, 0, frameZ - 0.5);
   outlineMesh.renderOrder   = 0;
-  outlineMesh.visible = false;  // zatím vypnuto
   outlineMesh.frustumCulled = false;
   st.contentGroup.add(outlineMesh);
   st.unifiedFrameOutline = outlineMesh;
