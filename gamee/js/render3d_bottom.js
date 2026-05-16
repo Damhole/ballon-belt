@@ -482,8 +482,8 @@ function init() {
   // Toon shader gradient — sdílený mezi všemi materiály
   const toonGrad = _makeToonGradient();
 
-  // v73.241: jemný procedurální noise na ball materiálech — pixely v object-space
-  // s pomalou animací času. Multiplikace gl_FragColor o ±3% → balls trochu „žijí".
+  // v73.242: zviditelněný procedurální noise — vyšší amplituda + spatial freq,
+  // ±7% modulace gl_FragColor. Hash mixuje object-pos a animovaný čas.
   const _injectBallNoise = (mat) => {
     mat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = { value: 0 };
@@ -498,11 +498,11 @@ function init() {
           'float _ballHash(vec3 p){p=fract(p*0.3183099+0.1);p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}')
         .replace('#include <dithering_fragment>',
           '#include <dithering_fragment>\n' +
-          'float _bn = _ballHash(floor(vBallObjPos*7.0)+floor(uTime*1.3));\n' +
-          'gl_FragColor.rgb *= (0.97 + _bn * 0.06);');
+          'vec3 _bp = vBallObjPos * 10.0 + vec3(uTime * 2.5);\n' +
+          'float _bn = _ballHash(floor(_bp));\n' +
+          'gl_FragColor.rgb *= (0.93 + _bn * 0.14);');
       mat.userData.shader = shader;
     };
-    mat.customProgramCacheKey = () => 'ballNoise_v1';
     st._ballNoiseMaterials.push(mat);
   };
 
