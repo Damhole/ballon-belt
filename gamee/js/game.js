@@ -1263,7 +1263,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.172');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.173');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6167,8 +6167,21 @@ function collideFunnelSeg(b,x1,y1,x2,y2,n1x,n1y,n2x,n2y){
       const e=0.0;
       b.vx-=(1+e)*vn*nx;
       b.vy-=(1+e)*vn*ny;
+      if(vn<-25) b.bounceT0=performance.now(); // squash trigger jen při výraznějším nárazu
     }
   }
+}
+// Vrátí X souřadnici arch hranice na dané Y přímou interpolací ze segmentů.
+// Přesnější než lineární interpolace narrowL→wideL (arch je bezier, ne přímka).
+function _archXAtY(segs,y){
+  for(let i=0;i<segs.length-1;i++){
+    const y1=segs[i].y,y2=segs[i+1].y;
+    if(y>=Math.min(y1,y2)&&y<=Math.max(y1,y2)){
+      const t=(y2===y1)?0:(y-y1)/(y2-y1);
+      return segs[i].x+t*(segs[i+1].x-segs[i].x);
+    }
+  }
+  return segs[segs.length-1].x;
 }
 function nudgeStuckNearOpening(dt){
   // Periodicky (každých ~0.45s) najdi kouli nejblíže otvoru a pokud má malou rychlost,
@@ -6225,6 +6238,7 @@ function updatePending(dt){
           const e=0.25, imp=(1+e)*vn/2;
           a.vx+=imp*nx; a.vy+=imp*ny;
           b.vx-=imp*nx; b.vy-=imp*ny;
+          if(vn<-20){a.bounceT0=performance.now();b.bounceT0=a.bounceT0;}
         }
       }
     }
@@ -6276,10 +6290,15 @@ function updatePending(dt){
         let lx,rx;
         if(has3DShape){
           if(b.y<=FUN.slopeEndY){
-            // V slope úseku interpoluj mezi narrow a wide
-            const t=(b.y-FUN.narrowY)/(FUN.slopeEndY-FUN.narrowY);
-            lx=FUN.narrowL+t*(FUN.wideL-FUN.narrowL);
-            rx=FUN.narrowR+t*(FUN.wideR-FUN.narrowR);
+            // Použij přesné arch segmenty — bezier není přímka, lineární clamp by pouštěl dovnitř
+            if(FUN.archSegmentsLeft&&FUN.archSegmentsRight){
+              lx=_archXAtY(FUN.archSegmentsLeft,b.y);
+              rx=_archXAtY(FUN.archSegmentsRight,b.y);
+            } else {
+              const t=(b.y-FUN.narrowY)/(FUN.slopeEndY-FUN.narrowY);
+              lx=FUN.narrowL+t*(FUN.wideL-FUN.narrowL);
+              rx=FUN.narrowR+t*(FUN.wideR-FUN.narrowR);
+            }
           } else {
             // Pod slope: vertikální stěny
             lx=FUN.wideL; rx=FUN.wideR;
@@ -6482,7 +6501,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.172');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.173');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6610,7 +6629,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.172');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.173');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7446,7 +7465,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.172');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.173');
       event.detail.callback();
     });
 

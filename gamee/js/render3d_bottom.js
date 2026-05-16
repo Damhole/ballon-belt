@@ -2121,6 +2121,9 @@ function updatePending(pendingArr, colorsArr) {
   const FUN_NARROW_Y = (window.FUN && window.FUN.narrowY) || 14;
   const TOP_CSS      = st.beltCenterY + R_BELT + 2;     // těsně pod beltem
 
+  const SQUASH_DUR_MS = 220; // ms
+  const now = performance.now();
+
   for (const b of (pendingArr || [])) {
     if (idx >= MAX_PENDING) break;
     if (b.x === undefined || b.y === undefined) continue;
@@ -2134,13 +2137,24 @@ function updatePending(pendingArr, colorsArr) {
     const hexColor = colorsArr ? colorsArr[b.ci] : '#888888';
     c3.set(_hex(hexColor));
 
+    // Squash & stretch: při nárazu XY se rozšíří, Z se zploští, pak se vrátí
+    let sx = 1, sz = 1;
+    if (b.bounceT0) {
+      const k = Math.min(1, (now - b.bounceT0) / SQUASH_DUR_MS);
+      if (k < 1) {
+        const squash = Math.cos(k * Math.PI * 0.5) * (1 - k) * 0.28;
+        sx = 1 + squash;
+        sz = Math.max(0.5, 1 - squash * 0.8);
+      }
+    }
+
     dummy.position.set(xW, yW, R_PENDING);
-    dummy.scale.set(1, 1, 1);
+    dummy.scale.set(sx, sx, sz);
     dummy.updateMatrix();
     st.pendingMesh.setMatrixAt(idx, dummy.matrix);
     st.pendingMesh.setColorAt(idx, c3);
     // Outline
-    dummy.scale.set(OUTLINE_SCALE_BALL, OUTLINE_SCALE_BALL, OUTLINE_SCALE_BALL);
+    dummy.scale.set(sx * OUTLINE_SCALE_BALL, sx * OUTLINE_SCALE_BALL, sz * OUTLINE_SCALE_BALL);
     dummy.updateMatrix();
     st.pendingOutlineMesh.setMatrixAt(idx, dummy.matrix);
     // Shadow — disk pod koulí na "podlaze" trychtýře (canvas y těsně pod ball)
