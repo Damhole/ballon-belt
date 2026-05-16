@@ -458,42 +458,6 @@ let introSeq=0;                   // token pro zrušení naplánovaného intra p
 let particles=[],particleCanvas,particleCtx;
 let shards=[];                    // odlétající střípky při zásahu – jen vizuál, nezasahují do fyziky
 let confetti=[];                  // konfety na konci levelu – rozletí se, gravitace, postupně zmizí
-
-// v73.226: Chromatic aberration flash při hromadném ničení pixelů.
-// Sleduje počet zničených pixelů v krátkém okně — při ≥ MASS_THRESH spustí CA efekt.
-const MASS_THRESH=6, MASS_WINDOW_MS=500;
-let _massCount=0, _massT=0, _caTimer=null;
-
-function triggerChromaticAberration(intensity){
-  intensity=Math.max(0,Math.min(1,intensity||0.5));
-  const el=document.getElementById('image-area');
-  if(!el)return;
-  if(_caTimer){clearTimeout(_caTimer);_caTimer=null;}
-  const px=Math.round(2+intensity*5);  // 2–7px offset
-  const a=(0.38+intensity*0.32).toFixed(2); // 0.38–0.70 opacity
-  // Okamžitě nastav — žádná transition při zapnutí
-  el.style.transition='none';
-  el.style.filter=`drop-shadow(${px}px 0 1px rgba(255,30,30,${a})) drop-shadow(-${px}px 0 1px rgba(30,80,255,${a}))`;
-  // Drž peak chvíli, pak CSS transition fade-out
-  _caTimer=setTimeout(()=>{
-    el.style.transition='filter 0.32s ease-out';
-    el.style.filter='';
-    _caTimer=setTimeout(()=>{ el.style.transition=''; _caTimer=null; },350);
-  }, 55+Math.round(intensity*60));
-}
-
-function _trackPixelDestroy(count){
-  count=count||1;
-  const now=performance.now();
-  if(now-_massT>MASS_WINDOW_MS)_massCount=0;
-  _massT=now;
-  _massCount+=count;
-  if(_massCount>=MASS_THRESH){
-    const intensity=Math.min(1,(_massCount-MASS_THRESH)/12+0.4);
-    triggerChromaticAberration(intensity);
-    _massCount=0;
-  }
-}
 function spawnConfetti(){
   const palette=['#ff4fa3','#f5d800','#3dd64a','#5bc8f5','#ff7a1a','#8b4dff','#ffffff','#1b9aff'];
   // Tři výbuchy z dolního okraje – střed, levá, pravá strana
@@ -1349,11 +1313,10 @@ function updateParticles(dt){
           spawnPopShards(h.xx*SCALE+SCALE/2,h.yy*SCALE+SCALE/2,p.color);
         }
         if(destroyed){
-          _trackPixelDestroy(destroyed);
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.226');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.227');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -1506,7 +1469,6 @@ function updateParticles(dt){
         if(ci>=0) window.render3d.triggerPixelDestroy(gx, gy, COLORS[ci]);
       }
       grid[gy][gx]=-1;
-      _trackPixelDestroy(1);
       if(gravityOn)applyGravityToCol(grid,gx);
       drawGrid();
       p.phase='pop'; p.popX=nx; p.popY=ny; p.onPop();
@@ -6617,7 +6579,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.226');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.227');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6745,7 +6707,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.226');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.227');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7581,7 +7543,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.226');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.227');
       event.detail.callback();
     });
 
