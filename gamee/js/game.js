@@ -69,16 +69,16 @@ const _THEMES = ['pink','ocean','sunset','forest','lavender','mono-dark','myster
 // Per-theme defaults pro THREE.js frame materiály (nemění se CSS cascadou).
 // CSS vars (bg-top, bg-bottom, floor) se mění automaticky přes .theme-X třídu.
 const THEME_FRAME_COLORS = {
-  'pink':        { imgFrame: '#f4b8c8', botFrame: '#f4b8c8', outline: '#8a5066', mysteryBase: '#1c0410', lightColor: '#f490b0', lightIntensity: 0.30, frameEmissive: '#2a1018', glowFilter: 'drop-shadow(0 0 6px #d0709088)' },
-  'ocean':       { imgFrame: '#a8d8f0', botFrame: '#a8d8f0', outline: '#3a7090', mysteryBase: '#02080e', lightColor: '#50b0e0', lightIntensity: 0.50, frameEmissive: '#102838', glowFilter: 'drop-shadow(0 0 8px #50b0e090)' },
-  'sunset':      { imgFrame: '#f0c8a0', botFrame: '#f0c8a0', outline: '#904830', mysteryBase: '#180808', lightColor: '#ff8030', lightIntensity: 0.60, frameEmissive: '#301808', glowFilter: 'drop-shadow(0 0 8px #ff803090)' },
-  'forest':      { imgFrame: '#c0dca8', botFrame: '#c0dca8', outline: '#486040', mysteryBase: '#040c06', lightColor: '#50c030', lightIntensity: 0.50, frameEmissive: '#102010', glowFilter: 'drop-shadow(0 0 7px #50c03088)' },
-  'lavender':    { imgFrame: '#d8c8f0', botFrame: '#d8c8f0', outline: '#6848a8', mysteryBase: '#0a0418', lightColor: '#9870e0', lightIntensity: 0.55, frameEmissive: '#201040', glowFilter: 'drop-shadow(0 0 8px #9870e090)' },
-  'mono-dark':   { imgFrame: '#dcdcdc', botFrame: '#dcdcdc', outline: '#606060', mysteryBase: '#060606', lightColor: '#c0c0c0', lightIntensity: 0.25, frameEmissive: '#0e0e0e', glowFilter: 'drop-shadow(0 0 5px #80808060)' },
-  'experiment':  { imgFrame: '#d8c0a8', botFrame: '#d8c0a8', outline: '#785840', mysteryBase: '#060a10', lightColor: '#c08850', lightIntensity: 0.45, frameEmissive: '#201408', glowFilter: 'drop-shadow(0 0 7px #c0885080)' },
-  'experiment2': { imgFrame: '#e8d4a8', botFrame: '#e8d4a8', outline: '#906840', mysteryBase: '#180a28', lightColor: '#c09830', lightIntensity: 0.55, frameEmissive: '#281c08', glowFilter: 'drop-shadow(0 0 8px #c0983088)' },
-  'mystery':     { imgFrame: '#7050b8', botFrame: '#7050b8', outline: '#9060d8', mysteryBase: '#040108', lightColor: '#7030d8', lightIntensity: 0.90, frameEmissive: '#200858', glowFilter: 'drop-shadow(0 0 10px #7030d8aa) drop-shadow(0 0 20px #7030d860)' },
-  'neon':        { imgFrame: '#00e8f8', botFrame: '#00e8f8', outline: '#00b8d0', mysteryBase: '#000002', lightColor: '#00e8f8', lightIntensity: 1.60, frameEmissive: '#004858', glowFilter: 'drop-shadow(0 0 12px #00e8f8cc) drop-shadow(0 0 28px #00e8f880)' },
+  'pink':        { imgFrame: '#f4b8c8', botFrame: '#f4b8c8', outline: '#8a5066', mysteryBase: '#1c0410', lightColor: '#f490b0', lightIntensity: 0.30, frameEmissive: '#2a1018', glowFilter: 'drop-shadow(0 0 3px #d0709040)' },
+  'ocean':       { imgFrame: '#a8d8f0', botFrame: '#a8d8f0', outline: '#3a7090', mysteryBase: '#02080e', lightColor: '#50b0e0', lightIntensity: 0.50, frameEmissive: '#102838', glowFilter: 'drop-shadow(0 0 4px #50b0e048)' },
+  'sunset':      { imgFrame: '#f0c8a0', botFrame: '#f0c8a0', outline: '#904830', mysteryBase: '#180808', lightColor: '#ff8030', lightIntensity: 0.60, frameEmissive: '#301808', glowFilter: 'drop-shadow(0 0 4px #ff803048)' },
+  'forest':      { imgFrame: '#c0dca8', botFrame: '#c0dca8', outline: '#486040', mysteryBase: '#040c06', lightColor: '#50c030', lightIntensity: 0.50, frameEmissive: '#102010', glowFilter: 'drop-shadow(0 0 3px #50c03040)' },
+  'lavender':    { imgFrame: '#d8c8f0', botFrame: '#d8c8f0', outline: '#6848a8', mysteryBase: '#0a0418', lightColor: '#9870e0', lightIntensity: 0.55, frameEmissive: '#201040', glowFilter: 'drop-shadow(0 0 4px #9870e048)' },
+  'mono-dark':   { imgFrame: '#dcdcdc', botFrame: '#dcdcdc', outline: '#606060', mysteryBase: '#060606', lightColor: '#c0c0c0', lightIntensity: 0.25, frameEmissive: '#0e0e0e', glowFilter: 'drop-shadow(0 0 3px #80808030)' },
+  'experiment':  { imgFrame: '#d8c0a8', botFrame: '#d8c0a8', outline: '#785840', mysteryBase: '#060a10', lightColor: '#c08850', lightIntensity: 0.45, frameEmissive: '#201408', glowFilter: 'drop-shadow(0 0 3px #c0885038)' },
+  'experiment2': { imgFrame: '#e8d4a8', botFrame: '#e8d4a8', outline: '#906840', mysteryBase: '#180a28', lightColor: '#c09830', lightIntensity: 0.55, frameEmissive: '#281c08', glowFilter: 'drop-shadow(0 0 4px #c0983040)' },
+  'mystery':     { imgFrame: '#7050b8', botFrame: '#7050b8', outline: '#9060d8', mysteryBase: '#040108', lightColor: '#7030d8', lightIntensity: 0.90, frameEmissive: '#200858', glowFilter: 'drop-shadow(0 0 5px #7030d858) drop-shadow(0 0 10px #7030d830)' },
+  'neon':        { imgFrame: '#00e8f8', botFrame: '#00e8f8', outline: '#00b8d0', mysteryBase: '#000002', lightColor: '#00e8f8', lightIntensity: 1.60, frameEmissive: '#004858', glowFilter: 'drop-shadow(0 0 6px #00e8f870) drop-shadow(0 0 14px #00e8f840)' },
 };
 window._applyThemeFrameColors = function(name) {
   const c = THEME_FRAME_COLORS[name] || THEME_FRAME_COLORS['pink'];
@@ -463,6 +463,7 @@ let introSeq=0;                   // token pro zrušení naplánovaného intra p
 let particles=[],particleCanvas,particleCtx;
 let shards=[];                    // odlétající střípky při zásahu – jen vizuál, nezasahují do fyziky
 let confetti=[];                  // konfety na konci levelu – rozletí se, gravitace, postupně zmizí
+let flashes=[];                   // krátké zábleskové blesky na místě zásahu (additive glow)
 function spawnConfetti(){
   const palette=['#ff4fa3','#f5d800','#3dd64a','#5bc8f5','#ff7a1a','#8b4dff','#ffffff','#1b9aff'];
   // Tři výbuchy z dolního okraje – střed, levá, pravá strana
@@ -539,6 +540,14 @@ function spawnBlockExplosion(blk){
     }
   }
 }
+
+// v73.224: záblesk na místě zásahu — radiální gradient, additive blending.
+// strength 1.0 = pixel hit/blok damage, 1.8 = blok zničen.
+function spawnImpactFlash(x,y,color,strength){
+  strength=strength||1;
+  flashes.push({x,y,color,t:0,life:0.13+strength*0.04,rMax:6+strength*14});
+}
+
 const SCALE=10;
 const PSPEED=320;
 const PSPREAD=0.35;
@@ -1266,6 +1275,10 @@ function updateParticles(dt){
     s.x+=s.vx*dt; s.y+=s.vy*dt;
     s.rot+=s.vrot*dt;
   }
+  for(let i=flashes.length-1;i>=0;i--){
+    flashes[i].t+=dt;
+    if(flashes[i].t>=flashes[i].life)flashes.splice(i,1);
+  }
   for(let i=confetti.length-1;i>=0;i--){
     const c=confetti[i];
     if(c.delay>0){c.delay-=dt;continue;}
@@ -1321,7 +1334,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.223');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.224');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -1425,6 +1438,11 @@ function updateParticles(dt){
           clearPixelsUnderBlock(hitBlock);
           spawnBlockExplosion(hitBlock);
           currentBlocks=currentBlocks.filter(b=>b!==hitBlock);
+          // Velký záblesk při zničení bloku — ze středu bloku
+          spawnImpactFlash((hitBlock.x+hitBlock.w/2)*SCALE,(hitBlock.y+hitBlock.h/2)*SCALE,p.color,1.8);
+        } else {
+          // Menší záblesk při HP damage
+          spawnImpactFlash(nx,ny,p.color,0.8);
         }
         drawGrid();
         if(running&&!anyTargetLeft()){
@@ -1479,6 +1497,7 @@ function updateParticles(dt){
       p.phase='pop'; p.popX=nx; p.popY=ny; p.onPop();
       // 2D pop shards layer — běží v obou módech (user chce kombinaci 2D + 3D).
       spawnPopShards(nx,ny,p.color);
+      spawnImpactFlash(nx,ny,p.color,1.0);
       if(running&&!anyTargetLeft()){
         particles.forEach(q=>{if(q.phase==='fly'){q.phase='pop';q.popX=q.x;q.popY=q.y;}});
         setTimeout(()=>{if(running)endGame(true);},80);
@@ -1577,6 +1596,24 @@ function drawParticles(){
   if(!particleCtx)return;
   particleCtx.clearRect(0,0,360,310);
   drawCannon();
+  // v73.224: impact flashes — additive radial glow, kreslí se za vším ostatním
+  for(const f of flashes){
+    const k=f.t/f.life;
+    const r=2+k*f.rMax;
+    const alpha=Math.pow(1-k,1.4)*0.85;
+    particleCtx.save();
+    particleCtx.globalCompositeOperation='lighter';
+    particleCtx.globalAlpha=alpha;
+    const g=particleCtx.createRadialGradient(f.x,f.y,0,f.x,f.y,r);
+    g.addColorStop(0,'#ffffff');
+    g.addColorStop(0.38,f.color);
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    particleCtx.fillStyle=g;
+    particleCtx.beginPath();
+    particleCtx.arc(f.x,f.y,r,0,Math.PI*2);
+    particleCtx.fill();
+    particleCtx.restore();
+  }
   // V 3D módu: 'fly' fáze projektily renderuje render3d (sphere instances).
   // Rocket/pop/confetti/shards fáze zůstávají 2D na particle-canvas.
   const _use3DProj = RENDERER_MODE==='3d' && window.render3d && window.render3d.isReady && window.render3d.isReady();
@@ -6232,6 +6269,10 @@ function collideFunnelSeg(b,x1,y1,x2,y2,n1x,n1y,n2x,n2y){
       b.vx-=(1+e)*vn*nx;
       b.vy-=(1+e)*vn*ny;
       b.bounceT0=performance.now(); b.bounceAmp=Math.min(1,Math.abs(vn)/180);
+      // v73.224: jiskry v bottom 3D scéně při nárazu koule na stěnu trychtýře
+      if(b.bounceAmp>0.08 && RENDERER_MODE==='3d' && window.render3dBottom?.triggerBallContactSpark){
+        window.render3dBottom.triggerBallContactSpark(b.x,b.y,COLORS[b.ci]||'#888',b.bounceAmp);
+      }
     }
   }
 }
@@ -6306,6 +6347,10 @@ function updatePending(dt){
           b.vx-=imp*nx; b.vy-=imp*ny;
           const amp=Math.min(1,Math.abs(vn)/180);
           a.bounceT0=b.bounceT0=performance.now();a.bounceAmp=b.bounceAmp=amp;
+          // v73.224: ball-ball jiskra — jen při silnějším nárazu, midpoint kontaktu
+          if(amp>0.18 && RENDERER_MODE==='3d' && window.render3dBottom?.triggerBallContactSpark){
+            window.render3dBottom.triggerBallContactSpark((a.x+b.x)/2,(a.y+b.y)/2,COLORS[a.ci]||'#888',amp*0.6);
+          }
         }
       }
     }
@@ -6584,7 +6629,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.223');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.224');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6712,7 +6757,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.223');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.224');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7548,7 +7593,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.223');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.224');
       event.detail.callback();
     });
 

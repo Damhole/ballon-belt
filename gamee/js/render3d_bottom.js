@@ -112,6 +112,10 @@ const st = {
   _dummy: new THREE.Object3D(),
   _col3:  new THREE.Color(),
   _colorCache: {},
+  // v73.224: ball contact sparks — pole objektů { x,y,z,vx,vy,vz,t,life,color }
+  sparks: [],
+  sparkMesh: null,
+  _renderLastNow: 0,
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -769,6 +773,22 @@ function init() {
   st.pendingShadowMesh.renderOrder = 148;
   st.pendingShadowMesh.visible = false;  // v73.217: shadow disabled per user request
   contentGroup.add(st.pendingShadowMesh);
+
+  // ─── Ball contact sparks (v73.224) ───
+  // Malé guičky s AdditiveBlending — svítí aditivně, fade přes tmavnutí barvy.
+  const MAX_SPARKS = 80;
+  const sparkGeom = new THREE.SphereGeometry(2.5, 6, 4);
+  const sparkMat  = new THREE.MeshBasicMaterial({
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  st.sparkMesh = new THREE.InstancedMesh(sparkGeom, sparkMat, MAX_SPARKS);
+  st.sparkMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_SPARKS * 3), 3);
+  st.sparkMesh.count = 0;
+  st.sparkMesh.frustumCulled = false;
+  st.sparkMesh.renderOrder = 160;  // nad vším (pending=150, outline=149)
+  contentGroup.add(st.sparkMesh);
 
   // ─── Belt balls ───
   st.beltMesh = new THREE.InstancedMesh(beltGeom, ballMat(), BELT_CAP);
@@ -2281,6 +2301,32 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
 
 // ─── Render ──────────────────────────────────────────────────────────────────
 
+// v73.224: jiskry při kontaktu pending koule se stěnou trychtýře / jinou koulí.
+// funX, funY = fyzikální souřadnice z game.js (FUN prostor).
+// hexColor = hex barva koule. amp = [0..1] síla nárazu.
+function triggerBallContactSpark(funX, funY, hexColor, amp) {
+  if (!st.ready || !st.sparkMesh) return;
+  const FUN_NARROW_Y = (window.FUN && window.FUN.narrowY) || 14;
+  const TOP_CSS      = st.beltCenterY + R_BELT + 2;
+  const yCSS = TOP_CSS + (funY - FUN_NARROW_Y);
+  const xW   = (window.FUN && window.FUN.w === 420) ? funX : (st.beltOffsetX + funX);
+  const yW   = _worldY(yCSS);
+  const color = new THREE.Color(hexColor);
+  const count = 3 + Math.round(amp * 3);   // 3–6 jisker podle síly
+  for (let i = 0; i < count; i++) {
+    const ang = Math.random() * Math.PI * 2;
+    const spd = (25 + Math.random() * 45) * (0.45 + amp * 0.55);
+    st.sparks.push({
+      x: xW, y: yW, z: R_PENDING + 4,
+      vx: Math.cos(ang) * spd,
+      vy: Math.sin(ang) * spd * 0.35,   // méně vertikálního rozptylu
+      vz: 18 + Math.random() * 22,      // vyletí k divákovi
+      t: 0, life: 0.18 + Math.random() * 0.10,
+      color: color.clone(),
+    });
+  }
+}
+
 function render() {
   if (!st.ready) return;
   const now = performance.now();
@@ -2320,6 +2366,42 @@ function render() {
       st.mysteryRevealMeshes.delete(key);
     }
   }
+  // v73.224: ball contact sparks — physics update + InstancedMesh sync
+  if (st.sparks.length > 0 || st.sparkMesh.count > 0) {
+    const dt = Math.min(0.05, (now - (st._renderLastNow || now)) / 1000);
+    const dummy = st._dummy;
+    const c3    = st._col3;
+    // Fyzika
+    for (let i = st.sparks.length - 1; i >= 0; i--) {
+      const sp = st.sparks[i];
+      sp.t += dt;
+      if (sp.t >= sp.life) { st.sparks.splice(i, 1); continue; }
+      sp.vy -= 280 * dt;   // gravitace (world Y dolů = zmenšuje vy)
+      sp.x  += sp.vx * dt;
+      sp.y  += sp.vy * dt;
+      sp.z  += sp.vz * dt;
+      sp.vz -= 60 * dt;    // zpomalení dopředu
+    }
+    // Render do InstancedMesh
+    const lim = Math.min(st.sparks.length, 80);
+    for (let i = 0; i < lim; i++) {
+      const sp = st.sparks[i];
+      const k  = sp.t / sp.life;          // 0→1
+      const sc = 0.9 + 0.4 * (1 - k);    // trochu se zvětší, pak zmenší
+      dummy.position.set(sp.x, sp.y, sp.z);
+      dummy.scale.setScalar(sc);
+      dummy.updateMatrix();
+      st.sparkMesh.setMatrixAt(i, dummy.matrix);
+      // Aditivní blending: fade = tmavnutí barvy (černo = průhledné aditivně)
+      c3.copy(sp.color).multiplyScalar(Math.pow(1 - k, 1.3) * 1.6);
+      st.sparkMesh.setColorAt(i, c3);
+    }
+    st.sparkMesh.count = lim;
+    st.sparkMesh.instanceMatrix.needsUpdate = true;
+    if (st.sparkMesh.instanceColor) st.sparkMesh.instanceColor.needsUpdate = true;
+  }
+  st._renderLastNow = now;
+
   st.renderer.render(st.scene, st.camera);
 }
 
@@ -2814,5 +2896,5 @@ function refreshWallColor() {
   if (st._wallOutlineMat) st._wallOutlineMat.color.copy(wallCol).multiplyScalar(0.38);
 }
 
-window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, setThemeLighting, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor };
+window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, triggerBallContactSpark, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, setThemeLighting, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor };
 window._r3dBState = st;  // debug
