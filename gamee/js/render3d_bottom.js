@@ -498,7 +498,7 @@ function init() {
           'float _ballHash(vec3 p){p=fract(p*0.3183099+0.1);p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}')
         .replace('#include <dithering_fragment>',
           '#include <dithering_fragment>\n' +
-          'vec3 _bp = floor(vBallObjPos * 1.0 + vec3(uTime * 1.8));\n' +
+          'vec3 _bp = floor(vBallObjPos * 0.5 + vec3(uTime * 1.8));\n' +
           'float _br = _ballHash(_bp);\n' +
           'float _bg = _ballHash(_bp + 13.7);\n' +
           'float _bb = _ballHash(_bp + 27.3);\n' +
