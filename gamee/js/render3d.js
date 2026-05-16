@@ -1289,24 +1289,20 @@ if (typeof window !== 'undefined') {
     triggerPixelCA,       // v73.228
     triggerDustBurst,     // v73.238
     setQualityTier: (tier) => {
-      // v73.259: 3-stage shadow downgrade + sticky off pravidlo.
-      // HIGH: 512 PCFSoft + autoUpdate. MED: 256 Basic + manual autoUpdate=false.
-      // LOW: shadow off. Jakmile shadows jednou ZHASNUTÉ (qualityTier byl 2 a víc),
-      // při upgrade zpět NA HIGH se NEZAPÍNAJÍ — kvůli oscilaci HIGH↔MED.
+      // v73.262: zjednodušeno — shadows mají jen ON/OFF (HIGH ON, MED+LOW OFF).
+      // MED drží plnou retina pixel ratio jako HIGH, jen vypne stíny + bg-canvas + flash redukce.
+      // Sticky: jakmile shadows jednou OFF (kterýkoli tier ≥ 1), nikdy už ne ON.
       const prev = state.qualityTier || 0;
       state.qualityTier = Math.max(0, Math.min(2, tier|0));
       const t = state.qualityTier;
-      // Stick: pokud jsme někdy byli na LOW, shadows zůstávají off už navždy
-      if (prev >= 2 || state._shadowsStuckOff) state._shadowsStuckOff = true;
-      const shadowsOn = (t === 0 || t === 1) && !state._shadowsStuckOff;
+      if (prev >= 1 || state._shadowsStuckOff) state._shadowsStuckOff = true;
+      const shadowsOn = (t === 0) && !state._shadowsStuckOff;
       const shadowsChanged = (state.renderer && state.renderer.shadowMap.enabled !== shadowsOn);
 
-      // v73.260: pixel ratio — LOW vrácen z 1 na min(dpr,1.5), jinak chunky pixely.
-      // Stíny + dust + CA jsou hlavní wins na LOW, pixel ratio drop bylo příliš agresivní.
+      // Pixel ratio: HIGH a MED drží plnou retinu (min(dpr,2)), jen LOW snižuje na 1.5.
       if (state.renderer) {
         const dpr = window.devicePixelRatio || 1;
-        const target = t === 0 ? Math.min(dpr, 2)
-                              : Math.min(dpr, 1.5); // MED i LOW = 1.5
+        const target = t < 2 ? Math.min(dpr, 2) : Math.min(dpr, 1.5);
         state.renderer.setPixelRatio(target);
       }
       if (state.renderer) state.renderer.shadowMap.enabled = shadowsOn;
@@ -1315,23 +1311,11 @@ if (typeof window !== 'undefined') {
       if (state.projectileMesh) state.projectileMesh.castShadow = shadowsOn;
       if (state.shardMesh) state.shardMesh.castShadow = shadowsOn;
 
-      // Shadow quality downgrade na MED — menší mapa, Basic filter, on-demand update
+      // HIGH = plné stíny (512 PCFSoft, autoUpdate). MED+ = stíny off, žádná downgrade fáze.
       if (shadowsOn && state.sun && state.renderer) {
-        if (t === 0) {
-          state.sun.shadow.mapSize.set(512, 512);
-          state.sun.shadow.autoUpdate = true;
-          state.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        } else if (t === 1) {
-          state.sun.shadow.mapSize.set(256, 256);
-          state.sun.shadow.autoUpdate = false; // jen když pixel destroy / projektil
-          state.sun.shadow.needsUpdate = true; // jednorázový refresh hned po změně
-          state.renderer.shadowMap.type = THREE.BasicShadowMap;
-        }
-        // Force shadow map render target rebuild po type/size change
-        if (state.sun.shadow.map) {
-          state.sun.shadow.map.dispose();
-          state.sun.shadow.map = null;
-        }
+        state.sun.shadow.mapSize.set(512, 512);
+        state.sun.shadow.autoUpdate = true;
+        state.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       }
 
       // Force material recompile při toggle nebo type/size change ať shader vidí nový stav
