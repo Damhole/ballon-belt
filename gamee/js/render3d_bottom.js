@@ -2793,5 +2793,10 @@ function refreshWallColor() {
   if (st._wallOutlineMat) st._wallOutlineMat.color.copy(wallCol).multiplyScalar(0.38);
 }
 
-window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor };
+// v73.255: quality tier — bottom renderer nemá shadows, ale tier ovlivní spark count
+function setQualityTier(tier){
+  st.qualityTier = Math.max(0, Math.min(2, tier|0));
+}
+function getQualityTier(){ return st.qualityTier || 0; }
+window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor, setQualityTier, getQualityTier };
 window._r3dBState = st;  // debug

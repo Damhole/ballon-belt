@@ -82,6 +82,7 @@ const state = {
   pixelBounce: new Map(), // key = y*GW+x → {t, delay, life, amp}
   _lastGrid: null,
   _lastColors: null,
+  qualityTier: 0,           // v73.255: 0=HIGH, 1=MED, 2=LOW
   ghosts: [],       // v73.228: CA ghost instances
   ghostMesh: null,  // v73.228: InstancedMesh pro CA efekt
   dust: [],         // v73.237: ambient dust motes
@@ -804,15 +805,20 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
     });
   };
 
+  // v73.255: quality tier — méně shardů + bez flash při downgrade
+  const tier = state.qualityTier || 0;
+  const shardCount = tier === 0 ? DESTROY_SHARDS_PER_PIXEL
+                   : tier === 1 ? 6
+                                : 4;
   if (state.destroyMode === 'collapse') {
     spawnCollapse();
   } else if (state.destroyMode === 'shatter') {
-    spawnFlash();                                  // v73.253: centrální puls
-    spawnShatter(DESTROY_SHARDS_PER_PIXEL);
+    if (tier < 2) spawnFlash();
+    spawnShatter(shardCount);
   } else if (state.destroyMode === 'combo') {
     spawnCollapse();
-    spawnFlash();
-    spawnShatter(5, 0.85, 0.8);
+    if (tier < 2) spawnFlash();
+    spawnShatter(Math.max(3, shardCount - 4), 0.85, 0.8);
   }
   // Limit shard pool — když přeteče, dropni nejstarší (FIFO)
   while (state.shards.length > MAX_SHARDS) state.shards.shift();
@@ -824,6 +830,7 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
 // Red ghost posunutý +CA_OFFSET_X, cyan ghost posunutý -CA_OFFSET_X. AdditiveBlending fade.
 function triggerPixelCA(gx, gy, hexColor) {
   if (!state.ready || !state.ghostMesh) return;
+  if ((state.qualityTier || 0) >= 2) return;          // v73.255: LOW tier → bez CA
   const col = _getColor(hexColor);
   const wx = gx * SCALE + SCALE / 2;
   const wy = gy * SCALE + SCALE / 2;
@@ -848,6 +855,7 @@ function triggerPixelCA(gx, gy, hexColor) {
 const DUST_TINT_CHANCE = 0.35;
 function triggerDustBurst(gx, gy, hexColor) {
   if (!state.ready || !state.dustMesh) return;
+  if ((state.qualityTier || 0) >= 2) return;          // v73.255: LOW tier → bez dust
   const wx = gx * SCALE + SCALE / 2;
   const wy = (state.GH - gy) * SCALE - SCALE / 2;
   const tintColor = hexColor ? _getColor(hexColor) : null;
@@ -1273,6 +1281,16 @@ if (typeof window !== 'undefined') {
     triggerPixelDestroy,
     triggerPixelCA,       // v73.228
     triggerDustBurst,     // v73.238
+    setQualityTier: (tier) => {
+      // v73.255: 0=HIGH, 1=MED, 2=LOW. Toggle shadows + jednotlivé efekty.
+      state.qualityTier = Math.max(0, Math.min(2, tier|0));
+      if (state.renderer) state.renderer.shadowMap.enabled = (state.qualityTier === 0);
+      if (state.pixelMesh) state.pixelMesh.castShadow = (state.qualityTier === 0);
+      if (state.blockMesh) state.blockMesh.castShadow = (state.qualityTier === 0);
+      if (state.projectileMesh) state.projectileMesh.castShadow = (state.qualityTier === 0);
+      if (state.shardMesh) state.shardMesh.castShadow = (state.qualityTier === 0);
+    },
+    getQualityTier: () => state.qualityTier || 0,
     triggerPixelWave,
     triggerPixelHit,
     triggerBounceSpark,   // v73.49

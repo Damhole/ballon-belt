@@ -389,6 +389,53 @@ let beltAnim=0,lastBeltTime=null;
 // 30 frame timestampů, update text + barva každých 250 ms.
 const _fpsFrames=[];
 let _fpsLastUpdate=0;
+// === v73.255: PERF QUALITY MANAGER ===
+// 3 tiers: 0=HIGH (vše zapnuto), 1=MED (bez shadow + půl částic), 2=LOW (jen základ).
+// Auto-step-down: FPS pod 45 po 2.5s → tier++. Step-up: FPS nad 55 po 6s → tier--.
+// Manual: window.setPerfTier(0|1|2) → zapne manualní režim (žádný auto).
+let _perfTier=0;
+let _perfManual=false;
+let _perfLowSince=0;
+let _perfHighSince=0;
+const PERF_FPS_DOWN=45;
+const PERF_FPS_UP=55;
+const PERF_DOWN_HOLD_MS=2500;
+const PERF_UP_HOLD_MS=6000;
+function _applyPerfTier(tier){
+  _perfTier=tier;
+  if(window.render3d && window.render3d.setQualityTier) window.render3d.setQualityTier(tier);
+  if(window.render3dBottom && window.render3dBottom.setQualityTier) window.render3dBottom.setQualityTier(tier);
+  console.info('[BB-PERF] quality tier =', tier, ['HIGH','MED','LOW'][tier]);
+}
+window.setPerfTier=function(tier){
+  _perfManual=true;
+  _applyPerfTier(Math.max(0,Math.min(2,tier|0)));
+};
+window.setPerfAuto=function(){
+  _perfManual=false;
+  console.info('[BB-PERF] auto mode re-enabled');
+};
+function _perfAutoUpdate(fps, ts){
+  if(_perfManual) return;
+  if(fps<PERF_FPS_DOWN){
+    if(!_perfLowSince) _perfLowSince=ts;
+    _perfHighSince=0;
+    if(_perfTier<2 && ts-_perfLowSince>=PERF_DOWN_HOLD_MS){
+      _applyPerfTier(_perfTier+1);
+      _perfLowSince=ts;
+    }
+  } else if(fps>PERF_FPS_UP){
+    if(!_perfHighSince) _perfHighSince=ts;
+    _perfLowSince=0;
+    if(_perfTier>0 && ts-_perfHighSince>=PERF_UP_HOLD_MS){
+      _applyPerfTier(_perfTier-1);
+      _perfHighSince=ts;
+    }
+  } else {
+    _perfLowSince=0;
+    _perfHighSince=0;
+  }
+}
 // Per-frame profiler — kumuluje čas v jednotlivých sekcích beltLoop. Reset
 // při každém FPS updatu (250 ms okno). Když FPS spadne pod práh, log do konzole.
 // gap = čas mezi 2 rAF callbacky (signal browser throttle / freeze).
@@ -1341,7 +1388,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.254');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.255');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6612,7 +6659,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.254');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.255');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6740,7 +6787,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.254');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.255');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7454,6 +7501,7 @@ function _updateFpsCounter(ts){
   if(fps>=55) el.style.color='#bdbdbd';        // šedá — OK
   else if(fps>=30) el.style.color='#f5d800';   // žlutá — pomalejší
   else el.style.color='#ff7a7a';               // červená — kritické
+  _perfAutoUpdate(fps, ts);                    // v73.255: auto-degrade quality
 
   // Když fps < 50, log diagnostic snapshot do konzole (max 1× za 2 s).
   // Vidíme rozpočet ms/frame v jednotlivých sekcích + entity counts. Tím
@@ -7577,7 +7625,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.254');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.255');
       event.detail.callback();
     });
 
