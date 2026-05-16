@@ -647,7 +647,9 @@ function init(canvas, opts) {
   // Per-instance scale (animovaný), per-instance position+rotation, per-instance color.
   state.destroyMode = _resolveDestroyMode();
   state.shards = [];
-  const shardGeom = new THREE.BoxGeometry(SCALE * PIXEL_INSET, SCALE * PIXEL_INSET, PIXEL_DEPTH);
+  // v73.254: shards zpět na sphere geometry — BoxGeometry s hloubkou PIXEL_DEPTH
+  // se při scale variaci jevila jako protáhlé hranoly. Sphere drží proporce.
+  const shardGeom = new THREE.SphereGeometry(SCALE * PIXEL_INSET * 0.5, 8, 6);
   const shardMat = new THREE.MeshLambertMaterial({
     color: 0xffffff,
     map: bevelTex, // shared with pixels
