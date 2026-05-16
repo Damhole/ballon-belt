@@ -1672,6 +1672,9 @@ function updateCarriers(columns, colorsArr) {
   _rebuildUnifiedFrame();
 
   const canvasRect = st.canvas.getBoundingClientRect();
+  // v73.201: world x=0 = bottom-deck left edge (stable reference, nezávisí na canvas/camera).
+  // Canvas může být širší/posunutý — to neovlivní world coords.
+  const refRect = document.getElementById('bottom-deck')?.getBoundingClientRect() || canvasRect;
   const gridEl = document.getElementById('carriers-grid');
   if (!gridEl) return;
 
@@ -1710,7 +1713,7 @@ function updateCarriers(columns, colorsArr) {
         const cboxR = slotDivs[r].querySelector('.cbox');
         if (cboxR) {
           const crR = cboxR.getBoundingClientRect();
-          const xWR = crR.left + crR.width / 2 - canvasRect.left;
+          const xWR = crR.left + crR.width / 2 - refRect.left;
           const yWR = _worldY(crR.top + crR.height / 2 - canvasRect.top);
           const dynR = crR.width / SLOT_SIZE;
           const { mat, uniforms } = _buildRevealMaterial(st._mysteryTex);
@@ -1729,7 +1732,7 @@ function updateCarriers(columns, colorsArr) {
         const cboxHid = slotDivs[r].querySelector('.cbox-hid');
         if (!cboxHid) continue;
         const crH = cboxHid.getBoundingClientRect();
-        const xCSSh = crH.left + crH.width  / 2 - canvasRect.left;
+        const xCSSh = crH.left + crH.width  / 2 - refRect.left;
         const yCSSh = crH.top  + crH.height / 2 - canvasRect.top;
         const xWh   = xCSSh;
         const yWh   = _worldY(yCSSh);
@@ -1801,8 +1804,8 @@ function updateCarriers(columns, colorsArr) {
       }
 
       const cr = cbox.getBoundingClientRect();
-      // Střed cboxu v souřadnicích canvasu
-      const xCSS = cr.left + cr.width  / 2 - canvasRect.left;
+      // Střed cboxu — X přes refRect (bottom-deck = world origin), Y přes canvasRect
+      const xCSS = cr.left + cr.width  / 2 - refRect.left;
       const yCSS = cr.top  + cr.height / 2 - canvasRect.top;
       const xW   = xCSS;
       const yW   = _worldY(yCSS);
@@ -2552,6 +2555,7 @@ function updateWalls(columns) {
   const gridEl = document.getElementById('carriers-grid');
   if (!gridEl) return;
   const canvasRect = st.canvas.getBoundingClientRect();
+  const refRect = document.getElementById('bottom-deck')?.getBoundingClientRect() || canvasRect;
   const colDivs = gridEl.querySelectorAll('.carrier-col');
 
   const components = _findWallComponents(columns);
@@ -2582,8 +2586,8 @@ function updateWalls(columns) {
     // Center mesh v Z (default ExtrudeGeometry extruduje z=0..depth)
     geo.translate(0, 0, -WALL_DEPTH / 2);
 
-    // Mesh position v scene = polygon center v world coords
-    const xCSS = cx - canvasRect.left;
+    // Mesh position v scene = polygon center v world coords (X přes refRect)
+    const xCSS = cx - refRect.left;
     const yCSS = cy - canvasRect.top;
     const xW = xCSS;
     const yW = _worldY(yCSS);

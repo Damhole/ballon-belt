@@ -1285,7 +1285,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.200');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.201');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6019,9 +6019,12 @@ function onCarrierClick(e){
   if(RENDERER_MODE==='3d'&&window.render3dBottom&&window.render3dBottom.triggerCarrierFire&&cbox){
     const canvas3d=document.getElementById('bottom3d-canvas');
     if(canvas3d){
-      const cR=cbox.getBoundingClientRect(),cv=canvas3d.getBoundingClientRect();
+      // v73.201: X přes bottom-deck (world origin), Y přes canvas (no Y extending)
+      const cR=cbox.getBoundingClientRect();
+      const cv=canvas3d.getBoundingClientRect();
+      const bd=document.getElementById('bottom-deck')?.getBoundingClientRect()||cv;
       window.render3dBottom.triggerCarrierFire(c,r,COLORS[slot.color],balls.length,
-        cR.left+cR.width/2-cv.left,cR.top+cR.height/2-cv.top,cR.width,cR.height);
+        cR.left+cR.width/2-bd.left,cR.top+cR.height/2-cv.top,cR.width,cR.height);
     }
   }
   // Spawn každou kouli na 2×2 pozici v carrieru (TL, TR, BL, BR) — jako by ty samé míčky
@@ -6543,7 +6546,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.200');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.201');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6671,7 +6674,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.200');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.201');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7507,7 +7510,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.200');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.201');
       event.detail.callback();
     });
 
