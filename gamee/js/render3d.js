@@ -905,29 +905,31 @@ function updateGrid(grid, COLORS) {
       // Per-pixel height: scale.z stretches BoxGeometry, position.z lift tak,
       // aby bottom plane zůstala na z=0 (kostka roste nahoru, ne kolem středu).
       const h = _heightFor(x, y);
-      // Wave bounce Z-boost — damped sine (1 peak, 1 minor dip, fade out)
-      let zBoost = 0;
+      // Wave bounce → STRETCH up (pixel zůstává na zemi, jen roste nahoru)
+      let zStretch = 0;
       const bounce = state.pixelBounce.get(y * state.GW + x);
       if (bounce) {
         const bt = bounce.t - bounce.delay;
         if (bt > 0) {
           const bp = bt / bounce.life; // 0..1
-          zBoost = Math.sin(bp * Math.PI * 2) * bounce.amp * (1 - bp);
+          // Pouze pozitivní (stretching), clamp na 0 pro negativní fázi
+          zStretch = Math.max(0, Math.sin(bp * Math.PI * 2) * bounce.amp * (1 - bp));
         }
       }
+      const stretchH = h + zStretch / PIXEL_DEPTH;
       _dummy.position.set(
         x * SCALE + SCALE / 2,
         H - (y * SCALE + SCALE / 2),  // Y-flip: grid[0] → top of screen
-        PIXEL_LIFT * h + zBoost        // střed + wave lift
+        PIXEL_LIFT * stretchH          // střed = polovina nové výšky → bottom na z=0
       );
       _dummy.rotation.set(0, 0, 0);
-      _dummy.scale.set(1, 1, h);
+      _dummy.scale.set(1, 1, stretchH);
       _dummy.updateMatrix();
       state.pixelMesh.setMatrixAt(i, _dummy.matrix);
       const col = _getColor(COLORS[c]);
       state.pixelMesh.instanceColor.setXYZ(i, col.r, col.g, col.b);
       // v73.24: outline mesh — same position, scaled up po XYZ (BackSide inverted hull)
-      _dummy.scale.set(1.08, 1.08, h * 1.04);
+      _dummy.scale.set(1.08, 1.08, stretchH * 1.04);
       _dummy.updateMatrix();
       state.pixelOutlineMesh.setMatrixAt(i, _dummy.matrix);
       i++;
