@@ -454,14 +454,26 @@ let cannonSideShots=0;            // počet vystřelených ran s aktuální pref
 const CANNON_SIDE_COMMIT=15;      // po kolika ranách se kanon rozhodne přehodnotit stranu
 let cannonIdleT=0;                // čas co kanon nevystřelil (watchdog proti zamrznutí queue)
 let introSeq=0;                   // token pro zrušení naplánovaného intra při resetu/přepnutí levelu
-// === CHROMATIC ABERRATION HEAT STATE (v73.233) ===
+// === CHROMATIC ABERRATION HEAT STATE (v73.235) ===
 // _caHeat roste každým zásahem (0→1). Pravděpodobnost CA = _caHeat.
 // Při přerušení série se heat resetuje → efekt znovu prochází gradací.
 // 0.0 = žádná CA · 0.2 = ~1/5 zasažených · 0.5 = každý druhý · 1.0 = každý
+// v73.235: heat se updatuje v OBOU destroy paths (rocket batch i normální projektil).
 let _caHeat=0;                   // 0..1 aktuální „žár" série
-let _caLastHit=0;                // performance.now() posledního úspěšného multi-hitu
-const CA_HEAT_PER_HIT=0.12;      // přírůstek za jeden batch (plný žár po ~8 batchích)
-const CA_BREAK_MS=2500;          // ms bez hitu → série přerušena, heat → 0 (projektil letí ~1–1.5s)
+let _caLastHit=0;                // performance.now() posledního úspěšného hitu
+const CA_HEAT_PER_HIT=0.12;      // přírůstek za jeden výstřel (plný žár po ~8 zásazích)
+const CA_BREAK_MS=2500;          // ms bez hitu → série přerušena, heat → 0
+function _caBumpHeat(){
+  const _now=performance.now();
+  if(_now-_caLastHit>CA_BREAK_MS) _caHeat=0;
+  _caLastHit=_now;
+  _caHeat=Math.min(1,_caHeat+CA_HEAT_PER_HIT);
+}
+function _caMaybeTrigger(gx,gy,hex){
+  if(_caHeat>0 && Math.random()<_caHeat && window.render3d && window.render3d.triggerPixelCA){
+    window.render3d.triggerPixelCA(gx,gy,hex);
+  }
+}
 // === BOUNCING PARTICLE SYSTEM ===
 let particles=[],particleCanvas,particleCtx;
 let shards=[];                    // odlétající střípky při zásahu – jen vizuál, nezasahují do fyziky
@@ -1310,21 +1322,14 @@ function updateParticles(dt){
           if(near){gxC=near.gx;gyC=near.gy;p.tx=gxC*SCALE+SCALE/2;p.ty=gyC*SCALE+SCALE/2;hits=collect(gxC,gyC);}
         }
         const destroyed=hits.length;
-        // v73.233: CA heat update — jednou za batch, pravděpodobnost = _caHeat
-        {
-          const _now=performance.now();
-          if(_now-_caLastHit>CA_BREAK_MS) _caHeat=0; // série přerušena → reset na 0
-          _caLastHit=_now;
-          _caHeat=Math.min(1,_caHeat+CA_HEAT_PER_HIT);
-        }
+        if(destroyed>0) _caBumpHeat(); // v73.235: rocket batch = 1 bump heat
         for(const h of hits){
           // 3D destruction trigger BEFORE grid mutation (color z grid)
           if(RENDERER_MODE==='3d' && window.render3d && window.render3d.triggerPixelDestroy){
             const ci=grid[h.yy][h.xx];
             if(ci>=0){
               window.render3d.triggerPixelDestroy(h.xx, h.yy, COLORS[ci]);
-              if(_caHeat>0 && Math.random()<_caHeat && window.render3d.triggerPixelCA)
-                window.render3d.triggerPixelCA(h.xx, h.yy, COLORS[ci]); // v73.233
+              _caMaybeTrigger(h.xx, h.yy, COLORS[ci]); // v73.235
             }
           }
           grid[h.yy][h.xx]=-1;
@@ -1335,7 +1340,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.234');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.235');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -1482,12 +1487,14 @@ function updateParticles(dt){
         }
         if(crossed.length) console.log('[BB-DEBUG] pixel destroy CROSSED BLOCK', {ci:p.ci, from:[oldGx,oldGy], to:[gx,gy], crossed});
       }
+      // v73.235: CA heat bump + maybe trigger pro normální (single-pixel) destrukci
+      _caBumpHeat();
       // 3D destruction trigger BEFORE grid mutation (color z grid)
       if(RENDERER_MODE==='3d' && window.render3d && window.render3d.triggerPixelDestroy){
         const ci=grid[gy][gx];
         if(ci>=0){
           window.render3d.triggerPixelDestroy(gx, gy, COLORS[ci]);
-          // CA efekt se nezobrazuje pro jednotlivé pixely (pouze pro hromadné ničení v multi-hit lopu výše)
+          _caMaybeTrigger(gx, gy, COLORS[ci]); // v73.235
         }
       }
       grid[gy][gx]=-1;
@@ -6601,7 +6608,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.234');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.235');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6729,7 +6736,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.234');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.235');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7566,7 +7573,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.234');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.235');
       event.detail.callback();
     });
 
