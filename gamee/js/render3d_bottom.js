@@ -374,23 +374,16 @@ function init() {
     st.carriersBottomCSS = Math.round(cR.bottom - gameRect.top) - canvasTop;
   }
 
-  // v73.196: canvas + camera rozšířený o CANVAS_PAD na obě strany — outline mesh
-  // sahá ~3 px za frame edge a byl ořezán bočními okraji canvasu. Content x souř.
-  // se nemění (st.W stále content width), jen physical canvas a camera bounds.
-  const CANVAS_PAD = 4;
-  const canvasFullW = W + 2 * CANVAS_PAD;
-  const canvasLeftShifted = canvasLeft - CANVAS_PAD;
-
   // Vytvořit canvas a přidat do #game
   const canvas = document.createElement('canvas');
   canvas.id = 'bottom3d-canvas';
-  canvas.width  = canvasFullW;
+  canvas.width  = W;
   canvas.height = H;
   canvas.style.cssText = [
     'position:absolute',
-    `left:${canvasLeftShifted}px`,
+    `left:${canvasLeft}px`,
     `top:calc(${canvasTopBaseline}px + var(--game-top-extra, 0px))`,
-    `width:${canvasFullW}px`,
+    `width:${W}px`,
     `height:${H}px`,
     'pointer-events:none',
     'z-index:2',
@@ -400,18 +393,18 @@ function init() {
   if (getComputedStyle(gameEl).position === 'static') gameEl.style.position = 'relative';
   gameEl.appendChild(canvas);
   st.canvas = canvas;
-  st.canvasPad = CANVAS_PAD;
 
   // Three.js renderer — toon look nepotřebuje shadow mapy (cel-shading je flat)
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, stencil: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.setSize(canvasFullW, H, false);
+  renderer.setSize(W, H, false);
   renderer.setClearColor(0, 0);
   renderer.shadowMap.enabled = false;
 
-  // OrthographicCamera: extended left/right o CANVAS_PAD → content (x∈[0,W]) zůstává
-  // centrovaný v cílové screen pozici, ale outline (x∈[-8, W+8]) je viditelný.
-  const camera = new THREE.OrthographicCamera(-CANVAS_PAD, W + CANVAS_PAD, H, 0, -300, 300);
+  // OrthographicCamera: (left, right, top, bottom)
+  // top=H → y=H je horní kraj; bottom=0 → y=0 je dolní kraj (Y-up konvence)
+  // Mapování CSS→world: x_world = x_css, y_world = H - y_css
+  const camera = new THREE.OrthographicCamera(0, W, H, 0, -300, 300);
   camera.position.set(0, 0, 100);
 
   const scene = new THREE.Scene();
@@ -823,7 +816,9 @@ function _buildBeltTrack(parent, W, toonGrad, beltCenterY) {
 // Souřadnice: world Y (Y-up) — viz _worldY(cssY) = st.H - cssY.
 
 const FRAME_SKULINA_HALF = 32;  // v73.112: 40→32, užší hrdlo (64 px wide, 2-3 balónky)
-const FRAME_ARENA_PAD    = 6;   // tloušťka rámu na bocích arény (px)
+const FRAME_ARENA_PAD    = 10;  // tloušťka rámu na bocích arény (px). v73.198: 6→10
+                                 // aby outline (BAND_WIDTH=6 + OUTLINE_W=2 = 8 px ven z innerPts)
+                                 // fitnul do canvasu bez extending — odstraňuje grid shift.
 const FRAME_DEPTH        = 50;  // ExtrudeGeometry depth — match image frame v73.63
 const FRAME_BEVEL        = 2;   // bevel size + thickness — match image frame v73.63
 const FRAME_BEVEL_SEGS   = 3;   // bevel segments — match image frame
@@ -2646,16 +2641,14 @@ function resize() {
   if (W === st.W && H === st.H) return;
   st.W = W;
   st.H = H;
-  const pad = st.canvasPad || 0;
-  const canvasFullW = W + 2 * pad;
-  st.canvas.width  = canvasFullW;
+  st.canvas.width  = W;
   st.canvas.height = H;
-  st.canvas.style.width  = canvasFullW + 'px';
+  st.canvas.style.width  = W + 'px';
   st.canvas.style.height = H + 'px';
-  if (st.renderer) st.renderer.setSize(canvasFullW, H, false);
+  if (st.renderer) st.renderer.setSize(W, H, false);
   if (st.camera) {
-    st.camera.left   = -pad;
-    st.camera.right  = W + pad;
+    st.camera.left   = 0;
+    st.camera.right  = W;
     st.camera.top    = H;
     st.camera.bottom = 0;
     st.camera.updateProjectionMatrix();
