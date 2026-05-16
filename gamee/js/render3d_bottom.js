@@ -186,16 +186,33 @@ function _outlineMat() {
   });
 }
 
+// v73.202: helper — vynásobí RGB složky hex barvy faktorem (0..1) pro darken.
+// Zachovává odstín, jen snižuje jas. Příklad: #6a2f4d × 0.10 = #0a0508.
+function _darkenHex(hex, factor) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  const rD = Math.max(0, Math.min(255, Math.round(r * factor)));
+  const gD = Math.max(0, Math.min(255, Math.round(g * factor)));
+  const bD = Math.max(0, Math.min(255, Math.round(b * factor)));
+  return '#' + rD.toString(16).padStart(2, '0') + gD.toString(16).padStart(2, '0') + bD.toString(16).padStart(2, '0');
+}
+
 // Mystery texture — 4×4 grid malých `?` glyphů, každý natočený 45°.
 // Wrap S i T s repeat=(1.5, 1.5) → 1:1 aspect, glyphy klouzají diagonálně přes
-// offset.x i offset.y v render(). Tmavá desaturovaná modrá base.
+// offset.x i offset.y v render(). Base barva = velmi tmavá verze theme floor
+// (--carriers-3d-bg), match red mauve.
 function _buildMysteryTexture() {
   const S = 128;
   const canvas = document.createElement('canvas');
   canvas.width = S; canvas.height = S;
   const ctx = canvas.getContext('2d');
-  // Velmi tmavá desaturovaná modrá base
-  ctx.fillStyle = '#010206';
+  // v73.202: base = floor color (carriers-3d-bg) darkened to ~5% lightness.
+  // Theme-aware — pink: dark mauve, ocean: dark navy, etc.
+  const cs = getComputedStyle(document.documentElement);
+  const floorHex = (cs.getPropertyValue('--carriers-3d-bg') || '#6a2f4d').trim();
+  ctx.fillStyle = _darkenHex(floorHex, 0.10);  // 10% of original lightness
   ctx.fillRect(0, 0, S, S);
   // 3×3 grid středně velkých tilted ?s + jemný tmavý outline (stroke před fill).
   ctx.font = 'bold 40px system-ui, -apple-system, Segoe UI, sans-serif';
