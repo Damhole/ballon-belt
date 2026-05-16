@@ -462,20 +462,28 @@ function init() {
   //   - DirectionalLight intensity 1.55 (bylo Math.PI = 3.14)
   //   - HemisphereLight intensity 1.85 (bylo 1.2)
   // Aby band visuálně matchoval image frame, materiály i světla musí být stejné.
-  const sun = new THREE.DirectionalLight(0xffffff, 1.55);
+  // v73.213: sun jen pro lighting (no shadow). Shadow casting přesunut na
+  // shadowLight (přímo shora podél floor normal — tight shadow pod ball).
+  // Intensity rozdělená 1.05 + 0.50 = 1.55 (preserve total scene brightness).
+  const sun = new THREE.DirectionalLight(0xffffff, 1.05);
   sun.position.set(-300, 800, 600);
-  // v73.212: shadow casting — orto frustum encompass scene area
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024);
-  sun.shadow.camera.left   = -300;
-  sun.shadow.camera.right  =  800;
-  sun.shadow.camera.top    =  800;
-  sun.shadow.camera.bottom = -200;
-  sun.shadow.camera.near   = 0.1;
-  sun.shadow.camera.far    = 2000;
-  sun.shadow.bias          = -0.0005;
-  sun.shadow.radius        = 3;
   scene.add(sun);
+
+  // Shadow-only light — přímo nad scene (along floor normal po -TILT_RAD rotaci):
+  // floor normal world ≈ (0, 0.329, 0.945), light position v opačném směru.
+  const shadowLight = new THREE.DirectionalLight(0xffffff, 0.50);
+  shadowLight.position.set(0, 400, 1100);  // ≈ floor normal × 1170
+  shadowLight.castShadow = true;
+  shadowLight.shadow.mapSize.set(1024, 1024);
+  shadowLight.shadow.camera.left   = -500;
+  shadowLight.shadow.camera.right  =  500;
+  shadowLight.shadow.camera.top    =  500;
+  shadowLight.shadow.camera.bottom = -500;
+  shadowLight.shadow.camera.near   = 0.1;
+  shadowLight.shadow.camera.far    = 2500;
+  shadowLight.shadow.bias          = -0.0005;
+  shadowLight.shadow.radius        = 3;
+  scene.add(shadowLight);
 
   const hemi = new THREE.HemisphereLight(0xffe8f0, 0xa090a8, 1.85);
   scene.add(hemi);
