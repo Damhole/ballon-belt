@@ -649,46 +649,41 @@ function _initBgParticles(){
   function resize(){W=canvas.width=window.innerWidth;H=canvas.height=window.innerHeight;}
   resize();
   window.addEventListener('resize',resize,{passive:true});
-  // v73.265: vraceny původní hvězdy. Bg-canvas teď z-index 9000 = lítají NAD hrou.
-  const N=30;
+  // v73.266: dust-style particles (z v73.264), počet snížen ze 14 na 7.
+  // Canvas má z-index 9000 = lítají NAD vším (rám, pixely, koule).
+  const N=7;
   const pts=[];
   for(let i=0;i<N;i++){
+    const ang=Math.random()*Math.PI*2;
     pts.push({
       x:Math.random()*window.innerWidth,
       y:Math.random()*window.innerHeight,
-      r:0.9+Math.random()*2.0,
-      star:Math.random()<0.4,
-      vx:(Math.random()-0.5)*0.22,
-      vy:-(0.22+Math.random()*0.42),
-      alpha:0.12+Math.random()*0.32,
+      r:1.2+Math.random()*1.6,
+      vx:Math.cos(ang)*(0.10+Math.random()*0.18),
+      vy:Math.sin(ang)*(0.10+Math.random()*0.18),
       ph:Math.random()*Math.PI*2,
-      spd:0.018+Math.random()*0.024,
+      freq:0.010+Math.random()*0.024,
+      bright:0.30+Math.random()*0.35,
     });
-  }
-  function drawStar(x,y,r){
-    ctx.beginPath();
-    for(let i=0;i<8;i++){
-      const a=(i/8)*Math.PI*2-Math.PI/2;
-      const len=i%2===0?r:r*0.36;
-      i===0?ctx.moveTo(x+Math.cos(a)*len,y+Math.sin(a)*len)
-           :ctx.lineTo(x+Math.cos(a)*len,y+Math.sin(a)*len);
-    }
-    ctx.closePath();ctx.fill();
   }
   function tick(){
     ctx.clearRect(0,0,W,H);
+    ctx.globalCompositeOperation='lighter';
     for(const p of pts){
-      p.ph+=p.spd;
-      p.x+=p.vx+Math.sin(p.ph*0.55)*0.16;
+      p.ph+=p.freq;
+      p.x+=p.vx;
       p.y+=p.vy;
-      if(p.y<-8){p.y=H+5;p.x=Math.random()*W;}
-      if(p.x<-8)p.x=W+5;
-      if(p.x>W+8)p.x=-5;
-      ctx.globalAlpha=p.alpha*(0.4+0.6*Math.abs(Math.sin(p.ph)));
+      if(p.x<-10) p.x=W+5; else if(p.x>W+10) p.x=-5;
+      if(p.y<-10) p.y=H+5; else if(p.y>H+10) p.y=-5;
+      const a=p.bright*Math.max(0,Math.sin(p.ph));
+      if(a<0.01) continue;
       ctx.fillStyle='#ffffff';
-      p.star?drawStar(p.x,p.y,p.r*1.7):
-        (ctx.beginPath(),ctx.arc(p.x,p.y,p.r,0,Math.PI*2),ctx.fill());
+      ctx.globalAlpha=a;
+      ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=a*0.35;
+      ctx.beginPath();ctx.arc(p.x,p.y,p.r*2.2,0,Math.PI*2);ctx.fill();
     }
+    ctx.globalCompositeOperation='source-over';
     ctx.globalAlpha=1;
     _bgParticleRAF=requestAnimationFrame(tick);
   }
@@ -1411,7 +1406,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.265');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.266');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6682,7 +6677,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.265');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.266');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6810,7 +6805,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.265');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.266');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7648,7 +7643,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.265');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.266');
       event.detail.callback();
     });
 
