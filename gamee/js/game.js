@@ -454,16 +454,14 @@ let cannonSideShots=0;            // počet vystřelených ran s aktuální pref
 const CANNON_SIDE_COMMIT=15;      // po kolika ranách se kanon rozhodne přehodnotit stranu
 let cannonIdleT=0;                // čas co kanon nevystřelil (watchdog proti zamrznutí queue)
 let introSeq=0;                   // token pro zrušení naplánovaného intra při resetu/přepnutí levelu
-// === CHROMATIC ABERRATION STREAK STATE (v73.232) ===
-// CA se aktivuje po CA_WARMUP_MS soustavné střelby, deaktivuje při přerušení,
-// a po CA_RESTART_MS pauzy se automaticky reaktivuje pro další sérii.
-let _caActive=false;             // je CA efekt právě aktivní?
-let _caStreakStart=0;            // performance.now() kdy začala aktuální série
+// === CHROMATIC ABERRATION HEAT STATE (v73.233) ===
+// _caHeat roste každým zásahem (0→1). Pravděpodobnost CA = _caHeat.
+// Při přerušení série se heat resetuje → efekt znovu prochází gradací.
+// 0.0 = žádná CA · 0.2 = ~1/5 zasažených · 0.5 = každý druhý · 1.0 = každý
+let _caHeat=0;                   // 0..1 aktuální „žár" série
 let _caLastHit=0;                // performance.now() posledního úspěšného multi-hitu
-let _caRestartTimer=null;        // setTimeout handle pro auto-restart po pauze
-const CA_WARMUP_MS=1400;         // ms soustavné střelby → CA se zapne
-const CA_BREAK_MS=700;           // ms bez hitu → série přerušena
-const CA_RESTART_MS=3000;        // ms po přerušení → CA se znovu automaticky zapne
+const CA_HEAT_PER_HIT=0.08;      // přírůstek za jeden batch (plný žár po ~13 batchích)
+const CA_BREAK_MS=700;           // ms bez hitu → série přerušena, heat → 0
 // === BOUNCING PARTICLE SYSTEM ===
 let particles=[],particleCanvas,particleCtx;
 let shards=[];                    // odlétající střípky při zásahu – jen vizuál, nezasahují do fyziky
@@ -1312,22 +1310,12 @@ function updateParticles(dt){
           if(near){gxC=near.gx;gyC=near.gy;p.tx=gxC*SCALE+SCALE/2;p.ty=gyC*SCALE+SCALE/2;hits=collect(gxC,gyC);}
         }
         const destroyed=hits.length;
-        // v73.232: CA streak update — jednou za batch (ne za každý pixel)
+        // v73.233: CA heat update — jednou za batch, pravděpodobnost = _caHeat
         {
           const _now=performance.now();
-          const _gap=_now-_caLastHit;
-          if(_gap>CA_BREAK_MS){
-            // série přerušena → deaktivovat CA, naplánovat auto-restart
-            _caActive=false;
-            _caStreakStart=_now;
-            clearTimeout(_caRestartTimer);
-            _caRestartTimer=setTimeout(function(){_caActive=true;},CA_RESTART_MS);
-          }
+          if(_now-_caLastHit>CA_BREAK_MS) _caHeat=0; // série přerušena → reset na 0
           _caLastHit=_now;
-          if(!_caActive&&(_now-_caStreakStart)>=CA_WARMUP_MS){
-            _caActive=true;
-            clearTimeout(_caRestartTimer);
-          }
+          _caHeat=Math.min(1,_caHeat+CA_HEAT_PER_HIT);
         }
         for(const h of hits){
           // 3D destruction trigger BEFORE grid mutation (color z grid)
@@ -1335,7 +1323,8 @@ function updateParticles(dt){
             const ci=grid[h.yy][h.xx];
             if(ci>=0){
               window.render3d.triggerPixelDestroy(h.xx, h.yy, COLORS[ci]);
-              if(_caActive && window.render3d.triggerPixelCA) window.render3d.triggerPixelCA(h.xx, h.yy, COLORS[ci]);
+              if(_caHeat>0 && Math.random()<_caHeat && window.render3d.triggerPixelCA)
+                window.render3d.triggerPixelCA(h.xx, h.yy, COLORS[ci]); // v73.233
             }
           }
           grid[h.yy][h.xx]=-1;
@@ -1346,7 +1335,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.232');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.233');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6612,7 +6601,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.232');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.233');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6740,7 +6729,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.232');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.233');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -6768,7 +6757,7 @@ function startLevel(){
   if(!beltLoopStarted){beltLoopStarted=true;lastBeltTime=null;requestAnimationFrame(beltLoop);}
   grid=makeGrid();belt=new Array(BELT_CAP).fill(null);pending=[];nudgeTimer=0;funnelWarnTimer=0;score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
   particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;
-  _caActive=false;_caStreakStart=0;_caLastHit=0;clearTimeout(_caRestartTimer);_caRestartTimer=null; // v73.232 CA reset
+  _caHeat=0;_caLastHit=0; // v73.233 CA heat reset
   // v72.68: reset 3D carrier transition caches — jinak by se carriery nového levelu
   // detekovaly jako "inactive → active" z předchozího levelu (falešné pop animace).
   if(window.render3dBottom&&window.render3dBottom.clearCarrierState)window.render3dBottom.clearCarrierState();
@@ -7577,7 +7566,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.232');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.233');
       event.detail.callback();
     });
 
