@@ -675,8 +675,13 @@ body.renderer-3d #restart-btn:hover { background: #5a3050; }
   overflow: auto;
 }
 #dev-overlay[hidden] { display: none; }
-/* v73.206: schovat overlay během native color pickeru — uživatel vidí scénu */
-#dev-overlay.dbg-picking { display: none; }
+/* v73.208: zprůhlednit overlay během native color pickeru (ne display:none —
+   to by skrylo i input a picker by se nestihl otevřít). Input zůstává v layoutu. */
+#dev-overlay.dbg-picking {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
 
 /* Override .controls when inside overlay — transparent, full width */
 #dev-overlay .controls {
