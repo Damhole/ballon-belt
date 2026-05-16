@@ -2775,6 +2775,19 @@ function refreshFloorColor() {
   const carriersBg = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
   st.unifiedFrameFloor.material.color.set(carriersBg);
 }
+function refreshWallColor() {
+  // Wall barva = --carriers-3d-bg lightened +0.02 HSL. Outline = wall × 0.38.
+  // Sync s updateWalls() logic — voláno z dev tool floor change cascade.
+  if (!st._wallMat) return;
+  const cs = getComputedStyle(document.body);
+  const bgColor = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
+  const wallCol = new THREE.Color(bgColor);
+  const hsl = { h: 0, s: 0, l: 0 };
+  wallCol.getHSL(hsl);
+  wallCol.setHSL(hsl.h, hsl.s, Math.min(1, hsl.l + 0.02));
+  st._wallMat.color.copy(wallCol);
+  if (st._wallOutlineMat) st._wallOutlineMat.color.copy(wallCol).multiplyScalar(0.38);
+}
 
-window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, setMysteryBaseColor, getMysteryBaseColor };
+window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor };
 window._r3dBState = st;  // debug
