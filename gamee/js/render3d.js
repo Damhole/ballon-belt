@@ -1301,12 +1301,12 @@ if (typeof window !== 'undefined') {
       const shadowsOn = (t === 0 || t === 1) && !state._shadowsStuckOff;
       const shadowsChanged = (state.renderer && state.renderer.shadowMap.enabled !== shadowsOn);
 
-      // Pixel ratio podle tieru
+      // v73.260: pixel ratio — LOW vrácen z 1 na min(dpr,1.5), jinak chunky pixely.
+      // Stíny + dust + CA jsou hlavní wins na LOW, pixel ratio drop bylo příliš agresivní.
       if (state.renderer) {
         const dpr = window.devicePixelRatio || 1;
         const target = t === 0 ? Math.min(dpr, 2)
-                     : t === 1 ? Math.min(dpr, 1.5)
-                              : 1;
+                              : Math.min(dpr, 1.5); // MED i LOW = 1.5
         state.renderer.setPixelRatio(target);
       }
       if (state.renderer) state.renderer.shadowMap.enabled = shadowsOn;

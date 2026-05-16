@@ -2797,11 +2797,11 @@ function refreshWallColor() {
 // v73.257: setPixelRatio per tier — největší win na mobile (retina 2× = 4× pixelů).
 function setQualityTier(tier){
   st.qualityTier = Math.max(0, Math.min(2, tier|0));
+  // v73.260: LOW vrácen z 1 na 1.5 — nesnižujeme kvalitu vykreslování koulí
   if (st.renderer) {
     const dpr = window.devicePixelRatio || 1;
     const target = st.qualityTier === 0 ? Math.min(dpr, 2)
-                 : st.qualityTier === 1 ? Math.min(dpr, 1.5)
-                                        : 1;
+                                        : Math.min(dpr, 1.5);
     st.renderer.setPixelRatio(target);
   }
 }
