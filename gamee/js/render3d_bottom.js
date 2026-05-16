@@ -425,7 +425,9 @@ function init() {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(canvasFullW, H, false);
   renderer.setClearColor(0, 0);
-  renderer.shadowMap.enabled = false;
+  // v73.212: real shadow mapping pro pending balls
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   // OrthographicCamera: extended o CANVAS_PAD → world x ∈ [0, W] zůstává v centru,
   // ale outline (x ∈ [-8, W+8]) je viditelný v rozšířené canvas oblasti.
@@ -462,6 +464,17 @@ function init() {
   // Aby band visuálně matchoval image frame, materiály i světla musí být stejné.
   const sun = new THREE.DirectionalLight(0xffffff, 1.55);
   sun.position.set(-300, 800, 600);
+  // v73.212: shadow casting — orto frustum encompass scene area
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.left   = -300;
+  sun.shadow.camera.right  =  800;
+  sun.shadow.camera.top    =  800;
+  sun.shadow.camera.bottom = -200;
+  sun.shadow.camera.near   = 0.1;
+  sun.shadow.camera.far    = 2000;
+  sun.shadow.bias          = -0.0005;
+  sun.shadow.radius        = 3;
   scene.add(sun);
 
   const hemi = new THREE.HemisphereLight(0xffe8f0, 0xa090a8, 1.85);
@@ -742,6 +755,7 @@ function init() {
   st.pendingMesh.material = st.pendingMesh.material.clone();
   st.pendingMesh.material.depthTest = false;  // renderOrder fully authoritative
   st.pendingMesh.material.depthWrite = false;
+  st.pendingMesh.castShadow = true;  // v73.212: real shadow mapping
   contentGroup.add(st.pendingMesh);
   st.pendingOutlineMesh = mkOutline(pendingGeom, MAX_PENDING);
   st.pendingOutlineMesh.renderOrder = 149;  // pod pendingMesh (150) ale nad carriery
@@ -760,7 +774,8 @@ function init() {
   st.pendingShadowMesh = new THREE.InstancedMesh(shadowGeom, shadowMat, MAX_PENDING);
   st.pendingShadowMesh.count = 0;
   st.pendingShadowMesh.frustumCulled = false;
-  st.pendingShadowMesh.renderOrder = 148;  // pod pending outline (149) a pending balls (150), nad carriery (100-114)
+  st.pendingShadowMesh.renderOrder = 148;
+  st.pendingShadowMesh.visible = false;  // v73.212: nahrazen real shadow mappingem
   contentGroup.add(st.pendingShadowMesh);
 
   // ─── Belt balls ───
@@ -855,7 +870,7 @@ const FRAME_OUTLINE_PX   = 2;   // tloušťka outline rimu (odpovídá CSS box-s
 const FRAME_COLOR        = 0xf4b8c8;  // match image frame color (render3d.js line ~537)
 const FRAME_EMISSIVE     = 0x4a2f3d;  // mauve fill — lifts dark inner walls bez ambient light
 const FRAME_OUTLINE_COLOR= 0x8a5066;  // mauve-pink rim — match image area box-shadow
-const MYSTERY_BASE_DEFAULT = '#10040b';  // v73.210: laděno přes dev color picker, wine darkness
+const MYSTERY_BASE_DEFAULT = '#1c0410';  // v73.212: finální tuning, deeper wine
 const CORNER_R_BOT       = 20;  // radius zaoblení dolních rohů arény (~5% šířky)
 const FRAME_ARCH_HEIGHT  = 90;  // v73.121: locknutá výška oblouku skulina→arena; přebytek (carriers shift) se přidá k vertikálním stěnám arény místo deformace bezier
 
@@ -1264,11 +1279,13 @@ function _initUnifiedFrame() {
   }
   const floorGeom = new THREE.ShapeGeometry(floorShape, 4);
   const carriersBg = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
-  const floorMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(carriersBg) });
+  // v73.212: Lambert místo Basic → může receivovat shadows (Basic je lighting-agnostic)
+  const floorMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(carriersBg) });
   const floorMesh = new THREE.Mesh(floorGeom, floorMat);
   floorMesh.position.set(0, FLOOR_SHIFT_Y, frameZ + 1);  // dno kavity, posunuté o 12 nahoru
   floorMesh.renderOrder   = 0;  // render brzy
   floorMesh.frustumCulled = false;
+  floorMesh.receiveShadow = true;  // real shadow mapping
   st.contentGroup.add(floorMesh);
   st.unifiedFrameFloor = floorMesh;
 
