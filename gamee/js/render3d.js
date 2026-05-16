@@ -33,6 +33,11 @@ const MAX_PROJECTILES = 80;    // max projektilů ve vzduchu (real-game ~40)
 // Aktivace: ?destroy=X v URL. Default = shatter (zábavnější).
 const DESTROY_SHARDS_PER_PIXEL = 6;
 const MAX_SHARDS = 280;
+// v73.228: per-pixel chromatic aberration ghosts — spawned on pixel destroy.
+// 2 flat planes per pixel: red offset right, cyan offset left, AdditiveBlending, fade ~180ms.
+const MAX_GHOSTS   = 120;   // 2 per pixel, ~60 simultaneous pixels
+const CA_OFFSET_X  = 4.5;   // horizontal offset in world units
+const CA_LIFE      = 0.18;  // fade duration (s)
 const TILT_DEG = 19.2;        // tilt scény (°) — match Blender Camera.010 X rotation
 const BEVEL_TEX_SIZE = 128;   // rozlišení bevel textury (vyšší = ostřejší highlights)
 // Per-pixel height variation — některé kostky vyšší, aby povrch nebyl rovnoměrný.
@@ -67,6 +72,8 @@ const state = {
   pixelBounce: new Map(), // key = y*GW+x → {t, delay, life, amp}
   _lastGrid: null,
   _lastColors: null,
+  ghosts: [],       // v73.228: CA ghost instances
+  ghostMesh: null,  // v73.228: InstancedMesh pro CA efekt
 };
 
 const _dummy = new THREE.Object3D();
@@ -649,6 +656,25 @@ function init(canvas, opts) {
   state.shardMesh.castShadow = true;
   state.pixelsGroup.add(state.shardMesh);   // v73.8
 
+  // v73.228: CA ghost mesh — flat planes with AdditiveBlending, no depth write.
+  // Spawned in pairs (red+cyan) at destroyed pixel position.
+  const ghostGeom = new THREE.PlaneGeometry(SCALE * PIXEL_INSET, SCALE * PIXEL_INSET);
+  const ghostMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  state.ghostMesh = new THREE.InstancedMesh(ghostGeom, ghostMat, MAX_GHOSTS);
+  state.ghostMesh.instanceColor = new THREE.InstancedBufferAttribute(
+    new Float32Array(MAX_GHOSTS * 3), 3
+  );
+  state.ghostMesh.count = 0;
+  state.ghostMesh.frustumCulled = false;
+  state.ghostMesh.renderOrder = 40; // above pixels, below shards
+  state.pixelsGroup.add(state.ghostMesh);
+
   state.ready = true;
   return true;
 }
@@ -737,6 +763,28 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
   triggerPixelWave(gridX, gridY);
 }
 
+// v73.228: Per-pixel chromatic aberration — spawne 2 ghost planes na destroyed pixel.
+// Red ghost posunutý +CA_OFFSET_X, cyan ghost posunutý -CA_OFFSET_X. AdditiveBlending fade.
+function triggerPixelCA(gx, gy, hexColor) {
+  if (!state.ready || !state.ghostMesh) return;
+  const col = _getColor(hexColor);
+  const wx = gx * SCALE + SCALE / 2;
+  const wy = gy * SCALE + SCALE / 2;
+  // Red channel emphasis — offset right
+  state.ghosts.push({
+    x: wx + CA_OFFSET_X, y: wy,
+    color: new THREE.Color(col.r * 0.85 + 0.15, col.g * 0.05, col.b * 0.05),
+    t: 0, life: CA_LIFE,
+  });
+  // Cyan channel emphasis — offset left
+  state.ghosts.push({
+    x: wx - CA_OFFSET_X, y: wy,
+    color: new THREE.Color(col.r * 0.05, col.g * 0.3 + 0.1, col.b * 0.85 + 0.15),
+    t: 0, life: CA_LIFE,
+  });
+  while (state.ghosts.length > MAX_GHOSTS) state.ghosts.shift();
+}
+
 // Hit bounce při odrazu projektilu od špatné barvy — jen hit pixel + bezprostřední sousedi.
 // Menší a rychlejší než destroy wave: centrum dostane plný amp, okolí útlumem.
 function triggerPixelHit(gx, gy) {
@@ -823,6 +871,29 @@ function updateAnimations(dt) {
   if (i > 0 || state.shardMesh.instanceMatrix.needsUpdate === false) {
     state.shardMesh.instanceMatrix.needsUpdate = true;
     state.shardMesh.instanceColor.needsUpdate = true;
+  }
+
+  // v73.228: CA ghost update + render
+  if (state.ghostMesh) {
+    for (let i = state.ghosts.length - 1; i >= 0; i--) {
+      state.ghosts[i].t += dt;
+      if (state.ghosts[i].t >= state.ghosts[i].life) state.ghosts.splice(i, 1);
+    }
+    let gi = 0;
+    for (const g of state.ghosts) {
+      if (gi >= MAX_GHOSTS) break;
+      const fade = Math.max(0, 1 - g.t / g.life);
+      _dummy.position.set(g.x, H - g.y, PIXEL_DEPTH + 2);
+      _dummy.rotation.set(0, 0, 0);
+      _dummy.scale.set(1, 1, 1);
+      _dummy.updateMatrix();
+      state.ghostMesh.setMatrixAt(gi, _dummy.matrix);
+      state.ghostMesh.instanceColor.setXYZ(gi, g.color.r * fade, g.color.g * fade, g.color.b * fade);
+      gi++;
+    }
+    state.ghostMesh.count = gi;
+    state.ghostMesh.instanceMatrix.needsUpdate = true;
+    state.ghostMesh.instanceColor.needsUpdate = true;
   }
 
   // Advance pixel wave timers; refresh grid každý frame dokud vlna běží
@@ -1073,6 +1144,7 @@ if (typeof window !== 'undefined') {
     updateBlocks,
     updateProjectiles,
     triggerPixelDestroy,
+    triggerPixelCA,       // v73.228
     triggerPixelWave,
     triggerPixelHit,
     triggerBounceSpark,   // v73.49
