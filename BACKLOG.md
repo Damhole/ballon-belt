@@ -503,6 +503,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v73.218 | `8e6bb45` | 2026-05-16 | **Per-theme frame colors.** `THEME_FRAME_COLORS` pro 10 témat, `_applyThemeFrameColors()`, `setTheme()` rozšířen o dispatch `bb:theme-changed`, 3D lazy-init aplikují barvy po init. `debug.js`: localStorage per-téma (`bb-color-overrides-<theme>`), `reloadForTheme()` na event, reset resetuje jen aktuální téma. |
 | v73.168–217 | various | 2026-05-16 | **M9 day 4+ — Cartoon polish + physics fixes + dev tools.** Wave/hit bounce stretch, pending ball squash/stretch, **fix asymetrického úniku přes _archXAtY closest endpoint**, position-aware belt sparse array load, bottom frame outline + **fix duplicate dispose**, **fix grid shift via bottom-deck reference**, mystery base #1c0410 + MeshBasicMaterial fix, dev color picker tool, shadow experiments (disabled). Viz "M9 day 4+" deep dive výš. |
 | v73.167 | `c3e128b` | 2026-05-15 | **safeBottom 20 → 7** (o 2/3 menší). Po v73.166 root cause fix se algo dobře hlídá. |
 | v73.166 | `dcf25e0` | 2026-05-15 | **🎯 ROOT CAUSE fix scrollbar:** algo predikuje --carriers-pad-top podle cellSize (18 px pro TARGET, 4 px pro shrunk). Tím byla 14 px discrepance mezi 4-row a 5+ row levely — algo měl WRAP_PAD_TOP=4 hardcoded, render3d_bottom._setCarriersPadTop nastavil 18 pro TARGET. Algo používá ESTIMATED_PAD=18 pro cellSize compute, pak PREDIKUJE actual pad pro shift placement. |
