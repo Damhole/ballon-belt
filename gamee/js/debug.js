@@ -290,12 +290,11 @@
       { id: 'bg-top',        label: 'BG gradient top',     get: function () { return getCssVar('--bg-3d-top'); },        set: function (hex) { document.documentElement.style.setProperty('--bg-3d-top', hex); } },
       { id: 'bg-bottom',     label: 'BG gradient bottom',  get: function () { return getCssVar('--bg-3d-bottom'); },     set: function (hex) { document.documentElement.style.setProperty('--bg-3d-bottom', hex); } },
       { id: 'floor',         label: 'Floor / Image BG',    get: function () { return getCssVar('--carriers-3d-bg'); },   set: function (hex) {
-        // Cascade: floor + image area + wall + mystery texture (sjednocené v jeden tunable)
+        // Cascade: floor + image area + wall (mystery už není v cascade — má vlastní default)
         document.documentElement.style.setProperty('--carriers-3d-bg', hex);
         document.documentElement.style.setProperty('--image-3d-bg', hex);
         if (window.render3dBottom && window.render3dBottom.refreshFloorColor) window.render3dBottom.refreshFloorColor();
         if (window.render3dBottom && window.render3dBottom.refreshWallColor) window.render3dBottom.refreshWallColor();
-        if (window.render3dBottom && window.render3dBottom.rebuildMysteryTexture) window.render3dBottom.rebuildMysteryTexture();
       } },
       { id: 'img-frame-mesh', label: 'Image frame mesh',   get: function () { return '#' + (window.render3d && window.render3d.getImageFrameColor ? window.render3d.getImageFrameColor() : 'f4b8c8'); }, set: function (hex) { if (window.render3d && window.render3d.setImageFrameColor) window.render3d.setImageFrameColor(hex); } },
       { id: 'bot-frame-mesh', label: 'Bottom frame mesh',  get: function () { return '#' + (window.render3dBottom && window.render3dBottom.getBottomFrameColor ? window.render3dBottom.getBottomFrameColor() : 'f4b8c8'); }, set: function (hex) { if (window.render3dBottom && window.render3dBottom.setBottomFrameColor) window.render3dBottom.setBottomFrameColor(hex); } },

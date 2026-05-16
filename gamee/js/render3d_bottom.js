@@ -208,16 +208,10 @@ function _buildMysteryTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = S; canvas.height = S;
   const ctx = canvas.getContext('2d');
-  // v73.202: base = floor color (carriers-3d-bg) × 0.10 (wine darkness). v73.206:
-  // pokud je nastavený st._mysteryBaseOverride, použít přímo (override z dev tool).
-  let baseColor;
-  if (st._mysteryBaseOverride) {
-    baseColor = st._mysteryBaseOverride;
-  } else {
-    const cs = getComputedStyle(document.documentElement);
-    const floorHex = (cs.getPropertyValue('--carriers-3d-bg') || '#6a2f4d').trim();
-    baseColor = _darkenHex(floorHex, 0.10);
-  }
+  // v73.210: base = MYSTERY_BASE_DEFAULT (laděno přes dev color picker, finalní hex).
+  // Override přes st._mysteryBaseOverride. Mystery už nesleduje floor color
+  // (užívatel chce specific wine darkness, nezávislé na floor change).
+  const baseColor = st._mysteryBaseOverride || MYSTERY_BASE_DEFAULT;
   ctx.fillStyle = baseColor;
   ctx.fillRect(0, 0, S, S);
   // 3×3 grid středně velkých tilted ?s + jemný tmavý outline (stroke před fill).
@@ -855,6 +849,7 @@ const FRAME_OUTLINE_PX   = 2;   // tloušťka outline rimu (odpovídá CSS box-s
 const FRAME_COLOR        = 0xf4b8c8;  // match image frame color (render3d.js line ~537)
 const FRAME_EMISSIVE     = 0x4a2f3d;  // mauve fill — lifts dark inner walls bez ambient light
 const FRAME_OUTLINE_COLOR= 0x8a5066;  // mauve-pink rim — match image area box-shadow
+const MYSTERY_BASE_DEFAULT = '#10040b';  // v73.210: laděno přes dev color picker, wine darkness
 const CORNER_R_BOT       = 20;  // radius zaoblení dolních rohů arény (~5% šířky)
 const FRAME_ARCH_HEIGHT  = 90;  // v73.121: locknutá výška oblouku skulina→arena; přebytek (carriers shift) se přidá k vertikálním stěnám arény místo deformace bezier
 
@@ -2752,10 +2747,7 @@ function setMysteryBaseColor(hex) {
   rebuildMysteryTexture();
 }
 function getMysteryBaseColor() {
-  if (st._mysteryBaseOverride) return st._mysteryBaseOverride;
-  const cs = getComputedStyle(document.documentElement);
-  const floorHex = (cs.getPropertyValue('--carriers-3d-bg') || '#6a2f4d').trim();
-  return _darkenHex(floorHex, 0.10);
+  return st._mysteryBaseOverride || MYSTERY_BASE_DEFAULT;
 }
 function rebuildMysteryTexture() {
   // Rebuild mystery `?` texture po theme/color change (čte aktuální --carriers-3d-bg).
