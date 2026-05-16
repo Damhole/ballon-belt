@@ -1234,7 +1234,7 @@ function _initUnifiedFrame() {
   // Side walls budou lit přes HemisphereLight stejně jako image frame.
   const cs    = getComputedStyle(document.documentElement);
   const bandMat = new THREE.MeshLambertMaterial({
-    color:            0xf4b8c8,   // EXACT match image frame (render3d.js line ~537)
+    color:            st._frameColorOverride || FRAME_COLOR,
     stencilWrite:     true,
     stencilWriteMask: 0x00,
     stencilRef:       1,
@@ -1276,7 +1276,7 @@ function _initUnifiedFrame() {
   // v73.194: outline jako flat ShapeGeometry (2D, žádné side walls / bocnice).
   // Polož na front face bandu — flat rim viditelný jako tenká linka kolem celého rámu.
   const outlineMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(FRAME_OUTLINE_COLOR),
+    color: new THREE.Color(st._outlineColorOverride || FRAME_OUTLINE_COLOR),
   });
   const outlineGeom = new THREE.ShapeGeometry(outlineShape, 4);
   const outlineMesh = new THREE.Mesh(outlineGeom, outlineMat);
@@ -2736,6 +2736,7 @@ function clearCarrierState() {
 
 // v73.205: color tuning hooks pro dev color picker
 function setBottomFrameColor(hex) {
+  st._frameColorOverride = hex;
   if (st.unifiedFrameMesh && st.unifiedFrameMesh.material) {
     st.unifiedFrameMesh.material.color.set(hex);
   }
@@ -2744,6 +2745,7 @@ function getBottomFrameColor() {
   return st.unifiedFrameMesh?.material?.color?.getHexString() || 'f4b8c8';
 }
 function setOutlineColor(hex) {
+  st._outlineColorOverride = hex;
   if (st.unifiedFrameOutline && st.unifiedFrameOutline.material) {
     st.unifiedFrameOutline.material.color.set(hex);
   }
