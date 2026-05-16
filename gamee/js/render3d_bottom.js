@@ -212,7 +212,7 @@ function _buildMysteryTexture() {
   // Theme-aware — pink: dark mauve, ocean: dark navy, etc.
   const cs = getComputedStyle(document.documentElement);
   const floorHex = (cs.getPropertyValue('--carriers-3d-bg') || '#6a2f4d').trim();
-  ctx.fillStyle = _darkenHex(floorHex, 0.70);  // 70% — slightly darker než floor, zachová wine odstín
+  ctx.fillStyle = _darkenHex(floorHex, 0.10);  // 10% — stejná darkness jako original #010206, wine hue
   ctx.fillRect(0, 0, S, S);
   // 3×3 grid středně velkých tilted ?s + jemný tmavý outline (stroke před fill).
   ctx.font = 'bold 40px system-ui, -apple-system, Segoe UI, sans-serif';
