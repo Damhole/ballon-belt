@@ -1014,8 +1014,10 @@ function _measureFramePositions() {
 }
 
 // v73.103: dispose existing frame meshes (band, mask, floor) — pro rebuild.
+// v73.195: přidán unifiedFrameOutline — bez něj se hromadily duplikáty outline meshe
+// při každém rebuildu (resize/layout change) a vznikala viditelná druhá linka.
 function _disposeUnifiedFrame() {
-  const meshes = [st.unifiedFrameMesh, st.unifiedFrameMaskStencil, st.unifiedFrameFloor, st.colliderDebugLine];
+  const meshes = [st.unifiedFrameMesh, st.unifiedFrameMaskStencil, st.unifiedFrameFloor, st.unifiedFrameOutline, st.colliderDebugLine];
   for (const m of meshes) {
     if (!m) continue;
     if (st.contentGroup) st.contentGroup.remove(m);
@@ -1025,6 +1027,7 @@ function _disposeUnifiedFrame() {
   st.unifiedFrameMesh = null;
   st.unifiedFrameMaskStencil = null;
   st.unifiedFrameFloor = null;
+  st.unifiedFrameOutline = null;
   st.colliderDebugLine = null;
 }
 
