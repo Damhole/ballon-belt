@@ -1263,7 +1263,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.175');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.176');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5983,9 +5983,9 @@ function onCarrierClick(e){
       if(canvas3d){
         const cv=canvas3d.getBoundingClientRect();
         spawnY=window.render3dBottom.canvasYtoFunY(cboxRect.top+cboxRect.height/2-cv.top);
-        // Clamp spawnY tak, aby balls v dolní řadě (blízko FUN.wideY) nepřišly o 2×2 grid
-        // kvůli wall-clamp v addToPending (= 4 balls vodorovně). Margin pokryje +offset +ball.r.
-        if(FUN.wideY!==undefined) spawnY=Math.min(spawnY,FUN.wideY-25);
+        // Clamp spawnY tak, aby balls měli aspoň ball.r + offset rezervu od floor.
+        // Margin 8 px → balls spawnuji blíž k carrier oblasti (cca uvnitř / na jejím horním okraji).
+        if(FUN.wideY!==undefined) spawnY=Math.min(spawnY,FUN.wideY-8);
       }
     }
   }
@@ -6092,6 +6092,7 @@ const FUNNEL_3D = {
   visualNarrowHalf:  40,   // (legacy clip-path, už nepoužíváno — 3D frame definuje vizuál)
   physicsNarrowHalf: 32,   // v73.112: 38→32, match new visual skulina (FRAME_SKULINA_HALF=32)
   physicsArenaPad:    6,   // v73.106: FUN.wide: pad od kraje canvasu — match FRAME_ARENA_PAD
+  physicsExtraDepth: 40,   // v73.176: collider dno o 40 px hlouběji než visual frame, balls spawnuji uvnitř carrier oblasti
   cornerR:           18,   // CSS clip-path: poloměr rounded corners
 };
 if (RENDERER_MODE === '3d') {
@@ -6099,7 +6100,7 @@ if (RENDERER_MODE === '3d') {
   FUN.w = _F.deckW;
   FUN.h = _F.fullH;
   FUN.narrowY = _F.narrowY;
-  FUN.wideY = _F.fullH - _F.narrowY;                  // ~ h - narrowY (zrcadlí top offset)
+  FUN.wideY = _F.fullH - _F.narrowY + (_F.physicsExtraDepth||0);  // collider dno hlouběji než visual frame
   FUN.narrowL = (_F.deckW / 2) - _F.physicsNarrowHalf;
   FUN.narrowR = (_F.deckW / 2) + _F.physicsNarrowHalf;
   // v73.106: wide bounds match visual frame arena (FRAME_ARENA_PAD)
@@ -6504,7 +6505,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.175');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.176');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6632,7 +6633,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.175');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.176');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7468,7 +7469,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.175');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.176');
       event.detail.callback();
     });
 
