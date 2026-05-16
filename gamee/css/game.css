@@ -22,6 +22,7 @@
   --image-3d-outline: rgba(0, 0, 0, 0.70);
   --carriers-3d-bg:   #6a2f4d;   /* MATCH s image-3d-bg — sjednocená navy/plum plocha */
   --carriers-3d-rim:  rgba(255, 200, 220, 0.18);
+  --image-canvas-outline: #8a5066;  /* thin ring kolem pixel canvasu */
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -40,6 +41,7 @@ body.theme-ocean {
   --carriers-3d-rim:  rgba(180, 220, 240, 0.18);
   --frame-3d-shadow:  rgba(10, 30, 60, 0.40);
   --frame-3d-rim:     rgba(220, 240, 255, 0.50);
+  --image-canvas-outline: #3a6070;
 }
 
 /* SUNSET — warm orange/coral → dark wine. Energický, hřejivý. */
@@ -52,6 +54,7 @@ body.theme-sunset {
   --carriers-3d-rim:  rgba(255, 200, 180, 0.18);
   --frame-3d-shadow:  rgba(60, 20, 30, 0.40);
   --frame-3d-rim:     rgba(255, 230, 210, 0.50);
+  --image-canvas-outline: #7a3820;
 }
 
 /* FOREST — sage/mint → deep forest. Přírodní, klidný. */
@@ -64,6 +67,7 @@ body.theme-forest {
   --carriers-3d-rim:  rgba(200, 230, 190, 0.18);
   --frame-3d-shadow:  rgba(20, 40, 25, 0.40);
   --frame-3d-rim:     rgba(220, 240, 215, 0.50);
+  --image-canvas-outline: #3a5830;
 }
 
 /* LAVENDER — soft purple → indigo. Snový, delikátní. */
@@ -76,6 +80,7 @@ body.theme-lavender {
   --carriers-3d-rim:  rgba(220, 200, 240, 0.18);
   --frame-3d-shadow:  rgba(25, 10, 50, 0.40);
   --frame-3d-rim:     rgba(235, 220, 250, 0.50);
+  --image-canvas-outline: #504090;
 }
 
 /* MONO DARK — světlé pozadí, tmavá scéna. Minimalistický high-contrast.
@@ -90,6 +95,7 @@ body.theme-mono-dark {
   --carriers-3d-rim:  rgba(220, 220, 220, 0.20);
   --frame-3d-shadow:  rgba(0, 0, 0, 0.42);
   --frame-3d-rim:     rgba(255, 255, 255, 0.55);
+  --image-canvas-outline: #484848;
 }
 
 /* EXPERIMENT — testovací slot pro nové palety. Aktuálně: vintage terracotta
@@ -104,6 +110,7 @@ body.theme-experiment {
   --carriers-3d-rim:  rgba(220, 200, 170, 0.22);  /* warm cream rim */
   --frame-3d-shadow:  rgba(60, 30, 20, 0.40);
   --frame-3d-rim:     rgba(255, 230, 200, 0.50);
+  --image-canvas-outline: #5c4030;
 }
 
 /* EXPERIMENT2 — synthwave/anime: dusty purple BG + deep plum panel +
@@ -117,6 +124,7 @@ body.theme-experiment2 {
   --carriers-3d-rim:  rgba(180, 140, 80, 0.30);  /* warm dark rim pro definici */
   --frame-3d-shadow:  rgba(40, 25, 50, 0.40);
   --frame-3d-rim:     rgba(225, 200, 220, 0.42);
+  --image-canvas-outline: #706028;
 }
 /* Light yellow panel → dark labels pro čitelnost */
 body.theme-experiment2 #pending-label,
@@ -135,6 +143,7 @@ body.theme-mystery {
   --carriers-3d-rim:  rgba(180, 130, 230, 0.25);
   --frame-3d-shadow:  rgba(20, 5, 40, 0.55);
   --frame-3d-rim:     rgba(180, 140, 240, 0.32);
+  --image-canvas-outline: #402878;
 }
 
 /* NEON — cyberpunk dark BG. Outlines černé pro silnou definici hran,
@@ -149,6 +158,7 @@ body.theme-neon {
   --carriers-3d-rim:  rgba(0, 0, 0, 0.55);
   --frame-3d-shadow:  rgba(0, 0, 0, 0.85);
   --frame-3d-rim:     rgba(255, 255, 255, 0.10);
+  --image-canvas-outline: #00a0b8;
 }
 /* Neon: panely vnořené, hluboké inset shadows — outline-first design */
 body.theme-neon #image-area {
@@ -535,7 +545,7 @@ body.renderer-3d #image-area canvas {
   border-radius: 10px;
   /* v73.21: outline = tmavší odstín hlavního růžového bg (--bg-3d-bottom × 0.55).
      Méně kontrastní než černá, harmonizuje s case barvou. */
-  box-shadow: 0 0 0 1.5px #8a5066;
+  box-shadow: 0 0 0 1.5px var(--image-canvas-outline);
 }
 /* Všechny canvasy uvnitř image area se scalují na full size (přebije
    inline width/height přes !important — particle-canvas má inline z game.js). */
