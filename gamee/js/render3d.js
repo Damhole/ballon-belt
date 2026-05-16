@@ -37,6 +37,7 @@ const MAX_SHARDS = 280;
 // 2 flat planes per pixel: red offset right, cyan offset left, AdditiveBlending, fade ~180ms.
 const MAX_GHOSTS   = 120;   // 2 per pixel, ~60 simultaneous pixels
 const CA_OFFSET_X  = 4.5;   // horizontal offset in world units
+const CA_OFFSET_Y  = 1.5;   // vertical lift in world units (ghosts float above pixel center)
 const CA_LIFE      = 0.18;  // fade duration (s)
 const TILT_DEG = 19.2;        // tilt scény (°) — match Blender Camera.010 X rotation
 const BEVEL_TEX_SIZE = 128;   // rozlišení bevel textury (vyšší = ostřejší highlights)
@@ -770,15 +771,15 @@ function triggerPixelCA(gx, gy, hexColor) {
   const col = _getColor(hexColor);
   const wx = gx * SCALE + SCALE / 2;
   const wy = gy * SCALE + SCALE / 2;
-  // Red channel emphasis — offset right
+  // Red channel emphasis — offset right + slight upward lift
   state.ghosts.push({
-    x: wx + CA_OFFSET_X, y: wy,
+    x: wx + CA_OFFSET_X, y: wy - CA_OFFSET_Y,
     color: new THREE.Color(col.r * 0.85 + 0.15, col.g * 0.05, col.b * 0.05),
     t: 0, life: CA_LIFE,
   });
-  // Cyan channel emphasis — offset left
+  // Cyan channel emphasis — offset left + slight upward lift
   state.ghosts.push({
-    x: wx - CA_OFFSET_X, y: wy,
+    x: wx - CA_OFFSET_X, y: wy - CA_OFFSET_Y,
     color: new THREE.Color(col.r * 0.05, col.g * 0.3 + 0.1, col.b * 0.85 + 0.15),
     t: 0, life: CA_LIFE,
   });
