@@ -375,9 +375,9 @@ function init() {
   }
 
   // v73.196: canvas + camera rozšířený o CANVAS_PAD na obě strany — outline mesh
-  // sahá ~8 px za frame edge a byl ořezán bočními okraji canvasu. Content x souř.
+  // sahá ~3 px za frame edge a byl ořezán bočními okraji canvasu. Content x souř.
   // se nemění (st.W stále content width), jen physical canvas a camera bounds.
-  const CANVAS_PAD = 12;
+  const CANVAS_PAD = 4;
   const canvasFullW = W + 2 * CANVAS_PAD;
   const canvasLeftShifted = canvasLeft - CANVAS_PAD;
 
