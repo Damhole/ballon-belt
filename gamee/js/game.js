@@ -1263,7 +1263,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.169');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.170');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -1436,6 +1436,7 @@ function updateParticles(dt){
         const _nx=p.x+p.vx*dt, _ny=p.y+p.vy*dt;
         if(!firstCollisionOnPath(p.x,p.y,_nx,_ny,p.ci)){ p.x=_nx; p.y=_ny; }
       }
+      if(RENDERER_MODE==='3d' && window.render3d?.triggerPixelHit) window.render3d.triggerPixelHit(gx, gy);
       anyBounce=true;
       p.stuckT+=dt;
       if(p.stuckT>1.2){respawnParticle(p);}
@@ -6481,7 +6482,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.169');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.170');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6609,7 +6610,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.169');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.170');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7445,7 +7446,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.169');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.170');
       event.detail.callback();
     });
 

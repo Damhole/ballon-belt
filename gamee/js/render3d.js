@@ -737,6 +737,31 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
   triggerPixelWave(gridX, gridY);
 }
 
+// Hit bounce při odrazu projektilu od špatné barvy — jen hit pixel + bezprostřední sousedi.
+// Menší a rychlejší než destroy wave: centrum dostane plný amp, okolí útlumem.
+function triggerPixelHit(gx, gy) {
+  if (!state.ready) return;
+  const RADIUS = 1;
+  const BASE_AMP  = 7;   // střed dostane plný amp
+  const LIFE      = 0.18;
+  const WAVE_SPEED = 0.015;
+  for (let dy = -RADIUS; dy <= RADIUS; dy++) {
+    for (let dx = -RADIUS; dx <= RADIUS; dx++) {
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > RADIUS) continue;
+      const nx = gx + dx, ny = gy + dy;
+      if (nx < 0 || nx >= state.GW || ny < 0 || ny >= state.IMG_GH) continue;
+      const amp = BASE_AMP * (1 - dist / (RADIUS + 1));
+      const delay = dist * WAVE_SPEED;
+      const key = ny * state.GW + nx;
+      const existing = state.pixelBounce.get(key);
+      if (!existing || existing.amp < amp) {
+        state.pixelBounce.set(key, { t: 0, delay, life: LIFE, amp });
+      }
+    }
+  }
+}
+
 // Vlna bounce po destrukci pixelu — rozjede se z (gx, gy) do okolí.
 // Sousední pixely poskočí nahoru se zpožděním úměrným vzdálenosti.
 function triggerPixelWave(gx, gy) {
@@ -1047,6 +1072,7 @@ if (typeof window !== 'undefined') {
     updateProjectiles,
     triggerPixelDestroy,
     triggerPixelWave,
+    triggerPixelHit,
     triggerBounceSpark,   // v73.49
     updateAnimations,
     render,
