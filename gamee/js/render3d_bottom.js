@@ -748,13 +748,19 @@ function init() {
   st.pendingOutlineMesh.material.depthTest = false;
   contentGroup.add(st.pendingOutlineMesh);
 
-  // ─── Pending shadows DISABLED — způsobovaly viditelnost issues ───
+  // v73.211: Pending shadows enabled — disk pod každou kuličkou v trychtýři.
   const shadowGeom = new THREE.CircleGeometry(R_PENDING * 1.35, 18);
-  const shadowMat  = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.42, depthWrite: false });
+  const shadowMat  = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: 0.35,
+    depthWrite: false,
+    depthTest: false,  // renderOrder authoritative — vždy pod balls
+  });
   st.pendingShadowMesh = new THREE.InstancedMesh(shadowGeom, shadowMat, MAX_PENDING);
   st.pendingShadowMesh.count = 0;
   st.pendingShadowMesh.frustumCulled = false;
-  st.pendingShadowMesh.visible = false;  // disabled
+  st.pendingShadowMesh.renderOrder = 148;  // pod pending outline (149) a pending balls (150), nad carriery (100-114)
   contentGroup.add(st.pendingShadowMesh);
 
   // ─── Belt balls ───
