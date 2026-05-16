@@ -1087,6 +1087,13 @@ if (typeof window !== 'undefined') {
     getDestroyMode: () => state.destroyMode,
     setDestroyMode: (m) => { if (DESTROY_MODES.includes(m)) state.destroyMode = m; },
     listDestroyModes: () => DESTROY_MODES.slice(),
+    // v73.205: color tuning hooks pro dev color picker
+    setImageFrameColor: (hex) => {
+      if (state.imageFrame && state.imageFrame.material) {
+        state.imageFrame.material.color.set(hex);
+      }
+    },
+    getImageFrameColor: () => state.imageFrame?.material?.color?.getHexString() || 'f4b8c8',
   };
   // Signalizace, že modul je připravený. game.js může poslouchat tenhle event,
   // pokud by měl race condition (zatím ne — body onload čeká na všechny scripty

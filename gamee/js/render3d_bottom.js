@@ -2724,5 +2724,41 @@ function clearCarrierState() {
   }
 }
 
-window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize };
+// v73.205: color tuning hooks pro dev color picker
+function setBottomFrameColor(hex) {
+  if (st.unifiedFrameMesh && st.unifiedFrameMesh.material) {
+    st.unifiedFrameMesh.material.color.set(hex);
+  }
+}
+function getBottomFrameColor() {
+  return st.unifiedFrameMesh?.material?.color?.getHexString() || 'f4b8c8';
+}
+function setOutlineColor(hex) {
+  if (st.unifiedFrameOutline && st.unifiedFrameOutline.material) {
+    st.unifiedFrameOutline.material.color.set(hex);
+  }
+}
+function getOutlineColor() {
+  return st.unifiedFrameOutline?.material?.color?.getHexString() || '8a5066';
+}
+function rebuildMysteryTexture() {
+  // Rebuild mystery `?` texture po theme/color change (čte aktuální --carriers-3d-bg).
+  if (!st._mysteryTex || !st._mysteryMat) return;
+  const newTex = _buildMysteryTexture();
+  // Preserve offset (anim phase)
+  newTex.offset.copy(st._mysteryTex.offset);
+  st._mysteryTex.dispose();
+  st._mysteryTex = newTex;
+  st._mysteryMat.map = newTex;
+  st._mysteryMat.needsUpdate = true;
+}
+function refreshFloorColor() {
+  // Floor mesh color je hard-coded při init z --carriers-3d-bg. Refresh po color change.
+  if (!st.unifiedFrameFloor) return;
+  const cs = getComputedStyle(document.documentElement);
+  const carriersBg = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
+  st.unifiedFrameFloor.material.color.set(carriersBg);
+}
+
+window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor };
 window._r3dBState = st;  // debug

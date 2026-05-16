@@ -141,6 +141,9 @@
       if (e.shiftKey && e.key === 'D') togglePanel();
     });
 
+    // ── Color picker panel ────────────────────────────────────────────
+    buildColorPicker(overlay);
+
     // Apply persisted safezone state
     applySafezone();
 
@@ -261,6 +264,167 @@
     var s = String(n);
     while (s.length < len) s = ' ' + s;
     return s;
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // v73.205: Color picker panel — interaktivní ladění barev scény
+  // ──────────────────────────────────────────────────────────────────
+  var COLOR_STORE_KEY = 'bb-color-overrides';
+
+  function getStoredColors() {
+    try { return JSON.parse(localStorage.getItem(COLOR_STORE_KEY) || '{}'); }
+    catch (e) { return {}; }
+  }
+  function saveStoredColors(obj) {
+    try { localStorage.setItem(COLOR_STORE_KEY, JSON.stringify(obj)); } catch (e) {}
+  }
+
+  function getCssVar(name) {
+    var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v;
+  }
+
+  // Tunables — id, label, getter, setter. Some have onAfterChange callback.
+  function buildTunables() {
+    return [
+      { id: 'bg-top',        label: 'BG gradient top',     get: function () { return getCssVar('--bg-3d-top'); },        set: function (hex) { document.documentElement.style.setProperty('--bg-3d-top', hex); } },
+      { id: 'bg-bottom',     label: 'BG gradient bottom',  get: function () { return getCssVar('--bg-3d-bottom'); },     set: function (hex) { document.documentElement.style.setProperty('--bg-3d-bottom', hex); } },
+      { id: 'image-bg',      label: 'Image area BG',       get: function () { return getCssVar('--image-3d-bg'); },      set: function (hex) { document.documentElement.style.setProperty('--image-3d-bg', hex); } },
+      { id: 'floor',         label: 'Floor (cavity BG)',   get: function () { return getCssVar('--carriers-3d-bg'); },   set: function (hex) {
+        document.documentElement.style.setProperty('--carriers-3d-bg', hex);
+        // Cascade: floor mesh + mystery texture
+        if (window.render3dBottom && window.render3dBottom.refreshFloorColor) window.render3dBottom.refreshFloorColor();
+        if (window.render3dBottom && window.render3dBottom.rebuildMysteryTexture) window.render3dBottom.rebuildMysteryTexture();
+      } },
+      { id: 'img-frame-mesh', label: 'Image frame mesh',   get: function () { return '#' + (window.render3d && window.render3d.getImageFrameColor ? window.render3d.getImageFrameColor() : 'f4b8c8'); }, set: function (hex) { if (window.render3d && window.render3d.setImageFrameColor) window.render3d.setImageFrameColor(hex); } },
+      { id: 'bot-frame-mesh', label: 'Bottom frame mesh',  get: function () { return '#' + (window.render3dBottom && window.render3dBottom.getBottomFrameColor ? window.render3dBottom.getBottomFrameColor() : 'f4b8c8'); }, set: function (hex) { if (window.render3dBottom && window.render3dBottom.setBottomFrameColor) window.render3dBottom.setBottomFrameColor(hex); } },
+      { id: 'outline-color',  label: 'Frame outline',      get: function () { return '#' + (window.render3dBottom && window.render3dBottom.getOutlineColor ? window.render3dBottom.getOutlineColor() : '8a5066'); }, set: function (hex) { if (window.render3dBottom && window.render3dBottom.setOutlineColor) window.render3dBottom.setOutlineColor(hex); } },
+    ];
+  }
+
+  function normalizeHex(s) {
+    if (!s) return '#000000';
+    s = s.trim();
+    if (s[0] !== '#') s = '#' + s;
+    // Strip rgba — color input doesn't support alpha
+    if (s.indexOf('rgb') === 0) return '#000000';
+    // Short hex → full
+    if (s.length === 4) s = '#' + s[1] + s[1] + s[2] + s[2] + s[3] + s[3];
+    return s.toLowerCase();
+  }
+
+  function buildColorPicker(overlayEl) {
+    var details = document.createElement('details');
+    details.className = 'dbg-color-picker';
+    details.style.marginTop = '8px';
+    details.style.width = '100%';
+    var summary = document.createElement('summary');
+    summary.textContent = '🎨 Colors';
+    summary.style.cursor = 'pointer';
+    summary.style.fontSize = '11px';
+    summary.style.padding = '4px 6px';
+    summary.style.color = 'rgba(255,255,255,0.85)';
+    details.appendChild(summary);
+
+    var list = document.createElement('div');
+    list.style.display = 'flex';
+    list.style.flexDirection = 'column';
+    list.style.gap = '3px';
+    list.style.padding = '4px 0 6px';
+    details.appendChild(list);
+
+    var tunables = buildTunables();
+    var stored = getStoredColors();
+
+    // Helper aplikuje hodnotu na tunable
+    function applyValue(t, hex) {
+      try { t.set(hex); } catch (e) { console.warn('[color-picker]', t.id, e); }
+    }
+
+    // Render řádky
+    tunables.forEach(function (t) {
+      var row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.alignItems = 'center';
+      row.style.gap = '6px';
+      row.style.fontSize = '10px';
+      row.style.color = 'rgba(255,255,255,0.8)';
+
+      var label = document.createElement('span');
+      label.textContent = t.label;
+      label.style.flex = '1';
+      label.style.minWidth = '0';
+      label.style.overflow = 'hidden';
+      label.style.textOverflow = 'ellipsis';
+      label.style.whiteSpace = 'nowrap';
+
+      var input = document.createElement('input');
+      input.type = 'color';
+      var current = stored[t.id] || t.get();
+      var hex = normalizeHex(current);
+      input.value = hex;
+      input.style.width = '32px';
+      input.style.height = '20px';
+      input.style.padding = '0';
+      input.style.border = '1px solid rgba(255,255,255,0.3)';
+      input.style.background = 'transparent';
+      input.style.cursor = 'pointer';
+
+      var hexLabel = document.createElement('input');
+      hexLabel.type = 'text';
+      hexLabel.value = hex;
+      hexLabel.style.width = '70px';
+      hexLabel.style.fontSize = '10px';
+      hexLabel.style.fontFamily = 'monospace';
+      hexLabel.style.padding = '2px 4px';
+      hexLabel.style.background = 'rgba(0,0,0,0.4)';
+      hexLabel.style.color = 'rgba(255,255,255,0.9)';
+      hexLabel.style.border = '1px solid rgba(255,255,255,0.2)';
+      hexLabel.style.borderRadius = '3px';
+
+      function updateValue(newHex, src) {
+        var norm = normalizeHex(newHex);
+        if (src !== 'color') input.value = norm;
+        if (src !== 'text')  hexLabel.value = norm;
+        applyValue(t, norm);
+        var s = getStoredColors();
+        s[t.id] = norm;
+        saveStoredColors(s);
+      }
+
+      input.addEventListener('input', function () { updateValue(input.value, 'color'); });
+      hexLabel.addEventListener('change', function () { updateValue(hexLabel.value, 'text'); });
+
+      row.appendChild(label);
+      row.appendChild(hexLabel);
+      row.appendChild(input);
+      list.appendChild(row);
+
+      // Apply stored on init (after a tick — JS modules may not be ready yet)
+      if (stored[t.id]) {
+        setTimeout(function () { applyValue(t, hex); }, 100);
+      }
+    });
+
+    // Reset all button
+    var resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.textContent = 'Reset všech barev';
+    resetBtn.style.marginTop = '6px';
+    resetBtn.style.padding = '4px 8px';
+    resetBtn.style.fontSize = '10px';
+    resetBtn.style.background = 'rgba(255,255,255,0.1)';
+    resetBtn.style.color = 'rgba(255,255,255,0.85)';
+    resetBtn.style.border = '1px solid rgba(255,255,255,0.2)';
+    resetBtn.style.borderRadius = '3px';
+    resetBtn.style.cursor = 'pointer';
+    resetBtn.addEventListener('click', function () {
+      saveStoredColors({});
+      location.reload();
+    });
+    list.appendChild(resetBtn);
+
+    overlayEl.appendChild(details);
   }
 
   if (document.readyState === 'loading') {
