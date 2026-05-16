@@ -1263,7 +1263,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.186');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.187');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6281,10 +6281,7 @@ function updatePending(dt){
       // Strop mimo otvor – uzavře trychtýř nahoře po stranách otvoru
       collideFunnelSeg(b,0,FUN.narrowY,FUN.narrowL,FUN.narrowY);
       collideFunnelSeg(b,FUN.narrowR,FUN.narrowY,FUN.w,FUN.narrowY);
-      // v73.180: throat walls protaženy o dalších 10 px výš (-10 → -20)
-      collideFunnelSeg(b,FUN.narrowL,-20,FUN.narrowL,FUN.narrowY);
-      collideFunnelSeg(b,FUN.narrowR,-20,FUN.narrowR,FUN.narrowY);
-      // Krk sanity clamp — pojistka pro kuličky které unikly přes throat walls
+      // Krk sanity clamp — kuličky nad narrowY (v krku) musí zůstat uvnitř narrow otvoru
       if(b.y<FUN.narrowY){
         if(b.x<FUN.narrowL+b.r){b.x=FUN.narrowL+b.r;if(b.vx<0)b.vx=-b.vx*0.3;}
         if(b.x>FUN.narrowR-b.r){b.x=FUN.narrowR-b.r;if(b.vx>0)b.vx=-b.vx*0.3;}
@@ -6322,18 +6319,6 @@ function updatePending(dt){
         }
         if(b.x<lx+b.r){b.x=lx+b.r;if(b.vx<0)b.vx=-b.vx*0.3;}
         if(b.x>rx-b.r){b.x=rx-b.r;if(b.vx>0)b.vx=-b.vx*0.3;}
-      }
-      // v73.182 DEBUG: log balls outside throat opening for diagnostics
-      if(b.y<FUN.narrowY+10){
-        const overL=(FUN.narrowL+b.r)-b.x;
-        const overR=b.x-(FUN.narrowR-b.r);
-        if(overL>2||overR>2){
-          if(!window._escapeLog) window._escapeLog={count:0,t0:performance.now()};
-          window._escapeLog.count++;
-          if(window._escapeLog.count<=20 || window._escapeLog.count%50===0){
-            console.log('[ESCAPE]',{x:b.x.toFixed(1),y:b.y.toFixed(1),vx:b.vx.toFixed(1),vy:b.vy.toFixed(1),overL:overL.toFixed(1),overR:overR.toFixed(1),narrowL:FUN.narrowL,narrowR:FUN.narrowR,r:b.r,count:window._escapeLog.count});
-          }
-        }
       }
       // Anti-stuck waggle – per-ball práh a náhodný trigger, aby se koule nesynchronizovaly
       const speed2=b.vx*b.vx+b.vy*b.vy;
@@ -6527,7 +6512,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.186');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.187');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6655,7 +6640,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.186');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.187');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7491,7 +7476,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.186');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.187');
       event.detail.callback();
     });
 

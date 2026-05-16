@@ -1355,21 +1355,6 @@ function _initUnifiedFrame() {
       colliderLine.frustumCulled = false;
       st.contentGroup.add(colliderLine);
       st.colliderDebugLine = colliderLine;
-      // v73.181: vykresli i throat walls (vertikální stěny krku) jako separate segments
-      const throatTopY = -20;
-      const throatCoords = [
-        F.narrowL, _worldY(funYtoCanvasY(throatTopY)), 0,
-        F.narrowL, _worldY(funYtoCanvasY(F.narrowY)), 0,
-        F.narrowR, _worldY(funYtoCanvasY(throatTopY)), 0,
-        F.narrowR, _worldY(funYtoCanvasY(F.narrowY)), 0,
-      ];
-      const throatGeom = new THREE.BufferGeometry();
-      throatGeom.setAttribute('position', new THREE.Float32BufferAttribute(throatCoords, 3));
-      const throatLine = new THREE.LineSegments(throatGeom, colliderMat);
-      throatLine.renderOrder = 200;
-      throatLine.frustumCulled = false;
-      st.contentGroup.add(throatLine);
-      st.throatDebugLine = throatLine;
     }
   }
 
