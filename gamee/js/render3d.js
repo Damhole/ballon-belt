@@ -817,12 +817,16 @@ function triggerPixelCA(gx, gy, hexColor) {
 
 // v73.238: spawne pár dust motes na zničeném pixelu. Dožijí DUST_LIFE_MIN..MAX
 // sekund, drifují jemně, alpha oscilace přes sin(phase) = šum/kmitání.
-function triggerDustBurst(gx, gy) {
+// v73.239: každá částice má ~35% šanci dostat barvu zničeného pixelu (jinak bílá).
+const DUST_TINT_CHANCE = 0.35;
+function triggerDustBurst(gx, gy, hexColor) {
   if (!state.ready || !state.dustMesh) return;
   const wx = gx * SCALE + SCALE / 2;
-  const wy = (state.GH - gy) * SCALE - SCALE / 2; // přímo world Y (ne flip přes H-y)
+  const wy = (state.GH - gy) * SCALE - SCALE / 2;
+  const tintColor = hexColor ? _getColor(hexColor) : null;
   for (let i = 0; i < DUST_PER_HIT; i++) {
     const a = Math.random() * Math.PI * 2;
+    const useTint = tintColor && Math.random() < DUST_TINT_CHANCE;
     state.dust.push({
       x: wx + (Math.random() - 0.5) * 4,
       y: wy + (Math.random() - 0.5) * 4,
@@ -833,6 +837,10 @@ function triggerDustBurst(gx, gy) {
       brightness: 0.45 + Math.random() * 0.45,
       t: 0,
       life: DUST_LIFE_MIN + Math.random() * (DUST_LIFE_MAX - DUST_LIFE_MIN),
+      // Barva: buď tint pixelu (boostnutý pro additive viditelnost) nebo bílá
+      cr: useTint ? Math.min(1, tintColor.r * 1.3 + 0.1) : 1,
+      cg: useTint ? Math.min(1, tintColor.g * 1.3 + 0.1) : 1,
+      cb: useTint ? Math.min(1, tintColor.b * 1.3 + 0.1) : 1,
     });
   }
   while (state.dust.length > MAX_DUST) state.dust.shift();
@@ -979,7 +987,7 @@ function updateAnimations(dt) {
       _dummy.scale.set(1, 1, 1);
       _dummy.updateMatrix();
       state.dustMesh.setMatrixAt(di, _dummy.matrix);
-      state.dustMesh.instanceColor.setXYZ(di, alpha, alpha, alpha);
+      state.dustMesh.instanceColor.setXYZ(di, d.cr * alpha, d.cg * alpha, d.cb * alpha);
       di++;
     }
     state.dustMesh.count = di;
