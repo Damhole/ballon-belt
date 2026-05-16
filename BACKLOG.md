@@ -503,6 +503,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v73.223 | `a603198` | 2026-05-16 | **Per-theme CSS drop-shadow glow + PointLight decay fix.** `glowFilter` v `THEME_FRAME_COLORS`, aplikován na `#bottom3d-canvas` v `_applyThemeFrameColors`. Neon: dvojitý drop-shadow `0 0 12px + 28px`; mystery: `0 0 10px + 20px`; ostatní subtle 5–8px. `PointLight` decay opraven na 0 (default 2 = kvadratický útlum → efekt neviditelný). |
 | v73.222 | `c07654c` | 2026-05-16 | **Per-theme PointLight + frame emissive.** `THREE.PointLight` v contentGroup, pozicovaný do středu arény. `MeshLambertMaterial.emissive` na frame. `setThemeLighting()` API. Neon: cyan 1.6; mystery: purple 0.9; ostatní subtle 0.25–0.6. |
 | v73.221 | `5728619` | 2026-05-16 | **Fix floor color — `getComputedStyle(body)`.** Theme CSS vars jsou na `body.theme-X`, `documentElement` vždy vracel pink `:root` default. `_rebuildUnifiedFrame` + `refreshFloorColor` přepnuty na `document.body`. |
 | v73.220 | `d119d2f` | 2026-05-16 | **Fix bottom frame color persist.** `st._frameColorOverride` / `st._outlineColorOverride` — `_rebuildUnifiedFrame` čte state override při init materiálů, frame+outline nepřepisuje na pink. |
