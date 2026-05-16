@@ -503,6 +503,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v73.221 | `5728619` | 2026-05-16 | **Fix floor color — `getComputedStyle(body)`.** Theme CSS vars jsou na `body.theme-X`, `documentElement` vždy vracel pink `:root` default. `_rebuildUnifiedFrame` + `refreshFloorColor` přepnuty na `document.body`. |
 | v73.220 | `d119d2f` | 2026-05-16 | **Fix bottom frame color persist.** `st._frameColorOverride` / `st._outlineColorOverride` — `_rebuildUnifiedFrame` čte state override při init materiálů, frame+outline nepřepisuje na pink. |
 | v73.219 | `cdc3105` | 2026-05-16 | **Floor bg + canvas outline theme-aware.** `refreshFloorColor/refreshWallColor` voláno z `_applyThemeFrameColors`. `--image-canvas-outline` CSS var per téma, nahrazuje hardcoded `#8a5066`. |
 | v73.218 | `8e6bb45` | 2026-05-16 | **Per-theme frame colors.** `THEME_FRAME_COLORS` pro 10 témat, `_applyThemeFrameColors()`, `setTheme()` rozšířen o dispatch `bb:theme-changed`, 3D lazy-init aplikují barvy po init. `debug.js`: localStorage per-téma (`bb-color-overrides-<theme>`), `reloadForTheme()` na event, reset resetuje jen aktuální téma. |
