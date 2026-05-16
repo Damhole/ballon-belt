@@ -452,6 +452,11 @@ function init() {
   st.tiltGroup = tiltGroup;
   st.contentGroup = contentGroup;
 
+  // Per-theme point light — pozice se nastaví v _initUnifiedFrame po layoutu arény.
+  const themeLight = new THREE.PointLight(0xffffff, 0.0, 0);
+  contentGroup.add(themeLight);
+  st.themeLight = themeLight;
+
   // Osvětlení: ŽÁDNÝ ambient (rozmazává toon bands).
   // Light z 3/4 úhlu (top-front-left) → přirozený 3D shading, ne flat-front.
   // Highlight na top-left, shadow na bottom-right. Klasické art-school 3/4 lighting.
@@ -1235,6 +1240,7 @@ function _initUnifiedFrame() {
   const cs    = getComputedStyle(document.body);
   const bandMat = new THREE.MeshLambertMaterial({
     color:            st._frameColorOverride || FRAME_COLOR,
+    emissive:         new THREE.Color(st._frameEmissiveOverride || 0x000000),
     stencilWrite:     true,
     stencilWriteMask: 0x00,
     stencilRef:       1,
@@ -1393,6 +1399,11 @@ function _initUnifiedFrame() {
       st.contentGroup.add(colliderLine);
       st.colliderDebugLine = colliderLine;
     }
+  }
+
+  // Umísti per-theme point light do středu arény.
+  if (st.themeLight) {
+    st.themeLight.position.set(W / 2, wy((arenaTopCSS + arenaBotCSS) / 2), 80);
   }
 
   console.log('[render3d_bottom] mask+outline built — band:', BAND_WIDTH,
@@ -2753,6 +2764,16 @@ function setOutlineColor(hex) {
 function getOutlineColor() {
   return st.unifiedFrameOutline?.material?.color?.getHexString() || '8a5066';
 }
+function setThemeLighting(lightColor, lightIntensity, frameEmissive) {
+  st._frameEmissiveOverride = frameEmissive || null;
+  if (st.themeLight) {
+    st.themeLight.color.set(lightColor);
+    st.themeLight.intensity = lightIntensity;
+  }
+  if (st.unifiedFrameMesh?.material) {
+    st.unifiedFrameMesh.material.emissive.set(frameEmissive || '#000000');
+  }
+}
 function setMysteryBaseColor(hex) {
   st._mysteryBaseOverride = hex;
   rebuildMysteryTexture();
@@ -2792,5 +2813,5 @@ function refreshWallColor() {
   if (st._wallOutlineMat) st._wallOutlineMat.color.copy(wallCol).multiplyScalar(0.38);
 }
 
-window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor };
+window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, setThemeLighting, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor };
 window._r3dBState = st;  // debug
