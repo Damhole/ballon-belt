@@ -741,10 +741,10 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
 // Sousední pixely poskočí nahoru se zpožděním úměrným vzdálenosti.
 function triggerPixelWave(gx, gy) {
   if (!state.ready) return;
-  const RADIUS = 3;
-  const WAVE_SPEED = 0.045; // s per grid cell vzdálenosti
-  const BASE_AMP  = 6;      // Three.js units Z-boost v centru vlny
-  const LIFE      = 0.32;   // s trvání jednoho bounce
+  const RADIUS = 4;
+  const WAVE_SPEED = 0.042; // s per grid cell vzdálenosti
+  const BASE_AMP  = 11;     // Three.js units Z-boost v centru vlny
+  const LIFE      = 0.36;   // s trvání jednoho bounce
   for (let dy = -RADIUS; dy <= RADIUS; dy++) {
     for (let dx = -RADIUS; dx <= RADIUS; dx++) {
       if (dx === 0 && dy === 0) continue;
