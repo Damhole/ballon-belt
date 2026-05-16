@@ -278,6 +278,63 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 
 **Závěr M9 day 3:** vše funguje. Frame visualy konzistentní napříč levely + viewporty, žádný scrollbar, žádný horizontal jump grafiky na desktopu, sparkles + glow pulse animace, čistý dev UI overlay.
 
+#### ✅ Hotovo v M9 day 4+ (v73.168–217) — Cartoon polish + physics fixes + dev tools
+
+**Pixel destruction polish** (v73.168–172, v73.188):
+- Wave bounce po destrukci: damped sine Z-stretch na sousedech v rádiusu 4, life 360 ms (v73.168–169, 172)
+- Hit bounce při bounce na špatné barvě: subtle ~3 px stretch na zasaženém pixelu (v73.170–171)
+- v73.188: změna z position-offset poskoku na **stretch nahoru** (pixel zůstává na zemi, jen roste) — match cartoon look
+
+**Pending ball physics & visuals** (v73.173–180):
+- Squash/stretch při kolizi: `bounceT0` + `bounceAmp` per ball, intenzita úměrná `|vn|/180`, max 10 % (v73.173–174)
+- Arch sanity clamp fix: `_archXAtY` přesné bezier segmenty místo lineární interpolace (v73.173)
+- Pending overflow fix: hard stop `wideL/wideR+r`, gate posunuto 14 px níž (v73.175)
+- Collider dno +180 px hlouběji do carrier area (`physicsExtraDepth`): kuličky spawnuji v carrier oblasti a stoupají (v73.176–177)
+- Krk-walls + throat sanity clamp proti úniku přes skulinu (v73.177–181)
+
+**Anti-escape saga — root cause asymetrického úniku** (v73.182–186):
+- v73.182: debug console.log detekuje pending balls outside opening corridor
+- v73.183–185: iterace strict clamp +12 / bezier vs linear fallback / `_archXAtY` offsetování z bandOuter — vše revertováno
+- **v73.186 🎯 ROOT CAUSE:** `_archXAtY` fallback vracel `segs[last].x` bez ohledu na orientaci. Right arch (top→bot): last=wideR=414. Left arch (bot→top): last=narrowL=178. Asymetrické! Pro y mimo segment range (gap zone mezi `narrowY=40` a `arch start ≈56` kvůli `ARCH_Y_SHIFT=16`) měl right side rx=414 → žádný clamp → únik. Fix: vrátit x z **closest endpoint** podle Y vzdálenosti
+- v73.187: cleanup — odstraněny throat walls (collideFunnelSeg), debug log
+
+**Position-aware belt loading — sparse array refactor** (v73.189–191):
+- Belt přepsán z compact array na sparse array délky `BELT_CAP=14` (null = prázdný slot)
+- `findBeltLoadSlot(b.x, beltAnim)` najde slot s vizuální pozicí nejblíž ball.x
+- Ball čeká pod otvorem dokud prázdný slot neprojde kolem (per-x gate)
+- Cannon iterace, beltCount, beltIsFull/Empty helpers
+- Realistic load — kuličky se naloží na pozici kde se nachází, ne na konec array (teleport)
+
+**Bottom frame outline + canvas extending saga** (v73.192–201):
+- v73.192–193: zapnut existující `unifiedFrameOutline` mesh (mauve-pink #8a5066, match image area box-shadow)
+- v73.194–196: experimenty s ExtrudeGeometry vs ShapeGeometry vs LineLoop, miter offset z innerPts vs bandOuter
+- 🎯 **v73.195 fix duplicate outline:** `_disposeUnifiedFrame` neodebíral `unifiedFrameOutline` → akumulovaly se duplikáty při rebuilds (resize/layout change). Přidán do meshes array
+- v73.196–197: canvas + camera extended o CANVAS_PAD=12/4 px (outline sahá 8 px za frame edge, byl ořezán). Způsobilo grid shift
+- v73.198–199: alternative — `FRAME_ARENA_PAD: 6→10`, `CARR_TARGET_SIZE: 54→52` (cavity 408→400). Frame nelícoval s image area
+- 🎯 **v73.201 ROOT CAUSE grid shiftu:** `updateCarriers` počítal `wX = cboxRect.left - canvasRect.left`, implicitní assumption že `cameraLeft = 0`. Když jsme cameru extendnuli na `(-pad, W+pad)`, assumption se rozpadl → 3D meshe se renderovaly o +pad vpravo. Fix: použít `bottom-deck` jako stable world origin: `wX = cboxRect.left - bottomDeckRect.left`. Coordinate system nezávislý na canvas/camera config
+
+**Mystery box color tuning** (v73.202–204, v73.209–210, v73.212):
+- v73.202: theme-aware base = `--carriers-3d-bg × 0.10` (darken factor)
+- v73.203–204: factor iterace 0.10 → 0.70 → 0.10 (user feedback "hodně hnědá" → "strašně světlá" → správně dark wine)
+- 🎯 **v73.209 fix rendered ≠ texture:** mystery box používal `MeshToonMaterial` (respektuje lighting) → rendered color × light_factor → výrazně jasnější než hex z dev pickeru. Změna na `MeshBasicMaterial` — texture color zobrazena přesně
+- v73.210: `MYSTERY_BASE_DEFAULT = '#10040b'` konstanta (laděno tebou v dev color pickeru)
+- v73.212: final `MYSTERY_BASE_DEFAULT = '#1c0410'` (deeper wine)
+
+**Dev color picker tool** (v73.205–208):
+- "🎨 Colors" panel v dev-overlay (settings ⚙)
+- 7 tunables: BG gradient top/bottom, Floor/Image BG (cascade), Image frame mesh, Bottom frame mesh, Frame outline, Mystery base
+- Live preview + native `<input type="color">` + hex text input
+- localStorage persistence pod `bb-color-overrides`, "Reset všech barev" button
+- Cascade: floor color → floor mesh + wall mat (+0.02 HSL) + image area BG
+- UX: overlay se zprůhlední během native pickeru (`opacity:0 + pointer-events:none`), vrátí se po change/blur. Display:none nešlo — schoval i input → picker se nestihl otevřít
+- API exposed: `render3d.setImageFrameColor`, `render3dBottom.setBottomFrameColor / setOutlineColor / setMysteryBaseColor / refreshFloorColor / refreshWallColor / rebuildMysteryTexture` + getters
+
+**Pending ball shadows — diskon vs real** (v73.211–217):
+- v73.211: enabled disk shadow (CircleGeometry × 1.35 R_PENDING, opacity 0.35), scaluje s pozicí v trychtýři, renderOrder 148
+- v73.212–215: real shadow mapping experiment — `renderer.shadowMap.enabled=true`, dedicated shadowLight, `pendingMesh.castShadow=true`, floor Lambert + receiveShadow. Trade-off: shadowLight position vs lighting changes. Nerenderoval nic
+- v73.214: ROOT-LEVEL FEEDBACK 🚨 — Claude unilaterálně revertoval real shadow zpět na disk bez svolení. Uložen memory `feedback_no_unilateral_revert.md`. Auto mode classifier zablokoval druhý force-reset, správně.
+- v73.216–217: disk shadow tunes (méně oválný 0.45→0.70, blíž k ball, slight X offset pro sun direction) → user verdikt "vypadá nevkusně" → **v73.217: shadow disabled** (`visible=false`), infrastruktura zachována v kódu
+
 #### 📋 Open v M9 (zbývá)
 
 - **Background atmosphere** — současný stav: CSS gradient `--bg-3d-top → --bg-3d-bottom` per theme. Bod 2 původního scope.
@@ -446,6 +503,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v73.168–217 | various | 2026-05-16 | **M9 day 4+ — Cartoon polish + physics fixes + dev tools.** Wave/hit bounce stretch, pending ball squash/stretch, **fix asymetrického úniku přes _archXAtY closest endpoint**, position-aware belt sparse array load, bottom frame outline + **fix duplicate dispose**, **fix grid shift via bottom-deck reference**, mystery base #1c0410 + MeshBasicMaterial fix, dev color picker tool, shadow experiments (disabled). Viz "M9 day 4+" deep dive výš. |
 | v73.167 | `c3e128b` | 2026-05-15 | **safeBottom 20 → 7** (o 2/3 menší). Po v73.166 root cause fix se algo dobře hlídá. |
 | v73.166 | `dcf25e0` | 2026-05-15 | **🎯 ROOT CAUSE fix scrollbar:** algo predikuje --carriers-pad-top podle cellSize (18 px pro TARGET, 4 px pro shrunk). Tím byla 14 px discrepance mezi 4-row a 5+ row levely — algo měl WRAP_PAD_TOP=4 hardcoded, render3d_bottom._setCarriersPadTop nastavil 18 pro TARGET. Algo používá ESTIMATED_PAD=18 pro cellSize compute, pak PREDIKUJE actual pad pro shift placement. |
 | v73.165 | `e4ffe33` | 2026-05-15 | Revert v73.164. |
