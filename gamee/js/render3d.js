@@ -436,6 +436,7 @@ function init(canvas, opts) {
   sun.castShadow = true;
   sun.shadow.mapSize.width = 512;
   sun.shadow.mapSize.height = 512;
+  state.sun = sun; // v73.259: ref pro shadow quality downgrade přes setQualityTier
   sun.shadow.camera.left = -W * 0.8;
   sun.shadow.camera.right = W * 0.8;
   sun.shadow.camera.top = H * 0.8;
@@ -745,6 +746,8 @@ function triggerBounceSpark(gridX, gridY, vx, vy, hexColor) {
 function triggerPixelDestroy(gridX, gridY, hexColor) {
   if (!state.ready || !state.shardMesh) return;
   if (state.destroyMode === 'none') return;
+  // v73.259: shadow map refresh při destrukci (on-demand mode na MED tieru)
+  if (state.sun && !state.sun.shadow.autoUpdate) state.sun.shadow.needsUpdate = true;
   const color = _getColor(hexColor).clone();
   const wx = gridX * SCALE + SCALE / 2;
   const wy = gridY * SCALE + SCALE / 2;
@@ -1212,6 +1215,10 @@ function updateProjectiles(particles) {
   const mesh = state.projectileMesh;
   let i = 0;
   const now = performance.now();
+  // v73.259: pokud autoUpdate=false (MED tier), refreshni shadow map když lítají projektily
+  if (state.sun && !state.sun.shadow.autoUpdate) {
+    for (const p of particles) { if (p.phase === 'fly') { state.sun.shadow.needsUpdate = true; break; } }
+  }
   for (const p of particles) {
     if (p.phase !== 'fly') continue;
     if (i >= MAX_PROJECTILES) break;
@@ -1282,18 +1289,24 @@ if (typeof window !== 'undefined') {
     triggerPixelCA,       // v73.228
     triggerDustBurst,     // v73.238
     setQualityTier: (tier) => {
-      // v73.256: 0=HIGH, 1=MED, 2=LOW. Toggle shadows + force material recompile
-      // (jinak Three.js drží staré shadow sampler bindings = bílé fleky na floor).
+      // v73.259: 3-stage shadow downgrade + sticky off pravidlo.
+      // HIGH: 512 PCFSoft + autoUpdate. MED: 256 Basic + manual autoUpdate=false.
+      // LOW: shadow off. Jakmile shadows jednou ZHASNUTÉ (qualityTier byl 2 a víc),
+      // při upgrade zpět NA HIGH se NEZAPÍNAJÍ — kvůli oscilaci HIGH↔MED.
       const prev = state.qualityTier || 0;
       state.qualityTier = Math.max(0, Math.min(2, tier|0));
-      const shadowsOn = state.qualityTier === 0;
-      const shadowsChanged = (prev === 0) !== shadowsOn;
-      // v73.257: pixel ratio podle tieru — na retina (dpr=2) je HIGH = 4× pixelů, LOW = 1×
+      const t = state.qualityTier;
+      // Stick: pokud jsme někdy byli na LOW, shadows zůstávají off už navždy
+      if (prev >= 2 || state._shadowsStuckOff) state._shadowsStuckOff = true;
+      const shadowsOn = (t === 0 || t === 1) && !state._shadowsStuckOff;
+      const shadowsChanged = (state.renderer && state.renderer.shadowMap.enabled !== shadowsOn);
+
+      // Pixel ratio podle tieru
       if (state.renderer) {
         const dpr = window.devicePixelRatio || 1;
-        const target = state.qualityTier === 0 ? Math.min(dpr, 2)
-                     : state.qualityTier === 1 ? Math.min(dpr, 1.5)
-                                                : 1;
+        const target = t === 0 ? Math.min(dpr, 2)
+                     : t === 1 ? Math.min(dpr, 1.5)
+                              : 1;
         state.renderer.setPixelRatio(target);
       }
       if (state.renderer) state.renderer.shadowMap.enabled = shadowsOn;
@@ -1301,9 +1314,28 @@ if (typeof window !== 'undefined') {
       if (state.blockMesh) state.blockMesh.castShadow = shadowsOn;
       if (state.projectileMesh) state.projectileMesh.castShadow = shadowsOn;
       if (state.shardMesh) state.shardMesh.castShadow = shadowsOn;
-      // Force material recompile na všech objektech ve scéně, ať shader správně
-      // reflektuje nový shadow state a nesampluje starou shadow texturu.
-      if (shadowsChanged && state.scene) {
+
+      // Shadow quality downgrade na MED — menší mapa, Basic filter, on-demand update
+      if (shadowsOn && state.sun && state.renderer) {
+        if (t === 0) {
+          state.sun.shadow.mapSize.set(512, 512);
+          state.sun.shadow.autoUpdate = true;
+          state.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        } else if (t === 1) {
+          state.sun.shadow.mapSize.set(256, 256);
+          state.sun.shadow.autoUpdate = false; // jen když pixel destroy / projektil
+          state.sun.shadow.needsUpdate = true; // jednorázový refresh hned po změně
+          state.renderer.shadowMap.type = THREE.BasicShadowMap;
+        }
+        // Force shadow map render target rebuild po type/size change
+        if (state.sun.shadow.map) {
+          state.sun.shadow.map.dispose();
+          state.sun.shadow.map = null;
+        }
+      }
+
+      // Force material recompile při toggle nebo type/size change ať shader vidí nový stav
+      if ((shadowsChanged || prev !== t) && state.scene) {
         state.scene.traverse((obj) => {
           const m = obj.material;
           if (!m) return;
@@ -1312,13 +1344,17 @@ if (typeof window !== 'undefined') {
         });
         if (state.renderer) state.renderer.shadowMap.needsUpdate = true;
       }
-      // Při downgrade na LOW vyčisti dust + ghosts ať nezůstanou bílé fleky.
-      if (state.qualityTier >= 2) {
+      // Cleanup particles při downgrade na LOW
+      if (t >= 2) {
         if (state.dust) state.dust.length = 0;
         if (state.ghosts) state.ghosts.length = 0;
         if (state.dustMesh) state.dustMesh.count = 0;
         if (state.ghostMesh) state.ghostMesh.count = 0;
       }
+    },
+    // v73.259: API pro manuální shadow refresh při on-demand update režimu (MED tier)
+    requestShadowUpdate: () => {
+      if (state.sun && !state.sun.shadow.autoUpdate) state.sun.shadow.needsUpdate = true;
     },
     getQualityTier: () => state.qualityTier || 0,
     triggerPixelWave,
