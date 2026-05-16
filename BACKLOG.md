@@ -503,6 +503,10 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v73.228 | `249125f` | 2026-05-16 | **Per-pixel chromatic aberration.** `triggerPixelCA(gx, gy, hex)` v render3d.js — spawne 2 ghost InstancedMesh planes s AdditiveBlending na destroyed pixelu: červený posunutý +4.5 px, cyan −4.5 px, fade 180 ms. Voláno z obou destroy sitů v game.js. |
+| v73.227 | `a5c0faf` | 2026-05-16 | **Revert full-screen CA** (`git revert 7524945`). Full-screen efekt na #image-area nebyl to co user chtěl — žádal per-pixel efekt. |
+| v73.226 | `7524945` | 2026-05-16 | Full-screen chromatic aberration na #image-area (revertnuto v 73.227). |
+| v73.225 | `94f4977` | 2026-05-16 | **Impact flash + contact sparks.** `spawnImpactFlash` na 2D canvas overlay, `triggerBallContactSpark` pro pending ball kontakt se stěnami + ball-ball kolize. Glow frame dimmed. |
 | v73.221 | `5728619` | 2026-05-16 | **Fix floor color — `getComputedStyle(body)`.** Theme CSS vars jsou na `body.theme-X`, `documentElement` vždy vracel pink `:root` default. `_rebuildUnifiedFrame` + `refreshFloorColor` přepnuty na `document.body`. |
 | v73.220 | `d119d2f` | 2026-05-16 | **Fix bottom frame color persist.** `st._frameColorOverride` / `st._outlineColorOverride` — `_rebuildUnifiedFrame` čte state override při init materiálů, frame+outline nepřepisuje na pink. |
 | v73.219 | `cdc3105` | 2026-05-16 | **Floor bg + canvas outline theme-aware.** `refreshFloorColor/refreshWallColor` voláno z `_applyThemeFrameColors`. `--image-canvas-outline` CSS var per téma, nahrazuje hardcoded `#8a5066`. |
