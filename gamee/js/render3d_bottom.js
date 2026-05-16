@@ -498,7 +498,7 @@ function init() {
           'float _ballHash(vec3 p){p=fract(p*0.3183099+0.1);p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}')
         .replace('#include <dithering_fragment>',
           '#include <dithering_fragment>\n' +
-          'vec3 _bp = vBallObjPos * 4.0 + vec3(uTime * 1.8);\n' +
+          'vec3 _bp = vBallObjPos * 2.0 + vec3(uTime * 1.8);\n' +
           'float _bn = _ballHash(floor(_bp));\n' +
           'gl_FragColor.rgb *= (0.93 + _bn * 0.14);');
       mat.userData.shader = shader;
