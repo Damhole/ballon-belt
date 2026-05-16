@@ -454,24 +454,17 @@ let cannonSideShots=0;            // počet vystřelených ran s aktuální pref
 const CANNON_SIDE_COMMIT=15;      // po kolika ranách se kanon rozhodne přehodnotit stranu
 let cannonIdleT=0;                // čas co kanon nevystřelil (watchdog proti zamrznutí queue)
 let introSeq=0;                   // token pro zrušení naplánovaného intra při resetu/přepnutí levelu
-// === CHROMATIC ABERRATION HEAT STATE (v73.235) ===
-// _caHeat roste každým zásahem (0→1). Pravděpodobnost CA = _caHeat.
-// Při přerušení série se heat resetuje → efekt znovu prochází gradací.
-// 0.0 = žádná CA · 0.2 = ~1/5 zasažených · 0.5 = každý druhý · 1.0 = každý
-// v73.235: heat se updatuje v OBOU destroy paths (rocket batch i normální projektil).
-let _caHeat=0;                   // 0..1 aktuální „žár" série
-let _caLastHit=0;                // performance.now() posledního úspěšného hitu
-const CA_HEAT_PER_HIT=0.12;      // přírůstek za jeden výstřel (plný žár po ~8 zásazích)
-const CA_BREAK_MS=2500;          // ms bez hitu → série přerušena, heat → 0
-function _caBumpHeat(){
-  const _now=performance.now();
-  if(_now-_caLastHit>CA_BREAK_MS) _caHeat=0;
-  _caLastHit=_now;
-  _caHeat=Math.min(1,_caHeat+CA_HEAT_PER_HIT);
-}
+// === CHROMATIC ABERRATION RANDOM INTERVAL (v73.236) ===
+// CA se spustí každý 3.–5. zničený pixel (náhodně). Bez heat/streak.
+let _caCountdown=3+Math.floor(Math.random()*3); // 3..5
+function _caBumpHeat(){ /* no-op — počítadlo se dekrementuje až v _caMaybeTrigger per pixel */ }
 function _caMaybeTrigger(gx,gy,hex){
-  if(_caHeat>0 && Math.random()<_caHeat && window.render3d && window.render3d.triggerPixelCA){
-    window.render3d.triggerPixelCA(gx,gy,hex);
+  _caCountdown--;
+  if(_caCountdown<=0){
+    _caCountdown=3+Math.floor(Math.random()*3); // nový interval 3..5
+    if(window.render3d && window.render3d.triggerPixelCA){
+      window.render3d.triggerPixelCA(gx,gy,hex);
+    }
   }
 }
 // === BOUNCING PARTICLE SYSTEM ===
@@ -1340,7 +1333,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.235');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.236');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6608,7 +6601,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.235');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.236');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6736,7 +6729,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.235');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.236');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -6764,7 +6757,7 @@ function startLevel(){
   if(!beltLoopStarted){beltLoopStarted=true;lastBeltTime=null;requestAnimationFrame(beltLoop);}
   grid=makeGrid();belt=new Array(BELT_CAP).fill(null);pending=[];nudgeTimer=0;funnelWarnTimer=0;score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
   particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;
-  _caHeat=0;_caLastHit=0; // v73.233 CA heat reset
+  _caCountdown=3+Math.floor(Math.random()*3); // v73.236 CA interval reset
   // v72.68: reset 3D carrier transition caches — jinak by se carriery nového levelu
   // detekovaly jako "inactive → active" z předchozího levelu (falešné pop animace).
   if(window.render3dBottom&&window.render3dBottom.clearCarrierState)window.render3dBottom.clearCarrierState();
@@ -7573,7 +7566,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.235');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.236');
       event.detail.callback();
     });
 
