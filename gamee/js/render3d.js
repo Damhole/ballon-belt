@@ -742,7 +742,7 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
 function triggerPixelHit(gx, gy) {
   if (!state.ready) return;
   const RADIUS = 1;
-  const BASE_AMP  = 7;   // střed dostane plný amp
+  const BASE_AMP  = 4;   // střed dostane plný amp
   const LIFE      = 0.18;
   const WAVE_SPEED = 0.015;
   for (let dy = -RADIUS; dy <= RADIUS; dy++) {
