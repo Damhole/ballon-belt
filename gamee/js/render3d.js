@@ -816,11 +816,11 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
   if (state.destroyMode === 'collapse') {
     spawnCollapse();
   } else if (state.destroyMode === 'shatter') {
-    if (tier < 2) spawnFlash();
+    if (tier < 2) spawnFlash(); // HIGH + MED mají flash, LOW ne
     spawnShatter(shardCount);
   } else if (state.destroyMode === 'combo') {
     spawnCollapse();
-    if (tier < 2) spawnFlash();
+    if (tier < 2) spawnFlash(); // HIGH + MED mají flash, LOW ne
     spawnShatter(Math.max(3, shardCount - 4), 0.85, 0.8);
   }
   // Limit shard pool — když přeteče, dropni nejstarší (FIFO)
