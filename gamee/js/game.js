@@ -1263,7 +1263,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.174');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.175');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6283,9 +6283,9 @@ function updatePending(dt){
         b.y=FUN.wideY-b.r;
         if(b.vy>0) b.vy*=-0.3;
       }
-      // Boční tvrdé zastavení – kdyby koule při impulzu klipla za okraj
-      if(b.x<b.r){b.x=b.r;if(b.vx<0)b.vx*=-0.3;}
-      if(b.x>FUN.w-b.r){b.x=FUN.w-b.r;if(b.vx>0)b.vx*=-0.3;}
+      // Boční tvrdé zastavení na hranách arch oblasti — nikdy nepřes wideL/wideR
+      if(b.x<FUN.wideL+b.r){b.x=FUN.wideL+b.r;if(b.vx<0)b.vx*=-0.3;}
+      if(b.x>FUN.wideR-b.r){b.x=FUN.wideR-b.r;if(b.vx>0)b.vx*=-0.3;}
       // Sanity clamp do tvaru — 3D používá slope+vertical, 2D V
       if(b.y>=FUN.narrowY&&b.y<=FUN.wideY){
         let lx,rx;
@@ -6328,11 +6328,13 @@ function updatePending(dt){
         b.stuckT=0;
       }
     }
-    // Gate = vodorovný strop mezi narrowL a narrowR když nemá pás místo
+    // Gate = vodorovný strop: zastaví kuličky 14 px pod otvorem (ne v kontaktu s pásem).
+    // X range rozšířen na ±b.r od narrow — chytne i kuličky co se trochu rozjely do stran.
     if(gate){
       for(const b of pending){
-        if(b.y-b.r<FUN.narrowY && b.x>FUN.narrowL-2 && b.x<FUN.narrowR+2){
-          b.y=FUN.narrowY+b.r;
+        const gateY=FUN.narrowY+b.r+14;
+        if(b.y<gateY && b.x>FUN.narrowL-b.r && b.x<FUN.narrowR+b.r){
+          b.y=gateY;
           if(b.vy<0) b.vy*=-0.25;
         }
       }
@@ -6502,7 +6504,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.174');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.175');
     setStatus('Zásah!');
 
     if(belt.length===0&&anyLeft(grid)){
@@ -6630,7 +6632,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.174');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.175');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7466,7 +7468,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.174');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.175');
       event.detail.callback();
     });
 
