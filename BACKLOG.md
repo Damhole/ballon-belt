@@ -503,6 +503,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v73.222 | `c07654c` | 2026-05-16 | **Per-theme PointLight + frame emissive.** `THREE.PointLight` v contentGroup, pozicovaný do středu arény. `MeshLambertMaterial.emissive` na frame. `setThemeLighting()` API. Neon: cyan 1.6; mystery: purple 0.9; ostatní subtle 0.25–0.6. |
 | v73.221 | `5728619` | 2026-05-16 | **Fix floor color — `getComputedStyle(body)`.** Theme CSS vars jsou na `body.theme-X`, `documentElement` vždy vracel pink `:root` default. `_rebuildUnifiedFrame` + `refreshFloorColor` přepnuty na `document.body`. |
 | v73.220 | `d119d2f` | 2026-05-16 | **Fix bottom frame color persist.** `st._frameColorOverride` / `st._outlineColorOverride` — `_rebuildUnifiedFrame` čte state override při init materiálů, frame+outline nepřepisuje na pink. |
 | v73.219 | `cdc3105` | 2026-05-16 | **Floor bg + canvas outline theme-aware.** `refreshFloorColor/refreshWallColor` voláno z `_applyThemeFrameColors`. `--image-canvas-outline` CSS var per téma, nahrazuje hardcoded `#8a5066`. |
