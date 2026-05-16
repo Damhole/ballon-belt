@@ -1282,13 +1282,35 @@ if (typeof window !== 'undefined') {
     triggerPixelCA,       // v73.228
     triggerDustBurst,     // v73.238
     setQualityTier: (tier) => {
-      // v73.255: 0=HIGH, 1=MED, 2=LOW. Toggle shadows + jednotlivé efekty.
+      // v73.256: 0=HIGH, 1=MED, 2=LOW. Toggle shadows + force material recompile
+      // (jinak Three.js drží staré shadow sampler bindings = bílé fleky na floor).
+      const prev = state.qualityTier || 0;
       state.qualityTier = Math.max(0, Math.min(2, tier|0));
-      if (state.renderer) state.renderer.shadowMap.enabled = (state.qualityTier === 0);
-      if (state.pixelMesh) state.pixelMesh.castShadow = (state.qualityTier === 0);
-      if (state.blockMesh) state.blockMesh.castShadow = (state.qualityTier === 0);
-      if (state.projectileMesh) state.projectileMesh.castShadow = (state.qualityTier === 0);
-      if (state.shardMesh) state.shardMesh.castShadow = (state.qualityTier === 0);
+      const shadowsOn = state.qualityTier === 0;
+      const shadowsChanged = (prev === 0) !== shadowsOn;
+      if (state.renderer) state.renderer.shadowMap.enabled = shadowsOn;
+      if (state.pixelMesh) state.pixelMesh.castShadow = shadowsOn;
+      if (state.blockMesh) state.blockMesh.castShadow = shadowsOn;
+      if (state.projectileMesh) state.projectileMesh.castShadow = shadowsOn;
+      if (state.shardMesh) state.shardMesh.castShadow = shadowsOn;
+      // Force material recompile na všech objektech ve scéně, ať shader správně
+      // reflektuje nový shadow state a nesampluje starou shadow texturu.
+      if (shadowsChanged && state.scene) {
+        state.scene.traverse((obj) => {
+          const m = obj.material;
+          if (!m) return;
+          if (Array.isArray(m)) m.forEach(mm => mm.needsUpdate = true);
+          else m.needsUpdate = true;
+        });
+        if (state.renderer) state.renderer.shadowMap.needsUpdate = true;
+      }
+      // Při downgrade na LOW vyčisti dust + ghosts ať nezůstanou bílé fleky.
+      if (state.qualityTier >= 2) {
+        if (state.dust) state.dust.length = 0;
+        if (state.ghosts) state.ghosts.length = 0;
+        if (state.dustMesh) state.dustMesh.count = 0;
+        if (state.ghostMesh) state.ghostMesh.count = 0;
+      }
     },
     getQualityTier: () => state.qualityTier || 0,
     triggerPixelWave,
