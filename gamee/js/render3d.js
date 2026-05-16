@@ -824,7 +824,7 @@ function triggerDustBurst(gx, gy, hexColor) {
   const wx = gx * SCALE + SCALE / 2;
   const wy = (state.GH - gy) * SCALE - SCALE / 2;
   const tintColor = hexColor ? _getColor(hexColor) : null;
-  const count = 1 + (Math.random() < 0.33 ? 1 : 0); // v73.251: avg 1.33 (−⅓ oproti 2)
+  const count = 1 + (Math.random() < 0.18 ? 1 : 0); // v73.252: avg ~1.18 (jeste o trochu min)
   for (let i = 0; i < count; i++) {
     const a = Math.random() * Math.PI * 2;
     const useTint = tintColor && Math.random() < DUST_TINT_CHANCE;
