@@ -65,6 +65,32 @@ const RENDERER_MODE = (function(){
 // Priorita volby: URL ?theme= (explicitní pro tuto session, vyhrává) →
 // localStorage (persisted preference) → 'pink' (default).
 const _THEMES = ['pink','ocean','sunset','forest','lavender','mono-dark','mystery','neon','experiment','experiment2'];
+
+// Per-theme defaults pro THREE.js frame materiály (nemění se CSS cascadou).
+// CSS vars (bg-top, bg-bottom, floor) se mění automaticky přes .theme-X třídu.
+const THEME_FRAME_COLORS = {
+  'pink':        { imgFrame: '#f4b8c8', botFrame: '#f4b8c8', outline: '#8a5066', mysteryBase: '#1c0410' },
+  'ocean':       { imgFrame: '#a8d8f0', botFrame: '#a8d8f0', outline: '#3a7090', mysteryBase: '#02080e' },
+  'sunset':      { imgFrame: '#f0c8a0', botFrame: '#f0c8a0', outline: '#904830', mysteryBase: '#180808' },
+  'forest':      { imgFrame: '#c0dca8', botFrame: '#c0dca8', outline: '#486040', mysteryBase: '#040c06' },
+  'lavender':    { imgFrame: '#d8c8f0', botFrame: '#d8c8f0', outline: '#6848a8', mysteryBase: '#0a0418' },
+  'mono-dark':   { imgFrame: '#dcdcdc', botFrame: '#dcdcdc', outline: '#606060', mysteryBase: '#060606' },
+  'experiment':  { imgFrame: '#d8c0a8', botFrame: '#d8c0a8', outline: '#785840', mysteryBase: '#060a10' },
+  'experiment2': { imgFrame: '#e8d4a8', botFrame: '#e8d4a8', outline: '#906840', mysteryBase: '#180a28' },
+  'mystery':     { imgFrame: '#7050b8', botFrame: '#7050b8', outline: '#9060d8', mysteryBase: '#040108' },
+  'neon':        { imgFrame: '#00e8f8', botFrame: '#00e8f8', outline: '#00b8d0', mysteryBase: '#000002' },
+};
+window._applyThemeFrameColors = function(name) {
+  const c = THEME_FRAME_COLORS[name] || THEME_FRAME_COLORS['pink'];
+  if (window.render3d?.setImageFrameColor)          window.render3d.setImageFrameColor(c.imgFrame);
+  if (window.render3dBottom?.setBottomFrameColor)   window.render3dBottom.setBottomFrameColor(c.botFrame);
+  if (window.render3dBottom?.setOutlineColor)       window.render3dBottom.setOutlineColor(c.outline);
+  if (window.render3dBottom?.setMysteryBaseColor) {
+    window.render3dBottom.setMysteryBaseColor(c.mysteryBase);
+    window.render3dBottom.rebuildMysteryTexture?.();
+  }
+};
+
 const _THEME_FROM_URL = (function(){
   try {
     const t = new URLSearchParams(location.search).get('theme');
@@ -137,6 +163,8 @@ window.setTheme = function(name) {
   // Sync UI selectu (pokud existuje), ať se ukáže aktivní volba.
   const sel = document.getElementById('theme-select');
   if (sel && sel.value !== name) sel.value = name;
+  window._applyThemeFrameColors(name);
+  document.dispatchEvent(new CustomEvent('bb:theme-changed', { detail: name }));
   return true;
 };
 window.listThemes = () => _THEMES.slice();
@@ -1285,7 +1313,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.217');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.218');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5271,6 +5299,7 @@ function _ensureR3D(){
   const overlay=document.getElementById('block-overlay-canvas');
   if(overlay) overlay.style.display='block';
   _r3dInited=true;
+  window._applyThemeFrameColors(_THEMES.find(t => document.body.classList.contains('theme-' + t)) || 'pink');
   return true;
 }
 
@@ -5284,6 +5313,7 @@ function _ensureR3DBottom(){
   const ok=window.render3dBottom.init();
   if(!ok) return false;
   _r3dBottomInited=true;
+  window._applyThemeFrameColors(_THEMES.find(t => document.body.classList.contains('theme-' + t)) || 'pink');
   return true;
 }
 
@@ -6546,7 +6576,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.217');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.218');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6674,7 +6704,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.217');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.218');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7510,7 +7540,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.217');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.218');
       event.detail.callback();
     });
 

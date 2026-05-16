@@ -269,14 +269,21 @@
   // ──────────────────────────────────────────────────────────────────
   // v73.205: Color picker panel — interaktivní ladění barev scény
   // ──────────────────────────────────────────────────────────────────
-  var COLOR_STORE_KEY = 'bb-color-overrides';
+  function _currentThemeName() {
+    for (var i = 0; i < document.body.classList.length; i++) {
+      var cls = document.body.classList[i];
+      if (cls.indexOf('theme-') === 0) return cls.slice(6);
+    }
+    return 'pink';
+  }
+  function _storageKey() { return 'bb-color-overrides-' + _currentThemeName(); }
 
   function getStoredColors() {
-    try { return JSON.parse(localStorage.getItem(COLOR_STORE_KEY) || '{}'); }
+    try { return JSON.parse(localStorage.getItem(_storageKey()) || '{}'); }
     catch (e) { return {}; }
   }
   function saveStoredColors(obj) {
-    try { localStorage.setItem(COLOR_STORE_KEY, JSON.stringify(obj)); } catch (e) {}
+    try { localStorage.setItem(_storageKey(), JSON.stringify(obj)); } catch (e) {}
   }
 
   function getCssVar(name) {
@@ -370,6 +377,7 @@
       input.style.border = '1px solid rgba(255,255,255,0.3)';
       input.style.background = 'transparent';
       input.style.cursor = 'pointer';
+      t._colorInput = input;
 
       var hexLabel = document.createElement('input');
       hexLabel.type = 'text';
@@ -382,6 +390,7 @@
       hexLabel.style.color = 'rgba(255,255,255,0.9)';
       hexLabel.style.border = '1px solid rgba(255,255,255,0.2)';
       hexLabel.style.borderRadius = '3px';
+      t._hexLabel = hexLabel;
 
       function updateValue(newHex, src) {
         var norm = normalizeHex(newHex);
@@ -422,6 +431,19 @@
       }
     });
 
+    // Při přepnutí tématu: načti overrides pro nové téma a obnov UI
+    function reloadForTheme() {
+      var freshStored = getStoredColors();
+      tunables.forEach(function(t) {
+        var overrideHex = freshStored[t.id];
+        if (overrideHex) { applyValue(t, overrideHex); }
+        var displayHex = normalizeHex(overrideHex || t.get());
+        if (t._colorInput) t._colorInput.value = displayHex;
+        if (t._hexLabel) t._hexLabel.value = displayHex;
+      });
+    }
+    document.addEventListener('bb:theme-changed', function() { reloadForTheme(); });
+
     // Reset all button
     var resetBtn = document.createElement('button');
     resetBtn.type = 'button';
@@ -435,7 +457,7 @@
     resetBtn.style.borderRadius = '3px';
     resetBtn.style.cursor = 'pointer';
     resetBtn.addEventListener('click', function () {
-      saveStoredColors({});
+      localStorage.removeItem(_storageKey());
       location.reload();
     });
     list.appendChild(resetBtn);
