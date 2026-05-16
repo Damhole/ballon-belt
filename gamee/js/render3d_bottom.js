@@ -2793,9 +2793,17 @@ function refreshWallColor() {
   if (st._wallOutlineMat) st._wallOutlineMat.color.copy(wallCol).multiplyScalar(0.38);
 }
 
-// v73.255: quality tier — bottom renderer nemá shadows, ale tier ovlivní spark count
+// v73.255: quality tier — bottom renderer nemá shadows, ale snižujeme pixelRatio.
+// v73.257: setPixelRatio per tier — největší win na mobile (retina 2× = 4× pixelů).
 function setQualityTier(tier){
   st.qualityTier = Math.max(0, Math.min(2, tier|0));
+  if (st.renderer) {
+    const dpr = window.devicePixelRatio || 1;
+    const target = st.qualityTier === 0 ? Math.min(dpr, 2)
+                 : st.qualityTier === 1 ? Math.min(dpr, 1.5)
+                                        : 1;
+    st.renderer.setPixelRatio(target);
+  }
 }
 function getQualityTier(){ return st.qualityTier || 0; }
 window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor, setQualityTier, getQualityTier };

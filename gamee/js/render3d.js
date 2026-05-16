@@ -1288,6 +1288,14 @@ if (typeof window !== 'undefined') {
       state.qualityTier = Math.max(0, Math.min(2, tier|0));
       const shadowsOn = state.qualityTier === 0;
       const shadowsChanged = (prev === 0) !== shadowsOn;
+      // v73.257: pixel ratio podle tieru — na retina (dpr=2) je HIGH = 4× pixelů, LOW = 1×
+      if (state.renderer) {
+        const dpr = window.devicePixelRatio || 1;
+        const target = state.qualityTier === 0 ? Math.min(dpr, 2)
+                     : state.qualityTier === 1 ? Math.min(dpr, 1.5)
+                                                : 1;
+        state.renderer.setPixelRatio(target);
+      }
       if (state.renderer) state.renderer.shadowMap.enabled = shadowsOn;
       if (state.pixelMesh) state.pixelMesh.castShadow = shadowsOn;
       if (state.blockMesh) state.blockMesh.castShadow = shadowsOn;
