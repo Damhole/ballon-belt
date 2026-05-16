@@ -64,6 +64,9 @@ const state = {
   GW: 36,
   GH: 31,
   IMG_GH: 27,
+  pixelBounce: new Map(), // key = y*GW+x → {t, delay, life, amp}
+  _lastGrid: null,
+  _lastColors: null,
 };
 
 const _dummy = new THREE.Object3D();
@@ -730,6 +733,34 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
   }
   // Limit shard pool — když přeteče, dropni nejstarší (FIFO)
   while (state.shards.length > MAX_SHARDS) state.shards.shift();
+  // Wave bounce na sousedních pixelech
+  triggerPixelWave(gridX, gridY);
+}
+
+// Vlna bounce po destrukci pixelu — rozjede se z (gx, gy) do okolí.
+// Sousední pixely poskočí nahoru se zpožděním úměrným vzdálenosti.
+function triggerPixelWave(gx, gy) {
+  if (!state.ready) return;
+  const RADIUS = 3;
+  const WAVE_SPEED = 0.045; // s per grid cell vzdálenosti
+  const BASE_AMP  = 6;      // Three.js units Z-boost v centru vlny
+  const LIFE      = 0.32;   // s trvání jednoho bounce
+  for (let dy = -RADIUS; dy <= RADIUS; dy++) {
+    for (let dx = -RADIUS; dx <= RADIUS; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > RADIUS) continue;
+      const nx = gx + dx, ny = gy + dy;
+      if (nx < 0 || nx >= state.GW || ny < 0 || ny >= state.IMG_GH) continue;
+      const amp = BASE_AMP * (1 - dist / (RADIUS + 1));
+      const delay = dist * WAVE_SPEED;
+      const key = ny * state.GW + nx;
+      const existing = state.pixelBounce.get(key);
+      if (!existing || existing.amp < amp) {
+        state.pixelBounce.set(key, { t: 0, delay, life: LIFE, amp });
+      }
+    }
+  }
 }
 
 // Update animací. Volá se z beltLoop každý frame s dt v sekundách.
@@ -767,6 +798,19 @@ function updateAnimations(dt) {
   if (i > 0 || state.shardMesh.instanceMatrix.needsUpdate === false) {
     state.shardMesh.instanceMatrix.needsUpdate = true;
     state.shardMesh.instanceColor.needsUpdate = true;
+  }
+
+  // Advance pixel wave timers; refresh grid každý frame dokud vlna běží
+  if (state.pixelBounce.size > 0) {
+    let anyActive = false;
+    for (const [key, b] of state.pixelBounce) {
+      b.t += dt;
+      if (b.t >= b.delay + b.life) { state.pixelBounce.delete(key); continue; }
+      anyActive = true;
+    }
+    if (anyActive && state._lastGrid && state._lastColors) {
+      updateGrid(state._lastGrid, state._lastColors);
+    }
   }
 }
 
@@ -821,6 +865,8 @@ function updateBlocks(blocks, COLORS) {
 // area → world Y=H-IMG_H. Standardní Three.js Y-up konvence (kladné Y = nahoře).
 function updateGrid(grid, COLORS) {
   if (!state.ready) return;
+  state._lastGrid = grid;
+  state._lastColors = COLORS;
   const H = state.GH * SCALE;
   let i = 0;
   const max = state.GW * state.IMG_GH;
@@ -834,10 +880,20 @@ function updateGrid(grid, COLORS) {
       // Per-pixel height: scale.z stretches BoxGeometry, position.z lift tak,
       // aby bottom plane zůstala na z=0 (kostka roste nahoru, ne kolem středu).
       const h = _heightFor(x, y);
+      // Wave bounce Z-boost — damped sine (1 peak, 1 minor dip, fade out)
+      let zBoost = 0;
+      const bounce = state.pixelBounce.get(y * state.GW + x);
+      if (bounce) {
+        const bt = bounce.t - bounce.delay;
+        if (bt > 0) {
+          const bp = bt / bounce.life; // 0..1
+          zBoost = Math.sin(bp * Math.PI * 2) * bounce.amp * (1 - bp);
+        }
+      }
       _dummy.position.set(
         x * SCALE + SCALE / 2,
         H - (y * SCALE + SCALE / 2),  // Y-flip: grid[0] → top of screen
-        PIXEL_LIFT * h                 // střed v polovině scaled výšky
+        PIXEL_LIFT * h + zBoost        // střed + wave lift
       );
       _dummy.rotation.set(0, 0, 0);
       _dummy.scale.set(1, 1, h);
@@ -990,6 +1046,7 @@ if (typeof window !== 'undefined') {
     updateBlocks,
     updateProjectiles,
     triggerPixelDestroy,
+    triggerPixelWave,
     triggerBounceSpark,   // v73.49
     updateAnimations,
     render,
