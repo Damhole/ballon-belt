@@ -299,6 +299,7 @@
       { id: 'img-frame-mesh', label: 'Image frame mesh',   get: function () { return '#' + (window.render3d && window.render3d.getImageFrameColor ? window.render3d.getImageFrameColor() : 'f4b8c8'); }, set: function (hex) { if (window.render3d && window.render3d.setImageFrameColor) window.render3d.setImageFrameColor(hex); } },
       { id: 'bot-frame-mesh', label: 'Bottom frame mesh',  get: function () { return '#' + (window.render3dBottom && window.render3dBottom.getBottomFrameColor ? window.render3dBottom.getBottomFrameColor() : 'f4b8c8'); }, set: function (hex) { if (window.render3dBottom && window.render3dBottom.setBottomFrameColor) window.render3dBottom.setBottomFrameColor(hex); } },
       { id: 'outline-color',  label: 'Frame outline',      get: function () { return '#' + (window.render3dBottom && window.render3dBottom.getOutlineColor ? window.render3dBottom.getOutlineColor() : '8a5066'); }, set: function (hex) { if (window.render3dBottom && window.render3dBottom.setOutlineColor) window.render3dBottom.setOutlineColor(hex); } },
+      { id: 'mystery-base',   label: 'Mystery box base',   get: function () { return (window.render3dBottom && window.render3dBottom.getMysteryBaseColor) ? window.render3dBottom.getMysteryBaseColor() : '#0b0508'; }, set: function (hex) { if (window.render3dBottom && window.render3dBottom.setMysteryBaseColor) window.render3dBottom.setMysteryBaseColor(hex); } },
     ];
   }
 
@@ -394,6 +395,21 @@
 
       input.addEventListener('input', function () { updateValue(input.value, 'color'); });
       hexLabel.addEventListener('change', function () { updateValue(hexLabel.value, 'text'); });
+      // UX: hide overlay když se otevře native color picker (jinak překáží ve výhledu).
+      // Show back na change (color picked) nebo blur (picker closed without change).
+      function hideOverlayDuringPick() {
+        overlayEl.classList.add('dbg-picking');
+      }
+      function showOverlayAfterPick() {
+        overlayEl.classList.remove('dbg-picking');
+      }
+      input.addEventListener('click', hideOverlayDuringPick);
+      input.addEventListener('change', showOverlayAfterPick);
+      input.addEventListener('blur', showOverlayAfterPick);
+      // Fallback — pokud window dostane fokus zpět (picker closed), restore
+      input.addEventListener('click', function () {
+        window.addEventListener('focus', showOverlayAfterPick, { once: true });
+      });
 
       row.appendChild(label);
       row.appendChild(hexLabel);

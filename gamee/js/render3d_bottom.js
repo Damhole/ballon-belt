@@ -208,11 +208,17 @@ function _buildMysteryTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = S; canvas.height = S;
   const ctx = canvas.getContext('2d');
-  // v73.202: base = floor color (carriers-3d-bg) darkened to ~5% lightness.
-  // Theme-aware — pink: dark mauve, ocean: dark navy, etc.
-  const cs = getComputedStyle(document.documentElement);
-  const floorHex = (cs.getPropertyValue('--carriers-3d-bg') || '#6a2f4d').trim();
-  ctx.fillStyle = _darkenHex(floorHex, 0.10);  // 10% — stejná darkness jako original #010206, wine hue
+  // v73.202: base = floor color (carriers-3d-bg) × 0.10 (wine darkness). v73.206:
+  // pokud je nastavený st._mysteryBaseOverride, použít přímo (override z dev tool).
+  let baseColor;
+  if (st._mysteryBaseOverride) {
+    baseColor = st._mysteryBaseOverride;
+  } else {
+    const cs = getComputedStyle(document.documentElement);
+    const floorHex = (cs.getPropertyValue('--carriers-3d-bg') || '#6a2f4d').trim();
+    baseColor = _darkenHex(floorHex, 0.10);
+  }
+  ctx.fillStyle = baseColor;
   ctx.fillRect(0, 0, S, S);
   // 3×3 grid středně velkých tilted ?s + jemný tmavý outline (stroke před fill).
   ctx.font = 'bold 40px system-ui, -apple-system, Segoe UI, sans-serif';
@@ -2741,6 +2747,16 @@ function setOutlineColor(hex) {
 function getOutlineColor() {
   return st.unifiedFrameOutline?.material?.color?.getHexString() || '8a5066';
 }
+function setMysteryBaseColor(hex) {
+  st._mysteryBaseOverride = hex;
+  rebuildMysteryTexture();
+}
+function getMysteryBaseColor() {
+  if (st._mysteryBaseOverride) return st._mysteryBaseOverride;
+  const cs = getComputedStyle(document.documentElement);
+  const floorHex = (cs.getPropertyValue('--carriers-3d-bg') || '#6a2f4d').trim();
+  return _darkenHex(floorHex, 0.10);
+}
 function rebuildMysteryTexture() {
   // Rebuild mystery `?` texture po theme/color change (čte aktuální --carriers-3d-bg).
   if (!st._mysteryTex || !st._mysteryMat) return;
@@ -2760,5 +2776,5 @@ function refreshFloorColor() {
   st.unifiedFrameFloor.material.color.set(carriersBg);
 }
 
-window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor };
+window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, setMysteryBaseColor, getMysteryBaseColor };
 window._r3dBState = st;  // debug
