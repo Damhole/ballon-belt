@@ -1456,7 +1456,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.289');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.290');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6727,7 +6727,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.289');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.290');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6855,7 +6855,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.289');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.290');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7340,24 +7340,30 @@ function beltLoop(ts){
         renderAmmoAudit(computeAmmoAudit());
       }
     }
-    // Drift detector: každý frame změříme totalHave/totalNeed; když HAVE
-    // klesne víc než NEED (= projektil zmizel, aniž by zničil pixel/HP), je to leak.
+    // v73.290: Drift detector throttled na ~6 Hz (každých 10 framů) místo
+    // every-frame. computeAmmoAudit je drahá O(colors × carriers × slots) operace
+    // — every frame to bylo ~30k+ ops/s zbytečně. Diagnostic leak check 6× / s
+    // je víc než dost (leak by se projevil v rámci 100-200ms).
     if(running){
-      const _ta0=performance.now();
-      const cur=computeAmmoAudit();
-      _profAccum.ammoAudit+=performance.now()-_ta0;
-      const prev=window._driftPrev;
-      if(prev){
-        const dHave=cur.totalHave-prev.totalHave;
-        const dNeed=cur.totalNeed-prev.totalNeed;
-        // Tolerujeme NEED rozkmit z mystery Math.ceil (per-color ±1).
-        if(dHave<dNeed-0){
-          const flyN=particles.filter(p=>p.phase==='fly').length;
-          const popN=particles.filter(p=>p.phase==='pop').length;
-          console.warn('[BB-LEAK]',{dHave,dNeed,have:cur.totalHave,need:cur.totalNeed,gunQ:gunQueue.length,fly:flyN,pop:popN,belt:beltCount(),pending:pending.length,prev:{have:prev.totalHave,need:prev.totalNeed}});
+      window._driftFrameCount = (window._driftFrameCount || 0) + 1;
+      if(window._driftFrameCount >= 10){
+        window._driftFrameCount = 0;
+        const _ta0=performance.now();
+        const cur=computeAmmoAudit();
+        _profAccum.ammoAudit+=performance.now()-_ta0;
+        const prev=window._driftPrev;
+        if(prev){
+          const dHave=cur.totalHave-prev.totalHave;
+          const dNeed=cur.totalNeed-prev.totalNeed;
+          // Tolerujeme NEED rozkmit z mystery Math.ceil (per-color ±1).
+          if(dHave<dNeed-0){
+            const flyN=particles.filter(p=>p.phase==='fly').length;
+            const popN=particles.filter(p=>p.phase==='pop').length;
+            console.warn('[BB-LEAK]',{dHave,dNeed,have:cur.totalHave,need:cur.totalNeed,gunQ:gunQueue.length,fly:flyN,pop:popN,belt:beltCount(),pending:pending.length,prev:{have:prev.totalHave,need:prev.totalNeed}});
+          }
         }
+        window._driftPrev={totalHave:cur.totalHave,totalNeed:cur.totalNeed};
       }
-      window._driftPrev={totalHave:cur.totalHave,totalNeed:cur.totalNeed};
     }
     checkLaunchPoint(prevAnim,beltAnim);
 
@@ -7711,7 +7717,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.289');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.290');
       event.detail.callback();
     });
 
