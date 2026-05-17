@@ -74,17 +74,19 @@ const _THEMES = ['pink','ocean','sunset','forest','lavender','mono-dark','myster
 
 // Per-theme defaults pro THREE.js frame materiály (nemění se CSS cascadou).
 // CSS vars (bg-top, bg-bottom, floor) se mění automaticky přes .theme-X třídu.
+// v73.274: outline hodnoty sjednoceny s CSS --image-canvas-outline (picture frame).
+// Picture i bottom frame teď používají stejný hex per téma.
 const THEME_FRAME_COLORS = {
   'pink':        { imgFrame: '#f4b8c8', botFrame: '#f4b8c8', outline: '#8a5066', mysteryBase: '#1c0410' },
-  'ocean':       { imgFrame: '#a8d8f0', botFrame: '#a8d8f0', outline: '#3a7090', mysteryBase: '#02080e' },
-  'sunset':      { imgFrame: '#f0c8a0', botFrame: '#f0c8a0', outline: '#904830', mysteryBase: '#180808' },
-  'forest':      { imgFrame: '#c0dca8', botFrame: '#c0dca8', outline: '#486040', mysteryBase: '#040c06' },
-  'lavender':    { imgFrame: '#d8c8f0', botFrame: '#d8c8f0', outline: '#6848a8', mysteryBase: '#0a0418' },
-  'mono-dark':   { imgFrame: '#dcdcdc', botFrame: '#dcdcdc', outline: '#606060', mysteryBase: '#060606' },
-  'experiment':  { imgFrame: '#d8c0a8', botFrame: '#d8c0a8', outline: '#785840', mysteryBase: '#060a10' },
-  'experiment2': { imgFrame: '#e8d4a8', botFrame: '#e8d4a8', outline: '#906840', mysteryBase: '#180a28' },
-  'mystery':     { imgFrame: '#7050b8', botFrame: '#7050b8', outline: '#9060d8', mysteryBase: '#040108' },
-  'neon':        { imgFrame: '#00e8f8', botFrame: '#00e8f8', outline: '#00b8d0', mysteryBase: '#000002' },
+  'ocean':       { imgFrame: '#a8d8f0', botFrame: '#a8d8f0', outline: '#3a6070', mysteryBase: '#02080e' },
+  'sunset':      { imgFrame: '#f0c8a0', botFrame: '#f0c8a0', outline: '#7a3820', mysteryBase: '#180808' },
+  'forest':      { imgFrame: '#c0dca8', botFrame: '#c0dca8', outline: '#3a5830', mysteryBase: '#040c06' },
+  'lavender':    { imgFrame: '#d8c8f0', botFrame: '#d8c8f0', outline: '#504090', mysteryBase: '#0a0418' },
+  'mono-dark':   { imgFrame: '#dcdcdc', botFrame: '#dcdcdc', outline: '#484848', mysteryBase: '#060606' },
+  'experiment':  { imgFrame: '#d8c0a8', botFrame: '#d8c0a8', outline: '#5c4030', mysteryBase: '#060a10' },
+  'experiment2': { imgFrame: '#e8d4a8', botFrame: '#e8d4a8', outline: '#706028', mysteryBase: '#180a28' },
+  'mystery':     { imgFrame: '#7050b8', botFrame: '#7050b8', outline: '#402878', mysteryBase: '#040108' },
+  'neon':        { imgFrame: '#00e8f8', botFrame: '#00e8f8', outline: '#00a0b8', mysteryBase: '#000002' },
 };
 window._applyThemeFrameColors = function(name) {
   const c = THEME_FRAME_COLORS[name] || THEME_FRAME_COLORS['pink'];
@@ -1403,7 +1405,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.273');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.274');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6674,7 +6676,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.273');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.274');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6802,7 +6804,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.273');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.274');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7640,7 +7642,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.273');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.274');
       event.detail.callback();
     });
 
