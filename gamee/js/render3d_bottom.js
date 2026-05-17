@@ -853,7 +853,8 @@ const FRAME_ARENA_PAD    = 6;   // tloušťka rámu na bocích arény (px)
 const FRAME_DEPTH        = 50;  // ExtrudeGeometry depth — match image frame v73.63
 const FRAME_BEVEL        = 2;   // bevel size + thickness — match image frame v73.63
 const FRAME_BEVEL_SEGS   = 3;   // bevel segments — match image frame
-const FRAME_OUTLINE_PX   = 0.5;   // v73.275: 0.7 → 0.5
+// v73.276: FRAME_OUTLINE_PX odstraněn — byl dead, skutečnou šířku řídí OUTLINE_W
+// v _rebuildUnifiedFrame (~ř. 1158).
 const FRAME_COLOR        = 0xf4b8c8;  // match image frame color (render3d.js line ~537)
 const FRAME_EMISSIVE     = 0x4a2f3d;  // mauve fill — lifts dark inner walls bez ambient light
 const FRAME_OUTLINE_COLOR= 0x8a5066;  // mauve-pink rim — match image area box-shadow
@@ -1155,7 +1156,7 @@ function _initUnifiedFrame() {
   //      Outline Shape: outer = outlineOuter reversed, hole = bandOuter (CW)
   //   6. ShapeGeometry (flat 2D) — žádné depth artefakty
   const BAND_WIDTH  = 6;   // šířka masky
-  const OUTLINE_W   = 2;   // tenkost rim
+  const OUTLINE_W   = 1.3; // v73.276: 2 → 1.3 (match picture frame CSS box-shadow)
 
   const holePath = _buildHolePath(params);
   const innerPts = holePath.getPoints(30);
