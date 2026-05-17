@@ -1456,7 +1456,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.288');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.289');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6727,7 +6727,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.288');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.289');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6855,7 +6855,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.288');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.289');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7506,12 +7506,14 @@ function beltLoop(ts){
   // v73.286: rozdělení 2D drawing skip — drawBelt+drawPending skipnutelné na overlay,
   // ale drawParticles MUSÍ běžet pokud existují konfety/particles/shardy (po endGame
   // pořád dohrávají animaci). Skipne jen když opravdu nic není ke kreslení.
+  // v73.289: 2D belt SVG + pending canvas jsou v 3D módu visibility:hidden →
+  // skipuj drawBelt + drawPending úplně. Render3d_bottom kreslí 3D ekvivalenty.
   const _t0=performance.now();
   let _t1=_t0, _t2=_t0, _t3=_t0;
   const _drawActive = gameStarted && running && !paused;
-  if(_drawActive || _lastRenderActive){
+  if((_drawActive || _lastRenderActive) && RENDERER_MODE !== '3d'){
     drawBelt(); _t1=performance.now();
-    drawPending(); _t3=performance.now(); // pořadí přehozeno, drawParticles níž
+    drawPending(); _t3=performance.now();
   }
   // drawParticles: vždy pokud existují živé particles/confetti/shards (i po endGame)
   const _hasFx = (typeof particles!=='undefined' && particles.length>0)
@@ -7709,7 +7711,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.288');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.289');
       event.detail.callback();
     });
 
