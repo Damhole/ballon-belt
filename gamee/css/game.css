@@ -537,13 +537,13 @@ body.renderer-3d #image-area {
      vidět napravo/dole, canvas s !important full size ho překrýval. */
   border: 0;
   background: var(--image-3d-bg, #6a2f4d);
-  border-radius: 10px;
+  border-radius: 16px;
   overflow: visible;
 }
 /* v73.5: rounded corners na canvasech aby matchovaly s 3D frame outerR (14 px ve worldu,
    stretched na CSS = ~16 px). Bez tohoto canvas má sharp corners přesahuje frame. */
 body.renderer-3d #image-area canvas {
-  border-radius: 10px;
+  border-radius: 16px;
   /* v73.21: outline = tmavší odstín hlavního růžového bg (--bg-3d-bottom × 0.55).
      Méně kontrastní než černá, harmonizuje s case barvou. */
   box-shadow: 0 0 0 1.3px var(--image-canvas-outline); /* v73.269: zjemněno 1.5 → 1.3 */
