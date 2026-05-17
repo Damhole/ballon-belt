@@ -1456,7 +1456,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.290');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.291');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6421,34 +6421,88 @@ function nudgeStuckNearOpening(dt){
     nudgeTimer=0.3;
   }
 }
+// v73.291: spatial grid bucketing pro pending ball-ball collision.
+// O(n²) → O(n) průměrně. Cell size = 2× ball radius, ball může kolidovat jen
+// s ball v same/adjacent cells. Map klíč = cx*10000 + cy (integer hash).
+const _PENDING_CELL = 24; // typický ball radius ~10–12 px, takže 2×R ≈ 24
+const _pendingGrid = new Map(); // reuse across calls, clear per substep
 function updatePending(dt){
   updateFunnelWarning(dt);
   nudgeStuckNearOpening(dt);
   if(pending.length===0)return;
   const steps=4, h=Math.min(dt,0.05)/steps;
+  const N = pending.length;
   for(let s=0;s<steps;s++){
     for(const b of pending){
       b.vy-=700*h;            // gravitace směrem k pásu (nahoru)
       b.vx*=0.995;
       b.x+=b.vx*h; b.y+=b.vy*h;
     }
-    // Ball-ball
-    for(let i=0;i<pending.length;i++)for(let j=i+1;j<pending.length;j++){
-      const a=pending[i], b=pending[j];
-      const dx=b.x-a.x, dy=b.y-a.y;
-      const d=Math.hypot(dx,dy), min=a.r+b.r;
-      if(d<min&&d>0.001){
-        const nx=dx/d, ny=dy/d, ov=(min-d)/2;
-        a.x-=nx*ov; a.y-=ny*ov;
-        b.x+=nx*ov; b.y+=ny*ov;
-        const rvx=b.vx-a.vx, rvy=b.vy-a.vy;
-        const vn=rvx*nx+rvy*ny;
-        if(vn<0){
-          const e=0.25, imp=(1+e)*vn/2;
-          a.vx+=imp*nx; a.vy+=imp*ny;
-          b.vx-=imp*nx; b.vy-=imp*ny;
-          const amp=Math.min(1,Math.abs(vn)/180);
-          a.bounceT0=b.bounceT0=performance.now();a.bounceAmp=b.bounceAmp=amp;
+    // Ball-ball collision přes spatial grid (broad-phase).
+    // Pro N < 12 ball je O(n²) rychlejší kvůli Map overhead → fallback.
+    if (N < 12) {
+      for(let i=0;i<N;i++)for(let j=i+1;j<N;j++){
+        const a=pending[i], b=pending[j];
+        const dx=b.x-a.x, dy=b.y-a.y;
+        const d=Math.hypot(dx,dy), min=a.r+b.r;
+        if(d<min&&d>0.001){
+          const nx=dx/d, ny=dy/d, ov=(min-d)/2;
+          a.x-=nx*ov; a.y-=ny*ov;
+          b.x+=nx*ov; b.y+=ny*ov;
+          const rvx=b.vx-a.vx, rvy=b.vy-a.vy;
+          const vn=rvx*nx+rvy*ny;
+          if(vn<0){
+            const e=0.25, imp=(1+e)*vn/2;
+            a.vx+=imp*nx; a.vy+=imp*ny;
+            b.vx-=imp*nx; b.vy-=imp*ny;
+            const amp=Math.min(1,Math.abs(vn)/180);
+            a.bounceT0=b.bounceT0=performance.now();a.bounceAmp=b.bounceAmp=amp;
+          }
+        }
+      }
+    } else {
+      // Bin balls do gridu
+      _pendingGrid.clear();
+      for(let i=0;i<N;i++){
+        const b=pending[i];
+        const cx=Math.floor(b.x/_PENDING_CELL);
+        const cy=Math.floor(b.y/_PENDING_CELL);
+        const key=cx*10000+cy;
+        let bucket=_pendingGrid.get(key);
+        if(!bucket){ bucket=[]; _pendingGrid.set(key, bucket); }
+        bucket.push(i);
+      }
+      // Pro každý ball check kolize s ball v 3×3 sousedních cells (každý pár 1×)
+      for(let i=0;i<N;i++){
+        const a=pending[i];
+        const cx=Math.floor(a.x/_PENDING_CELL);
+        const cy=Math.floor(a.y/_PENDING_CELL);
+        for(let dx=-1;dx<=1;dx++){
+          for(let dy=-1;dy<=1;dy++){
+            const bucket=_pendingGrid.get((cx+dx)*10000+(cy+dy));
+            if(!bucket) continue;
+            for(let k=0;k<bucket.length;k++){
+              const j=bucket[k];
+              if(j<=i) continue; // each pair 1×
+              const b=pending[j];
+              const ddx=b.x-a.x, ddy=b.y-a.y;
+              const d=Math.hypot(ddx,ddy), min=a.r+b.r;
+              if(d<min&&d>0.001){
+                const nx=ddx/d, ny=ddy/d, ov=(min-d)/2;
+                a.x-=nx*ov; a.y-=ny*ov;
+                b.x+=nx*ov; b.y+=ny*ov;
+                const rvx=b.vx-a.vx, rvy=b.vy-a.vy;
+                const vn=rvx*nx+rvy*ny;
+                if(vn<0){
+                  const e=0.25, imp=(1+e)*vn/2;
+                  a.vx+=imp*nx; a.vy+=imp*ny;
+                  b.vx-=imp*nx; b.vy-=imp*ny;
+                  const amp=Math.min(1,Math.abs(vn)/180);
+                  a.bounceT0=b.bounceT0=performance.now();a.bounceAmp=b.bounceAmp=amp;
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -6727,7 +6781,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.290');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.291');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6855,7 +6909,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.290');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.291');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7717,7 +7771,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.290');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.291');
       event.detail.callback();
     });
 
