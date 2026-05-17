@@ -1,3 +1,29 @@
+// v73.277: VERSION CONSTANT + WATCHDOG
+// JS version se kontroluje proti #version-badge v HTML. Při mismatch (stale JS
+// vs. fresh HTML kvůli browser cache) JS jednou na session force reloadne bez cache.
+const BB_VERSION = 'v73.277';
+(function _versionWatchdog(){
+  function check(){
+    var badge = document.getElementById('version-badge');
+    if (!badge) { setTimeout(check, 100); return; }
+    var htmlVer = (badge.textContent || '').trim();
+    if (htmlVer && htmlVer !== BB_VERSION) {
+      var key = 'bb-reload-attempted-' + htmlVer;
+      if (sessionStorage.getItem(key)) {
+        console.warn('[BB] Version mismatch persists after reload — HTML=' + htmlVer + ' JS=' + BB_VERSION + ' (network/CDN issue?). Manuálně zkus Cmd+Shift+R.');
+        return;
+      }
+      sessionStorage.setItem(key, '1');
+      console.warn('[BB] Stale JS detected (HTML=' + htmlVer + ' JS=' + BB_VERSION + ') → cache-bust reload.');
+      var url = new URL(location.href);
+      url.searchParams.set('_bb_v', Date.now()); // změna URL = browser musí stáhnout znovu
+      location.replace(url.toString());
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', check);
+  else check();
+})();
+
 const COLORS=[
   // 0–11  výchozí (původní)
   '#3dd64a','#ff7a1a','#5bc8f5','#1b9aff','#ff4fa3','#f5d800','#8b4dff','#141414','#ffffff','#e63946','#00c8a0','#8c8c8c',
@@ -1405,7 +1431,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.276');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.277');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6676,7 +6702,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.276');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.277');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6804,7 +6830,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.276');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.277');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7642,7 +7668,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.276');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.277');
       event.detail.callback();
     });
 
