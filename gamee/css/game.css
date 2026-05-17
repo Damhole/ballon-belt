@@ -329,7 +329,7 @@ h1{font-size:16px;font-weight:500;color:var(--color-text-secondary);letter-spaci
 body.renderer-3d {
   background:
     radial-gradient(ellipse 92% 88% at 50% 50%, transparent 52%, rgba(0,0,0,0.22) 100%),
-    radial-gradient(ellipse at top, var(--bg-3d-top) 0%, var(--bg-3d-bottom) 80%);
+    linear-gradient(to bottom, var(--bg-3d-top) 0%, var(--bg-3d-bottom) 100%);
   color: #fff;
 }
 /* A: film grain — jemná textura přes celý BG */
