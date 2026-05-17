@@ -14,8 +14,8 @@
 
 import * as THREE from 'three';
 
-// v73.287: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v73.287';
+// v73.288: version stamp pro watchdog — game.js compare proti tomuto
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v73.288';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
@@ -713,7 +713,27 @@ function init(canvas, opts) {
   state.pixelsGroup.add(state.dustMesh);
 
   state.ready = true;
-  state._dirty = true; // v73.287: po init první render musí proběhnout
+  state._dirty = true; // v73.288: po init první render musí proběhnout
+  // v73.288: PRE-WARM SHADER COMPILE — bez tohohle iOS Safari kompiluje shadery
+  // až při prvním use (shards, flash, dust, CA, projektily, shadow) → 50–200ms
+  // freeze v prvních sekundách hry. compile() projde všechny mat ve scéně a
+  // GPU prográmy zkompiluje předem.
+  try {
+    // Aktivuj všechny instanced meshes s count=1 dočasně aby compile viděl materiály
+    const meshes = [
+      state.pixelMesh, state.pixelOutlineMesh,
+      state.blockMesh, state.blockOutlineMesh,
+      state.projectileMesh, state.projectileOutlineMesh,
+      state.shardMesh, state.ghostMesh, state.dustMesh,
+    ];
+    const origCounts = meshes.map(m => m ? m.count : 0);
+    for (const m of meshes) { if (m) m.count = Math.max(m.count, 1); }
+    state.renderer.compile(state.scene, state.camera);
+    // Restore counts
+    for (let i = 0; i < meshes.length; i++) {
+      if (meshes[i]) meshes[i].count = origCounts[i];
+    }
+  } catch (e) { console.warn('[render3d] shader pre-warm failed:', e); }
   return true;
 }
 
@@ -949,7 +969,7 @@ function triggerPixelWave(gx, gy) {
 // Update animací. Volá se z beltLoop každý frame s dt v sekundách.
 function updateAnimations(dt) {
   if (!state.ready || !state.shardMesh) return;
-  // v73.287: pokud cokoli aktivního (shards/ghosts/dust/waves), označit scénu jako dirty
+  // v73.288: pokud cokoli aktivního (shards/ghosts/dust/waves), označit scénu jako dirty
   if (state.shards.length > 0 || state.ghosts.length > 0 || state.dust.length > 0 || state.pixelBounce.size > 0) {
     state._dirty = true;
   }
@@ -1058,11 +1078,11 @@ function updateAnimations(dt) {
     }
     if (anyActive && state._lastGrid && state._lastColors) {
       updateGrid(state._lastGrid, state._lastColors);
-      // v73.287: aktivní vlny posouvají Z pixelů → shadow map musí refreshnout
+      // v73.288: aktivní vlny posouvají Z pixelů → shadow map musí refreshnout
       if (state.sun && !state.sun.shadow.autoUpdate) state.sun.shadow.needsUpdate = true;
     }
   }
-  // v73.287: aktivní shards (destrukce, sparks) také posouvají objekty → refresh shadow
+  // v73.288: aktivní shards (destrukce, sparks) také posouvají objekty → refresh shadow
   if (state.sun && !state.sun.shadow.autoUpdate && state.shards.length > 0) {
     state.sun.shadow.needsUpdate = true;
   }
@@ -1076,7 +1096,7 @@ function updateAnimations(dt) {
 function updateBlocks(blocks, COLORS) {
   if (!state.ready || !state.blockMesh) return;
   state._dirty = true;
-  // v73.287: blocks se mohou změnit (HP klesá, blok zničen) → shadow refresh
+  // v73.288: blocks se mohou změnit (HP klesá, blok zničen) → shadow refresh
   if (state.sun && !state.sun.shadow.autoUpdate) state.sun.shadow.needsUpdate = true;
   const H = state.GH * SCALE;
   const mesh = state.blockMesh;
@@ -1175,7 +1195,7 @@ function updateGrid(grid, COLORS) {
   state.pixelOutlineMesh.instanceMatrix.needsUpdate = true;
 }
 
-// v73.287: dirty-flag render skipping. Top scéna se renderuje JEN když se něco
+// v73.288: dirty-flag render skipping. Top scéna se renderuje JEN když se něco
 // změnilo (mutace nastaví state._dirty = true). Bezpečnostní fallback: vždy
 // 1× za 60 framů (1 fps base) — pokud někde mutace zapomeneme označit, scéna
 // se obnoví max po 1 s.
@@ -1197,7 +1217,7 @@ function isReady() {
 
 function setVisible(visible) {
   if (state.canvasEl) state.canvasEl.style.display = visible ? 'block' : 'none';
-  if (visible) state._dirty = true; // v73.287: po zviditelnění vynucený refresh
+  if (visible) state._dirty = true; // v73.288: po zviditelnění vynucený refresh
 }
 
 // Cleanup pro level switch nebo dispose. Nepoužíváme zatím (state je per-page),
@@ -1349,7 +1369,7 @@ if (typeof window !== 'undefined') {
       if (state.projectileMesh) state.projectileMesh.castShadow = shadowsOn;
       if (state.shardMesh) state.shardMesh.castShadow = shadowsOn;
 
-      // v73.287: HIGH = plné stíny (512 PCFSoft), ALE on-demand (autoUpdate=false).
+      // v73.288: HIGH = plné stíny (512 PCFSoft), ALE on-demand (autoUpdate=false).
       // Refresh jen při destrukci / aktivních waves / lítajících projektilech.
       // Identicky vypadá, ale ~30–50% menší GPU cost při statické scéně → méně tepla.
       if (shadowsOn && state.sun && state.renderer) {
@@ -1369,7 +1389,7 @@ if (typeof window !== 'undefined') {
         });
         if (state.renderer) state.renderer.shadowMap.needsUpdate = true;
       }
-      state._dirty = true; // v73.287: tier change → vynucený refresh
+      state._dirty = true; // v73.288: tier change → vynucený refresh
       // Cleanup particles při downgrade na LOW
       if (t >= 2) {
         if (state.dust) state.dust.length = 0;
