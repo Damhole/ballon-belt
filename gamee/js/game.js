@@ -677,10 +677,14 @@ const MAX_PER_COLOR=10;
 function initParticleCanvas(){
   if(particleCanvas)return;
   particleCanvas=document.createElement('canvas');
-  particleCanvas.width=360;particleCanvas.height=310;
+  // HD resolution: internal × DPR (min 2×) pro crisp rendering na retina + CSS
+  // stretch v 3D módu. Drawing code zůstává v 360×310 coords díky ctx.scale.
+  const _DPR=Math.max(2,window.devicePixelRatio||1);
+  particleCanvas.width=360*_DPR;particleCanvas.height=310*_DPR;
   particleCanvas.style.cssText='position:absolute;left:0;top:0;width:360px;height:310px;pointer-events:none;z-index:2';
   document.getElementById('image-area').appendChild(particleCanvas);
   particleCtx=particleCanvas.getContext('2d');
+  particleCtx.scale(_DPR,_DPR);
 }
 
 // ─── BG ATMOSPHERE: sparkle particles (v73.115) ──────────────────────────
@@ -1462,7 +1466,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.342');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.343');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -1735,8 +1739,9 @@ function scheduleSmokePuffs(){
   ];
 }
 function spawnSmokePuff(scaleMul){
-  const muzzleX=cannonX+Math.cos(cannonAngle)*14;
-  const muzzleY=CANNON_Y+Math.sin(cannonAngle)*14;
+  // 21 px (14 muzzle + 7 forward offset) podél cannon angle → cloud sedí před hlavní
+  const muzzleX=cannonX+Math.cos(cannonAngle)*21;
+  const muzzleY=CANNON_Y+Math.sin(cannonAngle)*21;
   smokePuffs.push({
     x:muzzleX, y:muzzleY,
     dx:(Math.random()-0.5)*4,
@@ -6860,7 +6865,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.342');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.343');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6988,7 +6993,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.342');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.343');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7858,7 +7863,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.342');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.343');
       event.detail.callback();
     });
 
