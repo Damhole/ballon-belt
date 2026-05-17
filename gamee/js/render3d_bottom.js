@@ -7,8 +7,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// v73.301: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v73.301';
+// v73.302: version stamp pro watchdog
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v73.302';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
@@ -778,12 +778,12 @@ function init() {
   contentGroup.add(st.beltOutlineMesh);
 
   _buildBeltTrack(contentGroup, W, toonGrad, st.beltCenterY);
-  _loadBeltBoxes(contentGroup, toonGrad); // v73.301: 3D krabice po stranách belt
+  _loadBeltBoxes(contentGroup, toonGrad); // v73.302: 3D krabice po stranách belt
   _initUnifiedFrame();  // v73.54: belt + skulina + arena jako jeden 3D povrch
 
   st.ready = true;
-  st._dirty = true; // v73.301: first frame render
-  // v73.301: shader pre-warm — kompiluj všechny WebGL programy předem aby
+  st._dirty = true; // v73.302: first frame render
+  // v73.302: shader pre-warm — kompiluj všechny WebGL programy předem aby
   // při prvním use (carrier fire, pending ball spawn) nebyl 50–200ms jam.
   try {
     st.renderer.compile(st.scene, st.camera);
@@ -847,14 +847,14 @@ function _buildBeltTrack(parent, W, toonGrad, beltCenterY) {
   st.beltRollerROutline = rollerROut;
 }
 
-// v73.301: GLB loader pro belt-side krabice (BeltBoxLeft, BeltBoxRight).
+// v73.302: GLB loader pro belt-side krabice (BeltBoxLeft, BeltBoxRight).
 // Asset: 1m = 50px konvence. Boxy překryjí rollers — left box přes rollerL,
 // right box přes rollerR. Detekce object names přes traverse.
 function _loadBeltBoxes(parent, toonGrad) {
   new GLTFLoader().load('./assets/3d/belt-boxes.glb', (gltf) => {
     const trackWY = _worldY(st.beltCenterY);
     const ox = st.beltOffsetX;
-    // v73.301: detekce explicit "beltBox" patterns. Cizí meshes (carrier atd.)
+    // v73.302: detekce explicit "beltBox" patterns. Cizí meshes (carrier atd.)
     // se ignorují. Pokud najdeme jen jednu stranu → mirror přes scale.x = -1.
     let leftObj = null, rightObj = null;
     gltf.scene.traverse(obj => {
@@ -910,7 +910,8 @@ function _loadBeltBoxes(parent, toonGrad) {
     // Render pravá krabice (s mirror pokud byla zděděná z left)
     if (rightObj) {
       const { mesh, outMesh } = _mkBoxMesh(rightObj, false);
-      mesh.position.set(ox + 332, trackWY, 0);
+      // v73.302: +10 px doprava, +10 px nahoru (world Y = up)
+      mesh.position.set(ox + 332 + 10, trackWY + 10, 0);
       if (mirrorRight) { mesh.scale.x = -1; outMesh.scale.x *= -1; }
       outMesh.position.copy(mesh.position);
       parent.add(outMesh);
@@ -1174,7 +1175,7 @@ function _rebuildUnifiedFrame() {
   const key = `${st.beltCenterY}|${st.carriersTopCSS}|${st.carriersBottomCSS}`;
   if (key === st.lastFrameKey) return;
   st.lastFrameKey = key;
-  st._slotCacheValid = false; // v73.301: layout reálně mění slot pozice
+  st._slotCacheValid = false; // v73.302: layout reálně mění slot pozice
   _disposeUnifiedFrame();
   _initUnifiedFrame();
 }
@@ -1782,12 +1783,12 @@ function _clipSelfIntersections(points) {
 
 function updateCarriers(columns, colorsArr) {
   if (!st.ready || !columns) return;
-  st._dirty = true; // v73.301: carriers update = layout change → vždy dirty
+  st._dirty = true; // v73.302: carriers update = layout change → vždy dirty
 
   // v73.103: rebuild frame pokud carriers pozice změnila (responzivní layout)
   _rebuildUnifiedFrame();
 
-  // v73.301: per-slot measurement cache — během anim se layout nemění, takže
+  // v73.302: per-slot measurement cache — během anim se layout nemění, takže
   // místo per-frame getBoundingClientRect (36 carriers × ~3 rect calls = 108
   // forced layouts/frame) cache pozice + dynScale. Invalidace přes
   // _invalidateSlotCache() (resize, level start, theme change).
@@ -1839,7 +1840,7 @@ function updateCarriers(columns, colorsArr) {
         // Spočítej pozici z .cbox (nyní revealed slot)
         const cboxR = slotDivs[r].querySelector('.cbox');
         if (cboxR) {
-          // v73.301: reveal trigger — 1× per slot reveal, neoptimalizujeme cache
+          // v73.302: reveal trigger — 1× per slot reveal, neoptimalizujeme cache
           const crR = cboxR.getBoundingClientRect();
           const refL = st._cachedRefLeft !== undefined ? st._cachedRefLeft : (refRect ? refRect.left : 0);
           const canT = st._cachedCanvasTop !== undefined ? st._cachedCanvasTop : (canvasRect ? canvasRect.top : 0);
@@ -1861,7 +1862,7 @@ function updateCarriers(columns, colorsArr) {
       if (isHiddenVisual) {
         const cboxHid = slotDivs[r].querySelector('.cbox-hid');
         if (!cboxHid) continue;
-        // v73.301: cache hidden slot pos
+        // v73.302: cache hidden slot pos
         const hidCacheKey = 'h:' + c + ',' + r;
         let xWh, yWh, dynScaleH;
         const cachedH = useCache ? st._slotCache.get(hidCacheKey) : null;
@@ -1942,7 +1943,7 @@ function updateCarriers(columns, colorsArr) {
         // popT 0.30..0.55: slot settled at 1.0, ball cascade runs
       }
 
-      // v73.301: cache slot pos + dynScale (jinak getBoundingClientRect per slot per frame)
+      // v73.302: cache slot pos + dynScale (jinak getBoundingClientRect per slot per frame)
       const slotCacheKey = c + ',' + r;
       let xW, yW, dynScale;
       const cached = useCache ? st._slotCache.get(slotCacheKey) : null;
@@ -2203,16 +2204,16 @@ function updateCarriers(columns, colorsArr) {
   if (st.carrierMesh.instanceColor) st.carrierMesh.instanceColor.needsUpdate = true;
   st.carrierOutlineMesh.count = ballIdx;
   st.carrierOutlineMesh.instanceMatrix.needsUpdate = true;
-  // v73.301: track přítomnost mystery slotů — jejich textura scrolluje a tedy
+  // v73.302: track přítomnost mystery slotů — jejich textura scrolluje a tedy
   // vyžaduje continuous render kde jsou visible.
   let myTotal = 0;
   for (let r = 0; r < rowMysteryIdx.length; r++) myTotal += rowMysteryIdx[r] || 0;
   st._mysteryHasVisible = myTotal > 0;
 }
 
-// v73.301: dirty helper pro bottom scénu — krátký a explicit
+// v73.302: dirty helper pro bottom scénu — krátký a explicit
 function _bottomMarkDirty() { st._dirty = true; }
-// v73.301: invalidace per-slot měření cache — volat při resize, level start, theme change
+// v73.302: invalidace per-slot měření cache — volat při resize, level start, theme change
 function invalidateSlotCache() {
   st._slotCacheValid = false;
   if (st._slotCache) st._slotCache.clear();
@@ -2282,7 +2283,7 @@ function _countFilled(projectiles) {
 
 function updatePending(pendingArr, colorsArr) {
   if (!st.ready) return;
-  // v73.301: dirty pokud má aspoň jednu pending ball (pohybují se každý frame)
+  // v73.302: dirty pokud má aspoň jednu pending ball (pohybují se každý frame)
   if (pendingArr && pendingArr.length > 0) st._dirty = true;
   const dummy = st._dummy;
   const c3    = st._col3;
@@ -2361,7 +2362,7 @@ function updatePending(pendingArr, colorsArr) {
 
 function updateBelt(beltArr, beltAnim, colorsArr) {
   if (!st.ready) return;
-  // v73.301: dirty pokud má aspoň jednu belt ball (belt anim posouvá)
+  // v73.302: dirty pokud má aspoň jednu belt ball (belt anim posouvá)
   if (beltArr) { for (let i = 0; i < beltArr.length; i++) { if (beltArr[i]) { st._dirty = true; break; } } }
   const dummy = st._dummy;
   const c3    = st._col3;
@@ -2403,7 +2404,7 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
 
 // ─── Render ──────────────────────────────────────────────────────────────────
 
-// v73.301: dirty-flag render skipping pro bottom scénu — analogie top scene.
+// v73.302: dirty-flag render skipping pro bottom scénu — analogie top scene.
 // Skip render pokud žádná pending/belt ball + žádná aktivní carrier anim.
 // Bezpečnostní fallback: vždy 1× za 60 framů (1 fps base).
 function render() {
@@ -2709,7 +2710,7 @@ function _disposeWallMeshes() {
 
 function updateWalls(columns) {
   if (!st.ready || !st._wallMat) return;
-  st._dirty = true; // v73.301: walls update = layout/color change
+  st._dirty = true; // v73.302: walls update = layout/color change
   // Theme color match — read --carriers-3d-bg z aktuálního theme
   const cs = getComputedStyle(document.body);
   const bgColor = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
@@ -2807,8 +2808,8 @@ function updateWalls(columns) {
 // (nový level s víc řadami = vyšší deck). Bez resize by se bottom rows renderovaly
 // MIMO canvas (clipped).
 function resize() {
-  st._dirty = true; // v73.301: viewport change → refresh
-  st._slotCacheValid = false; // v73.301: layout může změnit slot pozice
+  st._dirty = true; // v73.302: viewport change → refresh
+  st._slotCacheValid = false; // v73.302: layout může změnit slot pozice
   if (!st.ready || !st.canvas) return;
   const gameEl   = document.getElementById('game');
   const beltWrap = document.getElementById('belt-wrap');
@@ -2952,7 +2953,7 @@ function refreshWallColor() {
 // v73.257: setPixelRatio per tier — největší win na mobile (retina 2× = 4× pixelů).
 function setQualityTier(tier){
   st.qualityTier = Math.max(0, Math.min(2, tier|0));
-  st._dirty = true; // v73.301: tier change → vynucený refresh
+  st._dirty = true; // v73.302: tier change → vynucený refresh
   // v73.262: MED drží plnou retina (jen LOW jde na 1.5)
   if (st.renderer) {
     const dpr = window.devicePixelRatio || 1;
