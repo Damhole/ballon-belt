@@ -1,24 +1,35 @@
-// v73.277: VERSION CONSTANT + WATCHDOG
-// JS version se kontroluje proti #version-badge v HTML. Při mismatch (stale JS
-// vs. fresh HTML kvůli browser cache) JS jednou na session force reloadne bez cache.
-const BB_VERSION = 'v73.277';
+// v73.278: VERSION CONSTANT + WATCHDOG (rozšířen na render3d moduly)
+// Porovnává HTML #version-badge + window.BB_VERSION_R3D + window.BB_VERSION_R3DB
+// proti BB_VERSION. Kterákoli mismatch → force reload (sessionStorage guard).
+const BB_VERSION = 'v73.278';
 (function _versionWatchdog(){
   function check(){
     var badge = document.getElementById('version-badge');
     if (!badge) { setTimeout(check, 100); return; }
-    var htmlVer = (badge.textContent || '').trim();
-    if (htmlVer && htmlVer !== BB_VERSION) {
-      var key = 'bb-reload-attempted-' + htmlVer;
-      if (sessionStorage.getItem(key)) {
-        console.warn('[BB] Version mismatch persists after reload — HTML=' + htmlVer + ' JS=' + BB_VERSION + ' (network/CDN issue?). Manuálně zkus Cmd+Shift+R.');
-        return;
-      }
-      sessionStorage.setItem(key, '1');
-      console.warn('[BB] Stale JS detected (HTML=' + htmlVer + ' JS=' + BB_VERSION + ') → cache-bust reload.');
-      var url = new URL(location.href);
-      url.searchParams.set('_bb_v', Date.now()); // změna URL = browser musí stáhnout znovu
-      location.replace(url.toString());
+    // Render3d moduly jsou ESM, mohou se načítat asynchronně.
+    // Pokud BB_VERSION_R3D/R3DB ještě nejsou exposed, počkat krátce.
+    if (window.BB_VERSION_R3D === undefined || window.BB_VERSION_R3DB === undefined) {
+      setTimeout(check, 100);
+      return;
     }
+    var htmlVer = (badge.textContent || '').trim();
+    var checks = [
+      ['HTML',            htmlVer],
+      ['render3d',        window.BB_VERSION_R3D],
+      ['render3dBottom',  window.BB_VERSION_R3DB],
+    ];
+    var bad = checks.filter(function(c){ return c[1] && c[1] !== BB_VERSION; });
+    if (!bad.length) return;
+    var key = 'bb-reload-attempted-' + BB_VERSION;
+    if (sessionStorage.getItem(key)) {
+      console.warn('[BB] Version mismatch po reloadu přetrvává:', bad, '(JS=' + BB_VERSION + '). Zkus Cmd+Shift+R.');
+      return;
+    }
+    sessionStorage.setItem(key, '1');
+    console.warn('[BB] Stale modul(y):', bad, '— force reload.');
+    var url = new URL(location.href);
+    url.searchParams.set('_bb_v', Date.now());
+    location.replace(url.toString());
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', check);
   else check();
@@ -1431,7 +1442,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.277');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.278');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6702,7 +6713,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.277');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.278');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6830,7 +6841,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.277');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.278');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7668,7 +7679,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.277');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.278');
       event.detail.callback();
     });
 
