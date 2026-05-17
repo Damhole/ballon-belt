@@ -428,6 +428,11 @@ let beltAnim=0,lastBeltTime=null;
 // 30 frame timestampů, update text + barva každých 250 ms.
 const _fpsFrames=[];
 let _fpsLastUpdate=0;
+// v73.281: thermal score — porovnává current FPS proti baseline (peak v prvních 30s).
+// Když je current < 90% baseline → pravděpodobný thermal throttle.
+let _perfBaseline=0;            // peak průměrný FPS v prvních 30s
+let _perfBaselineStart=0;       // čas startu měření (ms)
+const PERF_BASELINE_WINDOW=30000;
 // === v73.255: PERF QUALITY MANAGER ===
 // 3 tiers: 0=HIGH (vše zapnuto), 1=MED (bez shadow + půl částic), 2=LOW (jen základ).
 // Auto-step-down: FPS pod 45 po 2.5s → tier++. Step-up: FPS nad 55 po 6s → tier--.
@@ -707,6 +712,12 @@ function _initBgParticles(){
     });
   }
   function tick(){
+    // v73.281: pauza paint cyklu pokud overlay vidět (lastRenderActive false)
+    // — rAF schedule pokračuje (cheap), ale GPU paint cost = 0.
+    if(!_lastRenderActive){
+      _bgParticleRAF=requestAnimationFrame(tick);
+      return;
+    }
     // v73.268: čistší rendering — bez halo, bez additive blending
     ctx.clearRect(0,0,W,H);
     ctx.fillStyle='#ffffff';
@@ -1443,7 +1454,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.280');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.281');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6714,7 +6725,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.280');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.281');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6842,7 +6853,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.280');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.281');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7488,12 +7499,16 @@ function beltLoop(ts){
     _profAccum.updatePending+=_tu2-_tu1;
   }
   lastBeltTime=ts;
-  // Per-frame profiler: měříme drawBelt/drawParticles/drawPending na konci.
-  // Update fází jsou wrappnuté výše uvnitř !paused bloku.
+  // v73.281 (krok 2b): když je overlay vidět, skip i 2D drawing — drawBelt + drawParticles
+  // + drawPending paintovaly canvasy každý frame. Net 2D + 3D úspora v idle stavu.
   const _t0=performance.now();
-  drawBelt(); const _t1=performance.now();
-  drawParticles(); const _t2=performance.now();
-  drawPending(); const _t3=performance.now();
+  let _t1=_t0, _t2=_t0, _t3=_t0;
+  const _drawActive = gameStarted && running && !paused;
+  if(_drawActive || _lastRenderActive){
+    drawBelt(); _t1=performance.now();
+    drawParticles(); _t2=performance.now();
+    drawPending(); _t3=performance.now();
+  }
   // v73.280: skip 3D render při overlay/pause state (krok 2/5 thermal opt).
   // Render proběhne i 1 frame PO change (lastRenderActive), aby se nakreslila
   // finální freeze pozice před vypnutím renderu.
@@ -7555,10 +7570,28 @@ function _updateFpsCounter(ts){
   if(_fpsFrames.length<2){ el.textContent='— fps'; el.style.color='#888'; return; }
   const span=_fpsFrames[_fpsFrames.length-1]-_fpsFrames[0];
   const fps=Math.round((_fpsFrames.length-1)*1000/span);
-  el.textContent=fps+' fps';
-  if(fps>=55) el.style.color='#bdbdbd';        // šedá — OK
-  else if(fps>=30) el.style.color='#f5d800';   // žlutá — pomalejší
-  else el.style.color='#ff7a7a';               // červená — kritické
+  // v73.281: thermal score
+  if(!_perfBaselineStart) _perfBaselineStart=ts;
+  if(ts-_perfBaselineStart<PERF_BASELINE_WINDOW){
+    if(fps>_perfBaseline) _perfBaseline=fps;       // peak v prvních 30s
+  }
+  let thermalTxt='';
+  if(_perfBaseline>20 && ts-_perfBaselineStart>=PERF_BASELINE_WINDOW){
+    const ratio=Math.min(100,Math.round(fps/_perfBaseline*100));
+    thermalTxt=' · '+ratio+'°';                    // ° symbol napovídá teplotu
+  }
+  el.textContent=fps+' fps'+thermalTxt;
+  // Barva podle horšího ze dvou: absolutní FPS nebo thermal ratio
+  let color='#bdbdbd';
+  if(fps<30) color='#ff7a7a';
+  else if(fps<55) color='#f5d800';
+  if(_perfBaseline>20 && ts-_perfBaselineStart>=PERF_BASELINE_WINDOW){
+    const r=fps/_perfBaseline;
+    if(r<0.5) color='#ff7a7a';
+    else if(r<0.7) color='#ff9533';
+    else if(r<0.9) color='#f5d800';
+  }
+  el.style.color=color;
   _perfAutoUpdate(fps, ts);                    // v73.255: auto-degrade quality
 
   // Když fps < 50, log diagnostic snapshot do konzole (max 1× za 2 s).
@@ -7683,7 +7716,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.280');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.281');
       event.detail.callback();
     });
 
