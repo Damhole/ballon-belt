@@ -7,8 +7,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// v73.286: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v73.286';
+// v73.287: version stamp pro watchdog
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v73.287';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
@@ -781,7 +781,7 @@ function init() {
   _initUnifiedFrame();  // v73.54: belt + skulina + arena jako jeden 3D povrch
 
   st.ready = true;
-  st._dirty = true; // v73.286: first frame render
+  st._dirty = true; // v73.287: first frame render
   return true;
 }
 
@@ -1091,6 +1091,7 @@ function _rebuildUnifiedFrame() {
   const key = `${st.beltCenterY}|${st.carriersTopCSS}|${st.carriersBottomCSS}`;
   if (key === st.lastFrameKey) return;
   st.lastFrameKey = key;
+  st._slotCacheValid = false; // v73.287: layout reálně mění slot pozice
   _disposeUnifiedFrame();
   _initUnifiedFrame();
 }
@@ -1698,15 +1699,26 @@ function _clipSelfIntersections(points) {
 
 function updateCarriers(columns, colorsArr) {
   if (!st.ready || !columns) return;
-  st._dirty = true; // v73.286: carriers update = layout change → vždy dirty
+  st._dirty = true; // v73.287: carriers update = layout change → vždy dirty
 
   // v73.103: rebuild frame pokud carriers pozice změnila (responzivní layout)
   _rebuildUnifiedFrame();
 
-  const canvasRect = st.canvas.getBoundingClientRect();
-  // v73.201: world x=0 = bottom-deck left edge (stable reference, nezávisí na canvas/camera).
-  // Canvas může být širší/posunutý — to neovlivní world coords.
-  const refRect = document.getElementById('bottom-deck')?.getBoundingClientRect() || canvasRect;
+  // v73.287: per-slot measurement cache — během anim se layout nemění, takže
+  // místo per-frame getBoundingClientRect (36 carriers × ~3 rect calls = 108
+  // forced layouts/frame) cache pozice + dynScale. Invalidace přes
+  // _invalidateSlotCache() (resize, level start, theme change).
+  let canvasRect, refRect;
+  let useCache = !!(st._slotCache && st._slotCacheValid);
+  if (!useCache) {
+    canvasRect = st.canvas.getBoundingClientRect();
+    refRect = document.getElementById('bottom-deck')?.getBoundingClientRect() || canvasRect;
+    st._cachedCanvasTop = canvasRect.top;
+    st._cachedRefLeft = refRect.left;
+    if (!st._slotCache) st._slotCache = new Map();
+    st._slotCache.clear();
+    st._slotCacheValid = true;
+  }
   const gridEl = document.getElementById('carriers-grid');
   if (!gridEl) return;
 
@@ -1744,9 +1756,12 @@ function updateCarriers(columns, colorsArr) {
         // Spočítej pozici z .cbox (nyní revealed slot)
         const cboxR = slotDivs[r].querySelector('.cbox');
         if (cboxR) {
+          // v73.287: reveal trigger — 1× per slot reveal, neoptimalizujeme cache
           const crR = cboxR.getBoundingClientRect();
-          const xWR = crR.left + crR.width / 2 - refRect.left;
-          const yWR = _worldY(crR.top + crR.height / 2 - canvasRect.top);
+          const refL = st._cachedRefLeft !== undefined ? st._cachedRefLeft : (refRect ? refRect.left : 0);
+          const canT = st._cachedCanvasTop !== undefined ? st._cachedCanvasTop : (canvasRect ? canvasRect.top : 0);
+          const xWR = crR.left + crR.width / 2 - refL;
+          const yWR = _worldY(crR.top + crR.height / 2 - canT);
           const dynR = crR.width / SLOT_SIZE;
           const { mat, uniforms } = _buildRevealMaterial(st._mysteryTex);
           const mesh = new THREE.Mesh(st._mysterySlotGeom, mat);
@@ -1763,12 +1778,21 @@ function updateCarriers(columns, colorsArr) {
       if (isHiddenVisual) {
         const cboxHid = slotDivs[r].querySelector('.cbox-hid');
         if (!cboxHid) continue;
-        const crH = cboxHid.getBoundingClientRect();
-        const xCSSh = crH.left + crH.width  / 2 - refRect.left;
-        const yCSSh = crH.top  + crH.height / 2 - canvasRect.top;
-        const xWh   = xCSSh;
-        const yWh   = _worldY(yCSSh);
-        const dynScaleH = crH.width / SLOT_SIZE;
+        // v73.287: cache hidden slot pos
+        const hidCacheKey = 'h:' + c + ',' + r;
+        let xWh, yWh, dynScaleH;
+        const cachedH = useCache ? st._slotCache.get(hidCacheKey) : null;
+        if (cachedH) {
+          xWh = cachedH.xW; yWh = cachedH.yW; dynScaleH = cachedH.dynScale;
+        } else {
+          const crH = cboxHid.getBoundingClientRect();
+          const xCSSh = crH.left + crH.width  / 2 - st._cachedRefLeft;
+          const yCSSh = crH.top  + crH.height / 2 - st._cachedCanvasTop;
+          xWh = xCSSh;
+          yWh = _worldY(yCSSh);
+          dynScaleH = crH.width / SLOT_SIZE;
+          st._slotCache.set(hidCacheKey, { xW: xWh, yW: yWh, dynScale: dynScaleH });
+        }
         const denialRotY = _computeDenialRotation(mysteryKey);  // v72.78
         const rowIdxH = Math.min(r, st.rowMysteryMeshes.length - 1);
         const myMesh = st.rowMysteryMeshes[rowIdxH];
@@ -1835,17 +1859,21 @@ function updateCarriers(columns, colorsArr) {
         // popT 0.30..0.55: slot settled at 1.0, ball cascade runs
       }
 
-      const cr = cbox.getBoundingClientRect();
-      // Střed cboxu — X přes refRect (bottom-deck = world origin), Y přes canvasRect
-      const xCSS = cr.left + cr.width  / 2 - refRect.left;
-      const yCSS = cr.top  + cr.height / 2 - canvasRect.top;
-      const xW   = xCSS;
-      const yW   = _worldY(yCSS);
-
-      // Responsive sizing — 3D mesh velikost = poměr DOM cbox vs SLOT_SIZE (world units).
-      // Když DOM carrier zmenší (small phone, 7 rows), mesh se zmenší taky.
-      // Multiplikuje slotScale (active/inactive/pop anim) zachová animační křivky.
-      const dynScale = cr.width / SLOT_SIZE;
+      // v73.287: cache slot pos + dynScale (jinak getBoundingClientRect per slot per frame)
+      const slotCacheKey = c + ',' + r;
+      let xW, yW, dynScale;
+      const cached = useCache ? st._slotCache.get(slotCacheKey) : null;
+      if (cached) {
+        xW = cached.xW; yW = cached.yW; dynScale = cached.dynScale;
+      } else {
+        const cr = cbox.getBoundingClientRect();
+        const xCSS = cr.left + cr.width  / 2 - st._cachedRefLeft;
+        const yCSS = cr.top  + cr.height / 2 - st._cachedCanvasTop;
+        xW = xCSS;
+        yW = _worldY(yCSS);
+        dynScale = cr.width / SLOT_SIZE;
+        st._slotCache.set(slotCacheKey, { xW, yW, dynScale });
+      }
       slotScale *= dynScale;
 
       // Barva slotu — inactive je desaturovaný (× 0.55).
@@ -2092,15 +2120,20 @@ function updateCarriers(columns, colorsArr) {
   if (st.carrierMesh.instanceColor) st.carrierMesh.instanceColor.needsUpdate = true;
   st.carrierOutlineMesh.count = ballIdx;
   st.carrierOutlineMesh.instanceMatrix.needsUpdate = true;
-  // v73.286: track přítomnost mystery slotů — jejich textura scrolluje a tedy
+  // v73.287: track přítomnost mystery slotů — jejich textura scrolluje a tedy
   // vyžaduje continuous render kde jsou visible.
   let myTotal = 0;
   for (let r = 0; r < rowMysteryIdx.length; r++) myTotal += rowMysteryIdx[r] || 0;
   st._mysteryHasVisible = myTotal > 0;
 }
 
-// v73.286: dirty helper pro bottom scénu — krátký a explicit
+// v73.287: dirty helper pro bottom scénu — krátký a explicit
 function _bottomMarkDirty() { st._dirty = true; }
+// v73.287: invalidace per-slot měření cache — volat při resize, level start, theme change
+function invalidateSlotCache() {
+  st._slotCacheValid = false;
+  if (st._slotCache) st._slotCache.clear();
+}
 function triggerCarrierFire(col, row, hexColor, fillCount, canvasX, canvasY, cboxW, cboxH) {
   st._dirty = true;
   if (!st.ready) return;
@@ -2166,7 +2199,7 @@ function _countFilled(projectiles) {
 
 function updatePending(pendingArr, colorsArr) {
   if (!st.ready) return;
-  // v73.286: dirty pokud má aspoň jednu pending ball (pohybují se každý frame)
+  // v73.287: dirty pokud má aspoň jednu pending ball (pohybují se každý frame)
   if (pendingArr && pendingArr.length > 0) st._dirty = true;
   const dummy = st._dummy;
   const c3    = st._col3;
@@ -2245,7 +2278,7 @@ function updatePending(pendingArr, colorsArr) {
 
 function updateBelt(beltArr, beltAnim, colorsArr) {
   if (!st.ready) return;
-  // v73.286: dirty pokud má aspoň jednu belt ball (belt anim posouvá)
+  // v73.287: dirty pokud má aspoň jednu belt ball (belt anim posouvá)
   if (beltArr) { for (let i = 0; i < beltArr.length; i++) { if (beltArr[i]) { st._dirty = true; break; } } }
   const dummy = st._dummy;
   const c3    = st._col3;
@@ -2287,7 +2320,7 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
 
 // ─── Render ──────────────────────────────────────────────────────────────────
 
-// v73.286: dirty-flag render skipping pro bottom scénu — analogie top scene.
+// v73.287: dirty-flag render skipping pro bottom scénu — analogie top scene.
 // Skip render pokud žádná pending/belt ball + žádná aktivní carrier anim.
 // Bezpečnostní fallback: vždy 1× za 60 framů (1 fps base).
 function render() {
@@ -2593,7 +2626,7 @@ function _disposeWallMeshes() {
 
 function updateWalls(columns) {
   if (!st.ready || !st._wallMat) return;
-  st._dirty = true; // v73.286: walls update = layout/color change
+  st._dirty = true; // v73.287: walls update = layout/color change
   // Theme color match — read --carriers-3d-bg z aktuálního theme
   const cs = getComputedStyle(document.body);
   const bgColor = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
@@ -2691,7 +2724,8 @@ function updateWalls(columns) {
 // (nový level s víc řadami = vyšší deck). Bez resize by se bottom rows renderovaly
 // MIMO canvas (clipped).
 function resize() {
-  st._dirty = true; // v73.286: viewport change → refresh
+  st._dirty = true; // v73.287: viewport change → refresh
+  st._slotCacheValid = false; // v73.287: layout může změnit slot pozice
   if (!st.ready || !st.canvas) return;
   const gameEl   = document.getElementById('game');
   const beltWrap = document.getElementById('belt-wrap');
@@ -2835,7 +2869,7 @@ function refreshWallColor() {
 // v73.257: setPixelRatio per tier — největší win na mobile (retina 2× = 4× pixelů).
 function setQualityTier(tier){
   st.qualityTier = Math.max(0, Math.min(2, tier|0));
-  st._dirty = true; // v73.286: tier change → vynucený refresh
+  st._dirty = true; // v73.287: tier change → vynucený refresh
   // v73.262: MED drží plnou retina (jen LOW jde na 1.5)
   if (st.renderer) {
     const dpr = window.devicePixelRatio || 1;
@@ -2844,5 +2878,5 @@ function setQualityTier(tier){
   }
 }
 function getQualityTier(){ return st.qualityTier || 0; }
-window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor, setQualityTier, getQualityTier };
+window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor, setQualityTier, getQualityTier, invalidateSlotCache };
 window._r3dBState = st;  // debug
