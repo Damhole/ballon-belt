@@ -60,8 +60,8 @@ function _makeChromeMatcap() {
   return tex;
 }
 
-// v73.340: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v73.340';
+// v73.341: version stamp pro watchdog — game.js compare proti tomuto
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v73.341';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
@@ -758,12 +758,12 @@ function init(canvas, opts) {
   state.dustMesh.renderOrder = 38; // pod ghosts, nad pixely
   state.pixelsGroup.add(state.dustMesh);
 
-  // v73.340: gun (gunBody + gunHead) z GLB — async load
+  // v73.341: gun (gunBody + gunHead) z GLB — async load
   _loadGun();
 
   state.ready = true;
-  state._dirty = true; // v73.340: po init první render musí proběhnout
-  // v73.340: PRE-WARM SHADER COMPILE — bez tohohle iOS Safari kompiluje shadery
+  state._dirty = true; // v73.341: po init první render musí proběhnout
+  // v73.341: PRE-WARM SHADER COMPILE — bez tohohle iOS Safari kompiluje shadery
   // až při prvním use (shards, flash, dust, CA, projektily, shadow) → 50–200ms
   // freeze v prvních sekundách hry. compile() projde všechny mat ve scéně a
   // GPU prográmy zkompiluje předem.
@@ -786,7 +786,7 @@ function init(canvas, opts) {
   return true;
 }
 
-// v73.340: gun — gunBody (statický korpus, posunuje se s cannonX) + gunHead
+// v73.341: gun — gunBody (statický korpus, posunuje se s cannonX) + gunHead
 // (otáčí se s cannonAngle). Origins nastavené v Blenderu (pivot gunHead = base
 // kde se napojuje na body). Sdílí GLB s belt boxy.
 function _loadGun() {
@@ -947,14 +947,22 @@ function _updateMuzzleFlash(now) {
   }
 }
 
+// Shared smoke puff geometry — bez sdílení se per-puff vytvářela nová 80-face
+// geometrie která se nedisposed → GPU paměť leak + GC stalls při rychlé střelbě.
+let _smokePuffGeom = null;
+function _getSmokePuffGeom() {
+  if (!_smokePuffGeom) _smokePuffGeom = new THREE.IcosahedronGeometry(7, 2);
+  return _smokePuffGeom;
+}
+
 function _spawnSmokePuff(hexColor, scaleMul) {
   if (!state.gunHead || !state.contentGroup) return;
   const muzzleLocal = new THREE.Vector3(0, 26, 0);
   const muzzleWorld = muzzleLocal.clone();
   state.gunHead.localToWorld(muzzleWorld);
   const localPos = state.contentGroup.worldToLocal(muzzleWorld.clone());
-  // Smooth ico-sphere (detail 2 = 80 faces), bílá s dark outline → cartoon cloud
-  const geom = new THREE.IcosahedronGeometry(7, 2);
+  // Shared geometry — žádná per-puff allocation (perf fix)
+  const geom = _getSmokePuffGeom();
   const mat = new THREE.MeshToonMaterial({
     color: 0xffffff, transparent: true, opacity: 1.0, depthWrite: false,
   });
@@ -1100,7 +1108,7 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
     });
   };
 
-  // v73.340: particles zapnuty na všech tierech — full shard count, flash všude.
+  // v73.341: particles zapnuty na všech tierech — full shard count, flash všude.
   // Reálný thermal cost particles je mizivý vs cost wave/shadow.
   const shardCount = DESTROY_SHARDS_PER_PIXEL;
   if (state.destroyMode === 'collapse') {
@@ -1123,7 +1131,7 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
 // Red ghost posunutý +CA_OFFSET_X, cyan ghost posunutý -CA_OFFSET_X. AdditiveBlending fade.
 function triggerPixelCA(gx, gy, hexColor) {
   if (!state.ready || !state.ghostMesh) return;
-  // v73.340: CA zůstává i na LOW — cost je mizivý (1 extra draw call, fade 180ms)
+  // v73.341: CA zůstává i na LOW — cost je mizivý (1 extra draw call, fade 180ms)
   state._dirty = true;
   const col = _getColor(hexColor);
   const wx = gx * SCALE + SCALE / 2;
@@ -1149,7 +1157,7 @@ function triggerPixelCA(gx, gy, hexColor) {
 const DUST_TINT_CHANCE = 0.35;
 function triggerDustBurst(gx, gy, hexColor) {
   if (!state.ready || !state.dustMesh) return;
-  // v73.340: dust zůstává i na LOW — cost je mizivý (1 extra draw call)
+  // v73.341: dust zůstává i na LOW — cost je mizivý (1 extra draw call)
   state._dirty = true;
   const wx = gx * SCALE + SCALE / 2;
   const wy = (state.GH - gy) * SCALE - SCALE / 2;
@@ -1181,7 +1189,7 @@ function triggerDustBurst(gx, gy, hexColor) {
 // Menší a rychlejší než destroy wave: centrum dostane plný amp, okolí útlumem.
 function triggerPixelHit(gx, gy) {
   if (!state.ready) return;
-  // v73.340: LOW tier — hit bounce OFF. Stejný updateGrid full-rewrite mechanismus
+  // v73.341: LOW tier — hit bounce OFF. Stejný updateGrid full-rewrite mechanismus
   // jako wave, agregátně může stát víc (mnoho bounces per projektil).
   if ((state.qualityTier || 0) >= 2) return;
   state._dirty = true;
@@ -1210,7 +1218,7 @@ function triggerPixelHit(gx, gy) {
 // Sousední pixely poskočí nahoru se zpožděním úměrným vzdálenosti.
 function triggerPixelWave(gx, gy) {
   if (!state.ready) return;
-  // v73.340: LOW tier — wave OFF. updateGrid re-write všech ~750 pixel positions
+  // v73.341: LOW tier — wave OFF. updateGrid re-write všech ~750 pixel positions
   // per frame na 0.36s je největší per-destruction cost. Particles zůstávají všude.
   if ((state.qualityTier || 0) >= 2) return;
   state._dirty = true;
@@ -1239,7 +1247,7 @@ function triggerPixelWave(gx, gy) {
 // Update animací. Volá se z beltLoop každý frame s dt v sekundách.
 function updateAnimations(dt) {
   if (!state.ready || !state.shardMesh) return;
-  // v73.340: pokud cokoli aktivního (shards/ghosts/dust/waves), označit scénu jako dirty
+  // v73.341: pokud cokoli aktivního (shards/ghosts/dust/waves), označit scénu jako dirty
   if (state.shards.length > 0 || state.ghosts.length > 0 || state.dust.length > 0 || state.pixelBounce.size > 0) {
     state._dirty = true;
   }
@@ -1348,11 +1356,11 @@ function updateAnimations(dt) {
     }
     if (anyActive && state._lastGrid && state._lastColors) {
       updateGrid(state._lastGrid, state._lastColors);
-      // v73.340: aktivní vlny posouvají Z pixelů → shadow map musí refreshnout
+      // v73.341: aktivní vlny posouvají Z pixelů → shadow map musí refreshnout
       if (state.sun && !state.sun.shadow.autoUpdate) state.sun.shadow.needsUpdate = true;
     }
   }
-  // v73.340: aktivní shards (destrukce, sparks) také posouvají objekty → refresh shadow
+  // v73.341: aktivní shards (destrukce, sparks) také posouvají objekty → refresh shadow
   if (state.sun && !state.sun.shadow.autoUpdate && state.shards.length > 0) {
     state.sun.shadow.needsUpdate = true;
   }
@@ -1366,7 +1374,7 @@ function updateAnimations(dt) {
 function updateBlocks(blocks, COLORS) {
   if (!state.ready || !state.blockMesh) return;
   state._dirty = true;
-  // v73.340: blocks se mohou změnit (HP klesá, blok zničen) → shadow refresh
+  // v73.341: blocks se mohou změnit (HP klesá, blok zničen) → shadow refresh
   if (state.sun && !state.sun.shadow.autoUpdate) state.sun.shadow.needsUpdate = true;
   const H = state.GH * SCALE;
   const mesh = state.blockMesh;
@@ -1465,7 +1473,7 @@ function updateGrid(grid, COLORS) {
   state.pixelOutlineMesh.instanceMatrix.needsUpdate = true;
 }
 
-// v73.340: dirty-flag render skipping. Top scéna se renderuje JEN když se něco
+// v73.341: dirty-flag render skipping. Top scéna se renderuje JEN když se něco
 // změnilo (mutace nastaví state._dirty = true). Bezpečnostní fallback: vždy
 // 1× za 60 framů (1 fps base) — pokud někde mutace zapomeneme označit, scéna
 // se obnoví max po 1 s.
@@ -1485,7 +1493,7 @@ function _markDirty() { state._dirty = true; }
 function isReady() {
   return state.ready;
 }
-// v73.340: zjištění zda běží jakákoli 3D anim — beltLoop tím zařídí, aby render
+// v73.341: zjištění zda běží jakákoli 3D anim — beltLoop tím zařídí, aby render
 // pokračoval i po endGame dokud particles z poslední destrukce nedohrají.
 function hasActiveAnimations() {
   if (!state.ready) return false;
@@ -1497,7 +1505,7 @@ function hasActiveAnimations() {
 
 function setVisible(visible) {
   if (state.canvasEl) state.canvasEl.style.display = visible ? 'block' : 'none';
-  if (visible) state._dirty = true; // v73.340: po zviditelnění vynucený refresh
+  if (visible) state._dirty = true; // v73.341: po zviditelnění vynucený refresh
 }
 
 // Cleanup pro level switch nebo dispose. Nepoužíváme zatím (state je per-page),
@@ -1623,8 +1631,8 @@ if (typeof window !== 'undefined') {
     updateGrid,
     updateBlocks,
     updateProjectiles,
-    setCannonPosition,    // v73.340
-    triggerMuzzleFlash,   // v73.340
+    setCannonPosition,    // v73.341
+    triggerMuzzleFlash,   // v73.341
     triggerPixelDestroy,
     triggerPixelCA,       // v73.228
     triggerDustBurst,     // v73.238
@@ -1651,7 +1659,7 @@ if (typeof window !== 'undefined') {
       if (state.projectileMesh) state.projectileMesh.castShadow = shadowsOn;
       if (state.shardMesh) state.shardMesh.castShadow = shadowsOn;
 
-      // v73.340: HIGH = plné stíny (512 PCFSoft), ALE on-demand (autoUpdate=false).
+      // v73.341: HIGH = plné stíny (512 PCFSoft), ALE on-demand (autoUpdate=false).
       // Refresh jen při destrukci / aktivních waves / lítajících projektilech.
       // Identicky vypadá, ale ~30–50% menší GPU cost při statické scéně → méně tepla.
       if (shadowsOn && state.sun && state.renderer) {
@@ -1671,7 +1679,7 @@ if (typeof window !== 'undefined') {
         });
         if (state.renderer) state.renderer.shadowMap.needsUpdate = true;
       }
-      state._dirty = true; // v73.340: tier change → vynucený refresh
+      state._dirty = true; // v73.341: tier change → vynucený refresh
       // Cleanup particles při downgrade na LOW
       if (t >= 2) {
         if (state.dust) state.dust.length = 0;
@@ -1691,7 +1699,7 @@ if (typeof window !== 'undefined') {
     updateAnimations,
     render,
     isReady,
-    hasActiveAnimations, // v73.340
+    hasActiveAnimations, // v73.341
     setVisible,
     dispose,
     setStyle,
