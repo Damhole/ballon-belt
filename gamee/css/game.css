@@ -546,7 +546,7 @@ body.renderer-3d #image-area canvas {
   border-radius: 10px;
   /* v73.21: outline = tmavší odstín hlavního růžového bg (--bg-3d-bottom × 0.55).
      Méně kontrastní než černá, harmonizuje s case barvou. */
-  box-shadow: 0 0 0 1.5px var(--image-canvas-outline);
+  box-shadow: 0 0 0 1.3px var(--image-canvas-outline); /* v73.269: zjemněno 1.5 → 1.3 */
 }
 /* Všechny canvasy uvnitř image area se scalují na full size (přebije
    inline width/height přes !important — particle-canvas má inline z game.js). */
