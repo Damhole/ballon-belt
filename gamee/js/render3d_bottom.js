@@ -7,14 +7,14 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// v73.336: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v73.336';
+// v73.337: version stamp pro watchdog
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v73.337';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
 const PENDING_CANVAS_H = 50;   // výška #pending-canvas (v71.6: půlka)
 const BELT_CAP        = 14;    // max balls na pásu
-// v73.336: cycle zkrácen — ball max uvnitř right box, nepřeteče (match game.js)
+// v73.337: cycle zkrácen — ball max uvnitř right box, nepřeteče (match game.js)
 const BELT_STARTX     = 18;    // posun -32px vůči původním 50, max xCSSrel=353
 const BELT_ENDX       = BELT_STARTX + 24 * (14 - 1); // 330
 const BELT_SPACING    = 24;    // 14×24 = 336 (cycle)
@@ -168,44 +168,50 @@ function _makeToonGradient() {
   return tex;
 }
 
-// v73.336: chrome matcap procedurálně — kruh s vertical gradient (top bright,
-// mid dark horizon, bottom bright) + center spec hot spot + slight color tint.
-// MeshMatcapMaterial sampluje tuhle texturu podle normály fragmentu → vypadá
-// jako chrome bez real reflection (žádný env map, ultra rychlé).
+// Chrome matcap textůra pro belt boxy.
+// Používáme simple normal.xy→UV mapování (viz onBeforeCompile override na boxMat):
+//   uv.x = normal.x * 0.495 + 0.5  (levá/pravá strana)
+//   uv.y = normal.y * 0.495 + 0.5  (horní/spodní strana)
+// Pro front-facing plochy (normal ≈ (0,0,1)) → uv ≈ (0.5, 0.5) = střed textury.
+// Proto střed musí být mid-bright silver. Horní oblast textury = odraz oblohy (viditelný
+// na horních hranách boxu). Ostrý spec o kousek výš od středu.
 function _makeChromeMatcap() {
   const N = 256;
   const cv = document.createElement('canvas');
   cv.width = cv.height = N;
   const ctx = cv.getContext('2d');
-  // BG: black (mimo kouli)
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, N, N);
-  // Sphere region: kruh ve středu, radius = N/2
-  // Vertikální gradient — top sky bright, horizon dark, bottom ground bright
   const cx = N / 2, cy = N / 2, r = N / 2;
-  // Apply gradient only inside circle
   ctx.save();
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.clip();
+  // Základ: střední kovová šedá (barva předních ploch)
+  ctx.fillStyle = '#6878a0';
+  ctx.fillRect(0, 0, N, N);
+  // Vertikální přechod: horní polovina světlá (odraz oblohy na horních hranách)
   const g = ctx.createLinearGradient(0, 0, 0, N);
-  g.addColorStop(0.00, '#f0f4f8'); // top sky highlight
-  g.addColorStop(0.30, '#a8b2c4'); // upper transition
-  g.addColorStop(0.50, '#3a4250'); // horizon dark
-  g.addColorStop(0.70, '#5a6478'); // lower transition
-  g.addColorStop(1.00, '#c8d2dc'); // bottom ground bounce
+  g.addColorStop(0.00, 'rgba(255,255,255,0.95)'); // čistá obloha nahoře
+  g.addColorStop(0.25, 'rgba(180,200,240,0.65)'); // světle modrá obloha
+  g.addColorStop(0.45, 'rgba(80,100,150,0.25)');  // přechod k neutrální
+  g.addColorStop(0.55, 'rgba(0,0,0,0)');          // střed průhledný → base color
+  g.addColorStop(0.72, 'rgba(20,30,60,0.30)');    // dolní ztmavení
+  g.addColorStop(1.00, 'rgba(100,130,200,0.40)'); // odraz země
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, N, N);
-  // Center top hot spot (specular)
-  const spec = ctx.createRadialGradient(cx, cy * 0.55, 0, cx, cy * 0.55, N * 0.28);
-  spec.addColorStop(0, 'rgba(255,255,255,0.85)');
-  spec.addColorStop(1, 'rgba(255,255,255,0)');
+  // Spec hot-spot: o kousek výš od středu (normals mírně nahoru = horní bevel boxu)
+  const sx = cx, sy = cy * 0.68;
+  const spec = ctx.createRadialGradient(sx, sy, 0, sx, sy, N * 0.17);
+  spec.addColorStop(0.00, 'rgba(255,255,255,1.0)');
+  spec.addColorStop(0.35, 'rgba(255,255,255,0.65)');
+  spec.addColorStop(1.00, 'rgba(255,255,255,0)');
   ctx.fillStyle = spec;
   ctx.fillRect(0, 0, N, N);
-  // Edge darkening (rim) — jemný vignette
-  const edge = ctx.createRadialGradient(cx, cy, r * 0.85, cx, cy, r);
+  // Rim vignette — ztmavení krajních (grazing angle) hran
+  const edge = ctx.createRadialGradient(cx, cy, r * 0.72, cx, cy, r);
   edge.addColorStop(0, 'rgba(0,0,0,0)');
-  edge.addColorStop(1, 'rgba(0,0,0,0.30)');
+  edge.addColorStop(1, 'rgba(0,0,0,0.55)');
   ctx.fillStyle = edge;
   ctx.fillRect(0, 0, N, N);
   ctx.restore();
@@ -845,12 +851,12 @@ function init() {
   contentGroup.add(st.beltOutlineMesh);
 
   _buildBeltTrack(contentGroup, W, toonGrad, st.beltCenterY);
-  _loadBeltBoxes(contentGroup, toonGrad); // v73.336: 3D krabice po stranách belt
+  _loadBeltBoxes(contentGroup, toonGrad); // v73.337: 3D krabice po stranách belt
   _initUnifiedFrame();  // v73.54: belt + skulina + arena jako jeden 3D povrch
 
   st.ready = true;
-  st._dirty = true; // v73.336: first frame render
-  // v73.336: shader pre-warm — kompiluj všechny WebGL programy předem aby
+  st._dirty = true; // v73.337: first frame render
+  // v73.337: shader pre-warm — kompiluj všechny WebGL programy předem aby
   // při prvním use (carrier fire, pending ball spawn) nebyl 50–200ms jam.
   try {
     st.renderer.compile(st.scene, st.camera);
@@ -880,7 +886,7 @@ function _buildBeltTrack(parent, W, toonGrad, beltCenterY) {
   st.beltEdgeBot = edgeBot;
 }
 
-// v73.336: GLB loader pro belt-side krabice (BeltBoxLeft, BeltBoxRight).
+// v73.337: GLB loader pro belt-side krabice (BeltBoxLeft, BeltBoxRight).
 // Asset: 1m = 50px konvence. Boxy překryjí rollers — left box přes rollerL,
 // right box přes rollerR. Detekce object names přes traverse.
 function _loadBeltBoxes(parent, toonGrad) {
@@ -913,8 +919,7 @@ function _loadBeltBoxes(parent, toonGrad) {
       console.warn('[render3d_bottom] belt-boxes.glb: žádné belt box meshes nalezeny');
       return;
     }
-    // v73.334: custom 6-band metallic toon gradient — výrazný shadow→mid→bright
-    // kontrast + ostrý highlight na konci = "metal cartoon" feel.
+    // Arrow gradient — 6-band toon metallic (sdíleno jen arrow matsem)
     if (!st._metalToonGrad) {
       const data = new Uint8Array([15, 60, 130, 195, 240, 255]);
       const tex = new THREE.DataTexture(data, data.length, 1, THREE.RedFormat);
@@ -924,9 +929,20 @@ function _loadBeltBoxes(parent, toonGrad) {
       tex.needsUpdate = true;
       st._metalToonGrad = tex;
     }
-    // Vyšší base color (toon × gradient = výsledná barva). Při light side bude max,
-    // při shadow ×0.06 = velmi tmavý.
-    const boxMat = new THREE.MeshToonMaterial({ color: 0xc0c8d4, gradientMap: st._metalToonGrad });
+    // Shell: MeshMatcapMaterial — šrafování z chrome textury, ignoruje scene lights.
+    // onBeforeCompile: přepíše UV výpočet z view-direction-based na simple normal.xy.
+    // Důvod: orthographic kamera s near/far ±300 a objekty na Z≈10 → vViewPosition.z≈10
+    // ale vViewPosition.x dosahuje 0–420 → normalize(vViewPosition) je velmi různé pro
+    // levý vs pravý box → různé matcap UV i pro identické normály. Normal.xy mapping
+    // je position-independent: stejné normály = stejný UV = oba boxy vypadají stejně.
+    const boxMat = new THREE.MeshMatcapMaterial({ matcap: _getChromeMatcap(), color: 0xffffff });
+    boxMat.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        'texture2D( matcap, uv )',
+        'texture2D( matcap, normal.xy * 0.495 + 0.5 )'
+      );
+    };
+    // Arrow zůstává toon — potřebujeme emissive pro neon theme.
     const arrowMat = new THREE.MeshToonMaterial({ color: 0x707888, gradientMap: st._metalToonGrad });
     st._boxArrowMat = arrowMat;
     // Outline materials — shell (lehce světlejší než černá), arrow (tmavší než arrow body)
@@ -984,7 +1000,7 @@ function _loadBeltBoxes(parent, toonGrad) {
     }
 
     if (leftGeoms.length > 0) {
-      const pos = new THREE.Vector3(ox + 28 - 13, trackWY + 9, 10);
+      const pos = new THREE.Vector3(ox + 28 - 12, trackWY + 10, 10);
       const { shellMesh, outMesh, arrowMesh, arrowOutMesh } = _mkBoxSide(leftGeoms, pos, mirrorLeft);
       parent.add(outMesh);
       parent.add(shellMesh);
@@ -995,7 +1011,7 @@ function _loadBeltBoxes(parent, toonGrad) {
       st.beltBoxLeftArrow = arrowMesh;
     }
     if (rightGeoms.length > 0) {
-      const pos = new THREE.Vector3(ox + 332 + 13, trackWY + 9, 10);
+      const pos = new THREE.Vector3(ox + 332 + 12, trackWY + 10, 10);
       const { shellMesh, outMesh, arrowMesh, arrowOutMesh } = _mkBoxSide(rightGeoms, pos, mirrorRight);
       parent.add(outMesh);
       parent.add(shellMesh);
@@ -1067,6 +1083,65 @@ function _loadBeltBoxes(parent, toonGrad) {
       console.log('[render3d_bottom] beltPlate loaded:', plateGeoms.length, 'primitives, instanced ×', BELT_CAP);
     } else {
       console.warn('[render3d_bottom] beltPlate object nebyl nalezen v GLB');
+    }
+
+    // Hole — kruhový otvor na zdi frame mezi belt boxy. 2 primitives:
+    //  - rim (více vertices) = chrome rámeček, sdílí matcap s belt boxy
+    //  - flat ploška (méně vertices) = tmavá vnitřní plocha (vypadá jako díra)
+    const holeGeoms = [];
+    gltf.scene.traverse(obj => {
+      if (!obj.isMesh) return;
+      const n = (obj.name || '').toLowerCase();
+      const pn = (obj.parent?.name || '').toLowerCase();
+      if (n === 'hole' || pn === 'hole') holeGeoms.push(obj.geometry.clone());
+    });
+    if (holeGeoms.length > 0) {
+      // Scale + center všechny geoms společně přes combined bbox (jeden shared origin)
+      for (const g of holeGeoms) g.scale(50, 50, 50);
+      const combinedBB = new THREE.Box3();
+      for (const g of holeGeoms) {
+        g.computeBoundingBox();
+        combinedBB.union(g.boundingBox);
+      }
+      const hcx = (combinedBB.min.x + combinedBB.max.x) / 2;
+      const hcy = (combinedBB.min.y + combinedBB.max.y) / 2;
+      const hcz = (combinedBB.min.z + combinedBB.max.z) / 2;
+      for (const g of holeGeoms) {
+        g.translate(-hcx, -hcy, -hcz);
+        g.computeBoundingSphere();
+      }
+      // Identify rim (větší = více vertices) vs inner plate (menší)
+      let rimGeom = holeGeoms[0], plateGeom = null;
+      if (holeGeoms.length >= 2) {
+        const c0 = holeGeoms[0].attributes.position.count;
+        const c1 = holeGeoms[1].attributes.position.count;
+        rimGeom   = c0 >= c1 ? holeGeoms[0] : holeGeoms[1];
+        plateGeom = c0 >= c1 ? holeGeoms[1] : holeGeoms[0];
+      }
+      const holePos = new THREE.Vector3(st.W / 2, trackWY + 20, 10);
+      // Rim: sdílí matcap chrome s belt boxy
+      const rimMesh = new THREE.Mesh(rimGeom, boxMat);
+      rimMesh.position.copy(holePos);
+      parent.add(rimMesh);
+      st.beltHole = rimMesh;
+      // Outline okolo rim (BackSide expand)
+      const rimOutMesh = new THREE.Mesh(rimGeom, boxOutlineMat);
+      rimOutMesh.position.copy(holePos);
+      rimOutMesh.scale.setScalar(1.12);
+      rimOutMesh.renderOrder = -1;
+      parent.add(rimOutMesh);
+      st.beltHoleOutline = rimOutMesh;
+      // Inner plate: tmavá ploška = vypadá jako díra
+      if (plateGeom) {
+        const plateMat = new THREE.MeshBasicMaterial({ color: 0x252a3d, fog: false });
+        const plateMesh = new THREE.Mesh(plateGeom, plateMat);
+        plateMesh.position.copy(holePos);
+        parent.add(plateMesh);
+        st.beltHoleInner = plateMesh;
+      }
+      console.log('[render3d_bottom] hole loaded —', holeGeoms.length, 'primitives');
+    } else {
+      console.warn('[render3d_bottom] hole object nebyl nalezen v GLB');
     }
 
     st._dirty = true; // force render
@@ -1211,10 +1286,22 @@ function _buildUnifiedFrameGeom(W, p) {
 // _initUnifiedFrame a _renderMiterOffsetTest). Vrací THREE.Path (CW v Y-up).
 function _buildHolePath(p) {
   const hole = new THREE.Path();
-  hole.moveTo(p.beltLeft,     p.beltTopW);
-  hole.lineTo(p.beltRight,    p.beltTopW);
-  hole.lineTo(p.beltRight,    p.beltBotW);
-  hole.lineTo(p.skulinaRight, p.skulinaTopW);
+  // Radius zaoblení belt-skulina spojů (4 rohy: shoulder + skulina top, oba boky)
+  const R_SHOULDER = 5;
+  // Radius zaoblení belt-canvas top rohů (2 rohy: vlevo/vpravo nahoře)
+  const R_TOP = 5;
+  // "Radius" smooth-tangent na skulina→arch spoji (cp1 posun pro plynulý přechod)
+  const R_FUNNEL = 5;
+  // Top-left rounded corner: start path AFTER the corner pro plynulou closure
+  hole.moveTo(p.beltLeft + R_TOP, p.beltTopW);
+  hole.lineTo(p.beltRight - R_TOP, p.beltTopW);
+  // Top-right corner: horizontální → vertikální dolů
+  hole.quadraticCurveTo(p.beltRight, p.beltTopW, p.beltRight, p.beltTopW - R_TOP);
+  // Right shoulder: vertikální belt edge → horizontální step → vertikální skulina
+  hole.lineTo(p.beltRight,    p.beltBotW + R_SHOULDER);
+  hole.quadraticCurveTo(p.beltRight, p.beltBotW, p.beltRight - R_SHOULDER, p.beltBotW);
+  hole.lineTo(p.skulinaRight + R_SHOULDER, p.skulinaTopW);
+  hole.quadraticCurveTo(p.skulinaRight, p.skulinaTopW, p.skulinaRight, p.skulinaTopW - R_SHOULDER);
   hole.lineTo(p.skulinaRight, p.skulinaBotW);
   const arcW_r = p.arenaRight - p.skulinaRight;
   const arcH_r = p.skulinaBotW - p.arenaTopW;
@@ -1253,9 +1340,14 @@ function _buildHolePath(p) {
     p.skulinaLeft,                     p.skulinaBotW,
     p.skulinaLeft,                     p.skulinaBotW
   );
-  hole.lineTo(p.skulinaLeft,  p.skulinaTopW);
-  hole.lineTo(p.beltLeft,     p.beltBotW);
-  hole.lineTo(p.beltLeft,     p.beltTopW);
+  // Left shoulder: vertikální skulina → horizontální step → vertikální belt edge
+  hole.lineTo(p.skulinaLeft, p.skulinaTopW - R_SHOULDER);
+  hole.quadraticCurveTo(p.skulinaLeft, p.skulinaTopW, p.skulinaLeft - R_SHOULDER, p.skulinaTopW);
+  hole.lineTo(p.beltLeft + R_SHOULDER, p.beltBotW);
+  hole.quadraticCurveTo(p.beltLeft, p.beltBotW, p.beltLeft, p.beltBotW + R_SHOULDER);
+  // Up to top-left rounded corner
+  hole.lineTo(p.beltLeft, p.beltTopW - R_TOP);
+  hole.quadraticCurveTo(p.beltLeft, p.beltTopW, p.beltLeft + R_TOP, p.beltTopW);
   return hole;
 }
 
@@ -1328,7 +1420,7 @@ function _rebuildUnifiedFrame() {
   const key = `${st.beltCenterY}|${st.carriersTopCSS}|${st.carriersBottomCSS}`;
   if (key === st.lastFrameKey) return;
   st.lastFrameKey = key;
-  st._slotCacheValid = false; // v73.336: layout reálně mění slot pozice
+  st._slotCacheValid = false; // v73.337: layout reálně mění slot pozice
   _disposeUnifiedFrame();
   _initUnifiedFrame();
 }
@@ -1513,7 +1605,7 @@ function _initUnifiedFrame() {
   const floorMaxY = floorGeom.boundingBox.max.y + FLOOR_SHIFT_Y; // world Y nejvyššího vertexu
   const carriersBg = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
   const floorMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(carriersBg) });
-  // v73.336: gradient injection — bottom (low Y, = nejnižší row) je světlejší ×1.18,
+  // v73.337: gradient injection — bottom (low Y, = nejnižší row) je světlejší ×1.18,
   // top (= belt area) má base color × 1.0. Inject přes onBeforeCompile.
   floorMat.onBeforeCompile = (shader) => {
     shader.uniforms.uFloorMinY = { value: floorMinY };
@@ -1959,12 +2051,12 @@ function _clipSelfIntersections(points) {
 
 function updateCarriers(columns, colorsArr) {
   if (!st.ready || !columns) return;
-  st._dirty = true; // v73.336: carriers update = layout change → vždy dirty
+  st._dirty = true; // v73.337: carriers update = layout change → vždy dirty
 
   // v73.103: rebuild frame pokud carriers pozice změnila (responzivní layout)
   _rebuildUnifiedFrame();
 
-  // v73.336: per-slot measurement cache — během anim se layout nemění, takže
+  // v73.337: per-slot measurement cache — během anim se layout nemění, takže
   // místo per-frame getBoundingClientRect (36 carriers × ~3 rect calls = 108
   // forced layouts/frame) cache pozice + dynScale. Invalidace přes
   // _invalidateSlotCache() (resize, level start, theme change).
@@ -2019,7 +2111,7 @@ function updateCarriers(columns, colorsArr) {
         // Spočítej pozici z .cbox (nyní revealed slot)
         const cboxR = slotDivs[r].querySelector('.cbox');
         if (cboxR) {
-          // v73.336: reveal trigger — 1× per slot reveal, neoptimalizujeme cache
+          // v73.337: reveal trigger — 1× per slot reveal, neoptimalizujeme cache
           const crR = cboxR.getBoundingClientRect();
           const refL = st._cachedRefLeft !== undefined ? st._cachedRefLeft : (refRect ? refRect.left : 0);
           const canT = st._cachedCanvasTop !== undefined ? st._cachedCanvasTop : (canvasRect ? canvasRect.top : 0);
@@ -2041,7 +2133,7 @@ function updateCarriers(columns, colorsArr) {
       if (isHiddenVisual) {
         const cboxHid = slotDivs[r].querySelector('.cbox-hid');
         if (!cboxHid) continue;
-        // v73.336: cache hidden slot pos
+        // v73.337: cache hidden slot pos
         const hidCacheKey = 'h:' + c + ',' + r;
         let xWh, yWh, dynScaleH;
         const cachedH = useCache ? st._slotCache.get(hidCacheKey) : null;
@@ -2126,7 +2218,7 @@ function updateCarriers(columns, colorsArr) {
         // popT 0.30..0.55: slot settled at 1.0, ball cascade runs
       }
 
-      // v73.336: cache slot pos + dynScale (jinak getBoundingClientRect per slot per frame)
+      // v73.337: cache slot pos + dynScale (jinak getBoundingClientRect per slot per frame)
       const slotCacheKey = c + ',' + r;
       let xW, yW, dynScale;
       const cached = useCache ? st._slotCache.get(slotCacheKey) : null;
@@ -2391,7 +2483,7 @@ function updateCarriers(columns, colorsArr) {
   if (st.carrierMesh.instanceColor) st.carrierMesh.instanceColor.needsUpdate = true;
   st.carrierOutlineMesh.count = ballIdx;
   st.carrierOutlineMesh.instanceMatrix.needsUpdate = true;
-  // v73.336: track přítomnost mystery slotů — jejich textura scrolluje a tedy
+  // v73.337: track přítomnost mystery slotů — jejich textura scrolluje a tedy
   // vyžaduje continuous render kde jsou visible.
   let myTotal = 0;
   for (let r = 0; r < rowMysteryIdx.length; r++) myTotal += rowMysteryIdx[r] || 0;
@@ -2416,9 +2508,9 @@ function updateCarriers(columns, colorsArr) {
   }
 }
 
-// v73.336: dirty helper pro bottom scénu — krátký a explicit
+// v73.337: dirty helper pro bottom scénu — krátký a explicit
 function _bottomMarkDirty() { st._dirty = true; }
-// v73.336: invalidace per-slot měření cache — volat při resize, level start, theme change
+// v73.337: invalidace per-slot měření cache — volat při resize, level start, theme change
 function invalidateSlotCache() {
   st._slotCacheValid = false;
   if (st._slotCache) st._slotCache.clear();
@@ -2448,7 +2540,76 @@ function _hasActiveCarrierAnim() {
   return (st.carrierAnim && st.carrierAnim.size > 0)
       || (st.carrierPopAnim && st.carrierPopAnim.size > 0)
       || (st.mysteryRevealMeshes && st.mysteryRevealMeshes.size > 0)
-      || (st.carrierDenialAnim && st.carrierDenialAnim.size > 0);
+      || (st.carrierDenialAnim && st.carrierDenialAnim.size > 0)
+      || (_holeAnims.length > 0);
+}
+
+// Hole-suck animace: koule letí z LAUNCH pozice na pásu do hole assetu, scaluje
+// se na 0 (vcucnutí). Trigger z game.js v každém belt[i]=null místě.
+const _holeAnims = [];
+let _holeAnimGeom = null;
+function _getHoleAnimGeom() {
+  if (!_holeAnimGeom) _holeAnimGeom = new THREE.SphereGeometry(R_BELT, 16, 12);
+  return _holeAnimGeom;
+}
+function triggerHoleSuck(hexColor) {
+  if (!st.beltHole || !st.ready || !st.contentGroup) return;
+  const fromX = (st.beltOffsetX || 30) + 180; // LAUNCH_X position v CSS
+  const fromY = _worldY(st.beltCenterY || 32);
+  const fromZ = R_BELT;
+  const toX = st.beltHole.position.x;
+  const toY = st.beltHole.position.y;
+  const toZ = st.beltHole.position.z;
+  const mat = new THREE.MeshToonMaterial({ color: new THREE.Color(_hex(hexColor)) });
+  const mesh = new THREE.Mesh(_getHoleAnimGeom(), mat);
+  mesh.position.set(fromX, fromY, fromZ);
+  mesh.renderOrder = 100;
+  st.contentGroup.add(mesh);
+  _holeAnims.push({
+    mesh, mat, fromX, fromY, fromZ, toX, toY, toZ,
+    t0: performance.now(), duration: 180,
+  });
+  st._dirty = true;
+}
+function _updateHoleAnims(now) {
+  if (_holeAnims.length === 0) return;
+  // Phase 1 (t < SPLIT): pomalé přibližování + wiggle (jako vysavač)
+  // Phase 2 (t ≥ SPLIT): rychlý vcuc, scale 1→0
+  const SPLIT = 0.72;
+  const PHASE1_DIST = 0.28; // ujede 28 % vzdálenosti během wiggle
+  for (let i = _holeAnims.length - 1; i >= 0; i--) {
+    const a = _holeAnims[i];
+    const t = (now - a.t0) / a.duration;
+    if (t >= 1) {
+      st.contentGroup.remove(a.mesh);
+      a.mat.dispose();
+      _holeAnims.splice(i, 1);
+      continue;
+    }
+    let progress, scale, wiggleAmp;
+    if (t < SPLIT) {
+      // Phase 1: pomalý posun + výrazný wiggle
+      progress = (t / SPLIT) * PHASE1_DIST;
+      scale = 1.0;
+      wiggleAmp = 3.5 * (1 - t / SPLIT * 0.4); // mírně klesá ke splitu
+    } else {
+      // Phase 2: rychlý cubic ease-in, scale shrink
+      const t2 = (t - SPLIT) / (1 - SPLIT);
+      progress = PHASE1_DIST + (t2 * t2) * (1 - PHASE1_DIST);
+      scale = 1.0 - t2 * t2;
+      wiggleAmp = 3.5 * (1 - t2) * 0.5; // doznívá
+    }
+    const x0 = a.fromX + (a.toX - a.fromX) * progress;
+    const y0 = a.fromY + (a.toY - a.fromY) * progress;
+    const z = a.fromZ + (a.toZ - a.fromZ) * progress;
+    // Wiggle — fázově posunuté sin/cos na X i Y (chaotický pohyb jako pod tlakem)
+    const wHz = 22; // frekvence oscilace
+    const wx = Math.sin(t * wHz * Math.PI * 2) * wiggleAmp;
+    const wy = Math.cos(t * wHz * Math.PI * 2 * 1.3) * wiggleAmp * 0.6;
+    a.mesh.position.set(x0 + wx, y0 + wy, z);
+    a.mesh.scale.setScalar(scale);
+    st._dirty = true;
+  }
 }
 
 // v72.78: compute Y rotation pro denial shake. Vrací { rotY, active } nebo null.
@@ -2488,7 +2649,7 @@ function _countFilled(projectiles) {
 
 function updatePending(pendingArr, colorsArr) {
   if (!st.ready) return;
-  // v73.336: dirty pokud má aspoň jednu pending ball (pohybují se každý frame)
+  // v73.337: dirty pokud má aspoň jednu pending ball (pohybují se každý frame)
   if (pendingArr && pendingArr.length > 0) st._dirty = true;
   const dummy = st._dummy;
   const c3    = st._col3;
@@ -2567,7 +2728,7 @@ function updatePending(pendingArr, colorsArr) {
 
 function updateBelt(beltArr, beltAnim, colorsArr) {
   if (!st.ready) return;
-  // v73.336: dirty pokud má aspoň jednu belt ball (belt anim posouvá)
+  // v73.337: dirty pokud má aspoň jednu belt ball (belt anim posouvá)
   if (beltArr) { for (let i = 0; i < beltArr.length; i++) { if (beltArr[i]) { st._dirty = true; break; } } }
   const dummy = st._dummy;
   const c3    = st._col3;
@@ -2620,7 +2781,7 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
     if (!b) continue;
 
     const xCSSrel = BELT_STARTX + (i * BELT_SPACING + offset) % BELT_TOTAL;
-    // v73.336: visibility cull odstraněn. Balls jsou vždy v range 20..369,
+    // v73.337: visibility cull odstraněn. Balls jsou vždy v range 20..369,
     // box mesh řeší occlusion přes depth test (inside left/right box → hidden).
     const xCSS = st.beltOffsetX + xCSSrel;
 
@@ -2650,7 +2811,7 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
 
 // ─── Render ──────────────────────────────────────────────────────────────────
 
-// v73.336: dirty-flag render skipping pro bottom scénu — analogie top scene.
+// v73.337: dirty-flag render skipping pro bottom scénu — analogie top scene.
 // Skip render pokud žádná pending/belt ball + žádná aktivní carrier anim.
 // Bezpečnostní fallback: vždy 1× za 60 framů (1 fps base).
 function render() {
@@ -2664,6 +2825,7 @@ function render() {
   if (_hasActiveCarrierAnim()) st._dirty = true;
   if (!st._dirty && sinceLast < 60) return;
   const now = performance.now();
+  _updateHoleAnims(now);
   // v72.49: animace mystery textury — diagonální scroll (offset.x i offset.y).
   if (st._mysteryTex) {
     if (st._mysteryLastTs !== undefined) {
@@ -2956,7 +3118,7 @@ function _disposeWallMeshes() {
 
 function updateWalls(columns) {
   if (!st.ready || !st._wallMat) return;
-  st._dirty = true; // v73.336: walls update = layout/color change
+  st._dirty = true; // v73.337: walls update = layout/color change
   // Theme color match — read --carriers-3d-bg z aktuálního theme
   const cs = getComputedStyle(document.body);
   const bgColor = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
@@ -3054,8 +3216,8 @@ function updateWalls(columns) {
 // (nový level s víc řadami = vyšší deck). Bez resize by se bottom rows renderovaly
 // MIMO canvas (clipped).
 function resize() {
-  st._dirty = true; // v73.336: viewport change → refresh
-  st._slotCacheValid = false; // v73.336: layout může změnit slot pozice
+  st._dirty = true; // v73.337: viewport change → refresh
+  st._slotCacheValid = false; // v73.337: layout může změnit slot pozice
   if (!st.ready || !st.canvas) return;
   const gameEl   = document.getElementById('game');
   const beltWrap = document.getElementById('belt-wrap');
@@ -3197,7 +3359,7 @@ function refreshBeltTint() {
   const evenMixed = mix(baseEven);
   const oddMixed  = mix(baseOdd);
   st._beltTint = { even: evenMixed, odd: oddMixed };
-  // v73.336: inner barva odvozená z plate odd-tinted barvy + lighter (HSL L+0.28)
+  // v73.337: inner barva odvozená z plate odd-tinted barvy + lighter (HSL L+0.28)
   // → automaticky ladí s každým theme + je dostatečně světlá.
   if (st.beltPlateInnerMesh) {
     const innerColor = oddMixed.clone();
@@ -3246,13 +3408,12 @@ function refreshFloorColor() {
   const cs = getComputedStyle(document.body);
   const carriersBg = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
   if (st.unifiedFrameFloor) st.unifiedFrameFloor.material.color.set(carriersBg);
-  // v73.317: carrier mark color = floor lightened. v73.321: lightening
-  // sníženo z 0.10 na 0.05 — mark je už méně světlý (blíž k floor).
+  // Carrier mark color = floor lightened. HSL L+0.09 (lehce světlejší než floor).
   if (st.carrierMarkMesh) {
     const c = new THREE.Color(carriersBg);
     const hsl = {h:0, s:0, l:0};
     c.getHSL(hsl);
-    c.setHSL(hsl.h, hsl.s, Math.min(0.85, hsl.l + 0.05));
+    c.setHSL(hsl.h, hsl.s, Math.min(0.85, hsl.l + 0.09));
     st.carrierMarkMesh.material.color.copy(c);
   }
 }
@@ -3275,7 +3436,7 @@ function refreshWallColor() {
 // v73.257: setPixelRatio per tier — největší win na mobile (retina 2× = 4× pixelů).
 function setQualityTier(tier){
   st.qualityTier = Math.max(0, Math.min(2, tier|0));
-  st._dirty = true; // v73.336: tier change → vynucený refresh
+  st._dirty = true; // v73.337: tier change → vynucený refresh
   // v73.262: MED drží plnou retina (jen LOW jde na 1.5)
   if (st.renderer) {
     const dpr = window.devicePixelRatio || 1;
@@ -3284,5 +3445,5 @@ function setQualityTier(tier){
   }
 }
 function getQualityTier(){ return st.qualityTier || 0; }
-window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor, setQualityTier, getQualityTier, invalidateSlotCache, refreshBeltTint };
+window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, triggerHoleSuck, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor, setQualityTier, getQualityTier, invalidateSlotCache, refreshBeltTint };
 window._r3dBState = st;  // debug

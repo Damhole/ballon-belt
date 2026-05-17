@@ -1459,7 +1459,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.336');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.337');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6699,6 +6699,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     const ball=belt[i];
     const color=ball.ci;
     if(ball.ppu<=0){
+      window.render3dBottom?.triggerHoleSuck?.(COLORS[color]);
       belt[i]=null;
       drainPending();
       drawBelt();drawPending();
@@ -6708,6 +6709,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     const pxNow=countPixels(grid);
     const hasBlockTarget=currentBlocks.some(b=>b.hp>0&&b.color===color);
     if((pxNow[color]||0)===0&&!hasBlockTarget){
+      window.render3dBottom?.triggerHoleSuck?.(COLORS[color]);
       belt[i]=null;
       drainPending();
       drawBelt();drawPending();
@@ -6715,6 +6717,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     // Raketová koule – odpal přímo, bez kontroly dosahu / kolizí
     if(ball.rocket){
+      window.render3dBottom?.triggerHoleSuck?.(COLORS[color]);
       belt[i]=null;
       drainPending();
       drawBelt();drawPending();
@@ -6777,6 +6780,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     // v průběhu ztratí veškerý target, queue item se popne bez výstřelu (visible loss).
     noMatchPasses=0;
     loops=0;
+    window.render3dBottom?.triggerHoleSuck?.(COLORS[color]);
     belt[i]=null;
     drainPending();
     drawBelt();drawPending();
@@ -6786,7 +6790,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.336');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.337');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6914,7 +6918,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.336');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.337');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7782,7 +7786,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.336');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.337');
       event.detail.callback();
     });
 
