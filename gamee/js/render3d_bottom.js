@@ -7,8 +7,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// v73.284: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v73.284';
+// v73.285: version stamp pro watchdog
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v73.285';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
@@ -781,6 +781,7 @@ function init() {
   _initUnifiedFrame();  // v73.54: belt + skulina + arena jako jeden 3D povrch
 
   st.ready = true;
+  st._dirty = true; // v73.285: first frame render
   return true;
 }
 
@@ -1697,6 +1698,7 @@ function _clipSelfIntersections(points) {
 
 function updateCarriers(columns, colorsArr) {
   if (!st.ready || !columns) return;
+  st._dirty = true; // v73.285: carriers update = layout change → vždy dirty
 
   // v73.103: rebuild frame pokud carriers pozice změnila (responzivní layout)
   _rebuildUnifiedFrame();
@@ -2090,9 +2092,17 @@ function updateCarriers(columns, colorsArr) {
   if (st.carrierMesh.instanceColor) st.carrierMesh.instanceColor.needsUpdate = true;
   st.carrierOutlineMesh.count = ballIdx;
   st.carrierOutlineMesh.instanceMatrix.needsUpdate = true;
+  // v73.285: track přítomnost mystery slotů — jejich textura scrolluje a tedy
+  // vyžaduje continuous render kde jsou visible.
+  let myTotal = 0;
+  for (let r = 0; r < rowMysteryIdx.length; r++) myTotal += rowMysteryIdx[r] || 0;
+  st._mysteryHasVisible = myTotal > 0;
 }
 
+// v73.285: dirty helper pro bottom scénu — krátký a explicit
+function _bottomMarkDirty() { st._dirty = true; }
 function triggerCarrierFire(col, row, hexColor, fillCount, canvasX, canvasY, cboxW, cboxH) {
+  st._dirty = true;
   if (!st.ready) return;
   st.carrierAnim.set(col + ',' + row, {
     t0:   performance.now(),
@@ -2107,6 +2117,7 @@ function triggerCarrierFire(col, row, hexColor, fillCount, canvasX, canvasY, cbo
 
 // v72.78: trigger denial shake anim (klik na inactive / mystery carrier).
 function triggerCarrierDenial(col, row) {
+  st._dirty = true;
   if (!st.ready) return;
   st.carrierDenialAnim.set(col + ',' + row, performance.now());
 }
@@ -2155,7 +2166,8 @@ function _countFilled(projectiles) {
 
 function updatePending(pendingArr, colorsArr) {
   if (!st.ready) return;
-
+  // v73.285: dirty pokud má aspoň jednu pending ball (pohybují se každý frame)
+  if (pendingArr && pendingArr.length > 0) st._dirty = true;
   const dummy = st._dummy;
   const c3    = st._col3;
   let idx = 0;
@@ -2233,7 +2245,8 @@ function updatePending(pendingArr, colorsArr) {
 
 function updateBelt(beltArr, beltAnim, colorsArr) {
   if (!st.ready) return;
-
+  // v73.285: dirty pokud má aspoň jednu belt ball (belt anim posouvá)
+  if (beltArr) { for (let i = 0; i < beltArr.length; i++) { if (beltArr[i]) { st._dirty = true; break; } } }
   const dummy = st._dummy;
   const c3    = st._col3;
   let idx = 0;
@@ -2274,8 +2287,19 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
 
 // ─── Render ──────────────────────────────────────────────────────────────────
 
+// v73.285: dirty-flag render skipping pro bottom scénu — analogie top scene.
+// Skip render pokud žádná pending/belt ball + žádná aktivní carrier anim.
+// Bezpečnostní fallback: vždy 1× za 60 framů (1 fps base).
 function render() {
   if (!st.ready) return;
+  st._frameCount = (st._frameCount || 0) + 1;
+  const sinceLast = st._frameCount - (st._lastRenderFrame || 0);
+  // Mystery texture scroll a aktivní reveals značí scénu jako vždy dirty
+  if (st._mysteryHasVisible || (st.mysteryRevealMeshes && st.mysteryRevealMeshes.size > 0)) {
+    st._dirty = true;
+  }
+  if (_hasActiveCarrierAnim()) st._dirty = true;
+  if (!st._dirty && sinceLast < 60) return;
   const now = performance.now();
   // v72.49: animace mystery textury — diagonální scroll (offset.x i offset.y).
   if (st._mysteryTex) {
@@ -2314,6 +2338,8 @@ function render() {
     }
   }
   st.renderer.render(st.scene, st.camera);
+  st._dirty = false;
+  st._lastRenderFrame = st._frameCount;
 }
 
 function isReady() { return st.ready; }
@@ -2567,6 +2593,7 @@ function _disposeWallMeshes() {
 
 function updateWalls(columns) {
   if (!st.ready || !st._wallMat) return;
+  st._dirty = true; // v73.285: walls update = layout/color change
   // Theme color match — read --carriers-3d-bg z aktuálního theme
   const cs = getComputedStyle(document.body);
   const bgColor = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
@@ -2664,6 +2691,7 @@ function updateWalls(columns) {
 // (nový level s víc řadami = vyšší deck). Bez resize by se bottom rows renderovaly
 // MIMO canvas (clipped).
 function resize() {
+  st._dirty = true; // v73.285: viewport change → refresh
   if (!st.ready || !st.canvas) return;
   const gameEl   = document.getElementById('game');
   const beltWrap = document.getElementById('belt-wrap');
@@ -2741,6 +2769,7 @@ function clearCarrierState() {
 
 // v73.205: color tuning hooks pro dev color picker
 function setBottomFrameColor(hex) {
+  st._dirty = true;
   st._frameColorOverride = hex;
   if (st.unifiedFrameMesh && st.unifiedFrameMesh.material) {
     st.unifiedFrameMesh.material.color.set(hex);
@@ -2750,6 +2779,7 @@ function getBottomFrameColor() {
   return st.unifiedFrameMesh?.material?.color?.getHexString() || 'f4b8c8';
 }
 function setOutlineColor(hex) {
+  st._dirty = true;
   st._outlineColorOverride = hex;
   if (st.unifiedFrameOutline && st.unifiedFrameOutline.material) {
     st.unifiedFrameOutline.material.color.set(hex);
@@ -2759,6 +2789,7 @@ function getOutlineColor() {
   return st.unifiedFrameOutline?.material?.color?.getHexString() || '8a5066';
 }
 function setMysteryBaseColor(hex) {
+  st._dirty = true;
   st._mysteryBaseOverride = hex;
   rebuildMysteryTexture();
 }
@@ -2766,6 +2797,7 @@ function getMysteryBaseColor() {
   return st._mysteryBaseOverride || MYSTERY_BASE_DEFAULT;
 }
 function rebuildMysteryTexture() {
+  st._dirty = true;
   // Rebuild mystery `?` texture po theme/color change (čte aktuální --carriers-3d-bg).
   if (!st._mysteryTex || !st._mysteryMat) return;
   const newTex = _buildMysteryTexture();
@@ -2777,6 +2809,7 @@ function rebuildMysteryTexture() {
   st._mysteryMat.needsUpdate = true;
 }
 function refreshFloorColor() {
+  st._dirty = true;
   // Floor mesh color je hard-coded při init z --carriers-3d-bg. Refresh po color change.
   if (!st.unifiedFrameFloor) return;
   const cs = getComputedStyle(document.body);
@@ -2784,6 +2817,7 @@ function refreshFloorColor() {
   st.unifiedFrameFloor.material.color.set(carriersBg);
 }
 function refreshWallColor() {
+  st._dirty = true;
   // Wall barva = --carriers-3d-bg lightened +0.02 HSL. Outline = wall × 0.38.
   // Sync s updateWalls() logic — voláno z dev tool floor change cascade.
   if (!st._wallMat) return;
@@ -2801,6 +2835,7 @@ function refreshWallColor() {
 // v73.257: setPixelRatio per tier — největší win na mobile (retina 2× = 4× pixelů).
 function setQualityTier(tier){
   st.qualityTier = Math.max(0, Math.min(2, tier|0));
+  st._dirty = true; // v73.285: tier change → vynucený refresh
   // v73.262: MED drží plnou retina (jen LOW jde na 1.5)
   if (st.renderer) {
     const dpr = window.devicePixelRatio || 1;
