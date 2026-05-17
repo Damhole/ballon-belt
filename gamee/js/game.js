@@ -518,6 +518,7 @@ let funnelWarnTimer=0; // vteřin do skrytí varování
 let nudgeTimer=0; // periodické „pomoc uvízlé kouli" pro natural anti-stuck
 // Gamee state
 let paused=false, gameStarted=false, playTime=0, playTimer=null, beltLoopStarted=false;
+let _lastRenderActive=true; // v73.280: tracking pro pause-render-on-overlay (krok 2/5)
 let ammoCheckTimer=0;
 // === BELT LAUNCH POINT ===
 const BELT_LX=28,BELT_RX=332,BELT_BALL_R=14;
@@ -1442,7 +1443,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.279');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.280');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6713,7 +6714,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.279');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.280');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6841,7 +6842,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.279');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.280');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7493,22 +7494,25 @@ function beltLoop(ts){
   drawBelt(); const _t1=performance.now();
   drawParticles(); const _t2=performance.now();
   drawPending(); const _t3=performance.now();
-  // 3D scéna se re-renderuje každý frame. Update gridu se neděje (data se
-  // mění jen v drawGrid() při změně pixelů), ale render() je nutný kvůli
-  // animacím (shards) a v případě WebGL context loss / re-attach.
-  if(RENDERER_MODE==='3d' && window.render3d && window.render3d.isReady && window.render3d.isReady()){
-    if(window.render3d.updateAnimations) window.render3d.updateAnimations(_animDt);
-    window.render3d.render();
-  }
-  // 3D bottom: belt balls + pending balls každý frame; carriers se updatují v drawCarriers()
-  if(RENDERER_MODE==='3d' && window.render3dBottom && window.render3dBottom.isReady && window.render3dBottom.isReady()){
-    window.render3dBottom.updatePending(pending,COLORS);
-    window.render3dBottom.updateBelt(belt,beltAnim,COLORS);
-    // updateCarriers per-frame jen když běží carrier-fire animace (jinak je drahé měřit DOM zbytečně)
-    if(window.render3dBottom._hasActiveCarrierAnim&&window.render3dBottom._hasActiveCarrierAnim()){
-      window.render3dBottom.updateCarriers(columns,COLORS);
+  // v73.280: skip 3D render při overlay/pause state (krok 2/5 thermal opt).
+  // Render proběhne i 1 frame PO change (lastRenderActive), aby se nakreslila
+  // finální freeze pozice před vypnutím renderu.
+  const _renderActive = gameStarted && running && !paused;
+  const _shouldRender = _renderActive || _lastRenderActive;
+  _lastRenderActive = _renderActive;
+  if(_shouldRender){
+    if(RENDERER_MODE==='3d' && window.render3d && window.render3d.isReady && window.render3d.isReady()){
+      if(window.render3d.updateAnimations) window.render3d.updateAnimations(_animDt);
+      window.render3d.render();
     }
-    window.render3dBottom.render();
+    if(RENDERER_MODE==='3d' && window.render3dBottom && window.render3dBottom.isReady && window.render3dBottom.isReady()){
+      window.render3dBottom.updatePending(pending,COLORS);
+      window.render3dBottom.updateBelt(belt,beltAnim,COLORS);
+      if(window.render3dBottom._hasActiveCarrierAnim&&window.render3dBottom._hasActiveCarrierAnim()){
+        window.render3dBottom.updateCarriers(columns,COLORS);
+      }
+      window.render3dBottom.render();
+    }
   }
   _profAccum.drawBelt+=_t1-_t0;
   _profAccum.drawParticles+=_t2-_t1;
@@ -7679,7 +7683,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.279');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.280');
       event.detail.callback();
     });
 

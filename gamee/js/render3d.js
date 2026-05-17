@@ -14,8 +14,8 @@
 
 import * as THREE from 'three';
 
-// v73.279: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v73.279';
+// v73.280: version stamp pro watchdog — game.js compare proti tomuto
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v73.280';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
@@ -1047,11 +1047,11 @@ function updateAnimations(dt) {
     }
     if (anyActive && state._lastGrid && state._lastColors) {
       updateGrid(state._lastGrid, state._lastColors);
-      // v73.279: aktivní vlny posouvají Z pixelů → shadow map musí refreshnout
+      // v73.280: aktivní vlny posouvají Z pixelů → shadow map musí refreshnout
       if (state.sun && !state.sun.shadow.autoUpdate) state.sun.shadow.needsUpdate = true;
     }
   }
-  // v73.279: aktivní shards (destrukce, sparks) také posouvají objekty → refresh shadow
+  // v73.280: aktivní shards (destrukce, sparks) také posouvají objekty → refresh shadow
   if (state.sun && !state.sun.shadow.autoUpdate && state.shards.length > 0) {
     state.sun.shadow.needsUpdate = true;
   }
@@ -1064,7 +1064,7 @@ function updateAnimations(dt) {
 // mystery blok #555a62. Bottom plane všech bloků na z=0 (rostou nahoru jako stěny).
 function updateBlocks(blocks, COLORS) {
   if (!state.ready || !state.blockMesh) return;
-  // v73.279: blocks se mohou změnit (HP klesá, blok zničen) → shadow refresh
+  // v73.280: blocks se mohou změnit (HP klesá, blok zničen) → shadow refresh
   if (state.sun && !state.sun.shadow.autoUpdate) state.sun.shadow.needsUpdate = true;
   const H = state.GH * SCALE;
   const mesh = state.blockMesh;
@@ -1322,7 +1322,7 @@ if (typeof window !== 'undefined') {
       if (state.projectileMesh) state.projectileMesh.castShadow = shadowsOn;
       if (state.shardMesh) state.shardMesh.castShadow = shadowsOn;
 
-      // v73.279: HIGH = plné stíny (512 PCFSoft), ALE on-demand (autoUpdate=false).
+      // v73.280: HIGH = plné stíny (512 PCFSoft), ALE on-demand (autoUpdate=false).
       // Refresh jen při destrukci / aktivních waves / lítajících projektilech.
       // Identicky vypadá, ale ~30–50% menší GPU cost při statické scéně → méně tepla.
       if (shadowsOn && state.sun && state.renderer) {
