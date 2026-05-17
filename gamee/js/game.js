@@ -1456,7 +1456,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.297');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.298');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6783,7 +6783,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.297');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.298');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6911,7 +6911,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.297');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.298');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7587,9 +7587,13 @@ function beltLoop(ts){
   // v73.280: skip 3D render při overlay/pause state (krok 2/5 thermal opt).
   // v73.294: pokud běží 3D particles z poslední destrukce (shards/ghosts/dust/wave),
   // pokračuj v renderování dokud nedohrají — i po endGame stejně jako 2D confetti.
+  // v73.298: + belt nebo pending balls = render musí pokračovat (po endGame balls
+  // pořád putují na pás / cestují v nálevce dokud nejsou sebrány).
   const _renderActive = gameStarted && running && !paused;
   const _has3DFx = RENDERER_MODE==='3d' && window.render3d && window.render3d.hasActiveAnimations && window.render3d.hasActiveAnimations();
-  const _shouldRender = _renderActive || _lastRenderActive || _has3DFx;
+  const _hasBottomMovement = (typeof pending!=='undefined' && pending.length>0)
+                          || (typeof belt!=='undefined' && belt.some(b => b !== null));
+  const _shouldRender = _renderActive || _lastRenderActive || _has3DFx || _hasBottomMovement;
   _lastRenderActive = _renderActive;
   if(_shouldRender){
     if(RENDERER_MODE==='3d' && window.render3d && window.render3d.isReady && window.render3d.isReady()){
@@ -7775,7 +7779,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.297');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.298');
       event.detail.callback();
     });
 
