@@ -587,6 +587,9 @@ function _caMaybeTrigger(gx,gy,hex){
 }
 // === BOUNCING PARTICLE SYSTEM ===
 let particles=[],particleCanvas,particleCtx;
+// 2D smoke puffs — bílé kruhy s outline co se odpaří po posledním cannon fire.
+// Queue: scheduled spawns staggered 500/610/730 ms po posledním shotu.
+let smokePuffs=[], smokePuffsQueue=[];
 let shards=[];                    // odlétající střípky při zásahu – jen vizuál, nezasahují do fyziky
 let confetti=[];                  // konfety na konci levelu – rozletí se, gravitace, postupně zmizí
 function spawnConfetti(){
@@ -1459,7 +1462,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v73.341');
+          gamee.updateScore(score,playTime,'balloon-belt-v73.342');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -1722,10 +1725,72 @@ function drawCannon(){
   }
   ctx.restore();
 }
+// 2D smoke puffs — schedule 3 staggered puffs ~500ms po posledním cannon fire.
+function scheduleSmokePuffs(){
+  const t0=performance.now()+500;
+  smokePuffsQueue=[
+    {t:t0,     scale:0.45},
+    {t:t0+110, scale:0.55},
+    {t:t0+230, scale:0.40},
+  ];
+}
+function spawnSmokePuff(scaleMul){
+  const muzzleX=cannonX+Math.cos(cannonAngle)*14;
+  const muzzleY=CANNON_Y+Math.sin(cannonAngle)*14;
+  smokePuffs.push({
+    x:muzzleX, y:muzzleY,
+    dx:(Math.random()-0.5)*4,
+    dy:-12-Math.random()*4,
+    t0:performance.now(),
+    duration:550,
+    scaleMul:scaleMul||1.0,
+  });
+}
+function updateAndDrawSmokePuffs(){
+  if(!particleCtx) return;
+  const now=performance.now();
+  // Spawn queued puffs
+  for(let i=smokePuffsQueue.length-1;i>=0;i--){
+    if(now>=smokePuffsQueue[i].t){
+      spawnSmokePuff(smokePuffsQueue[i].scale);
+      smokePuffsQueue.splice(i,1);
+    }
+  }
+  // Update + draw existing puffs
+  const ctx=particleCtx;
+  ctx.save();
+  for(let i=smokePuffs.length-1;i>=0;i--){
+    const p=smokePuffs[i];
+    const dt=now-p.t0;
+    if(dt>=p.duration){ smokePuffs.splice(i,1); continue; }
+    const t=Math.max(0,Math.min(1,dt/p.duration)); // clamp pro newly-spawned puffy
+    const easeOut=1-Math.pow(1-t,2);
+    // Scale pop-in: 0→1 v prvních 25%, pak grow lehce do 1.15
+    let s;
+    if(t<0.25) s=(t/0.25)*1.0;
+    else       s=1.0+(t-0.25)*0.20;
+    const radius=Math.max(0.1,10*p.scaleMul*s);
+    const x=p.x+p.dx*easeOut;
+    const y=p.y+p.dy*easeOut;
+    // Fade — opaque první 50%, pak fade-out
+    const op=t<0.5 ? 1.0 : 1.0-(t-0.5)*2;
+    ctx.globalAlpha=op;
+    ctx.fillStyle='#ffffff';
+    ctx.beginPath();
+    ctx.arc(x,y,radius,0,Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle='rgba(20,22,28,0.5)';
+    ctx.lineWidth=1.2;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function drawParticles(){
   if(!particleCtx)return;
   particleCtx.clearRect(0,0,360,310);
   drawCannon();
+  updateAndDrawSmokePuffs();
   // V 3D módu: 'fly' fáze projektily renderuje render3d (sphere instances).
   // Rocket/pop/confetti/shards fáze zůstávají 2D na particle-canvas.
   const _use3DProj = RENDERER_MODE==='3d' && window.render3d && window.render3d.isReady && window.render3d.isReady();
@@ -6795,7 +6860,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v73.341');
+    gamee.updateScore(score,playTime,'balloon-belt-v73.342');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6923,7 +6988,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v73.341');
+  gamee.updateScore(score,playTime,'balloon-belt-v73.342');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -6952,7 +7017,7 @@ function startLevel(){
   gamee.gameStart();
   if(!beltLoopStarted){beltLoopStarted=true;lastBeltTime=null;requestAnimationFrame(beltLoop);}
   grid=makeGrid();belt=new Array(BELT_CAP).fill(null);pending=[];nudgeTimer=0;funnelWarnTimer=0;score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
-  particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;
+  particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;smokePuffs=[];smokePuffsQueue=[];
   _caCountdown=3+Math.floor(Math.random()*3); // v73.236 CA interval reset
   // v72.68: reset 3D carrier transition caches — jinak by se carriery nového levelu
   // detekovaly jako "inactive → active" z předchozího levelu (falešné pop animace).
@@ -7556,6 +7621,7 @@ function beltLoop(ts){
               popR:0,popX:0,popY:0,onPop:()=>{}
             });
             window.render3d?.triggerMuzzleFlash?.(item.color);
+            scheduleSmokePuffs();
           }
         } else {
           gunFireTimer=0;
@@ -7792,7 +7858,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v73.341');
+      gamee.updateScore(score,playTime,'balloon-belt-v73.342');
       event.detail.callback();
     });
 
