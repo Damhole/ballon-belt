@@ -525,6 +525,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v74.18 | (pending) | 2026-05-18 | **Bounce zvuk: jemnější + méně častý.** vol 0.6 → 0.35, throttle 60→80ms, `Math.random() < 0.5` skip — bounce zazní cca u poloviny odrazů, méně rušivý. |
 | v74.17 | (pending) | 2026-05-18 | **Zvuk: bounce při odrazu od pixelu jiné barvy.** Helium balloon bounce 3× zrychlený (atempo=2,1.5), volume -10dB, 110ms WAV. `_playBounce()` u `triggerPixelHit`. Throttle 60ms, pitch + volume variace. |
 | v74.16 | `deea34f` | 2026-05-18 | **🎯 ROOT CAUSE fix pop trim.** Bug: `-ss` po `-i` s `-af` → afade aplikován na ORIGINÁLNÍ audio PŘED seekem, ztichl 0.12-0.16s, pak seek vrátil ticho. Fix: `atrim` UVNITŘ filter chain → fade je relativní k trimnuté stopě. Max -11dB, slyšitelné. |
 | v74.15 | `bbe7278` | 2026-05-18 | **Pop debug — WAV formát + console logy.** Přepnuto na WAV (bezztrátový, žádný encoder delay), `[BB-SOUND]` debug logy v konzoli, cache-bust `?v=Date.now()`. |

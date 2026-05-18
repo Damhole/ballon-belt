@@ -177,10 +177,11 @@ function _playPop(vol=0.7){
   else _doPlay();
 }
 
-function _playBounce(vol=0.6){
+function _playBounce(vol=0.35){
   if(!_bounceBuffer || !_audioCtx) return;
+  if(Math.random() < 0.5) return; // ~50% skip — zvuk se hraje míň často
   const now = Date.now();
-  if(now - _lastBounceTime < 60) return; // throttle 60ms
+  if(now - _lastBounceTime < 80) return; // throttle 80ms
   _lastBounceTime = now;
   const _doPlay = () => {
     const src  = _audioCtx.createBufferSource();
@@ -1566,7 +1567,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.17');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.18');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6967,7 +6968,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.17');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.18');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7095,7 +7096,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.17');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.18');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7966,7 +7967,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.17');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.18');
       event.detail.callback();
     });
 
