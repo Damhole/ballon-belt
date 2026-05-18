@@ -525,7 +525,14 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
-| v74.10 | (pending) | 2026-05-18 | **Pop zvuk: variace hlasitosti ±30%.** `gain.gain.value = vol * (0.7 + Math.random() * 0.3)` — každý pop trochu jinak hlasitý, kombinace s pitch variací dělá přirozený feel. |
+| v74.17 | (pending) | 2026-05-18 | **Zvuk: bounce při odrazu od pixelu jiné barvy.** Helium balloon bounce 3× zrychlený (atempo=2,1.5), volume -10dB, 110ms WAV. `_playBounce()` u `triggerPixelHit`. Throttle 60ms, pitch + volume variace. |
+| v74.16 | `deea34f` | 2026-05-18 | **🎯 ROOT CAUSE fix pop trim.** Bug: `-ss` po `-i` s `-af` → afade aplikován na ORIGINÁLNÍ audio PŘED seekem, ztichl 0.12-0.16s, pak seek vrátil ticho. Fix: `atrim` UVNITŘ filter chain → fade je relativní k trimnuté stopě. Max -11dB, slyšitelné. |
+| v74.15 | `bbe7278` | 2026-05-18 | **Pop debug — WAV formát + console logy.** Přepnuto na WAV (bezztrátový, žádný encoder delay), `[BB-SOUND]` debug logy v konzoli, cache-bust `?v=Date.now()`. |
+| v74.14 | `8ae439a` | 2026-05-18 | **Revert pop na celou stopu.** Trim verze opět ticho — diagnóza pokračuje. |
+| v74.13 | `ad70f34` | 2026-05-18 | **Pop — jen druhý pop, čistý střih.** `ss=0.162s`, fade-out 40ms, bez loudnorm. Záloha celé stopy v `pop_full.mp3`. (Stále tichý — viz v74.16.) |
+| v74.12 | `3d0ceff` | 2026-05-18 | **Pop — celá stopa bez střihu (debug).** Diagnóza zda problém ve střihu nebo v integraci → integrace funguje, problém ve střihu. |
+| v74.11 | `8e1a0f9` | 2026-05-18 | **Fix pop zvuk — AudioContext suspend + MP3 jako primár.** `_audioCtx.resume()` async bug → `_doPlay()` voláno až po `resume().then()`. Proaktivní resume na touchstart/click. OGG vyřazen (libopus selhává na <0.2s klipech). |
+| v74.10 | `990e1bc` | 2026-05-18 | **Pop zvuk: variace hlasitosti ±30%.** `gain.gain.value = vol * (0.7 + Math.random() * 0.3)` — každý pop trochu jinak hlasitý, kombinace s pitch variací dělá přirozený feel. |
 | v74.9 | (pending) | 2026-05-18 | **Zvuk: pop při zničení pixelu.** Web Audio API (_audioCtx, _popBuffer, _playPop). Druhý pop z "Plop 20 Sound Effect.wav" extrahován ffmpegem (ss 0.165s, fade-out, loudnorm). OGG (opus) + MP3 fallback. Throttle 40ms + pitch variace 0.9–1.1×. Normální zásah vol 0.7, burst vol 0.5. |
 | v74.8 | (pending) | 2026-05-18 | **PWA ikona fix — outline P zachován, černý podklad.** Snížen fuzz 22%→8% aby flood fill nesežral tmavý outline písmene P. Černý podklad místo průhledného. |
 | v74.7 | (pending) | 2026-05-18 | **PWA ikona icon_4 fix — fill to edge.** Opraveno zbytečné prázdné místo kolem balónku (resize^ fill místo extent s paddingem). |

@@ -103,7 +103,9 @@ const _audioCtx = (() => {
   try { return new (window.AudioContext || window.webkitAudioContext)(); } catch(e){ return null; }
 })();
 let _popBuffer = null;
+let _bounceBuffer = null;
 let _lastPopTime = 0;
+let _lastBounceTime = 0;
 
 function _initSound(){
   if(!_audioCtx) return;
@@ -136,6 +138,19 @@ function _initSound(){
     }
     if(!_popBuffer) console.error('[BB-SOUND] no buffer loaded');
   })();
+  // Bounce (wrong-color pixel) — paralelně s popem
+  (async()=>{
+    const urls = ['./assets/sounds/bounce.wav' + v, './assets/sounds/bounce.mp3' + v];
+    for(const url of urls){
+      try{
+        const r = await fetch(url);
+        if(!r.ok) continue;
+        _bounceBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] bounce decoded, duration:', _bounceBuffer.duration, 's');
+        break;
+      }catch(e){ console.warn('[BB-SOUND] bounce failed', url, e.message); }
+    }
+  })();
 }
 
 let _popLogged = false;
@@ -157,6 +172,25 @@ function _playPop(vol=0.7){
     gain.connect(_audioCtx.destination);
     src.start(0);
     if(!_popLogged){ console.log('[BB-SOUND] first pop fired, ctx state:', _audioCtx.state); _popLogged=true; }
+  };
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+function _playBounce(vol=0.6){
+  if(!_bounceBuffer || !_audioCtx) return;
+  const now = Date.now();
+  if(now - _lastBounceTime < 60) return; // throttle 60ms
+  _lastBounceTime = now;
+  const _doPlay = () => {
+    const src  = _audioCtx.createBufferSource();
+    const gain = _audioCtx.createGain();
+    src.playbackRate.value = 0.9 + Math.random() * 0.25;
+    gain.gain.value = vol * (0.7 + Math.random() * 0.3);
+    src.buffer = _bounceBuffer;
+    src.connect(gain);
+    gain.connect(_audioCtx.destination);
+    src.start(0);
   };
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
   else _doPlay();
@@ -1532,7 +1566,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.16');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.17');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -1713,6 +1747,7 @@ function updateParticles(dt){
         if(!firstCollisionOnPath(p.x,p.y,_nx,_ny,p.ci)){ p.x=_nx; p.y=_ny; }
       }
       if(RENDERER_MODE==='3d' && window.render3d?.triggerPixelHit) window.render3d.triggerPixelHit(gx, gy);
+      _playBounce();
       anyBounce=true;
       p.stuckT+=dt;
       if(p.stuckT>1.2){respawnParticle(p);}
@@ -6932,7 +6967,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.16');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.17');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7060,7 +7095,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.16');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.17');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7931,7 +7966,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.16');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.17');
       event.detail.callback();
     });
 
