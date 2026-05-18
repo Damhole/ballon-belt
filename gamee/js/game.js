@@ -107,7 +107,12 @@ let _lastPopTime = 0;
 
 function _initSound(){
   if(!_audioCtx) return;
-  const urls = ['./assets/sounds/pop.ogg', './assets/sounds/pop.mp3'];
+  // Proaktivní resume na první dotyk/klik — browsers suspendují AudioContext do user gesture
+  const _resume = () => { if(_audioCtx.state==='suspended') _audioCtx.resume(); };
+  document.addEventListener('touchstart', _resume, {once:true, passive:true});
+  document.addEventListener('click',      _resume, {once:true});
+  // MP3 první (OGG/opus selhává na velmi krátkých stopách)
+  const urls = ['./assets/sounds/pop.mp3', './assets/sounds/pop.ogg'];
   (async()=>{
     for(const url of urls){
       try{
@@ -123,17 +128,20 @@ function _initSound(){
 function _playPop(vol=0.7){
   if(!_popBuffer || !_audioCtx) return;
   const now = Date.now();
-  if(now - _lastPopTime < 40) return; // max ~25 pops/s — bursts neznějí jako kulometná palba
+  if(now - _lastPopTime < 40) return;
   _lastPopTime = now;
-  if(_audioCtx.state === 'suspended') _audioCtx.resume();
-  const src = _audioCtx.createBufferSource();
-  const gain = _audioCtx.createGain();
-  src.playbackRate.value = 0.9 + Math.random() * 0.2; // mírná pitch variace
-  gain.gain.value = vol * (0.7 + Math.random() * 0.3); // hlasitost ±30%
-  src.buffer = _popBuffer;
-  src.connect(gain);
-  gain.connect(_audioCtx.destination);
-  src.start(0);
+  const _doPlay = () => {
+    const src  = _audioCtx.createBufferSource();
+    const gain = _audioCtx.createGain();
+    src.playbackRate.value = 0.9 + Math.random() * 0.2;
+    gain.gain.value = vol * (0.7 + Math.random() * 0.3);
+    src.buffer = _popBuffer;
+    src.connect(gain);
+    gain.connect(_audioCtx.destination);
+    src.start(0);
+  };
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // Aktivuje CSS .renderer-3d na body — game.css má pod tím selektorem
@@ -1506,7 +1514,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.10');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.11');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6906,7 +6914,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.10');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.11');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7034,7 +7042,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.10');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.11');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7905,7 +7913,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.10');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.11');
       event.detail.callback();
     });
 
