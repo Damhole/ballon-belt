@@ -211,7 +211,7 @@ html,body{margin:0;padding:0}
    (carriers se nemusely shrinkovat), JS přidá --game-top-extra pro komfortní
    odsazení od horní hrany telefonu. Při tight space = 0, layout zůstává
    natlačený nahoru. */
-#game{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px;padding-top:calc(8px + var(--game-top-extra, 0px));max-width:480px;margin:0 auto;width:100%;position:relative;overflow:hidden}
+#game{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px;padding-top:calc(8px + env(safe-area-inset-top, 0px) + var(--game-top-extra, 0px));padding-bottom:calc(8px + env(safe-area-inset-bottom, 0px));padding-left:calc(8px + env(safe-area-inset-left, 0px));padding-right:calc(8px + env(safe-area-inset-right, 0px));max-width:480px;margin:0 auto;width:100%;position:relative;overflow:hidden}
 #version-badge{position:absolute;top:16px;right:16px;font-size:11px;color:var(--color-text-tertiary);font-family:var(--font-sans);pointer-events:none;display:flex;align-items:baseline;gap:6px}
 #version-badge .game-name{font-weight:600}
 #status{display:none}
