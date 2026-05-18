@@ -97,6 +97,45 @@ window._DEBUG_DISABLE_POP_CIRCLE = true;
 // v73.253: 2D rozstřikové shardy (spawnPopShards). 3D shards z render3d.js
 // dělají stejnou práci a nepřebíjí scénu 2D layer.
 window._DEBUG_DISABLE_POP_SHARDS = true;
+
+// ─── Sound system ────────────────────────────────────────────────────────────
+const _audioCtx = (() => {
+  try { return new (window.AudioContext || window.webkitAudioContext)(); } catch(e){ return null; }
+})();
+let _popBuffer = null;
+let _lastPopTime = 0;
+
+function _initSound(){
+  if(!_audioCtx) return;
+  const urls = ['./assets/sounds/pop.ogg', './assets/sounds/pop.mp3'];
+  (async()=>{
+    for(const url of urls){
+      try{
+        const r = await fetch(url);
+        if(!r.ok) continue;
+        _popBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        break;
+      }catch(e){}
+    }
+  })();
+}
+
+function _playPop(vol=0.7){
+  if(!_popBuffer || !_audioCtx) return;
+  const now = Date.now();
+  if(now - _lastPopTime < 40) return; // max ~25 pops/s — bursts neznějí jako kulometná palba
+  _lastPopTime = now;
+  if(_audioCtx.state === 'suspended') _audioCtx.resume();
+  const src = _audioCtx.createBufferSource();
+  const gain = _audioCtx.createGain();
+  src.playbackRate.value = 0.9 + Math.random() * 0.2; // mírná pitch variace
+  gain.gain.value = vol;
+  src.buffer = _popBuffer;
+  src.connect(gain);
+  gain.connect(_audioCtx.destination);
+  src.start(0);
+}
+// ─────────────────────────────────────────────────────────────────────────────
 // Aktivuje CSS .renderer-3d na body — game.css má pod tím selektorem
 // celé environment styly (pink BG, soft shadows, rounded frames). Stane se
 // jakmile body existuje (může to být před DOMContentLoaded pokud jsme inline).
@@ -1460,13 +1499,14 @@ function updateParticles(dt){
           }
           grid[h.yy][h.xx]=-1;
           // 2D pop shards layer — běží v obou módech (user chce kombinaci 2D + 3D).
+          _playPop(0.5);
           spawnPopShards(h.xx*SCALE+SCALE/2,h.yy*SCALE+SCALE/2,p.color);
         }
         if(destroyed){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.8');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.9');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -1629,6 +1669,7 @@ function updateParticles(dt){
       drawGrid();
       p.phase='pop'; p.popX=nx; p.popY=ny; p.onPop();
       // 2D pop shards layer — běží v obou módech (user chce kombinaci 2D + 3D).
+      _playPop();
       spawnPopShards(nx,ny,p.color);
       if(running&&!anyTargetLeft()){
         particles.forEach(q=>{if(q.phase==='fly'){q.phase='pop';q.popX=q.x;q.popY=q.y;}});
@@ -6865,7 +6906,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.8');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.9');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6993,7 +7034,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.8');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.9');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7817,6 +7858,7 @@ function initGame(){
   setupDOM();
   initParticleCanvas();
   _initBgParticles();
+  _initSound();
   // beltLoop se spustí až ve startLevel (po inicializaci stavu) – jinak by crashnul na undefined belt/grid
 
   gamee.gameInit('FullScreen',{},['saveState'],function(error,data){
@@ -7863,7 +7905,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.8');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.9');
       event.detail.callback();
     });
 
