@@ -1466,7 +1466,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.0');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.1');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6865,7 +6865,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.0');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.1');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -6993,7 +6993,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.0');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.1');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7657,7 +7657,9 @@ function beltLoop(ts){
   const _t0=performance.now();
   let _t1=_t0, _t2=_t0, _t3=_t0;
   const _drawActive = gameStarted && running && !paused;
-  if((_drawActive || _lastRenderActive) && RENDERER_MODE !== '3d'){
+  // v74.1: drawBelt/drawPending běží v 2D módu A ve fallback režimu (kdyby Three.js selhal)
+  const _fbk = document.body.classList.contains('three-fallback');
+  if((_drawActive || _lastRenderActive) && (RENDERER_MODE !== '3d' || _fbk)){
     drawBelt(); _t1=performance.now();
     drawPending(); _t3=performance.now();
   }
@@ -7787,6 +7789,17 @@ function _updateFpsCounter(ts){
 
 // ── Gamee SDK entry point (called by body onload) ────────────────────────────
 function initGame(){
+  // v74.1: Defensive fallback — pokud Three.js moduly nezagrade do 2s (např.
+  // importmap unsupported v PWA standalone na starších iOS Safari), revealne
+  // 2D fallback elementy (které jinak schovává body.renderer-3d CSS).
+  if(RENDERER_MODE==='3d'){
+    setTimeout(()=>{
+      if(!window.render3d || !window.render3d.isReady || !window.render3d.isReady()){
+        console.warn('[plop] Three.js nedostupný — fallback na 2D mode');
+        document.body.classList.add('three-fallback');
+      }
+    },2000);
+  }
   // Default level = first in LEVELS (so reordering in the editor actually
   // changes which level the game opens on). The hardcoded `currentLevel='smiley'`
   // at the top of this file is just a static init value from before LEVELS
@@ -7863,7 +7876,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.0');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.1');
       event.detail.callback();
     });
 
