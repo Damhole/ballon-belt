@@ -2,7 +2,7 @@
   "name": "Plop!",
   "short_name": "Plop!",
   "description": "Pop the pixels! Color-match cannon puzzle game.",
-  "start_url": "./index.html",
+  "start_url": "./index_local.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

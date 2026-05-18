@@ -90,10 +90,14 @@ Další akce podle typu změny:
 ```bash
 cd ~/Documents/GitHub/ballon-belt/gamee
 rm -f ../balloon-belt-gamee.zip
-zip -r ../balloon-belt-gamee.zip . -x "index_local.html" "lib/gamee-js-stub.js"
+zip -r ../balloon-belt-gamee.zip . -x "index_local.html" "lib/gamee-js-stub.js" "manifest.json" "assets/icon-*.svg" "assets/icons/*"
 ```
 
 Upload `balloon-belt-gamee.zip` do Gamee admin (zip má `index.html` v rootu, to Gamee admin vyžaduje).
+
+**Pozn. exclude list**: manifest.json + assets/icon-*.svg + assets/icons/ jsou PWA-only
+(install z `index_local.html`). Gamee iframe je nepoužívá → výsledný zip je čistší
+a menší o ~70 KB.
 
 ## Konvence
 
