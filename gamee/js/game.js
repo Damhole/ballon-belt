@@ -107,26 +107,43 @@ let _lastPopTime = 0;
 
 function _initSound(){
   if(!_audioCtx) return;
+  console.log('[BB-SOUND] init, audioCtx state:', _audioCtx.state);
   // Proaktivní resume na první dotyk/klik — browsers suspendují AudioContext do user gesture
-  const _resume = () => { if(_audioCtx.state==='suspended') _audioCtx.resume(); };
+  const _resume = () => {
+    if(_audioCtx.state==='suspended') {
+      _audioCtx.resume().then(()=>console.log('[BB-SOUND] resumed, state:', _audioCtx.state));
+    }
+  };
   document.addEventListener('touchstart', _resume, {once:true, passive:true});
   document.addEventListener('click',      _resume, {once:true});
-  // MP3 první (OGG/opus selhává na velmi krátkých stopách)
-  const urls = ['./assets/sounds/pop.mp3', './assets/sounds/pop.ogg'];
+  // WAV první (bulletproof, žádný encoder delay), MP3 fallback
+  const v = '?v=' + (window._BB_SOUND_V || Date.now());
+  const urls = ['./assets/sounds/pop.wav' + v, './assets/sounds/pop.mp3' + v];
   (async()=>{
     for(const url of urls){
       try{
+        console.log('[BB-SOUND] fetching', url);
         const r = await fetch(url);
-        if(!r.ok) continue;
-        _popBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        if(!r.ok) { console.log('[BB-SOUND]   HTTP', r.status); continue; }
+        const ab = await r.arrayBuffer();
+        console.log('[BB-SOUND]   bytes:', ab.byteLength);
+        _popBuffer = await _audioCtx.decodeAudioData(ab);
+        console.log('[BB-SOUND]   decoded ok, duration:', _popBuffer.duration, 's, channels:', _popBuffer.numberOfChannels);
         break;
-      }catch(e){}
+      }catch(e){
+        console.warn('[BB-SOUND]   failed', url, e.message);
+      }
     }
+    if(!_popBuffer) console.error('[BB-SOUND] no buffer loaded');
   })();
 }
 
+let _popLogged = false;
 function _playPop(vol=0.7){
-  if(!_popBuffer || !_audioCtx) return;
+  if(!_popBuffer || !_audioCtx) {
+    if(!_popLogged){ console.warn('[BB-SOUND] _playPop called but no buffer/ctx', {buf:!!_popBuffer, ctx:!!_audioCtx}); _popLogged=true; }
+    return;
+  }
   const now = Date.now();
   if(now - _lastPopTime < 40) return;
   _lastPopTime = now;
@@ -139,6 +156,7 @@ function _playPop(vol=0.7){
     src.connect(gain);
     gain.connect(_audioCtx.destination);
     src.start(0);
+    if(!_popLogged){ console.log('[BB-SOUND] first pop fired, ctx state:', _audioCtx.state); _popLogged=true; }
   };
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
   else _doPlay();
@@ -1514,7 +1532,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.14');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.15');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6914,7 +6932,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.14');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.15');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7042,7 +7060,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.14');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.15');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7913,7 +7931,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.14');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.15');
       event.detail.callback();
     });
 
