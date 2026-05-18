@@ -525,6 +525,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v74.10 | (pending) | 2026-05-18 | **Pop zvuk: variace hlasitosti ±30%.** `gain.gain.value = vol * (0.7 + Math.random() * 0.3)` — každý pop trochu jinak hlasitý, kombinace s pitch variací dělá přirozený feel. |
 | v74.9 | (pending) | 2026-05-18 | **Zvuk: pop při zničení pixelu.** Web Audio API (_audioCtx, _popBuffer, _playPop). Druhý pop z "Plop 20 Sound Effect.wav" extrahován ffmpegem (ss 0.165s, fade-out, loudnorm). OGG (opus) + MP3 fallback. Throttle 40ms + pitch variace 0.9–1.1×. Normální zásah vol 0.7, burst vol 0.5. |
 | v74.8 | (pending) | 2026-05-18 | **PWA ikona fix — outline P zachován, černý podklad.** Snížen fuzz 22%→8% aby flood fill nesežral tmavý outline písmene P. Černý podklad místo průhledného. |
 | v74.7 | (pending) | 2026-05-18 | **PWA ikona icon_4 fix — fill to edge.** Opraveno zbytečné prázdné místo kolem balónku (resize^ fill místo extent s paddingem). |

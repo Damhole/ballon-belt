@@ -129,7 +129,7 @@ function _playPop(vol=0.7){
   const src = _audioCtx.createBufferSource();
   const gain = _audioCtx.createGain();
   src.playbackRate.value = 0.9 + Math.random() * 0.2; // mírná pitch variace
-  gain.gain.value = vol;
+  gain.gain.value = vol * (0.7 + Math.random() * 0.3); // hlasitost ±30%
   src.buffer = _popBuffer;
   src.connect(gain);
   gain.connect(_audioCtx.destination);
@@ -1506,7 +1506,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.9');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.10');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6906,7 +6906,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.9');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.10');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7034,7 +7034,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.9');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.10');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7905,7 +7905,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.9');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.10');
       event.detail.callback();
     });
 
