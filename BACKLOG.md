@@ -25,8 +25,9 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | M6 | 2.5D upgrade | v69–v70.11 | ✅ | Three.js, 3D pixely/bloky/projektily/carriers/belt, 10 témat |
 | M7 | Responsive + rows | v71.0–21 | ✅ | Adaptive carriers (38–54 px), 7 řad, 3D mesh sync s 2D, iOS safe area, PWA, touch fix |
 | M8 | Sjednocený 3D grid | v72.0–82 | ✅ | Carrier inner depth, 3D walls (monolith ExtrudeGeometry, rounded corners, outline), 3D mystery carriers (animovaná ? texture, circular wipe reveal), cascade pop, denial shake. Empty slot 3D + Garage/Rocket 3D + falling animation **deferred**. |
-| M9 | 3D vizuál: image + BG + funnel | v73+ | 🚧 | Finální 3D vizuální polish — pixel image area depth/highlights, background atmosphere/depth, jeden trvalý tvar funnelu (FUNNEL_3D z v71.22). |
-| M10 | Replay & scrub | v74+ | 📋 | Curve editor Úr. 1.5 — timeline scrubber, mini canvas, .webm export |
+| M9 | 3D vizuál + brand "Plop!" | v73.0–346 | ✅ | Image area 3D frame, bottom unified frame, BG atmosphere, smoke puffs, 3D gun + muzzle flash, hole asset + suck animace, rounded frame corners, HD particle-canvas. Brand: hra pojmenovaná **Plop!**, comic-style PWA ikona (Bangers font, růžová/žlutá), visible badge "Plop! vX.Y". |
+| **Beta cycle** | Pre-release polishing + 2. test | **v74.0+** | 🚧 | Druhý test cyklus — feature complete, polishing pro release. Game brand = Plop!. |
+| M10 | Replay & scrub | future | 📋 | Curve editor Úr. 1.5 — timeline scrubber, mini canvas, .webm export |
 | M11 | Editor polish | future | 💡 | Copy/paste bloků, multi-select, playtester mode, vizuální garáž |
 | M12 | Gameplay | future | 💡 | Adaptivní obtížnost, procedurální levely |
 | M13 | Variable image grid | future | 💡 | Zjemnění sítě obrázku — variabilní pixel resolution, sub-pixel detail, mid-game refinement |
@@ -503,7 +504,8 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
-| v73.346 | (pending) | 2026-05-18 | **Fix Plop! color v badge.** Odstraněn explicitní `color` na `.game-name`/`.ver-num` — child spans teď inheritují parentův `#version-badge` color (`rgba(255,255,255,0.55)` v 3D módu = světlá). Jediný styling rozdíl: `font-weight: 600` na Plop! pro mírné odlišení od verze. |
+| **v74.0** | (pending) | 2026-05-18 | **🎬 Beta cycle start.** v73 cyklus uzavřen (M9 hotov + brand identita). Hra teď oficiálně **Plop!** — feature complete, vstupuje do druhého testovacího cyklu. Polishing před release. Externí komunikace: "Plop! Beta v74.0". |
+| v73.346 | `2e1b5f2` | 2026-05-18 | **Fix Plop! color v badge.** Odstraněn explicitní `color` na `.game-name`/`.ver-num` — child spans teď inheritují parentův `#version-badge` color (`rgba(255,255,255,0.55)` v 3D módu = světlá). Jediný styling rozdíl: `font-weight: 600` na Plop! pro mírné odlišení od verze. |
 | v73.345 | `795d6dc` | 2026-05-18 | **Plop! v UI sjednoceno s version fontem.** Bangers @import + comic style v `#version-badge` odstraněno. Plop! teď používá stejný `var(--font-sans)` jako version number, jen `font-weight: 600`. Comic font zůstává jen v ikoně (PWA install). |
 | v73.344 | `ab33a70` | 2026-05-18 | **Game name "Plop!" + icon.** Game pojmenovaná "Plop!" (interní project název zůstává balloon-belt). Visible branding přes `#version-badge`: "Plop!" (Bangers comic font, sytě růžová `#ff1493`) + `v73.344` malé šedé vedle. CSS `@import` Google Fonts Bangers. **PWA manifest** `name`/`short_name` aktualizovány na "Plop!". **Icon design**: SVG s PLOP! textem v Bangers fontu (embedded base64), sytě růžová na sytě žluté pozadí, text rotated -4° s overflow přes icon edges (intentional crop look). 3 verze: `icon-192.svg`, `icon-512.svg`, `icon-maskable.svg` v `gamee/assets/`. |
 | v73.343 | `2df0777` | 2026-05-18 | **HD particle-canvas + smoke pozice.** `particleCanvas` internal resolution × `Math.max(2, devicePixelRatio)` + `ctx.scale(DPR, DPR)` → 2D drawings (smoke, cannon, particles) jsou crisp na retině i po CSS stretch v 3D módu. Drawing code zůstává v 360×310 souřadnicích. Smoke spawn distance 14 → 21 px podél cannon angle (14 muzzle + 7 forward) → cloud je před hlavní místo přímo na ní. |
