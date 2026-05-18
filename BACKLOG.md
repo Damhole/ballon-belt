@@ -525,6 +525,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v74.21 | (pending) | 2026-05-18 | **Fix pop hlasitost — burst call site.** Burst (`_playPop(0.5)`) ignoroval default → ztišeno na 0.18. Single pixel zůstává na 0.22 default. |
 | v74.20 | (pending) | 2026-05-18 | **Pop zvuk: hlasitost znovu o polovinu níž.** 0.45 → 0.22. |
 | v74.19 | (pending) | 2026-05-18 | **Pop zvuk: jemnější + 50% skip.** vol 0.7 → 0.45, throttle 40 → 60ms, `Math.random() < 0.5` skip — při rychlé sérii zásahů zvuk neotravuje. |
 | v74.18 | (pending) | 2026-05-18 | **Bounce zvuk: jemnější + méně častý.** vol 0.6 → 0.35, throttle 60→80ms, `Math.random() < 0.5` skip — bounce zazní cca u poloviny odrazů, méně rušivý. |
