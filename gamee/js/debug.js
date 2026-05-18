@@ -194,7 +194,7 @@
     var versionBadge = document.getElementById('version-badge');
     if (versionBadge) {
       versionBadge.style.position = 'fixed';
-      versionBadge.style.top   = (funnelTop + 6) + 'px';
+      versionBadge.style.top   = (funnelTop + 4) + 'px';
       versionBadge.style.left  = (imageRect.left + 8) + 'px';
       versionBadge.style.right = 'auto';
       versionBadge.style.zIndex = '160';
