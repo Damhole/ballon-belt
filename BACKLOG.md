@@ -377,6 +377,26 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 - Replay export (= M10)
 - Gameplay tuning (= M12)
 
+### Beta cycle: Pre-release polish (v74) — 🚧 in progress
+
+**Cíl:** Feature-complete hra prochází 2. testovacím cyklem. Tyto body musí být hotové než hra půjde na test. Pořadí práce: ne chronologicky — user rozhoduje co dál.
+
+| Prio | Stav | Vel. | Téma | Nápad |
+|------|------|------|------|-------|
+| P0 | 💡 | M | Hra | **Blocks fix** — rozbila se mechanika i vizuál bloku po přechodu na 3D; nutno spustit a prověřit |
+| P1 | 💡 | M | Editor | **Editor nahodit + opravit** — editor neběží na local; zkontrolovat stav po přechodu na 3D |
+| P1 | 💡 | S | Editor | **Theme k levelu** — selector theme pro každý level v editoru (level data + editor UI) |
+| P1 | 💡 | S | Editor | **Photo color minimizer** — sjednocovat podobné barvy pod jednu při importu fotek; šetřit paletou |
+| P1 | 💡 | S | Hra | **Ball do díry check hned** — balonek nastoupí na belt → okamžitě zkontroluj jestli jeho slot půjde do díry; nečekat na celý round |
+| P1 | 💡 | M | Infra | **FPS drain diagnóza** — hra bere FPS i bez interakce; hledání příčiny (bg-canvas, particles, dirty flags, …) + fix |
+| P2 | 💡 | S | Hra | **Zvuky** — pop, dopad projektilu, win jingle; user dodá zdrojové soubory; ffmpeg trim/normalizace/konverze na OGG |
+| P2 | 💡 | XS | Hra | **Poslední pixel větší collider** — 2× collider jen pro poslední pixel na scéně |
+| P2 | 💡 | XS | Hra | **Belt zrychlit** — zvýšit belt scroll speed |
+| P2 | 💡 | S | Hra | **Flow: zrychlení po vyprázdnění carriers** — když hráč odklikne všechny nosiče a žádný nezbývá, hra 2× zrychlí (belt + projektily) dokud level neskončí |
+| P2 | 💡 | XS | Polish | **Ball highlights** — tmavé barvy (černá, tmavě modrá) špatně viditelné v carrier gridu; přidat rim-light nebo highlight |
+| P2 | 💡 | XS | Polish | **Decentnější smoke z gun** — smoke puffs příliš výrazné; ztlumit opacity / scale |
+| P2 | 💡 | S | Infra | **Přímý link na level** — URL param `?level=ID` načte konkrétní level přímo; default (bez paramu) all-in-one pořadí zachováno |
+
 ### M10: Replay & scrub — Curve editor Úr. 1.5 (v74+)
 
 Nad existujícím Curve panelem (v63) přidat: `(c, r)` carrieru do history, pixel diff per krok, mini canvas gridy, timeline scrubber, play kontrolér, .webm export. Viz [deep dive →](#deep-dive-difficulty-curve-editor-úr-15-replay--scrub)
@@ -445,6 +465,7 @@ Nad existujícím Curve panelem (v63) přidat: `(c, r)` carrieru do history, pix
 
 | Prio | Stav | Vel. | Nápad |
 |------|------|------|-------|
+| P2 | 💡 | L | **Odstranit 2D renderer** — ~29 RENDERER_MODE guards + 8 draw funkcí (drawBelt, drawCarriers, drawPending, drawGrid…) jsou mixem logiky a vizuálu; nutno rozplést game logiku od 2D kreslení. V 3D módu neaktivní, ale tech debt blokující čitelnost kódu. Udělat až po release, ne v beta. |
 | P3 | 💡 | M | **Nahradit rsync polling za fswatch** — CPU šetřejší |
 | P3 | 💡 | S | **GitHub Actions** — auto-build zip při push, attach k release |
 | P3 | 💡 | M | **Smoke test** — Puppeteer skript, ověří každý level v normálním čase |
@@ -504,6 +525,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v74.4 | (pending) | 2026-05-18 | **Nová PWA ikona — 3D Plop! PNG.** Nahrazena SVG ikona (Bangers font) za 3D rendered PNG (žlutý rounded square + pink PLOP!). ImageMagick flood fill odstranil černé pozadí + trim. Vygenerováno icon-192.png, icon-512.png, icon-maskable.png. manifest.json: SVG→PNG, background_color tmavá→žlutá #f0c000. index_local.html: apple-touch-icon link + apple-mobile-web-app-title opraven na "Plop!". |
 | v74.3 | (pending) | 2026-05-18 | **Settings button experimenty + version badge top tune.** Pokus o toon styling settings ⚙ buttonu (white circle s dark outline, lifted drop shadow, hover/active anims, open state pink). User experimentoval — chtěl bez circle jen ikonu s dark dropshadow zespod. Nakonec **vráceno na úplně původní** subtle 22 px white-on-translucent ⚙ emoji button. Version badge (Plop! + v74.3) posunut o 2 px výš (`funnelTop + 6` → `+ 4`). |
 | v74.2 | `14547d5` | 2026-05-18 | **PWA safe-area-inset support (notch / home indicator).** iOS PWA s `apple-mobile-web-app-status-bar-style: black-translucent` má status bar/notch transparentní přes obsah → text z `#version-badge` se schovával pod notch. Fix: `#game` padding přidává `env(safe-area-inset-top/bottom/left/right, 0px)` — obsah se odsadí od notche, home indicatoru i side bezelů (landscape). Funguje napříč všemi devices (iPhone X+, SE, Android, desktop, iPad). V devices bez safe area `env()` returns 0 → bez efektu. |
 | v74.1 | `3f75b43` | 2026-05-18 | **PWA install fix — split manifest scope.** Root cause: `manifest.json` `start_url` pointoval na `./index.html` (prod s real Gamee SDK). PWA install pak spustil prod verzi, která čeká na parent message která v PWA standalone nikdy nepřijde → `startLevel()` se nezavolá → prázdná hra (jen pozadí + empty image area). **Fix**: (1) `manifest.json` `start_url` → `./index_local.html` (se stub SDK, funguje standalone). (2) `<link rel="manifest">` + apple-mobile-web-app-* metas odstraněny z `index.html` — z prod verze už PWA install nejde, jen z local. (3) CLAUDE.md Gamee zip exclude list rozšířen o `manifest.json`, `assets/icon-*.svg`, `assets/icons/` (PWA-only, v Gamee iframe nepotřebné). Gamee deployment beze změny — `index.html` zůstává funkční pro iframe. **Pozn.**: předchozí v74.1 (commit `8fd7287` se polyfillem + 2D fallback) byl revertnut (`5ea56fd`) — user explicitně řekl že 2D fallback není řešení a požaduje aby Three.js fungoval. Aktuální v74.1 je čistá per-platform separace. |
