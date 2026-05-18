@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" shape-rendering="crispEdges">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ee9bb1"/>
+      <stop offset="100%" stop-color="#a33d65"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <!-- Pixel-art "P!" — 56px grid, 9 wide, 9 tall, offset to center -->
+  <!-- Each cell: 56x56, with grid centered in 512px → start at x=32, y=68 -->
+  <g fill="#ffffff" stroke="#7a3850" stroke-width="2">
+    <!-- P top bar -->
+    <rect x="100" y="100"  width="48" height="48"/>
+    <rect x="148" y="100" width="48" height="48"/>
+    <rect x="196" y="100" width="48" height="48"/>
+    <rect x="244" y="100" width="48" height="48"/>
+    <!-- P top right corner -->
+    <rect x="292" y="148" width="48" height="48"/>
+    <!-- P middle bar -->
+    <rect x="100" y="148" width="48" height="48"/>
+    <rect x="100" y="196" width="48" height="48"/>
+    <rect x="148" y="196" width="48" height="48"/>
+    <rect x="196" y="196" width="48" height="48"/>
+    <rect x="244" y="196" width="48" height="48"/>
+    <rect x="292" y="196" width="48" height="48"/>
+    <!-- P column down -->
+    <rect x="100" y="244" width="48" height="48"/>
+    <rect x="100" y="292" width="48" height="48"/>
+    <rect x="100" y="340" width="48" height="48"/>
+    <rect x="100" y="388" width="48" height="48"/>
+    <!-- Exclamation mark dot + line -->
+    <rect x="388" y="244" width="48" height="48"/>
+    <rect x="388" y="292" width="48" height="48"/>
+    <rect x="388" y="340" width="48" height="48"/>
+    <rect x="388" y="412" width="48" height="48"/>
+  </g>
+</svg>

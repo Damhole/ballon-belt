@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="30%" r="80%">
+      <stop offset="0%" stop-color="#ee9bb1"/>
+      <stop offset="100%" stop-color="#a33d65"/>
+    </radialGradient>
+    <radialGradient id="ball" cx="38%" cy="32%" r="65%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="40%" stop-color="#fff3f7"/>
+      <stop offset="100%" stop-color="#ffd5e1"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <!-- Outline rim of ball -->
+  <circle cx="256" cy="256" r="178" fill="#7a3850" opacity="0.55"/>
+  <circle cx="256" cy="256" r="170" fill="url(#ball)"/>
+  <!-- Highlight -->
+  <ellipse cx="200" cy="200" rx="50" ry="32" fill="#ffffff" opacity="0.55"/>
+  <!-- "P!" text -->
+  <text x="252" y="340" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-weight="900" font-size="200" fill="#7a3850" letter-spacing="-8">P!</text>
+</svg>
