@@ -525,6 +525,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v74.6 | (pending) | 2026-05-18 | **PWA ikona — comic balónková varianta (icon_4).** Zlatý balónek s comic outline, hvězdičky jako součást designu, pink PLOP! text. |
 | v74.5 | (pending) | 2026-05-18 | **PWA ikona — balónková varianta (icon_3).** Nahrazena 3D plastová ikona za nafukovací balónkový styl. Stejný pipeline (flood fill + trim + 3 velikosti). |
 | v74.4 | (pending) | 2026-05-18 | **Nová PWA ikona — 3D Plop! PNG.** Nahrazena SVG ikona (Bangers font) za 3D rendered PNG (žlutý rounded square + pink PLOP!). ImageMagick flood fill odstranil černé pozadí + trim. Vygenerováno icon-192.png, icon-512.png, icon-maskable.png. manifest.json: SVG→PNG, background_color tmavá→žlutá #f0c000. index_local.html: apple-touch-icon link + apple-mobile-web-app-title opraven na "Plop!". |
 | v74.3 | (pending) | 2026-05-18 | **Settings button experimenty + version badge top tune.** Pokus o toon styling settings ⚙ buttonu (white circle s dark outline, lifted drop shadow, hover/active anims, open state pink). User experimentoval — chtěl bez circle jen ikonu s dark dropshadow zespod. Nakonec **vráceno na úplně původní** subtle 22 px white-on-translucent ⚙ emoji button. Version badge (Plop! + v74.3) posunut o 2 px výš (`funnelTop + 6` → `+ 4`). |
