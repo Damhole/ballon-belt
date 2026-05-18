@@ -579,13 +579,6 @@ body.renderer-3d #belt-svg,
 body.renderer-3d #pending-canvas {
   visibility: hidden;
 }
-/* v74.1: fallback režim — pokud Three.js moduly selhaly, odhalíme 2D rendering. */
-body.three-fallback #belt-svg,
-body.three-fallback #pending-canvas,
-body.three-fallback .cbox > div,
-body.three-fallback .wall-block {
-  visibility: visible !important;
-}
 /* V 3D módu vypnout hover scale .cbox — způsoboval, že 3D rendering
    se "zasekl" na zvětšeném míčku, protože updateCarriers měřilo
    getBoundingClientRect z scaled DOMu a neběželo dál když hover skončil. */

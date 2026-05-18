@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <head>
   <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-  <title>Balloon Belt v74.1</title>
+  <title>Balloon Belt v74.0</title>
   <script type="text/javascript" src="./lib/gamee-js-stub.js"></script>
   <meta name="viewport" content="width=460,viewport-fit=cover">
   <!-- PWA: Add to Home Screen → fullscreen, no Safari chrome. v71.20 -->
@@ -16,7 +16,7 @@
 <body onload="initGame()">
 <canvas id="bg-canvas" aria-hidden="true"></canvas>
 <div id="game">
-  <div id="version-badge"><span class="game-name">Plop!</span> <span class="ver-num">v74.1</span></div>
+  <div id="version-badge"><span class="game-name">Plop!</span> <span class="ver-num">v74.0</span></div>
   <!-- Top UI (h1 + score bar) bylo odstraněno v29 — v Gamee tyto informace
        zobrazuje platform wrapper, a editor preview je kompaktnější bez nich.
        Legacy ID score / belt-count / carriers-left jsou zachovány jako skryté
@@ -94,8 +94,6 @@
 <!-- Three.js přes importmap. Modul render3d.js si naimportuje 'three' a vystaví
      API přes window.render3d. body onload="initGame()" se spustí až po načtení
      všech scriptů včetně module type, takže game.js vidí window.render3d. -->
-<!-- v74.1: es-module-shims polyfill pro importmap support na starších browserech. -->
-<script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
 <script type="importmap">
 {
   "imports": {
@@ -105,7 +103,7 @@
 }
 </script>
 <script>
-// v74.1: dev cache-bust pokrývá teď VŠECHNY moduly (dřív jen levels.js + game.js).
+// v74.0: dev cache-bust pokrývá teď VŠECHNY moduly (dřív jen levels.js + game.js).
 // Bez tohohle Three.js moduly držely starý kód v cache i po deployi.
 (function(){
   const t = new URLSearchParams(location.search).get('t') || Date.now();
@@ -118,7 +116,7 @@
 </script>
 <!-- Debug overlay — dev only, not included in index.html / prod zip -->
 <script src="./js/debug.js"></script>
-<!-- v74.1: stats.js enabled — FPS/ms/MB panel vlevo dole, klikem se přepíná panel -->
+<!-- v74.0: stats.js enabled — FPS/ms/MB panel vlevo dole, klikem se přepíná panel -->
 <script src="https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js"></script>
 <script>
 (function(){
