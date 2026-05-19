@@ -617,7 +617,7 @@ function _playStep(vol=0.40){
 }
 
 // Ball suck do díry — celá pizz melodie, BEZ pitch shiftu (zachová původní harmonii)
-function _playSuckMelody(vol=0.18){ return; // DISABLED — ladíme cannon move
+function _playSuckMelody(vol=0.30){ // re-enabled v74.42 = air pressure suction
   if(!_audioCtx || !_suckMelodyBuffer) return;
   const now = Date.now();
   if(now - _lastSuckTime < 1000) return;
@@ -2009,7 +2009,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.41');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.42');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7414,7 +7414,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.41');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.42');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7542,7 +7542,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.41');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.42');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8167,10 +8167,12 @@ function beltLoop(ts){
           gunFireTimer+=dt;
           if(gunFireTimer>=GUN_FIRE_INTERVAL){
             // Rhythm fire soft snap: kanón fires jen v 100ms okně po music tick
+            let _canFire = true;
             if(_rhythmFire && _musicEnabled && _kickStarted){
               const phase = (Date.now() - _lastMusicTick) % 375;
-              if(phase > 100) break; // nepokračuj v fire — počkáme na další tick
+              if(phase > 100) _canFire = false;
             }
+            if(_canFire){
             gunFireTimer=0;
             cannonIdleT=0;
             gunQueue.shift();
@@ -8190,6 +8192,7 @@ function beltLoop(ts){
             window.render3d?.triggerMuzzleFlash?.(item.color, _rhythmFire && _musicEnabled && _onKickBeat);
             scheduleSmokePuffs();
             _playShoot();
+            } // close if(_canFire)
           }
         } else {
           gunFireTimer=0;
@@ -8427,7 +8430,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.41');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.42');
       event.detail.callback();
     });
 
