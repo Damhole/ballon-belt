@@ -112,7 +112,9 @@ let _kickBuffer = null;
 let _hihatBuffer = null;
 let _clapBuffer = null;
 let _beltLandBuffer = null;
+let _denialBuffer = null;
 let _lastBeltLandTime = 0;
+let _lastDenialTime = 0;
 let _padBuffer = null;
 let _beltTickBuffer = null;
 let _lastPadTime = 0;
@@ -321,6 +323,16 @@ function _initSound(){
         console.log('[BB-SOUND] belt land loaded, duration:', _beltLandBuffer.duration, 's');
       }
     }catch(e){ console.warn('[BB-SOUND] belt land failed', e.message); }
+  })();
+  // Denial — klik na inactive/locked/mystery carrier
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/denial.wav' + v);
+      if(r.ok){
+        _denialBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] denial loaded, duration:', _denialBuffer.duration, 's');
+      }
+    }catch(e){ console.warn('[BB-SOUND] denial failed', e.message); }
   })();
 }
 
@@ -546,6 +558,18 @@ function _playBeltLand(vol=0.18){
   _beltLandStep++;
   const vv = vol * (0.9 + Math.random() * 0.20); // ±10% volume (menší variace = melodie zní stabilněji)
   const _doPlay = () => _wireAndPlay(_beltLandBuffer, pitch, vv);
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+function _playDenial(vol=0.18){
+  if(!_denialBuffer || !_audioCtx) return;
+  const now = Date.now();
+  if(now - _lastDenialTime < 150) return; // throttle
+  _lastDenialTime = now;
+  const pitch = 0.92 + Math.random() * 0.16; // ±8% pitch jitter
+  const vv = vol * (0.85 + Math.random() * 0.30); // ±15% volume
+  const _doPlay = () => _wireAndPlay(_denialBuffer, pitch, vv);
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
   else _doPlay();
 }
@@ -2094,7 +2118,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.51');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.52');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6811,6 +6835,7 @@ function onDenialCarrierClick(e){
   if(RENDERER_MODE==='3d' && window.render3dBottom && window.render3dBottom.triggerCarrierDenial){
     window.render3dBottom.triggerCarrierDenial(c, r);
   }
+  _playDenial();
 }
 
 // v72.82: delegated handler na #carriers-grid pro denial shake. Najde .carrier ancestor
@@ -6826,6 +6851,7 @@ function _handleDenialDelegated(e){
   if(RENDERER_MODE==='3d' && window.render3dBottom && window.render3dBottom.triggerCarrierDenial){
     window.render3dBottom.triggerCarrierDenial(+col, +row);
   }
+  _playDenial();
 }
 
 function onCarrierClick(e){
@@ -7525,7 +7551,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.51');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.52');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7653,7 +7679,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.51');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.52');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8547,7 +8573,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.51');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.52');
       event.detail.callback();
     });
 
