@@ -251,7 +251,7 @@ function _playPop(vol=0.075){
   _lastPopTime = now;
   const pitch = _nextRhythmPitch(_OCT_POP);
   const _doPlay = () => {
-    _wireAndPlay(_popBuffer, pitch, vol);
+    _wireAndPlay(_popBuffer, pitch, vol, 1000);
     if(!_popLogged){ console.log('[BB-SOUND] first pop fired, ctx state:', _audioCtx.state); _popLogged=true; }
   };
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
@@ -296,20 +296,29 @@ function _nextRhythmPitch(octMult){
 }
 
 // Helper: připojí source přes panner + envelope na shared bus; vrátí src node (onended hook)
-function _wireAndPlay(buf, pitch, vol){
+function _wireAndPlay(buf, pitch, vol, lowpassCutoff){
   const src  = _audioCtx.createBufferSource();
   const gain = _audioCtx.createGain();
   const pan  = _audioCtx.createStereoPanner();
   src.playbackRate.value = pitch;
-  pan.pan.value = (Math.random() - 0.5) * 0.8;  // ±0.4 stereo spread
-  // Soft attack envelope (8ms fade-in) — méně agresivní transient
+  pan.pan.value = (Math.random() - 0.5) * 0.8;
   const t = _audioCtx.currentTime;
   const peakVol = vol * (0.7 + Math.random() * 0.3);
   gain.gain.setValueAtTime(0, t);
   gain.gain.linearRampToValueAtTime(peakVol, t + 0.008);
   src.buffer = buf;
   src.connect(gain);
-  gain.connect(pan);
+  // Volitelný per-zvuk lowpass (např. pop má vlastní 1500Hz pro tlumení výšek)
+  if(lowpassCutoff){
+    const lp = _audioCtx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = lowpassCutoff;
+    lp.Q.value = 0.5;
+    gain.connect(lp);
+    lp.connect(pan);
+  } else {
+    gain.connect(pan);
+  }
   pan.connect(_ensureAudioBus() || _audioCtx.destination);
   src.start(0);
   return src;
@@ -1772,7 +1781,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.31');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.32');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7177,7 +7186,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.31');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.32');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7305,7 +7314,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.31');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.32');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8184,7 +8193,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.31');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.32');
       event.detail.callback();
     });
 
