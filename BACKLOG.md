@@ -525,7 +525,8 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
-| v74.30 | (pending) | 2026-05-19 | **Audio variant #2 — sdílený rhythm counter + oktávové vrstvy.** Místo 3 nezávislých counterů má pop/bounce/shoot jeden sdílený `_rhythmStep` → action sekvence zní jako jedna melodická fráze. Vrstvy: shoot ×0.75 (bass), pop ×1.0 (mid), bounce ×1.5 (high). Shoot vol 0.18→0.12 (bass v ústraní). 80% sequential, 20% random skok. |
+| v74.31 | (pending) | 2026-05-19 | **Audio: foley step slide pro cannon move + relax variant pipeline.** Pop/bounce/shoot pentatonic minor, lowpass 2500Hz, stereo pan ±0.4, soft attack envelope 8ms (= rain/ocean feel). Cannon move: foley step slide (high heels concrete) bez tvrdého heel clicku — trim start 0.140s, fade-in 50ms, hraje jen na pohyby >100px, sequencer (žádné překryvy). Pizz, clash, suck melody disabled (čeká na lepší zvuky). |
+| v74.30 | `3676af6` | 2026-05-19 | **Audio variant #2 — sdílený rhythm counter + oktávové vrstvy.** Místo 3 nezávislých counterů má pop/bounce/shoot jeden sdílený `_rhythmStep` → action sekvence zní jako jedna melodická fráze. Vrstvy: shoot ×0.75 (bass), pop ×1.0 (mid), bounce ×1.5 (high). Shoot vol 0.18→0.12 (bass v ústraní). 80% sequential, 20% random skok. |
 | v74.29 | `4d69da5` | 2026-05-19 | **Audio polish — zvuky + pentatonický rytmus + cannon shoot.** Cannon shoot (4 variants z bubble plop), bounce hlasitost 0.07, weighted shoot (shoot_d vypnutý), pop volume final 0.075. Všechny tři zvuky (pop, bounce, shoot) pitch-quantizované na pentatoniku → sekvenční postup po stupnici, 25% random skok, reset po 1.5s pauze. Melodický feel místo random pitch. |
 | v74.24 | `93ef426` | 2026-05-18 | **Pop volume final 0.075** — uživatel potvrdil OK. |
 | v74.23 | `ab89630` | 2026-05-18 | Pop volume 0.15 (po diagnostice). |

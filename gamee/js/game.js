@@ -106,10 +106,16 @@ let _popBuffer = null;
 let _bounceBuffer = null;
 let _clashBuffer = null;
 let _shootBuffers = []; // 4 variants — náhodný výběr při výstřelu
+let _pizzBuffers = []; // pizzicato variants pro cannon move
+let _stepBuffer = null;
+let _suckMelodyBuffer = null; // melodie pro ball suck do díry
 let _lastPopTime = 0;
 let _lastBounceTime = 0;
 let _lastClashTime = 0;
 let _lastShootTime = 0;
+let _lastPizzTime = 0;
+let _lastSuckTime = 0;
+let _lastPizzTargetX = -9999; // shot.idealX kdy naposled hrál pizz
 
 function _initSound(){
   if(!_audioCtx) return;
@@ -180,6 +186,38 @@ function _initSound(){
     }
     console.log('[BB-SOUND] shoot variants loaded:', _shootBuffers.filter(Boolean).length, '/ 4');
   })();
+  // Pizzicato (cannon move) — 3 varianty
+  (async()=>{
+    const variants = ['pizz_1','pizz_2','pizz_3'];
+    for(let i=0; i<variants.length; i++){
+      try{
+        const r = await fetch('./assets/sounds/' + variants[i] + '.wav' + v);
+        if(!r.ok) continue;
+        _pizzBuffers[i] = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+      }catch(e){ console.warn('[BB-SOUND] pizz variant failed', variants[i]); }
+    }
+    console.log('[BB-SOUND] pizz variants loaded:', _pizzBuffers.filter(Boolean).length, '/ 3');
+  })();
+  // Suck melody — celá pizzicato fráze pro ball do díry
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/suck_melody.wav' + v);
+      if(r.ok){
+        _suckMelodyBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] suck melody loaded, duration:', _suckMelodyBuffer.duration, 's');
+      }
+    }catch(e){ console.warn('[BB-SOUND] suck melody failed', e.message); }
+  })();
+  // Step slide — foley step pro cannon move (decentní textura)
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/step_slide.wav' + v);
+      if(r.ok){
+        _stepBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] step slide loaded, duration:', _stepBuffer.duration, 's');
+      }
+    }catch(e){ console.warn('[BB-SOUND] step slide failed', e.message); }
+  })();
 }
 
 let _popLogged = false;
@@ -213,41 +251,68 @@ function _playPop(vol=0.075){
   _lastPopTime = now;
   const pitch = _nextRhythmPitch(_OCT_POP);
   const _doPlay = () => {
-    const src  = _audioCtx.createBufferSource();
-    const gain = _audioCtx.createGain();
-    src.playbackRate.value = pitch;
-    gain.gain.value = vol * (0.7 + Math.random() * 0.3);
-    src.buffer = _popBuffer;
-    src.connect(gain);
-    gain.connect(_audioCtx.destination);
-    src.start(0);
+    _wireAndPlay(_popBuffer, pitch, vol);
     if(!_popLogged){ console.log('[BB-SOUND] first pop fired, ctx state:', _audioCtx.state); _popLogged=true; }
   };
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
   else _doPlay();
 }
 
-// Pentatonická stupnice (major) — žádné dva tóny nezní disonantně.
-// Ratios: root, +2, +4, +7, +9 půltóny + oktáva
-const _BB_PENTATONIC = [1.000, 1.122, 1.260, 1.498, 1.682, 2.000];
+// Pentatonická MINOR (rain/ocean variant) — měkčí, relaxační (Asian/lullaby feel).
+// Ratios: root, +3m, +4p, +5p, +7m, oktáva (semitones: 0, 3, 5, 7, 10, 12)
+const _BB_PENTATONIC = [1.000, 1.189, 1.335, 1.498, 1.782, 2.000];
 // Sdílený rhythm counter — všechny tři zvuky (pop, bounce, shoot) ho posunují,
-// takže akční sekvence (výstřel → pop pixel → bounce) zní jako melodická fráze.
-// Octave offsety oddělí zvuky do vlastních vrstev (basses/mid/highs):
+// action sekvence zní jako jedna melodická fráze.
+// Oktávy blíž k sobě (vs variant #2) → zvuky se mísí jako přírodní šum.
 let _rhythmStep = 0;
 let _lastRhythmTime = 0;
-const _OCT_SHOOT  = 0.75;  // shoot = oktávu níž (bass vrstva)
-const _OCT_POP    = 1.00;  // pop = root oktáva (mid vrstva)
-const _OCT_BOUNCE = 1.50;  // bounce = perfect 5th nahoru (high vrstva)
+const _OCT_SHOOT  = 0.85;  // bass jen mírně
+const _OCT_POP    = 1.00;
+const _OCT_BOUNCE = 1.25;  // mírná vrstva nad popem
+
+// Shared output bus — lowpass filtr + stereo splitter pro relaxační měkký feel
+let _audioBus = null;
+function _ensureAudioBus(){
+  if(_audioBus || !_audioCtx) return _audioBus;
+  const lp = _audioCtx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 2500;  // tlumí ostré výšky → zaoblý sound
+  lp.Q.value = 0.5;
+  lp.connect(_audioCtx.destination);
+  _audioBus = lp;
+  return _audioBus;
+}
 
 function _nextRhythmPitch(octMult){
   const now = Date.now();
-  if(now - _lastRhythmTime > 1500) _rhythmStep = 0; // reset po pauze
+  if(now - _lastRhythmTime > 1500) _rhythmStep = 0;
   _lastRhythmTime = now;
   const idx = (Math.random() < 0.20)
-    ? (Math.random() * _BB_PENTATONIC.length) | 0  // 20% náhodný skok
-    : _rhythmStep % _BB_PENTATONIC.length;          // 80% sequential
+    ? (Math.random() * _BB_PENTATONIC.length) | 0
+    : _rhythmStep % _BB_PENTATONIC.length;
   _rhythmStep++;
-  return _BB_PENTATONIC[idx] * octMult * (0.95 + Math.random() * 0.10);
+  // Detune ±3 cents pro jemný drift (jako přírodní variabilita)
+  return _BB_PENTATONIC[idx] * octMult * (0.97 + Math.random() * 0.06);
+}
+
+// Helper: připojí source přes panner + envelope na shared bus; vrátí src node (onended hook)
+function _wireAndPlay(buf, pitch, vol){
+  const src  = _audioCtx.createBufferSource();
+  const gain = _audioCtx.createGain();
+  const pan  = _audioCtx.createStereoPanner();
+  src.playbackRate.value = pitch;
+  pan.pan.value = (Math.random() - 0.5) * 0.8;  // ±0.4 stereo spread
+  // Soft attack envelope (8ms fade-in) — méně agresivní transient
+  const t = _audioCtx.currentTime;
+  const peakVol = vol * (0.7 + Math.random() * 0.3);
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(peakVol, t + 0.008);
+  src.buffer = buf;
+  src.connect(gain);
+  gain.connect(pan);
+  pan.connect(_ensureAudioBus() || _audioCtx.destination);
+  src.start(0);
+  return src;
 }
 
 function _playShoot(vol=0.12){
@@ -264,16 +329,63 @@ function _playShoot(vol=0.12){
   let buf = pool[0].buf;
   for(const v of pool){ if(r < v.w){ buf = v.buf; break; } r -= v.w; }
   const pitch = _nextRhythmPitch(_OCT_SHOOT);
+  const _doPlay = () => _wireAndPlay(buf, pitch, vol);
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+// Cannon move — sekvencer: noty se nepřekrývají, čekají si na řadu.
+// Pohyb dela = pokus o trigger. Pokud nota hraje, naplánuje se další po dohrání.
+// Pentatonika advancuje vždy → vzniká kontinuální melodie z pohybu.
+let _pizzActive = false;
+let _pizzPending = false;
+function _playPizz(vol=0.08){ return; // DISABLED — user hledá lepší zvuk
+  if(!_audioCtx) return;
+  const buffers = _pizzBuffers.filter(Boolean);
+  if(!buffers.length) return;
+  // Pokud už nota hraje → pamatuj že byl pohyb, ať se po dohrání spustí další
+  if(_pizzActive){ _pizzPending = true; return; }
+  _pizzActive = true;
+  const buf = buffers[(Math.random() * buffers.length) | 0];
+  const pitch = _nextRhythmPitch(1.00); // pentatonika advancuje → melodický postup
   const _doPlay = () => {
-    const src  = _audioCtx.createBufferSource();
-    const gain = _audioCtx.createGain();
-    src.playbackRate.value = pitch;
-    gain.gain.value = vol * (0.7 + Math.random() * 0.3);
-    src.buffer = buf;
-    src.connect(gain);
-    gain.connect(_audioCtx.destination);
-    src.start(0);
+    const src = _wireAndPlay(buf, pitch, vol);
+    src.onended = () => {
+      _pizzActive = false;
+      if(_pizzPending){
+        _pizzPending = false;
+        _playPizz(vol); // hned zahraj další (pohyb se stal během play)
+      }
+    };
   };
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+// Cannon move — foley step slide, sequencer (no overlap), bez pitch shiftu.
+// Velmi decentní — textura, ne melodie. Pokud step hraje, další pohyb se zahodí.
+let _stepActive = false;
+function _playStep(vol=0.40){
+  if(!_audioCtx || !_stepBuffer) return;
+  if(_stepActive) return; // jednoduchý anti-overlap (žádné queueing — slide nemá smysl skládat)
+  _stepActive = true;
+  // Mírná pitch variace pro přirozenost (ne pentatonika — textura)
+  const pitch = 0.92 + Math.random() * 0.16;
+  const _doPlay = () => {
+    const src = _wireAndPlay(_stepBuffer, pitch, vol);
+    src.onended = () => { _stepActive = false; };
+  };
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+// Ball suck do díry — celá pizz melodie, BEZ pitch shiftu (zachová původní harmonii)
+function _playSuckMelody(vol=0.18){ return; // DISABLED — ladíme cannon move
+  if(!_audioCtx || !_suckMelodyBuffer) return;
+  const now = Date.now();
+  if(now - _lastSuckTime < 1000) return;
+  _lastSuckTime = now;
+  const _doPlay = () => _wireAndPlay(_suckMelodyBuffer, 1.0, vol);
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
   else _doPlay();
 }
@@ -285,16 +397,7 @@ function _playBounce(vol=0.07){
   if(now - _lastBounceTime < 80) return; // throttle 80ms
   _lastBounceTime = now;
   const pitch = _nextRhythmPitch(_OCT_BOUNCE);
-  const _doPlay = () => {
-    const src  = _audioCtx.createBufferSource();
-    const gain = _audioCtx.createGain();
-    src.playbackRate.value = pitch;
-    gain.gain.value = vol * (0.7 + Math.random() * 0.3);
-    src.buffer = _bounceBuffer;
-    src.connect(gain);
-    gain.connect(_audioCtx.destination);
-    src.start(0);
-  };
+  const _doPlay = () => _wireAndPlay(_bounceBuffer, pitch, vol);
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
   else _doPlay();
 }
@@ -1669,7 +1772,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.30');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.31');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6980,6 +7083,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     const color=ball.ci;
     if(ball.ppu<=0){
       window.render3dBottom?.triggerHoleSuck?.(COLORS[color]);
+      _playSuckMelody();
       belt[i]=null;
       drainPending();
       drawBelt();drawPending();
@@ -6990,6 +7094,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     const hasBlockTarget=currentBlocks.some(b=>b.hp>0&&b.color===color);
     if((pxNow[color]||0)===0&&!hasBlockTarget){
       window.render3dBottom?.triggerHoleSuck?.(COLORS[color]);
+      _playSuckMelody();
       belt[i]=null;
       drainPending();
       drawBelt();drawPending();
@@ -6998,6 +7103,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     // Raketová koule – odpal přímo, bez kontroly dosahu / kolizí
     if(ball.rocket){
       window.render3dBottom?.triggerHoleSuck?.(COLORS[color]);
+      _playSuckMelody();
       belt[i]=null;
       drainPending();
       drawBelt();drawPending();
@@ -7061,6 +7167,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     noMatchPasses=0;
     loops=0;
     window.render3dBottom?.triggerHoleSuck?.(COLORS[color]);
+      _playSuckMelody();
     belt[i]=null;
     drainPending();
     drawBelt();drawPending();
@@ -7070,7 +7177,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.30');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.31');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7198,7 +7305,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.30');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.31');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7811,6 +7918,13 @@ function beltLoop(ts){
         if(Math.abs(ddx)<=step) cannonX=shot.idealX;
         else cannonX+=Math.sign(ddx)*step;
         cannonAngle=shot.angle;
+        // Pizzicato při novém cíli kanónu (1× per shot target, ne během pohybu)
+        // Step jen na delší pohyby (>100 px) — krátké korekce ignoruj
+        const _moveDist = Math.abs(shot.idealX - cannonX);
+        if(_moveDist > 100 && shot.idealX !== _lastPizzTargetX){
+          _lastPizzTargetX = shot.idealX;
+          _playStep();
+        }
         if(Math.abs(shot.idealX-cannonX)<=CANNON_ARRIVE_EPS){
           gunFireTimer+=dt;
           if(gunFireTimer>=GUN_FIRE_INTERVAL){
@@ -8070,7 +8184,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.30');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.31');
       event.detail.callback();
     });
 
