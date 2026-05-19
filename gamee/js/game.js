@@ -2145,7 +2145,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.57');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.58');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7568,7 +7568,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.57');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.58');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7696,7 +7696,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.57');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.58');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8133,6 +8133,11 @@ function setupDOM(){
   }
   document.getElementById('level-label').textContent=LEVELS[levelIdx].label;
   document.getElementById('restart-btn').addEventListener('click',startLevel);
+  const nextEndBtn=document.getElementById('next-btn');
+  if(nextEndBtn) nextEndBtn.addEventListener('click',()=>{
+    document.getElementById('overlay').classList.remove('show');
+    stepLevel(1);
+  });
   document.getElementById('level-prev').addEventListener('click',()=>stepLevel(-1));
   document.getElementById('level-next').addEventListener('click',()=>stepLevel(1));
   // Difficulty segment: sync highlight s aktuálním state a přepínání.
@@ -8591,7 +8596,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.57');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.58');
       event.detail.callback();
     });
 
