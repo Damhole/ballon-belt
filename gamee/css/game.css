@@ -690,12 +690,14 @@ body.renderer-3d #overlay-box {
 }
 body.renderer-3d #overlay-box h3 { color: #3a2330; }
 body.renderer-3d #overlay-box p { color: rgba(80, 40, 70, 0.75); }
-body.renderer-3d #restart-btn {
+body.renderer-3d #restart-btn,
+body.renderer-3d #next-btn {
   background: #3a2330;
   color: #fff;
   border: none;
 }
-body.renderer-3d #restart-btn:hover { background: #5a3050; }
+body.renderer-3d #restart-btn:hover,
+body.renderer-3d #next-btn:hover { background: #5a3050; }
 
 /* ─── Dev overlay (v73.128, dev only, index_local.html) ─────────────────── */
 /*                                                                             */
