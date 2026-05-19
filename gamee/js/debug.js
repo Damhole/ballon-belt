@@ -107,6 +107,20 @@
     });
     overlay.appendChild(safezonePill);
 
+    // ── Music toggle pill ──────────────────────────────────────────────
+    var musicPill = document.createElement('button');
+    musicPill.type = 'button';
+    var musicOn = window._bbGetMusicEnabled ? window._bbGetMusicEnabled() : false;
+    musicPill.className = 'dbg-pill' + (musicOn ? ' active' : '');
+    musicPill.textContent = '🎵 Hudba';
+    musicPill.addEventListener('click', function () {
+      var current = window._bbGetMusicEnabled ? window._bbGetMusicEnabled() : false;
+      var next = !current;
+      if(window._bbSetMusicEnabled) window._bbSetMusicEnabled(next);
+      musicPill.classList.toggle('active', next);
+    });
+    overlay.appendChild(musicPill);
+
     // ── Move version-badge do body (out of #game flex) — vždy viditelný
     var versionBadge = document.getElementById('version-badge');
     if (versionBadge) {

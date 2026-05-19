@@ -119,6 +119,16 @@ let _kickIntervalId = null;
 // Sekvenční layer build-up: každá vrstva nahraje, dosáhne max, pak startuje další.
 // Každá další vrstva ramp-uje rychleji než předchozí.
 let _kickStarted = false; // beat začne až po prvním výstřelu hráče
+// Music master toggle — default off, persisted v localStorage, ovládá z dev overlay
+let _musicEnabled = (function(){
+  try { return localStorage.getItem('bb-music') === '1'; } catch(e){ return false; }
+})();
+window._bbSetMusicEnabled = function(enabled){
+  _musicEnabled = !!enabled;
+  try { localStorage.setItem('bb-music', enabled ? '1' : '0'); } catch(e){}
+  if(!enabled) _resetMusicState(); // vypnout = okamžitě ztichnout layery
+};
+window._bbGetMusicEnabled = function(){ return _musicEnabled; };
 let _layerVol = { kick: 0, hihat: 0, clap: 0, pad: 0, belt: 0 };
 let _currentLayer = null; // 'kick' | 'hihat' | 'clap' | 'pad' | 'done'
 // Ramp rates per 375ms tick — kick nejpomalejší, pad nejrychlejší
@@ -408,7 +418,7 @@ function _playShoot(vol=0.12){
   let buf = pool[0].buf;
   for(const v of pool){ if(r < v.w){ buf = v.buf; break; } r -= v.w; }
   const pitch = _nextRhythmPitch(_OCT_SHOOT);
-  if(!_kickStarted){
+  if(!_kickStarted && _musicEnabled){
     _kickStarted = true;
     _currentLayer = 'kick';
     _layerVol.kick = 0.25; // kick startuje na audible minimum, ramp odsud
@@ -462,7 +472,7 @@ function _playHihat(vol=0.85){
   else _doPlay();
 }
 
-function _playClap(vol=0.90){
+function _playClap(vol=0.63){
   if(!_clapBuffer || !_audioCtx) return;
   const pitch = 0.95 + Math.random() * 0.10;
   const _doPlay = () => _wireAndPlay(_clapBuffer, pitch, vol);
@@ -504,7 +514,7 @@ let _kickStep = 0;
 // gameplay zvuky se ztišují → music dostává prostor "promluvit".
 // 0% music = 1.0 SFX (full), 100% music = 0.35 SFX (background level).
 function _getSfxFade(){
-  if(!_kickStarted) return 1.0; // bez music = plné SFX
+  if(!_musicEnabled || !_kickStarted) return 1.0; // bez music = plné SFX
   const layers = _layerVol.kick + _layerVol.hihat + _layerVol.clap + _layerVol.pad + _layerVol.belt;
   const completeness = layers / 5; // 0..1
   return 1.0 - (completeness * 0.40); // 1.0 → 0.60 (jemnější redukce)
@@ -525,7 +535,7 @@ function _scheduleKick(){
   const delay = 375; // 80 BPM 8th notes
   _kickIntervalId = setTimeout(() => {
     const isRunning = typeof running !== 'undefined' && running;
-    if(isRunning && _kickStarted){
+    if(isRunning && _kickStarted && _musicEnabled){
       const i = _kickStep % _KICK_PATTERN.length;
       // Ramp current layer; postupně unlock další
       if(_currentLayer && _currentLayer !== 'done'){
@@ -546,7 +556,7 @@ function _scheduleKick(){
       }
       // Clap — hraje až hihat dosáhne 1.0
       if(_CLAP_PATTERN[i] && _layerVol.clap > 0){
-        _playClap(0.90 * _layerVol.clap);
+        _playClap(0.63 * _layerVol.clap);
       }
       // Pad — hraje až clap dosáhne 1.0
       if(i === 0 && _layerVol.pad > 0){
@@ -1986,7 +1996,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.38');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.39');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7391,7 +7401,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.38');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.39');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7519,7 +7529,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.38');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.39');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8399,7 +8409,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.38');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.39');
       event.detail.callback();
     });
 
