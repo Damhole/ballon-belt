@@ -108,6 +108,20 @@ let _clashBuffer = null;
 let _shootBuffers = []; // 4 variants — náhodný výběr při výstřelu
 let _pizzBuffers = []; // pizzicato variants pro cannon move
 let _stepBuffer = null;
+let _kickBuffer = null;
+let _hihatBuffer = null;
+let _clapBuffer = null;
+let _padBuffer = null;
+let _lastPadTime = 0;
+let _padPlayCount = 0; // crescendo boost v rámci session
+let _kickIntervalId = null;
+// Sekvenční layer build-up: každá vrstva nahraje, dosáhne max, pak startuje další.
+// Každá další vrstva ramp-uje rychleji než předchozí.
+let _kickStarted = false; // beat začne až po prvním výstřelu hráče
+let _layerVol = { kick: 0, hihat: 0, clap: 0, pad: 0 };
+let _currentLayer = null; // 'kick' | 'hihat' | 'clap' | 'pad' | 'done'
+// Ramp rates per 375ms tick — kick nejpomalejší, pad nejrychlejší
+const _LAYER_RATES = { kick: 0.011, hihat: 0.020, clap: 0.027, pad: 0.035 };
 let _suckMelodyBuffer = null; // melodie pro ball suck do díry
 let _lastPopTime = 0;
 let _popFatigue = 1.0;
@@ -218,6 +232,47 @@ function _initSound(){
         console.log('[BB-SOUND] step slide loaded, duration:', _stepBuffer.duration, 's');
       }
     }catch(e){ console.warn('[BB-SOUND] step slide failed', e.message); }
+  })();
+  // Soft kick drum — sparse beat v pozadí
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/kick.wav' + v);
+      if(r.ok){
+        _kickBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] kick loaded, duration:', _kickBuffer.duration, 's');
+        _scheduleKick();
+      }
+    }catch(e){ console.warn('[BB-SOUND] kick failed', e.message); }
+  })();
+  // Hi-hat
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/hihat.wav' + v);
+      if(r.ok){
+        _hihatBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] hihat loaded, duration:', _hihatBuffer.duration, 's');
+      }
+    }catch(e){ console.warn('[BB-SOUND] hihat failed', e.message); }
+  })();
+  // Clap
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/clap.wav' + v);
+      if(r.ok){
+        _clapBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] clap loaded, duration:', _clapBuffer.duration, 's');
+      }
+    }catch(e){ console.warn('[BB-SOUND] clap failed', e.message); }
+  })();
+  // Ambient pad
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/pad_am7.wav' + v);
+      if(r.ok){
+        _padBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] pad loaded, duration:', _padBuffer.duration, 's');
+      }
+    }catch(e){ console.warn('[BB-SOUND] pad failed', e.message); }
   })();
 }
 
@@ -342,6 +397,11 @@ function _playShoot(vol=0.12){
   let buf = pool[0].buf;
   for(const v of pool){ if(r < v.w){ buf = v.buf; break; } r -= v.w; }
   const pitch = _nextRhythmPitch(_OCT_SHOOT);
+  if(!_kickStarted){
+    _kickStarted = true;
+    _currentLayer = 'kick';
+    _layerVol.kick = 0.25; // kick startuje na audible minimum, ramp odsud
+  }
   const _doPlay = () => _wireAndPlay(buf, pitch, vol);
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
   else _doPlay();
@@ -373,6 +433,113 @@ function _playPizz(vol=0.08){ return; // DISABLED — user hledá lepší zvuk
   };
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
   else _doPlay();
+}
+
+// Sparse kick drum — random interval 3-6s, hraje jen pokud hra běží
+function _playKick(vol=3.00){
+  if(!_kickBuffer || !_audioCtx) return;
+  const _doPlay = () => _wireAndPlay(_kickBuffer, 1.0, vol);
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+function _playHihat(vol=0.85){
+  if(!_hihatBuffer || !_audioCtx) return;
+  const pitch = 0.95 + Math.random() * 0.10; // jemná pitch variace
+  const _doPlay = () => _wireAndPlay(_hihatBuffer, pitch, vol);
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+function _playClap(vol=0.90){
+  if(!_clapBuffer || !_audioCtx) return;
+  const pitch = 0.95 + Math.random() * 0.10;
+  const _doPlay = () => _wireAndPlay(_clapBuffer, pitch, vol);
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+// Pad pitches — A minor pentatonic ratios + oktávy.
+// 0.5 = oktávu níž (deep), 0.75 = 5p níž, 1.0 = root, 1.5 = 5p nahoru (bright), 2.0 = oktávu nahoru
+const _PAD_PITCHES = [0.5, 0.75, 1.0, 1.0, 1.0, 1.5, 2.0]; // root weighted častěji
+function _playPad(vol=0.55, pitch){
+  if(!_padBuffer || !_audioCtx) return;
+  const p = pitch !== undefined ? pitch : _PAD_PITCHES[(Math.random() * _PAD_PITCHES.length) | 0];
+  const _doPlay = () => _wireAndPlay(_padBuffer, p, vol);
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+// Beat sequencer — 4-step rhythm @ 80 BPM (750ms per step)
+// Kick pattern: K . K K   (boom-pause-boom-boom)
+// Hihat pattern: . H . H  (vyplňuje offbeaty + overlap na poslední)
+// 8-step rhythm @ 80 BPM (375ms per step, 3s loop)
+// Kick:  K . . . K . K .   (downbeats + last beat)
+// Hihat: . . H . . . H .   (backbeats)
+// Clap:  . . . . . . . D   (double-clap jen na konci loopu = fill)
+const _KICK_PATTERN  = [true, false, false, false, true, false, true, false];
+const _HIHAT_PATTERN = [false, false, true, false, false, false, true, false];
+const _CLAP_PATTERN  = [false, false, false, false, false, false, false, true];
+let _kickStep = 0;
+function _resetMusicState(){
+  _padPlayCount = 0;
+  _lastPadTime = 0;
+  _kickStep = 0;
+  _popFatigue = 1.0;
+  _kickStarted = false;
+  _layerVol = { kick: 0, hihat: 0, clap: 0, pad: 0 };
+  _currentLayer = null;
+}
+
+function _scheduleKick(){
+  if(_kickIntervalId) clearTimeout(_kickIntervalId);
+  const delay = 375; // 80 BPM 8th notes
+  _kickIntervalId = setTimeout(() => {
+    const isRunning = typeof running !== 'undefined' && running;
+    if(isRunning && _kickStarted){
+      const i = _kickStep % _KICK_PATTERN.length;
+      // Ramp current layer; postupně unlock další
+      if(_currentLayer && _currentLayer !== 'done'){
+        _layerVol[_currentLayer] = Math.min(1.0, _layerVol[_currentLayer] + _LAYER_RATES[_currentLayer]);
+        if(_layerVol[_currentLayer] >= 1.0){
+          const order = ['kick', 'hihat', 'clap', 'pad'];
+          const next = order[order.indexOf(_currentLayer) + 1];
+          _currentLayer = next || 'done';
+        }
+      }
+      // Kick — vždy hraje (vol roste 0.25 → 1.0)
+      if(_KICK_PATTERN[i] && _layerVol.kick > 0){
+        _playKick(2.00 * _layerVol.kick);
+      }
+      // Hihat — hraje až kick dosáhne 1.0
+      if(_HIHAT_PATTERN[i] && _layerVol.hihat > 0){
+        _playHihat(0.85 * _layerVol.hihat);
+      }
+      // Clap — hraje až hihat dosáhne 1.0
+      if(_CLAP_PATTERN[i] && _layerVol.clap > 0){
+        _playClap(0.90 * _layerVol.clap);
+      }
+      // Pad — hraje až clap dosáhne 1.0
+      if(i === 0 && _layerVol.pad > 0){
+        const now = Date.now();
+        if(now - _lastPadTime > 25000) _padPlayCount = 0;
+        if(now - _lastPadTime > 10000){
+          _padPlayCount++;
+          const padCrescendo = 1.0 + Math.min(0.40, _padPlayCount * 0.05);
+          const pitch1 = _PAD_PITCHES[(Math.random() * _PAD_PITCHES.length) | 0];
+          _playPad(0.55 * _layerVol.pad * padCrescendo, pitch1);
+          _lastPadTime = now;
+          if(Math.random() < 0.35){
+            const altPitches = _PAD_PITCHES.filter(p => p !== pitch1);
+            const pitch2 = altPitches[(Math.random() * altPitches.length) | 0];
+            setTimeout(() => _playPad(0.40 * _layerVol.pad * padCrescendo, pitch2),
+                       1000 + Math.random() * 2000);
+          }
+        }
+      }
+    }
+    _kickStep++;
+    _scheduleKick();
+  }, delay);
 }
 
 // Cannon move — foley step slide, sequencer (no overlap), bez pitch shiftu.
@@ -1785,7 +1952,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.33');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.34');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7190,7 +7357,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.33');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.34');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7318,7 +7485,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.33');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.34');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7348,6 +7515,7 @@ function startLevel(){
   if(!beltLoopStarted){beltLoopStarted=true;lastBeltTime=null;requestAnimationFrame(beltLoop);}
   grid=makeGrid();belt=new Array(BELT_CAP).fill(null);pending=[];nudgeTimer=0;funnelWarnTimer=0;score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
   particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;smokePuffs=[];smokePuffsQueue=[];
+  _resetMusicState(); // nový level = hudba zase od foundation kick
   _caCountdown=3+Math.floor(Math.random()*3); // v73.236 CA interval reset
   // v72.68: reset 3D carrier transition caches — jinak by se carriery nového levelu
   // detekovaly jako "inactive → active" z předchozího levelu (falešné pop animace).
@@ -8197,7 +8365,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.33');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.34');
       event.detail.callback();
     });
 
