@@ -7,14 +7,14 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// v74.48: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v74.48';
+// v74.49: version stamp pro watchdog
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v74.49';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
 const PENDING_CANVAS_H = 50;   // výška #pending-canvas (v71.6: půlka)
 const BELT_CAP        = 14;    // max balls na pásu
-// v74.48: cycle zkrácen — ball max uvnitř right box, nepřeteče (match game.js)
+// v74.49: cycle zkrácen — ball max uvnitř right box, nepřeteče (match game.js)
 const BELT_STARTX     = 18;    // posun -32px vůči původním 50, max xCSSrel=353
 const BELT_ENDX       = BELT_STARTX + 24 * (14 - 1); // 330
 const BELT_SPACING    = 24;    // 14×24 = 336 (cycle)
@@ -851,12 +851,12 @@ function init() {
   contentGroup.add(st.beltOutlineMesh);
 
   _buildBeltTrack(contentGroup, W, toonGrad, st.beltCenterY);
-  _loadBeltBoxes(contentGroup, toonGrad); // v74.48: 3D krabice po stranách belt
+  _loadBeltBoxes(contentGroup, toonGrad); // v74.49: 3D krabice po stranách belt
   _initUnifiedFrame();  // v73.54: belt + skulina + arena jako jeden 3D povrch
 
   st.ready = true;
-  st._dirty = true; // v74.48: first frame render
-  // v74.48: shader pre-warm — kompiluj všechny WebGL programy předem aby
+  st._dirty = true; // v74.49: first frame render
+  // v74.49: shader pre-warm — kompiluj všechny WebGL programy předem aby
   // při prvním use (carrier fire, pending ball spawn) nebyl 50–200ms jam.
   try {
     st.renderer.compile(st.scene, st.camera);
@@ -886,7 +886,7 @@ function _buildBeltTrack(parent, W, toonGrad, beltCenterY) {
   st.beltEdgeBot = edgeBot;
 }
 
-// v74.48: GLB loader pro belt-side krabice (BeltBoxLeft, BeltBoxRight).
+// v74.49: GLB loader pro belt-side krabice (BeltBoxLeft, BeltBoxRight).
 // Asset: 1m = 50px konvence. Boxy překryjí rollers — left box přes rollerL,
 // right box přes rollerR. Detekce object names přes traverse.
 function _loadBeltBoxes(parent, toonGrad) {
@@ -1420,7 +1420,7 @@ function _rebuildUnifiedFrame() {
   const key = `${st.beltCenterY}|${st.carriersTopCSS}|${st.carriersBottomCSS}`;
   if (key === st.lastFrameKey) return;
   st.lastFrameKey = key;
-  st._slotCacheValid = false; // v74.48: layout reálně mění slot pozice
+  st._slotCacheValid = false; // v74.49: layout reálně mění slot pozice
   _disposeUnifiedFrame();
   _initUnifiedFrame();
 }
@@ -1605,7 +1605,7 @@ function _initUnifiedFrame() {
   const floorMaxY = floorGeom.boundingBox.max.y + FLOOR_SHIFT_Y; // world Y nejvyššího vertexu
   const carriersBg = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
   const floorMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(carriersBg) });
-  // v74.48: gradient injection — bottom (low Y, = nejnižší row) je světlejší ×1.18,
+  // v74.49: gradient injection — bottom (low Y, = nejnižší row) je světlejší ×1.18,
   // top (= belt area) má base color × 1.0. Inject přes onBeforeCompile.
   floorMat.onBeforeCompile = (shader) => {
     shader.uniforms.uFloorMinY = { value: floorMinY };
@@ -2051,12 +2051,12 @@ function _clipSelfIntersections(points) {
 
 function updateCarriers(columns, colorsArr) {
   if (!st.ready || !columns) return;
-  st._dirty = true; // v74.48: carriers update = layout change → vždy dirty
+  st._dirty = true; // v74.49: carriers update = layout change → vždy dirty
 
   // v73.103: rebuild frame pokud carriers pozice změnila (responzivní layout)
   _rebuildUnifiedFrame();
 
-  // v74.48: per-slot measurement cache — během anim se layout nemění, takže
+  // v74.49: per-slot measurement cache — během anim se layout nemění, takže
   // místo per-frame getBoundingClientRect (36 carriers × ~3 rect calls = 108
   // forced layouts/frame) cache pozice + dynScale. Invalidace přes
   // _invalidateSlotCache() (resize, level start, theme change).
@@ -2111,7 +2111,7 @@ function updateCarriers(columns, colorsArr) {
         // Spočítej pozici z .cbox (nyní revealed slot)
         const cboxR = slotDivs[r].querySelector('.cbox');
         if (cboxR) {
-          // v74.48: reveal trigger — 1× per slot reveal, neoptimalizujeme cache
+          // v74.49: reveal trigger — 1× per slot reveal, neoptimalizujeme cache
           const crR = cboxR.getBoundingClientRect();
           const refL = st._cachedRefLeft !== undefined ? st._cachedRefLeft : (refRect ? refRect.left : 0);
           const canT = st._cachedCanvasTop !== undefined ? st._cachedCanvasTop : (canvasRect ? canvasRect.top : 0);
@@ -2133,7 +2133,7 @@ function updateCarriers(columns, colorsArr) {
       if (isHiddenVisual) {
         const cboxHid = slotDivs[r].querySelector('.cbox-hid');
         if (!cboxHid) continue;
-        // v74.48: cache hidden slot pos
+        // v74.49: cache hidden slot pos
         const hidCacheKey = 'h:' + c + ',' + r;
         let xWh, yWh, dynScaleH;
         const cachedH = useCache ? st._slotCache.get(hidCacheKey) : null;
@@ -2218,7 +2218,7 @@ function updateCarriers(columns, colorsArr) {
         // popT 0.30..0.55: slot settled at 1.0, ball cascade runs
       }
 
-      // v74.48: cache slot pos + dynScale (jinak getBoundingClientRect per slot per frame)
+      // v74.49: cache slot pos + dynScale (jinak getBoundingClientRect per slot per frame)
       const slotCacheKey = c + ',' + r;
       let xW, yW, dynScale;
       const cached = useCache ? st._slotCache.get(slotCacheKey) : null;
@@ -2483,7 +2483,7 @@ function updateCarriers(columns, colorsArr) {
   if (st.carrierMesh.instanceColor) st.carrierMesh.instanceColor.needsUpdate = true;
   st.carrierOutlineMesh.count = ballIdx;
   st.carrierOutlineMesh.instanceMatrix.needsUpdate = true;
-  // v74.48: track přítomnost mystery slotů — jejich textura scrolluje a tedy
+  // v74.49: track přítomnost mystery slotů — jejich textura scrolluje a tedy
   // vyžaduje continuous render kde jsou visible.
   let myTotal = 0;
   for (let r = 0; r < rowMysteryIdx.length; r++) myTotal += rowMysteryIdx[r] || 0;
@@ -2508,9 +2508,9 @@ function updateCarriers(columns, colorsArr) {
   }
 }
 
-// v74.48: dirty helper pro bottom scénu — krátký a explicit
+// v74.49: dirty helper pro bottom scénu — krátký a explicit
 function _bottomMarkDirty() { st._dirty = true; }
-// v74.48: invalidace per-slot měření cache — volat při resize, level start, theme change
+// v74.49: invalidace per-slot měření cache — volat při resize, level start, theme change
 function invalidateSlotCache() {
   st._slotCacheValid = false;
   if (st._slotCache) st._slotCache.clear();
@@ -2541,7 +2541,149 @@ function _hasActiveCarrierAnim() {
       || (st.carrierPopAnim && st.carrierPopAnim.size > 0)
       || (st.mysteryRevealMeshes && st.mysteryRevealMeshes.size > 0)
       || (st.carrierDenialAnim && st.carrierDenialAnim.size > 0)
-      || (_holeAnims.length > 0);
+      || (_holeAnims.length > 0)
+      || (_carrierRipples.length > 0)
+      || (_rippleDots.length > 0);
+}
+
+// Carrier click ripple — full circle → expanding thin ring → zmizí.
+// CircleGeometry s custom shader: alpha vyplněna z (0.5*uT) do 0.5 → hole roste,
+// ring se zužuje až zmizí.
+const _carrierRipples = [];
+let _ripple_circle_geom = null;
+function _getRippleGeom(){
+  if(!_ripple_circle_geom) _ripple_circle_geom = new THREE.CircleGeometry(1, 48);
+  return _ripple_circle_geom;
+}
+function triggerCarrierRipple(col, row, hexColor, canvasX, canvasY, cboxW, cboxH) {
+  if (!st.ready || !st.contentGroup) return;
+  st._dirty = true;
+  const xW = canvasX;
+  const yW = _worldY(canvasY);
+  const baseR = Math.max(cboxW, cboxH) * 0.45;
+  const c = new THREE.Color(hexColor || 0xffffff);
+  c.convertSRGBToLinear(); // bez tohohle ShaderMaterial bypassuje color mgmt → divná barva
+  const mat = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    depthTest: false, // vždy nad scénou
+    side: THREE.DoubleSide,
+    uniforms: {
+      uT:     { value: 0 },
+      uColor: { value: new THREE.Vector3(c.r, c.g, c.b) },
+    },
+    vertexShader: `varying vec2 vUv;
+      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `varying vec2 vUv;
+      uniform float uT;
+      uniform vec3 uColor;
+      void main(){
+        float d = length(vUv - vec2(0.5));
+        float innerR = 0.5 * uT;       // hole roste z 0 do 0.5
+        float outerR = 0.5;
+        // soft edges
+        float a = smoothstep(innerR - 0.02, innerR + 0.02, d) * (1.0 - smoothstep(outerR - 0.02, outerR + 0.02, d));
+        a *= 0.85; // konstantní opacity — zmizí jen ztenčením
+        if(a < 0.01) discard;
+        gl_FragColor = vec4(uColor, a);
+      }`,
+  });
+  const mesh = new THREE.Mesh(_getRippleGeom(), mat);
+  mesh.position.set(xW, yW, SLOT_DEPTH * 0.5 + R_CARRIER * 1.5 + 5);
+  mesh.scale.setScalar(baseR);
+  mesh.renderOrder = 250; // nad vším včetně pending balls (150)
+  st.contentGroup.add(mesh);
+  _carrierRipples.push({
+    mesh: mesh,
+    mat: mat,
+    t0: performance.now(),
+    baseR: baseR,
+    maxR: baseR * 1.35, // menší max radius
+    dur: 380,
+  });
+}
+// Tečky které zůstanou po prstenci a pomalu zmizí
+const _rippleDots = [];
+let _rippleDotGeom = null;
+function _getDotGeom(){
+  if(!_rippleDotGeom) _rippleDotGeom = new THREE.CircleGeometry(1, 12);
+  return _rippleDotGeom;
+}
+function _spawnRippleDots(centerX, centerY, centerZ, threeColor, currentRadius){
+  const N = 6 + ((Math.random() * 3) | 0); // 6-8 teček
+  for(let i = 0; i < N; i++){
+    const ang = (i / N) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+    const r = currentRadius * (0.85 + Math.random() * 0.25);
+    const dotMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(threeColor.x, threeColor.y, threeColor.z),
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      side: THREE.DoubleSide,
+      fog: false,
+      opacity: 0.85,
+    });
+    const dot = new THREE.Mesh(_getDotGeom(), dotMat);
+    dot.position.set(centerX + Math.cos(ang) * r, centerY + Math.sin(ang) * r, centerZ);
+    const dotSize = 1.5 + Math.random() * 1.0;
+    dot.scale.setScalar(dotSize);
+    dot.renderOrder = 251;
+    st.contentGroup.add(dot);
+    // Drift outward + slight upward jitter
+    const driftX = Math.cos(ang) * (3 + Math.random() * 4);
+    const driftY = Math.sin(ang) * (3 + Math.random() * 4);
+    _rippleDots.push({
+      mesh: dot, mat: dotMat,
+      t0: performance.now(),
+      dur: 450 + Math.random() * 250,
+      startX: dot.position.x, startY: dot.position.y,
+      driftX, driftY,
+    });
+  }
+}
+function _updateRippleDots(now){
+  if(_rippleDots.length === 0) return;
+  st._dirty = true;
+  for(let i = _rippleDots.length - 1; i >= 0; i--){
+    const d = _rippleDots[i];
+    const t = (now - d.t0) / d.dur;
+    if(t >= 1){
+      st.contentGroup.remove(d.mesh);
+      d.mat.dispose();
+      _rippleDots.splice(i, 1);
+      continue;
+    }
+    const ease = 1 - Math.pow(1 - t, 3); // ease-out
+    d.mesh.position.x = d.startX + d.driftX * ease;
+    d.mesh.position.y = d.startY + d.driftY * ease;
+    d.mat.opacity = 0.85 * (1 - t * t); // accelerating fade
+  }
+}
+
+function _updateCarrierRipples(now) {
+  if (_carrierRipples.length === 0) return;
+  st._dirty = true;
+  for (let i = _carrierRipples.length - 1; i >= 0; i--) {
+    const r = _carrierRipples[i];
+    const t = (now - r.t0) / r.dur;
+    // Při t > 0.7 spawn dots (jen jednou per ripple)
+    if (t > 0.7 && !r.dotsSpawned) {
+      r.dotsSpawned = true;
+      const ease = 1 - Math.pow(1 - t, 2);
+      const currentR = r.baseR + (r.maxR - r.baseR) * ease;
+      _spawnRippleDots(r.mesh.position.x, r.mesh.position.y, r.mesh.position.z,
+                       r.mat.uniforms.uColor.value, currentR);
+    }
+    if (t >= 1) {
+      st.contentGroup.remove(r.mesh);
+      r.mat.dispose();
+      _carrierRipples.splice(i, 1);
+      continue;
+    }
+    const ease = 1 - Math.pow(1 - t, 2);
+    r.mesh.scale.setScalar(r.baseR + (r.maxR - r.baseR) * ease);
+    r.mat.uniforms.uT.value = t;
+  }
 }
 
 // Hole-suck animace: koule letí z LAUNCH pozice na pásu do hole assetu, scaluje
@@ -2649,7 +2791,7 @@ function _countFilled(projectiles) {
 
 function updatePending(pendingArr, colorsArr) {
   if (!st.ready) return;
-  // v74.48: dirty pokud má aspoň jednu pending ball (pohybují se každý frame)
+  // v74.49: dirty pokud má aspoň jednu pending ball (pohybují se každý frame)
   if (pendingArr && pendingArr.length > 0) st._dirty = true;
   const dummy = st._dummy;
   const c3    = st._col3;
@@ -2728,7 +2870,7 @@ function updatePending(pendingArr, colorsArr) {
 
 function updateBelt(beltArr, beltAnim, colorsArr) {
   if (!st.ready) return;
-  // v74.48: dirty pokud má aspoň jednu belt ball (belt anim posouvá)
+  // v74.49: dirty pokud má aspoň jednu belt ball (belt anim posouvá)
   if (beltArr) { for (let i = 0; i < beltArr.length; i++) { if (beltArr[i]) { st._dirty = true; break; } } }
   const dummy = st._dummy;
   const c3    = st._col3;
@@ -2781,7 +2923,7 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
     if (!b) continue;
 
     const xCSSrel = BELT_STARTX + (i * BELT_SPACING + offset) % BELT_TOTAL;
-    // v74.48: visibility cull odstraněn. Balls jsou vždy v range 20..369,
+    // v74.49: visibility cull odstraněn. Balls jsou vždy v range 20..369,
     // box mesh řeší occlusion přes depth test (inside left/right box → hidden).
     const xCSS = st.beltOffsetX + xCSSrel;
 
@@ -2811,7 +2953,7 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
 
 // ─── Render ──────────────────────────────────────────────────────────────────
 
-// v74.48: dirty-flag render skipping pro bottom scénu — analogie top scene.
+// v74.49: dirty-flag render skipping pro bottom scénu — analogie top scene.
 // Skip render pokud žádná pending/belt ball + žádná aktivní carrier anim.
 // Bezpečnostní fallback: vždy 1× za 60 framů (1 fps base).
 function render() {
@@ -2826,6 +2968,8 @@ function render() {
   if (!st._dirty && sinceLast < 60) return;
   const now = performance.now();
   _updateHoleAnims(now);
+  _updateCarrierRipples(now);
+  _updateRippleDots(now);
   // v72.49: animace mystery textury — diagonální scroll (offset.x i offset.y).
   if (st._mysteryTex) {
     if (st._mysteryLastTs !== undefined) {
@@ -3118,7 +3262,7 @@ function _disposeWallMeshes() {
 
 function updateWalls(columns) {
   if (!st.ready || !st._wallMat) return;
-  st._dirty = true; // v74.48: walls update = layout/color change
+  st._dirty = true; // v74.49: walls update = layout/color change
   // Theme color match — read --carriers-3d-bg z aktuálního theme
   const cs = getComputedStyle(document.body);
   const bgColor = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
@@ -3216,8 +3360,8 @@ function updateWalls(columns) {
 // (nový level s víc řadami = vyšší deck). Bez resize by se bottom rows renderovaly
 // MIMO canvas (clipped).
 function resize() {
-  st._dirty = true; // v74.48: viewport change → refresh
-  st._slotCacheValid = false; // v74.48: layout může změnit slot pozice
+  st._dirty = true; // v74.49: viewport change → refresh
+  st._slotCacheValid = false; // v74.49: layout může změnit slot pozice
   if (!st.ready || !st.canvas) return;
   const gameEl   = document.getElementById('game');
   const beltWrap = document.getElementById('belt-wrap');
@@ -3359,7 +3503,7 @@ function refreshBeltTint() {
   const evenMixed = mix(baseEven);
   const oddMixed  = mix(baseOdd);
   st._beltTint = { even: evenMixed, odd: oddMixed };
-  // v74.48: inner barva odvozená z plate odd-tinted barvy + lighter (HSL L+0.28)
+  // v74.49: inner barva odvozená z plate odd-tinted barvy + lighter (HSL L+0.28)
   // → automaticky ladí s každým theme + je dostatečně světlá.
   if (st.beltPlateInnerMesh) {
     const innerColor = oddMixed.clone();
@@ -3436,7 +3580,7 @@ function refreshWallColor() {
 // v73.257: setPixelRatio per tier — největší win na mobile (retina 2× = 4× pixelů).
 function setQualityTier(tier){
   st.qualityTier = Math.max(0, Math.min(2, tier|0));
-  st._dirty = true; // v74.48: tier change → vynucený refresh
+  st._dirty = true; // v74.49: tier change → vynucený refresh
   // v73.262: MED drží plnou retina (jen LOW jde na 1.5)
   if (st.renderer) {
     const dpr = window.devicePixelRatio || 1;
@@ -3445,5 +3589,5 @@ function setQualityTier(tier){
   }
 }
 function getQualityTier(){ return st.qualityTier || 0; }
-window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, triggerHoleSuck, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor, setQualityTier, getQualityTier, invalidateSlotCache, refreshBeltTint };
+window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, triggerCarrierRipple, triggerHoleSuck, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor, setQualityTier, getQualityTier, invalidateSlotCache, refreshBeltTint };
 window._r3dBState = st;  // debug

@@ -2086,7 +2086,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.48');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.49');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6907,6 +6907,10 @@ function onCarrierClick(e){
       const bd=document.getElementById('bottom-deck')?.getBoundingClientRect()||cv;
       window.render3dBottom.triggerCarrierFire(c,r,COLORS[slot.color],balls.length,
         cR.left+cR.width/2-bd.left,cR.top+cR.height/2-cv.top,cR.width,cR.height);
+      if(window.render3dBottom.triggerCarrierRipple){
+        window.render3dBottom.triggerCarrierRipple(c,r,COLORS[slot.color],
+          cR.left+cR.width/2-bd.left,cR.top+cR.height/2-cv.top,cR.width,cR.height);
+      }
     }
   }
   // Spawn každou kouli na 2×2 pozici v carrieru (TL, TR, BL, BR) — jako by ty samé míčky
@@ -7492,7 +7496,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.48');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.49');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7620,7 +7624,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.48');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.49');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8514,7 +8518,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.48');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.49');
       event.detail.callback();
     });
 
