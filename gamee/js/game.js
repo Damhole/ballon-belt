@@ -105,9 +105,11 @@ const _audioCtx = (() => {
 let _popBuffer = null;
 let _bounceBuffer = null;
 let _clashBuffer = null;
+let _shootBuffers = []; // 4 variants — náhodný výběr při výstřelu
 let _lastPopTime = 0;
 let _lastBounceTime = 0;
 let _lastClashTime = 0;
+let _lastShootTime = 0;
 
 function _initSound(){
   if(!_audioCtx) return;
@@ -166,6 +168,18 @@ function _initSound(){
       }catch(e){ console.warn('[BB-SOUND] clash failed', url, e.message); }
     }
   })();
+  // Shoot — 4 varianty bubble plop, náhodný výběr při výstřelu z děla
+  (async()=>{
+    const variants = ['shoot_a','shoot_b','shoot_c','shoot_d'];
+    for(let i=0; i<variants.length; i++){
+      try{
+        const r = await fetch('./assets/sounds/' + variants[i] + '.wav' + v);
+        if(!r.ok) continue;
+        _shootBuffers[i] = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+      }catch(e){ console.warn('[BB-SOUND] shoot variant failed', variants[i]); }
+    }
+    console.log('[BB-SOUND] shoot variants loaded:', _shootBuffers.filter(Boolean).length, '/ 4');
+  })();
 }
 
 let _popLogged = false;
@@ -196,11 +210,18 @@ function _playPop(vol=0.075){
   if(Math.random() < 0.33) return; // ~1 ze 3 vynechán
   const now = Date.now();
   if(now - _lastPopTime < 60) return;
+  if(now - _lastPopTime > 1500) _popStep = 0; // reset sekvence po pauze
   _lastPopTime = now;
+  // Pentatonický pitch — sekvenční s občasným skokem
+  const pIdx = (Math.random() < 0.25)
+    ? (Math.random() * _BB_PENTATONIC.length) | 0
+    : _popStep % _BB_PENTATONIC.length;
+  _popStep++;
+  const pitch = _BB_PENTATONIC[pIdx] * (0.85 + Math.random() * 0.10);
   const _doPlay = () => {
     const src  = _audioCtx.createBufferSource();
     const gain = _audioCtx.createGain();
-    src.playbackRate.value = 0.9 + Math.random() * 0.2;
+    src.playbackRate.value = pitch;
     gain.gain.value = vol * (0.7 + Math.random() * 0.3);
     src.buffer = _popBuffer;
     src.connect(gain);
@@ -212,16 +233,64 @@ function _playPop(vol=0.075){
   else _doPlay();
 }
 
-function _playBounce(vol=0.175){
+// Pentatonická stupnice (major) — žádné dva tóny nezní disonantně.
+// Ratios: root, +2, +4, +7, +9 půltóny + oktáva
+const _BB_PENTATONIC = [1.000, 1.122, 1.260, 1.498, 1.682, 2.000];
+let _bounceStep = 0;
+let _shootStep = 0;
+let _popStep = 0;
+
+function _playShoot(vol=0.18){
+  if(!_audioCtx) return;
+  if(!_shootBuffers.some(Boolean)) return;
+  const now = Date.now();
+  if(now - _lastShootTime < 35) return; // throttle při rychlé palbě
+  _lastShootTime = now;
+  // Vážená náhoda: shoot_d (index 3) o 50% méně častý než a/b/c
+  const weights = [1, 1, 1, 0];
+  const pool = _shootBuffers.map((b, i) => b ? {buf: b, w: weights[i]} : null).filter(Boolean);
+  const total = pool.reduce((s, v) => s + v.w, 0);
+  let r = Math.random() * total;
+  let buf = pool[0].buf;
+  for(const v of pool){ if(r < v.w){ buf = v.buf; break; } r -= v.w; }
+  if(now - _lastShootTime > 1500) _shootStep = 0;
+  const pIdx = (Math.random() < 0.25)
+    ? (Math.random() * _BB_PENTATONIC.length) | 0
+    : _shootStep % _BB_PENTATONIC.length;
+  _shootStep++;
+  const pitch = _BB_PENTATONIC[pIdx] * (0.85 + Math.random() * 0.10);
+  const _doPlay = () => {
+    const src  = _audioCtx.createBufferSource();
+    const gain = _audioCtx.createGain();
+    src.playbackRate.value = pitch;
+    gain.gain.value = vol * (0.7 + Math.random() * 0.3);
+    src.buffer = buf;
+    src.connect(gain);
+    gain.connect(_audioCtx.destination);
+    src.start(0);
+  };
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+function _playBounce(vol=0.07){
   if(!_bounceBuffer || !_audioCtx) return;
   if(Math.random() < 0.5) return; // ~50% skip — zvuk se hraje míň často
   const now = Date.now();
   if(now - _lastBounceTime < 80) return; // throttle 80ms
+  // Reset sekvence po pauze (>1.5s) → každá nová série bounce začíná melodicky
+  if(now - _lastBounceTime > 1500) _bounceStep = 0;
   _lastBounceTime = now;
+  // Vyber tón z pentatoniky — sekvence stoupá, občas náhodný skok
+  const idx = (Math.random() < 0.25)
+    ? (Math.random() * _BB_PENTATONIC.length) | 0       // 25% random skok
+    : _bounceStep % _BB_PENTATONIC.length;              // 75% sequential
+  _bounceStep++;
+  const pitch = _BB_PENTATONIC[idx] * (0.85 + Math.random() * 0.10); // octave + jemný drift
   const _doPlay = () => {
     const src  = _audioCtx.createBufferSource();
     const gain = _audioCtx.createGain();
-    src.playbackRate.value = 0.9 + Math.random() * 0.25;
+    src.playbackRate.value = pitch;
     gain.gain.value = vol * (0.7 + Math.random() * 0.3);
     src.buffer = _bounceBuffer;
     src.connect(gain);
@@ -1602,7 +1671,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.28');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.29');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7003,7 +7072,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.28');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.29');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7131,7 +7200,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.28');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.29');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7765,6 +7834,7 @@ function beltLoop(ts){
             });
             window.render3d?.triggerMuzzleFlash?.(item.color);
             scheduleSmokePuffs();
+            _playShoot();
           }
         } else {
           gunFireTimer=0;
@@ -8002,7 +8072,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.28');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.29');
       event.detail.callback();
     });
 
