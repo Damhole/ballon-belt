@@ -2145,7 +2145,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.54');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.55');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6256,8 +6256,8 @@ function _ensureR3DBottom(){
 const _BLK_TILT = 19.2 * Math.PI / 180;
 const _BLK_TILT_COS = Math.cos(_BLK_TILT);
 const _BLK_TILT_SIN = Math.sin(_BLK_TILT);
-const _BLK_HALF_DEPTH = 16; // BLOCK_DEPTH/2 v render3d.js — pro střed bloku
-const _BLK_FULL_DEPTH = 32; // BLOCK_DEPTH — pro top face (outline)
+const _BLK_HALF_DEPTH = 14; // BLOCK_DEPTH/2 v render3d.js — pro střed bloku
+const _BLK_FULL_DEPTH = 29; // BLOCK_DEPTH — pro top face (outline)
 // Tilt correction helper: vrací posunutou canvas-Y pro daný flat Y a Z výšku.
 // Y-flip (canvas top=0) + tilt rotace -19.2° kolem X osy s pivotem na imgCenter.
 function _tiltY(y_flat, z_world){
@@ -6282,44 +6282,7 @@ function _drawBlockHpOverlay(){
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // resetuj a scale na CSS-pixely
   ctx.clearRect(0,0,W,H);
 
-  // ── BLOCK OUTLINES ─────────────────────────────────────────────────────
-  // Trace silhouette každého bloku — vykreslí lines na hranách cells, kde
-  // neighbor je MIMO blok. Tilt correction pro top face (FULL_DEPTH).
-  // Sjednocuje look bloků s pixely (které mají outline z bevel textury).
-  ctx.save();
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
-  ctx.lineWidth = 1.6;
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-  for(const b of currentBlocks){
-    if(b.hp<=0) continue;
-    if(!b._mask) continue;
-    ctx.beginPath();
-    for(let ly=0; ly<b.h; ly++){
-      const row = b._mask[ly];
-      if(!row) continue;
-      for(let lx=0; lx<b.w; lx++){
-        if(!row[lx]) continue;
-        const x = (b.x + lx) * SCALE;
-        const yT = _tiltY((b.y + ly) * SCALE, _BLK_FULL_DEPTH);     // top edge
-        const yB = _tiltY((b.y + ly + 1) * SCALE, _BLK_FULL_DEPTH); // bottom edge
-        // Top edge — pokud nahoře není sousední cell stejného bloku
-        const top = (ly===0) || !b._mask[ly-1] || !b._mask[ly-1][lx];
-        if(top){ ctx.moveTo(x, yT); ctx.lineTo(x+SCALE, yT); }
-        // Bottom edge
-        const bot = (ly===b.h-1) || !b._mask[ly+1] || !b._mask[ly+1][lx];
-        if(bot){ ctx.moveTo(x, yB); ctx.lineTo(x+SCALE, yB); }
-        // Left edge
-        const lft = (lx===0) || !row[lx-1];
-        if(lft){ ctx.moveTo(x, yT); ctx.lineTo(x, yB); }
-        // Right edge
-        const rgt = (lx===b.w-1) || !row[lx+1];
-        if(rgt){ ctx.moveTo(x+SCALE, yT); ctx.lineTo(x+SCALE, yB); }
-      }
-    }
-    ctx.stroke();
-  }
-  ctx.restore();
+  // v74.55: 2D outline odebrán — 3D outline mesh per block (updateBlockOutlines v render3d.js)
 
   // ── HP TEXT + MYSTERY ──────────────────────────────────────────────────
   for(const b of currentBlocks){
@@ -6337,17 +6300,26 @@ function _drawBlockHpOverlay(){
     ctx.lineJoin='round';                 // round joins = žádné spike artefakty
     ctx.lineCap='round';
     ctx.strokeStyle='#000000';            // solid černá, žádná alpha → žádný blend artefakt
+    // v74.55: Bangers comic font + depth shadow (extruded "3D" look)
+    // Draw text několikrát s Y offsetem v plné černé → vznikne tlustá černá spodní stěna,
+    // pak finální vrstva nahoře s outline + light fill.
+    function _drawDepthText(text, cx, cy, font, fillColor){
+      ctx.font = font;
+      // Depth layers — black solid, offset 1, 2, 3, 4 px down
+      ctx.fillStyle = '#000000';
+      for(let dy = 4; dy >= 1; dy--){
+        ctx.fillText(text, cx, cy + dy);
+      }
+      // Outline (top layer)
+      ctx.strokeText(text, cx, cy);
+      // Fill (top layer)
+      ctx.fillStyle = fillColor;
+      ctx.fillText(text, cx, cy);
+    }
     if(isMystery){
-      const qFont=28;
-      ctx.font='bold '+qFont+'px system-ui, -apple-system, sans-serif';
-      ctx.strokeText('?',cx,cy);
-      ctx.fillStyle='#ffe07a';
-      ctx.fillText('?',cx,cy);
+      _drawDepthText('?', cx, cy + 10, 'normal 25px Impact, "Arial Black", Bangers, sans-serif', '#ffe07a');
     } else {
-      ctx.font='bold '+fontPx+'px system-ui, -apple-system, sans-serif';
-      ctx.strokeText(String(b.hp),cx,cy);
-      ctx.fillStyle='#ffffff';
-      ctx.fillText(String(b.hp),cx,cy);
+      _drawDepthText(String(b.hp), cx, cy + 10, 'normal 22px Impact, "Arial Black", Bangers, sans-serif', '#ffffff');
     }
     ctx.restore();
     // Mystery: malé HP číslo v pravém horním rohu (přes překrytí ? uvnitř)
@@ -6358,7 +6330,7 @@ function _drawBlockHpOverlay(){
       ctx.save();
       ctx.textAlign='right';
       ctx.textBaseline='top';
-      ctx.font='bold 10px system-ui, -apple-system, sans-serif';
+      ctx.font='normal 9px Impact, "Arial Black", Bangers, sans-serif';
       ctx.lineWidth=2.5;
       ctx.lineJoin='round';
       ctx.lineCap='round';
@@ -6412,6 +6384,7 @@ function drawBlocks(ctx){
   // _drawBlockHpOverlay() — stejná typografie jako 2D, jen na jiné vrstvě.
   if(RENDERER_MODE==='3d' && window.render3d && window.render3d.isReady && window.render3d.isReady()){
     window.render3d.updateBlocks(currentBlocks, COLORS);
+    if(window.render3d.updateBlockOutlines) window.render3d.updateBlockOutlines(currentBlocks);
     _drawBlockHpOverlay();
     return;
   }
@@ -7595,7 +7568,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.54');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.55');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7723,7 +7696,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.54');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.55');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8617,7 +8590,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.54');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.55');
       event.detail.callback();
     });
 
