@@ -112,16 +112,17 @@ let _kickBuffer = null;
 let _hihatBuffer = null;
 let _clapBuffer = null;
 let _padBuffer = null;
+let _beltTickBuffer = null;
 let _lastPadTime = 0;
 let _padPlayCount = 0; // crescendo boost v rámci session
 let _kickIntervalId = null;
 // Sekvenční layer build-up: každá vrstva nahraje, dosáhne max, pak startuje další.
 // Každá další vrstva ramp-uje rychleji než předchozí.
 let _kickStarted = false; // beat začne až po prvním výstřelu hráče
-let _layerVol = { kick: 0, hihat: 0, clap: 0, pad: 0 };
+let _layerVol = { kick: 0, hihat: 0, clap: 0, pad: 0, belt: 0 };
 let _currentLayer = null; // 'kick' | 'hihat' | 'clap' | 'pad' | 'done'
 // Ramp rates per 375ms tick — kick nejpomalejší, pad nejrychlejší
-const _LAYER_RATES = { kick: 0.011, hihat: 0.020, clap: 0.027, pad: 0.035 };
+const _LAYER_RATES = { kick: 0.011, hihat: 0.020, clap: 0.027, pad: 0.035, belt: 0.045 };
 let _suckMelodyBuffer = null; // melodie pro ball suck do díry
 let _lastPopTime = 0;
 let _popFatigue = 1.0;
@@ -274,6 +275,16 @@ function _initSound(){
       }
     }catch(e){ console.warn('[BB-SOUND] pad failed', e.message); }
   })();
+  // Belt tick — jemný mechanický klik (suplující bezici pas)
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/belt_tick.wav' + v);
+      if(r.ok){
+        _beltTickBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] belt tick loaded, duration:', _beltTickBuffer.duration, 's');
+      }
+    }catch(e){ console.warn('[BB-SOUND] belt tick failed', e.message); }
+  })();
 }
 
 let _popLogged = false;
@@ -310,7 +321,7 @@ function _playPop(vol=0.075){
   _lastPopTime = now;
   const pitch = _nextRhythmPitch(_OCT_POP);
   const _doPlay = () => {
-    _wireAndPlay(_popBuffer, pitch, vol * _popFatigue, 1000);
+    _wireAndPlay(_popBuffer, pitch, vol * _popFatigue * _getSfxFade(), 1000);
     if(!_popLogged){ console.log('[BB-SOUND] first pop fired, ctx state:', _audioCtx.state); _popLogged=true; }
   };
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
@@ -402,7 +413,7 @@ function _playShoot(vol=0.12){
     _currentLayer = 'kick';
     _layerVol.kick = 0.25; // kick startuje na audible minimum, ramp odsud
   }
-  const _doPlay = () => _wireAndPlay(buf, pitch, vol);
+  const _doPlay = () => _wireAndPlay(buf, pitch, vol * _getSfxFade());
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
   else _doPlay();
 }
@@ -469,6 +480,14 @@ function _playPad(vol=0.55, pitch){
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
   else _doPlay();
 }
+
+function _playBeltTick(vol=0.40){
+  if(!_beltTickBuffer || !_audioCtx) return;
+  const pitch = 0.95 + Math.random() * 0.10; // jemná pitch variation
+  const _doPlay = () => _wireAndPlay(_beltTickBuffer, pitch, vol);
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
 // Beat sequencer — 4-step rhythm @ 80 BPM (750ms per step)
 // Kick pattern: K . K K   (boom-pause-boom-boom)
 // Hihat pattern: . H . H  (vyplňuje offbeaty + overlap na poslední)
@@ -479,14 +498,25 @@ function _playPad(vol=0.55, pitch){
 const _KICK_PATTERN  = [true, false, false, false, true, false, true, false];
 const _HIHAT_PATTERN = [false, false, true, false, false, false, true, false];
 const _CLAP_PATTERN  = [false, false, false, false, false, false, false, true];
+const _BELT_PATTERN  = [false, true, false, true, false, true, false, true]; // off-beats (mezi kicky)
 let _kickStep = 0;
+// SFX (pop/bounce/shoot/step) fade — jak music vrstvy postupně narůstají,
+// gameplay zvuky se ztišují → music dostává prostor "promluvit".
+// 0% music = 1.0 SFX (full), 100% music = 0.35 SFX (background level).
+function _getSfxFade(){
+  if(!_kickStarted) return 1.0; // bez music = plné SFX
+  const layers = _layerVol.kick + _layerVol.hihat + _layerVol.clap + _layerVol.pad + _layerVol.belt;
+  const completeness = layers / 5; // 0..1
+  return 1.0 - (completeness * 0.40); // 1.0 → 0.60 (jemnější redukce)
+}
+
 function _resetMusicState(){
   _padPlayCount = 0;
   _lastPadTime = 0;
   _kickStep = 0;
   _popFatigue = 1.0;
   _kickStarted = false;
-  _layerVol = { kick: 0, hihat: 0, clap: 0, pad: 0 };
+  _layerVol = { kick: 0, hihat: 0, clap: 0, pad: 0, belt: 0 };
   _currentLayer = null;
 }
 
@@ -501,7 +531,7 @@ function _scheduleKick(){
       if(_currentLayer && _currentLayer !== 'done'){
         _layerVol[_currentLayer] = Math.min(1.0, _layerVol[_currentLayer] + _LAYER_RATES[_currentLayer]);
         if(_layerVol[_currentLayer] >= 1.0){
-          const order = ['kick', 'hihat', 'clap', 'pad'];
+          const order = ['kick', 'hihat', 'clap', 'pad', 'belt'];
           const next = order[order.indexOf(_currentLayer) + 1];
           _currentLayer = next || 'done';
         }
@@ -536,6 +566,10 @@ function _scheduleKick(){
           }
         }
       }
+      // Belt tick — mechanický klik na off-beaty (5. vrstva, unlocks po padu)
+      if(_BELT_PATTERN[i] && _layerVol.belt > 0){
+        _playBeltTick(0.40 * _layerVol.belt);
+      }
     }
     _kickStep++;
     _scheduleKick();
@@ -552,7 +586,7 @@ function _playStep(vol=0.40){
   // Mírná pitch variace pro přirozenost (ne pentatonika — textura)
   const pitch = 0.92 + Math.random() * 0.16;
   const _doPlay = () => {
-    const src = _wireAndPlay(_stepBuffer, pitch, vol);
+    const src = _wireAndPlay(_stepBuffer, pitch, vol * _getSfxFade());
     src.onended = () => { _stepActive = false; };
   };
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
@@ -577,7 +611,7 @@ function _playBounce(vol=0.07){
   if(now - _lastBounceTime < 80) return; // throttle 80ms
   _lastBounceTime = now;
   const pitch = _nextRhythmPitch(_OCT_BOUNCE);
-  const _doPlay = () => _wireAndPlay(_bounceBuffer, pitch, vol);
+  const _doPlay = () => _wireAndPlay(_bounceBuffer, pitch, vol * _getSfxFade());
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
   else _doPlay();
 }
@@ -1952,7 +1986,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.34');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.35');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7357,7 +7391,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.34');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.35');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7485,7 +7519,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.34');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.35');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8365,7 +8399,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.34');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.35');
       event.detail.callback();
     });
 
