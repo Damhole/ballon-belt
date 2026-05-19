@@ -13,7 +13,7 @@
 // POZN: SW se registruje jen z index_local.html (PWA entry).
 // Gamee verze (index.html) SW nemá → Gamee iframe deployment netknut.
 
-const _VERSION = 'v74.58';
+const _VERSION = 'v74.59';
 const CACHE_NAME = `bb-cache-${_VERSION}`;
 
 self.addEventListener('install', (e) => {

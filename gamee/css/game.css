@@ -378,8 +378,6 @@ body.renderer-3d.theme-mono-light .theme-select{color:#fff}
 .overlay-actions{display:flex;gap:8px;justify-content:center}
 #restart-btn,#next-btn{padding:8px 20px;border-radius:8px;border:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:14px;color:var(--color-text-primary)}
 #restart-btn:hover,#next-btn:hover{background:var(--color-background-secondary)}
-#next-btn{background:rgba(120,180,255,0.18);border-color:rgba(120,180,255,0.4)}
-#next-btn:hover{background:rgba(120,180,255,0.32)}
 #score-bar{display:flex;gap:24px;font-size:13px;color:var(--color-text-secondary)}
 #score-bar span b{color:var(--color-text-primary);font-weight:500}
 h1{font-size:16px;font-weight:500;color:var(--color-text-secondary);letter-spacing:0.05em}
