@@ -183,14 +183,23 @@ body.theme-neon #carriers-wrap {
 /* v73.138: revert anti-scroll hacků — pull-to-refresh musí fungovat.
    Místo toho zajistím že herní obsah se vejde do viewportu, takže není
    co scrollovat. Žádný overflow:hidden, position:fixed, touch-action:none. */
+/* v74.37: html background — pokrývá viewport i pokud body height fail při iOS PWA initial paint.
+   Bez tohohle bývalo bílé okno dole 50-100px do první user interakce. */
+html {
+  background: #111;
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  min-height: 100dvh;
+}
 body {
   font-family: var(--font-sans);
   background: #111;
   color: var(--color-text-primary);
   /* v73.139: 100dvh místo 100vh — dynamic viewport respektuje iOS URL bar.
-     100vh by extend body za visible viewport (when URL bar visible) → scroll.
+     v74.37: -webkit-fill-available pro iOS PWA standalone (správný viewport před settling).
      Fallback na 100vh pro old browsers. */
   min-height: 100vh;
+  min-height: -webkit-fill-available;
   min-height: 100dvh;
   display: flex;
   align-items: flex-start;
