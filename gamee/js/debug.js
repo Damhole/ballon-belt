@@ -121,6 +121,20 @@
     });
     overlay.appendChild(musicPill);
 
+    // ── Rhythm fire toggle pill ────────────────────────────────────────
+    var rhythmPill = document.createElement('button');
+    rhythmPill.type = 'button';
+    var rhythmOn = window._bbGetRhythmFire ? window._bbGetRhythmFire() : false;
+    rhythmPill.className = 'dbg-pill' + (rhythmOn ? ' active' : '');
+    rhythmPill.textContent = '🎯 Rhythm fire';
+    rhythmPill.addEventListener('click', function () {
+      var current = window._bbGetRhythmFire ? window._bbGetRhythmFire() : false;
+      var next = !current;
+      if(window._bbSetRhythmFire) window._bbSetRhythmFire(next);
+      rhythmPill.classList.toggle('active', next);
+    });
+    overlay.appendChild(rhythmPill);
+
     // ── Move version-badge do body (out of #game flex) — vždy viditelný
     var versionBadge = document.getElementById('version-badge');
     if (versionBadge) {

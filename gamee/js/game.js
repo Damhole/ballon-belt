@@ -123,6 +123,17 @@ let _kickStarted = false; // beat začne až po prvním výstřelu hráče
 let _musicEnabled = (function(){
   try { return localStorage.getItem('bb-music') === '1'; } catch(e){ return false; }
 })();
+// Rhythm fire — soft snap kanonu na music tick (jen pokud music on)
+let _rhythmFire = (function(){
+  try { return localStorage.getItem('bb-rhythm-fire') === '1'; } catch(e){ return false; }
+})();
+let _lastMusicTick = 0; // timestamp posledního scheduler ticku
+let _onKickBeat = false; // true pokud aktuální tick je v _KICK_PATTERN (downbeat)
+window._bbSetRhythmFire = function(enabled){
+  _rhythmFire = !!enabled;
+  try { localStorage.setItem('bb-rhythm-fire', enabled ? '1' : '0'); } catch(e){}
+};
+window._bbGetRhythmFire = function(){ return _rhythmFire; };
 window._bbSetMusicEnabled = function(enabled){
   _musicEnabled = !!enabled;
   try { localStorage.setItem('bb-music', enabled ? '1' : '0'); } catch(e){}
@@ -535,8 +546,10 @@ function _scheduleKick(){
   const delay = 375; // 80 BPM 8th notes
   _kickIntervalId = setTimeout(() => {
     const isRunning = typeof running !== 'undefined' && running;
+    _lastMusicTick = Date.now();
     if(isRunning && _kickStarted && _musicEnabled){
       const i = _kickStep % _KICK_PATTERN.length;
+      _onKickBeat = _KICK_PATTERN[i];
       // Ramp current layer; postupně unlock další
       if(_currentLayer && _currentLayer !== 'done'){
         _layerVol[_currentLayer] = Math.min(1.0, _layerVol[_currentLayer] + _LAYER_RATES[_currentLayer]);
@@ -1996,7 +2009,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.40');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.41');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7401,7 +7414,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.40');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.41');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7529,7 +7542,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.40');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.41');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8153,6 +8166,11 @@ function beltLoop(ts){
         if(Math.abs(shot.idealX-cannonX)<=CANNON_ARRIVE_EPS){
           gunFireTimer+=dt;
           if(gunFireTimer>=GUN_FIRE_INTERVAL){
+            // Rhythm fire soft snap: kanón fires jen v 100ms okně po music tick
+            if(_rhythmFire && _musicEnabled && _kickStarted){
+              const phase = (Date.now() - _lastMusicTick) % 375;
+              if(phase > 100) break; // nepokračuj v fire — počkáme na další tick
+            }
             gunFireTimer=0;
             cannonIdleT=0;
             gunQueue.shift();
@@ -8169,7 +8187,7 @@ function beltLoop(ts){
               phase:'fly',stuckT:0,bounceStreak:0,totalT:0,
               popR:0,popX:0,popY:0,onPop:()=>{}
             });
-            window.render3d?.triggerMuzzleFlash?.(item.color);
+            window.render3d?.triggerMuzzleFlash?.(item.color, _rhythmFire && _musicEnabled && _onKickBeat);
             scheduleSmokePuffs();
             _playShoot();
           }
@@ -8409,7 +8427,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.40');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.41');
       event.detail.callback();
     });
 
