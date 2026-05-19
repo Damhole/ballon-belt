@@ -653,7 +653,7 @@ function init(canvas, opts) {
     3
   );
   state.blockMesh.count = 0;
-  state.blockOutlineMeshes = []; // outline mesh per block (BackSide inverted hull around bbox)
+  state.blockOutlineMeshes = []; // outline mesh per block (silhouette ExtrudeGeometry)
   state.blockMesh.frustumCulled = false;
   state.blockMesh.castShadow = true;
   state.blockMesh.receiveShadow = true;
@@ -1329,72 +1329,128 @@ function updateBlocks(blocks, COLORS) {
   mesh.instanceColor.needsUpdate = true;
 }
 
-// Aktualizuje outline meshe — per-block BackSide BoxGeometry kolem bounding boxu.
-// Volá se z drawBlocks() v game.js v 3D módu. Mesh = inverted hull (BackSide black),
-// scale 1.04 → silhouette kolem celého bloku. Sjednocuje look s pixely (které mají
-// outline z bevel) a carriers (BackSide outline meshe).
-// Per-external-edge outline — pro každou cell zkontroluje 4 sousedy, pokud edge
-// nemá souseda → flat strip položený NAD top face bloku (žádné side walls do hloubky).
-let _bbHorizStripGeom = null, _bbVertStripGeom = null, _bbOutlineMat = null;
-const _BB_OUTLINE_THICKNESS = 1.6;
-const _BB_OUTLINE_FLAT_Z = 0.8; // velmi flat — výška proužku v Z
-function _initBlockOutlineResources(){
-  if(_bbHorizStripGeom) return;
-  const T = _BB_OUTLINE_THICKNESS;
-  const Z = _BB_OUTLINE_FLAT_Z;
-  _bbHorizStripGeom = new THREE.BoxGeometry(SCALE + T, T, Z);
-  _bbVertStripGeom  = new THREE.BoxGeometry(T, SCALE + T, Z);
-  _bbOutlineMat = new THREE.MeshBasicMaterial({ color: 0x000000, fog: false });
+// Silhouette polygon outline pro bloky — trace vnějšího polygonu bloku z _mask,
+// offset outward, ExtrudeGeometry s plnou výškou bloku. Funguje pro libovolný tvar
+// (L, T, +, U, ...). Stejný přístup jako wall outline v render3d_bottom.js.
+
+const _BB_OUTLINE_T = 1.5; // tloušťka outline v world units (SCALE=10 → 1px ≈ 1 world unit)
+let _bbOutlineMat = null;
+
+// Trace vnějšího polygonu bloku v block-local Y-down souřadnicích (px, CW).
+// Cell (lx, ly) zabírá grid square (lx,ly)→(lx+1,ly+1).
+function _buildBlockSilhouettePoly(b) {
+  const mask = b._mask;
+  const hasCell = (lx, ly) =>
+    ly >= 0 && ly < b.h && lx >= 0 && lx < b.w && mask[ly] && mask[ly][lx];
+  const edges = [];
+  for (let ly = 0; ly < b.h; ly++) {
+    if (!mask[ly]) continue;
+    for (let lx = 0; lx < b.w; lx++) {
+      if (!mask[ly][lx]) continue;
+      if (!hasCell(lx, ly - 1)) edges.push({ from: [lx,   ly  ], to: [lx+1, ly  ] }); // top →
+      if (!hasCell(lx + 1, ly)) edges.push({ from: [lx+1, ly  ], to: [lx+1, ly+1] }); // right ↓
+      if (!hasCell(lx, ly + 1)) edges.push({ from: [lx+1, ly+1], to: [lx,   ly+1] }); // bottom ←
+      if (!hasCell(lx - 1, ly)) edges.push({ from: [lx,   ly+1], to: [lx,   ly  ] }); // left ↑
+    }
+  }
+  if (edges.length === 0) return null;
+  const k = p => p[0] + ',' + p[1];
+  const edgeMap = new Map();
+  for (const e of edges) edgeMap.set(k(e.from), e);
+  const start = edges[0];
+  const poly = [start.from.slice()];
+  let cur = start;
+  for (let i = 0; i < edges.length + 4; i++) {
+    poly.push(cur.to.slice());
+    const next = edgeMap.get(k(cur.to));
+    if (!next || next === start) break;
+    cur = next;
+  }
+  while (poly.length >= 2) {
+    const a = poly[0], z = poly[poly.length - 1];
+    if (a[0] === z[0] && a[1] === z[1]) poly.pop(); else break;
+  }
+  if (poly.length < 3) return null;
+  return poly.map(([lx, ly]) => [lx * SCALE, ly * SCALE]);
 }
+
+// Offset polygonu ven o t px — stejný algoritmus jako render3d_bottom._offsetPolygonOutward.
+// Funguje pro CW-in-Y-down polygon (screen/block-local space).
+function _blockOffsetPoly(poly, t) {
+  const n = poly.length;
+  if (n < 3) return poly.slice();
+  const edges = [];
+  for (let i = 0; i < n; i++) {
+    const p1 = poly[i], p2 = poly[(i + 1) % n];
+    const dx = p2[0] - p1[0], dy = p2[1] - p1[1];
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-6) { edges.push(null); continue; }
+    const nx = dy / len, ny = -dx / len;
+    edges.push({ ox: p1[0] + nx * t, oy: p1[1] + ny * t, dx, dy });
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const eA = edges[(i - 1 + n) % n], eB = edges[i];
+    if (!eA || !eB) { out.push(poly[i].slice()); continue; }
+    const cross = eA.dx * eB.dy - eA.dy * eB.dx;
+    if (Math.abs(cross) < 1e-6) { out.push([eB.ox, eB.oy]); continue; }
+    const tt = ((eB.ox - eA.ox) * eB.dy - (eB.oy - eA.oy) * eB.dx) / cross;
+    out.push([eA.ox + tt * eA.dx, eA.oy + tt * eA.dy]);
+  }
+  return out;
+}
+
 function updateBlockOutlines(blocks) {
   if (!state.ready || !state.pixelsGroup) return;
-  _initBlockOutlineResources();
-  // Dispose old (sdílené geom + mat — jen removeFromScene)
+  // Dispose old — každý blok má vlastní geometry
   for (const m of state.blockOutlineMeshes) {
     state.pixelsGroup.remove(m);
+    if (m.geometry) m.geometry.dispose();
   }
   state.blockOutlineMeshes.length = 0;
+  if (!_bbOutlineMat) {
+    _bbOutlineMat = new THREE.MeshBasicMaterial({
+      color: 0x000000, fog: false,
+      polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2,
+    });
+  }
   const H = state.GH * SCALE;
-  const hG = _bbHorizStripGeom, vG = _bbVertStripGeom, mat = _bbOutlineMat;
   for (const b of blocks) {
     if (!b || b.hp <= 0 || !b._mask) continue;
-    for (let ly = 0; ly < b.h; ly++) {
-      const row = b._mask[ly];
-      if (!row) continue;
-      for (let lx = 0; lx < b.w; lx++) {
-        if (!row[lx]) continue;
-        const cxC = (b.x + lx + 0.5) * SCALE;
-        const cyC = H - (b.y + ly + 0.5) * SCALE;
-        // TOP edge — žádný soused nahoře
-        if (ly === 0 || !b._mask[ly-1] || !b._mask[ly-1][lx]) {
-          const m = new THREE.Mesh(hG, mat);
-          m.position.set(cxC, cyC + SCALE/2, BLOCK_DEPTH);
-          state.pixelsGroup.add(m);
-          state.blockOutlineMeshes.push(m);
-        }
-        // BOTTOM edge
-        if (ly === b.h-1 || !b._mask[ly+1] || !b._mask[ly+1][lx]) {
-          const m = new THREE.Mesh(hG, mat);
-          m.position.set(cxC, cyC - SCALE/2, BLOCK_DEPTH);
-          state.pixelsGroup.add(m);
-          state.blockOutlineMeshes.push(m);
-        }
-        // LEFT edge
-        if (lx === 0 || !row[lx-1]) {
-          const m = new THREE.Mesh(vG, mat);
-          m.position.set(cxC - SCALE/2, cyC, BLOCK_DEPTH);
-          state.pixelsGroup.add(m);
-          state.blockOutlineMeshes.push(m);
-        }
-        // RIGHT edge
-        if (lx === b.w-1 || !row[lx+1]) {
-          const m = new THREE.Mesh(vG, mat);
-          m.position.set(cxC + SCALE/2, cyC, BLOCK_DEPTH);
-          state.pixelsGroup.add(m);
-          state.blockOutlineMeshes.push(m);
-        }
-      }
+    const localPoly = _buildBlockSilhouettePoly(b);
+    if (!localPoly) continue;
+    const offsetPoly = _blockOffsetPoly(localPoly, _BB_OUTLINE_T);
+    // Konvert block-local Y-down → world Y-up
+    const bx = b.x * SCALE, by = b.y * SCALE;
+    const worldPoly = offsetPoly.map(([lx, ly]) => [bx + lx, H - by - ly]);
+    // Centroid pro pozici meshe
+    let cx = 0, cy = 0;
+    for (const [x, y] of worldPoly) { cx += x; cy += y; }
+    cx /= worldPoly.length; cy /= worldPoly.length;
+    // Inner polygon (exact silhouette) v world Y-up
+    const innerWorld = localPoly.map(([lx, ly]) => [bx + lx, H - by - ly]);
+    // Outer shape
+    const shape = new THREE.Shape();
+    shape.moveTo(worldPoly[0][0] - cx, worldPoly[0][1] - cy);
+    for (let i = 1; i < worldPoly.length; i++) {
+      shape.lineTo(worldPoly[i][0] - cx, worldPoly[i][1] - cy);
     }
+    shape.closePath();
+    // Inner shape jako hole — opačné navíjení (reverse) → prsten bez výplně konkávních rohů
+    const hole = new THREE.Path();
+    const innerRev = innerWorld.slice().reverse();
+    hole.moveTo(innerRev[0][0] - cx, innerRev[0][1] - cy);
+    for (let i = 1; i < innerRev.length; i++) {
+      hole.lineTo(innerRev[i][0] - cx, innerRev[i][1] - cy);
+    }
+    hole.closePath();
+    shape.holes.push(hole);
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: BLOCK_DEPTH, bevelEnabled: false });
+    const m = new THREE.Mesh(geo, _bbOutlineMat);
+    m.position.set(cx, cy, 0);
+    m.frustumCulled = false;
+    state.pixelsGroup.add(m);
+    state.blockOutlineMeshes.push(m);
   }
   state._dirty = true;
 }

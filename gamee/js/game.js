@@ -7739,6 +7739,7 @@ function startLevel(){
   gravityOn=!!levelDef.gravity;
   rocketsOn=!!levelDef.rocketTargets;
   garageMode=levelDef.garage==='multi'?'multi':levelDef.garage?'single':'off';
+  if(levelDef.theme && window.setTheme) window.setTheme(levelDef.theme);
   currentBlocks=hydrateBlocks(levelDef.blocks);
   // Solid blok je neprůhledný — pod ním nemají být žádné pixely, jinak by
   // generátor vyrobil nosiče, které se stanou nepoužitelnými (pixely se

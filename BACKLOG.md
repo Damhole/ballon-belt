@@ -394,6 +394,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | P2 | 💡 | XS | Hra | **Belt zrychlit** — zvýšit belt scroll speed |
 | P2 | 💡 | S | Hra | **Flow: zrychlení po vyprázdnění carriers** — když hráč odklikne všechny nosiče a žádný nezbývá, hra 2× zrychlí (belt + projektily) dokud level neskončí |
 | P2 | 💡 | XS | Polish | **Ball highlights** — tmavé barvy (černá, tmavě modrá) špatně viditelné v carrier gridu; přidat rim-light nebo highlight |
+| P2 | 💡 | M | Polish | **Block outline — konkávní rohy** — L/T/+ bloky mají artefakt (tmavá linka) na vnitřních hranách tvaru. Aktuální stav: silhouette polygon funguje (v74.56), ale linka z MeshToonMaterial švu nebo Three.js hole winding bug. Čisté řešení: merge buněk bloku do jednoho BufferGeometry per blok (pak BackSide/stencil outline funguje bez seams), nebo stencil buffer approach. |
 | P2 | ✅ | XS | Polish | **Decentnější smoke z gun** ✅ done v74.53 — smoke puffs příliš výrazné; ztlumit opacity / scale |
 | P2 | 💡 | S | Infra | **Přímý link na level** — URL param `?level=ID` načte konkrétní level přímo; default (bez paramu) all-in-one pořadí zachováno |
 

@@ -164,7 +164,7 @@ let _histApplying = false; // guard: při aplikaci undo/redo nepushujeme do hist
 
 function histSnapshotLvl(lvl) {
   return JSON.parse(JSON.stringify({
-    label: lvl.label, key: lvl.key, type: lvl.type,
+    label: lvl.label, key: lvl.key, type: lvl.type, theme: lvl.theme,
     image: lvl.image, blocks: lvl.blocks,
     rocketTargets: lvl.rocketTargets, garage: lvl.garage,
     carrierLayouts: lvl.carrierLayouts,
@@ -177,6 +177,7 @@ function histApplySnap(lvl, snap) {
   lvl.label = snap.label;
   lvl.key = snap.key;
   lvl.type = snap.type;
+  if (snap.theme) lvl.theme = snap.theme; else delete lvl.theme;
   lvl.image = snap.image;
   lvl.blocks = snap.blocks;
   lvl.rocketTargets = snap.rocketTargets;
@@ -1145,6 +1146,7 @@ function renderEditor() {
   $('f-key').value = lvl.key || '';
   $('f-label').value = lvl.label || '';
   $('f-type').value = lvl.type || 'relaxing';
+  $('f-theme').value = lvl.theme || '';
   $('f-image-source').value = (lvl.image && lvl.image.source) || 'smiley';
 
   $('f-gravity-on').checked = !!lvl.gravity;
@@ -5287,6 +5289,13 @@ function wireForm() {
     badge.textContent = diff.label;
     badge.className = 'diff-badge diff-' + diff.key;
     renderList();
+  });
+  $('f-theme').addEventListener('change', (e) => {
+    const L = lvl(); if (!L) return;
+    histPush(L, 'f-theme');
+    const val = e.target.value;
+    if (val) L.theme = val; else delete L.theme;
+    markDirty();
   });
   $('f-image-source').addEventListener('change', (e) => {
     const L = lvl(); if (!L) return;
