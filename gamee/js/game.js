@@ -526,22 +526,25 @@ function _playBeltTick(vol=0.40){
   else _doPlay();
 }
 
-// Belt land sekvence — sdílí stejnou pentatonika minor s suck (harmonicky kompatibilní),
-// ale vlastní counter (balls dopadají častěji než sucks)
+// Carrier click melodie — pevná melodická sekvence v nižší/střední oktávě.
+// Po sériích kliků za sebou vznikne rozpoznatelná melodie, žádné vysoké tóny.
+// A minor pentatonic lower-mid range: 0.50 (A2), 0.595 (C3), 0.667 (D3), 0.749 (E3), 0.891 (G3), 1.0 (A3), 1.189 (C4)
+const _CARRIER_PITCHES = [0.50, 0.595, 0.667, 0.749, 0.891, 1.0, 1.189];
+// Melodie — wandering pentatonic phrase, 16 kroků, opakuje se. Mix up/down pro melodický feel.
+const _CARRIER_MELODY = [0, 2, 3, 5, 4, 3, 2, 4, 5, 3, 2, 0, 2, 4, 3, 1];
 let _beltLandStep = 0;
-function _playBeltLand(vol=0.10){
+function _playBeltLand(vol=0.18){
   if(!_beltLandBuffer || !_audioCtx) return;
   const now = Date.now();
-  if(now - _lastBeltLandTime < 50) return; // throttle proti rapid stacking
-  // Reset sekvence po 5s pauze → další dopad zase od dna stupnice
+  if(now - _lastBeltLandTime < 50) return;
+  // Reset melodie po 5s pauze → další série začne od začátku
   if(now - _lastBeltLandTime > 5000) _beltLandStep = 0;
   _lastBeltLandTime = now;
-  // Pitch: 75% sekvenční postup po pentatonice, 25% random skok
-  const pitch = (Math.random() < 0.25)
-    ? _SUCK_SEQUENCE[(Math.random() * _SUCK_SEQUENCE.length) | 0]
-    : _SUCK_SEQUENCE[_beltLandStep % _SUCK_SEQUENCE.length];
+  // Pitch z definované melodie (sekvenční postup, loopuje)
+  const idx = _CARRIER_MELODY[_beltLandStep % _CARRIER_MELODY.length];
+  const pitch = _CARRIER_PITCHES[idx];
   _beltLandStep++;
-  const vv = vol * (0.85 + Math.random() * 0.30); // ±15% volume
+  const vv = vol * (0.9 + Math.random() * 0.20); // ±10% volume (menší variace = melodie zní stabilněji)
   const _doPlay = () => _wireAndPlay(_beltLandBuffer, pitch, vv);
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
   else _doPlay();
@@ -2083,7 +2086,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.47');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.48');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7489,7 +7492,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.47');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.48');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7617,7 +7620,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.47');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.48');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8511,7 +8514,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.47');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.48');
       event.detail.callback();
     });
 
