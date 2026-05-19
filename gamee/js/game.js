@@ -125,11 +125,17 @@ let _kickIntervalId = null;
 let _kickStarted = false; // beat začne až po prvním výstřelu hráče
 // Music master toggle — default off, persisted v localStorage, ovládá z dev overlay
 let _musicEnabled = (function(){
-  try { return localStorage.getItem('bb-music') === '1'; } catch(e){ return false; }
+  try {
+    const v = localStorage.getItem('bb-music');
+    return v === null ? true : v === '1'; // opt-out: default ON pokud nebylo nikdy nastaveno
+  } catch(e){ return true; }
 })();
 // Rhythm fire — soft snap kanonu na music tick (jen pokud music on)
 let _rhythmFire = (function(){
-  try { return localStorage.getItem('bb-rhythm-fire') === '1'; } catch(e){ return false; }
+  try {
+    const v = localStorage.getItem('bb-rhythm-fire');
+    return v === null ? true : v === '1'; // opt-out: default ON
+  } catch(e){ return true; }
 })();
 let _lastMusicTick = 0; // timestamp posledního scheduler ticku
 let _lastFireTime = 0; // timestamp posledního cannon fire (pro rhythm idle detection)
@@ -545,7 +551,7 @@ const _CARRIER_PITCHES = [0.50, 0.595, 0.667, 0.749, 0.891, 1.0, 1.189];
 // Melodie — wandering pentatonic phrase, 16 kroků, opakuje se. Mix up/down pro melodický feel.
 const _CARRIER_MELODY = [0, 2, 3, 5, 4, 3, 2, 4, 5, 3, 2, 0, 2, 4, 3, 1];
 let _beltLandStep = 0;
-function _playBeltLand(vol=0.18){
+function _playBeltLand(vol=0.153){
   if(!_beltLandBuffer || !_audioCtx) return;
   const now = Date.now();
   if(now - _lastBeltLandTime < 50) return;
@@ -2047,7 +2053,28 @@ function firstCollisionOnPath(x1,y1,x2,y2,ci){
   return null;
 }
 
+// v74.53: per-color "last pixel position" — when only 1 pixel of color ci remains,
+// projektily téhle barvy mají 2.5× collider radius (snadnější finish).
+let _lastPxPosByColor = null;
+function _recomputeLastPxPos(){
+  if(typeof grid === 'undefined' || !grid) return;
+  const counts = new Array(COLORS.length).fill(0);
+  const positions = new Array(COLORS.length).fill(null);
+  for(let yy=0; yy<GH; yy++){
+    for(let xx=0; xx<GW; xx++){
+      const ci = grid[yy][xx];
+      if(ci >= 0){
+        counts[ci]++;
+        if(counts[ci] === 1) positions[ci] = {gx: xx, gy: yy};
+        else positions[ci] = null; // > 1 → reset
+      }
+    }
+  }
+  _lastPxPosByColor = positions;
+}
+
 function updateParticles(dt){
+  _recomputeLastPxPos();
   for(let i=shards.length-1;i>=0;i--){
     const s=shards[i];
     s.life+=dt;
@@ -2118,7 +2145,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.52');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.53');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -2248,7 +2275,23 @@ function updateParticles(dt){
           respawnParticle(p);
         }
       }
-    } else if(cell===p.ci){
+    } else {
+      // v74.53: expanded collider pro POSLEDNÍ pixel barvy (2.5× collider radius)
+      // — usnadní dohrání levelu, single pixel uprostřed často trvá věčnost.
+      if(cell !== p.ci && _lastPxPosByColor && _lastPxPosByColor[p.ci]){
+        const lpp = _lastPxPosByColor[p.ci];
+        const cx = lpp.gx * SCALE + SCALE/2;
+        const cy = lpp.gy * SCALE + SCALE/2;
+        const ddx = nx - cx, ddy = ny - cy;
+        const R = SCALE * 2.5;
+        if(ddx*ddx + ddy*ddy <= R*R){
+          gx = lpp.gx;
+          gy = lpp.gy;
+          cell = p.ci;
+        }
+      }
+    }
+    if(cell===p.ci){
       // Vlastní barva → znič pixel
       {
         // Diagnostika: jestli se mezi starou a novou buňkou nějaký blok
@@ -2386,10 +2429,10 @@ function drawCannon(){
 // 2D smoke puffs — schedule 3 staggered puffs ~500ms po posledním cannon fire.
 function scheduleSmokePuffs(){
   const t0=performance.now()+500;
+  // v74.53: jen 2 puffs místo 3, jemnější scale
   smokePuffsQueue=[
-    {t:t0,     scale:0.45},
-    {t:t0+110, scale:0.55},
-    {t:t0+230, scale:0.40},
+    {t:t0,     scale:0.32},
+    {t:t0+140, scale:0.38},
   ];
 }
 function spawnSmokePuff(scaleMul){
@@ -2428,18 +2471,19 @@ function updateAndDrawSmokePuffs(){
     let s;
     if(t<0.25) s=(t/0.25)*1.0;
     else       s=1.0+(t-0.25)*0.20;
-    const radius=Math.max(0.1,10*p.scaleMul*s);
+    const radius=Math.max(0.1,7*p.scaleMul*s); // 10→7 menší
     const x=p.x+p.dx*easeOut;
     const y=p.y+p.dy*easeOut;
-    // Fade — opaque první 50%, pak fade-out
-    const op=t<0.5 ? 1.0 : 1.0-(t-0.5)*2;
-    ctx.globalAlpha=op;
+    // Fade — max opacity 0.55, fade-out od 35%
+    const op=t<0.35 ? 0.55 : 0.55*(1.0-(t-0.35)/0.65);
+    ctx.globalAlpha=Math.max(0,op);
     ctx.fillStyle='#ffffff';
     ctx.beginPath();
     ctx.arc(x,y,radius,0,Math.PI*2);
     ctx.fill();
-    ctx.strokeStyle='rgba(20,22,28,0.5)';
-    ctx.lineWidth=1.2;
+    // Outline jemnější, mizí dřív
+    ctx.strokeStyle='rgba(60,40,60,0.22)';
+    ctx.lineWidth=0.8;
     ctx.stroke();
   }
   ctx.restore();
@@ -7551,7 +7595,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.52');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.53');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7679,7 +7723,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.52');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.53');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8573,7 +8617,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.52');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.53');
       event.detail.callback();
     });
 
