@@ -584,8 +584,6 @@ function _scheduleKick(){
   _kickIntervalId = setTimeout(() => {
     const isRunning = typeof running !== 'undefined' && running;
     _lastMusicTick = Date.now();
-    window._bbMusicTickTime = performance.now(); // pro render3d shader sync
-    window._bbMusicOn = _musicEnabled && _kickStarted; // gate pro pixel stretch
     if(isRunning && _kickStarted && _musicEnabled){
       const i = _kickStep % _KICK_PATTERN.length;
       _onKickBeat = _KICK_PATTERN[i];
@@ -2085,7 +2083,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.46');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.47');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7491,7 +7489,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.46');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.47');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7619,7 +7617,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.46');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.47');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8513,7 +8511,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.46');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.47');
       event.detail.callback();
     });
 
