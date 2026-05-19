@@ -385,7 +385,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 |------|------|------|------|-------|
 | P0 | 💡 | M | Hra | **Blocks fix** — rozbila se mechanika i vizuál bloku po přechodu na 3D; nutno spustit a prověřit |
 | P1 | 💡 | M | Editor | **Editor nahodit + opravit** — editor neběží na local; zkontrolovat stav po přechodu na 3D |
-| P1 | 💡 | S | Editor | **Theme k levelu** — selector theme pro každý level v editoru (level data + editor UI) |
+| P1 | ✅ | S | Editor | **Theme k levelu** ✅ done v74.56 — selector theme pro každý level v editoru (level data + editor UI) |
 | P1 | 💡 | S | Editor | **Photo color minimizer** — sjednocovat podobné barvy pod jednu při importu fotek; šetřit paletou |
 | P1 | 💡 | S | Hra | **Ball do díry check hned** — balonek nastoupí na belt → okamžitě zkontroluj jestli jeho slot půjde do díry; nečekat na celý round |
 | P1 | 💡 | M | Infra | **FPS drain diagnóza** — hra bere FPS i bez interakce; hledání příčiny (bg-canvas, particles, dirty flags, …) + fix |
@@ -526,6 +526,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v74.56 | `acccadc` | 2026-05-19 | **Theme selector v editoru + block outline silhouette polygon.** Editor: nový dropdown f-theme (10 témat + výchozí hráče) v sekci Informace pod Type. game.js startLevel() aplikuje levelDef.theme přes setTheme(). Block outline přepsán na silhouette polygon (trace _mask → offset → ExtrudeGeometry s inner hole jako prsten). |
 | v74.55 | (pending) | 2026-05-19 | **🏁 Session-end milestone: 3D block outline + HP text styling.** Block material Lambert → MeshToonMaterial (sjednocený toon look napříč scénou). 2D outline z block-overlay-canvas odebrán → nahrazen **per-external-edge thin strips v 3D scéně** (flat na top face, Z height 0.8px → žádné side walls do hloubky). Per-edge logic kontroluje sousedy v masce → handluje L-shape, T-shape, irregular bloky. HP text + mystery "?": straight Impact font (místo Bangers lean), velikost -30%, depth shadow (4× black Y-offset = extruded 3D look), shift +10px dolů. BLOCK_DEPTH 32→29 (jemně nižší). Outline thickness scale 1.04→1.015. Editor sprint začátek. |
 | v74.54 | `c4e7eb1` | 2026-05-19 | **Clap -30% + hihat -50%.** Synth music layers polish — clap 0.63→0.44, hihat 0.85→0.425. Ostatní synth (kick, pad, belt_tick) beze změny. |
 | v74.53 | (pending) | 2026-05-19 | **Quick polish — smoke decentní, last pixel collider 2.5×, music+rhythm opt-out, carrier click -15%.** Cannon smoke: 3→2 puffs, radius 10→7px, max opacity 1.0→0.55, fade-out od 35%, jemnější outline. Last pixel (per color): když zůstane 1 pixel barvy ci, projektily téhle barvy mají 2.5× collider — usnadní finish levelu. Music + Rhythm fire toggle: default ON (opt-out místo opt-in), localStorage respektuje existující '0'. Carrier click sound vol 0.18→0.153 (-15%). ✅ Z beta sprintu: "Poslední pixel větší collider" + "Smoke ztlumení". |
