@@ -210,14 +210,8 @@ function _playPop(vol=0.075){
   if(Math.random() < 0.33) return; // ~1 ze 3 vynechán
   const now = Date.now();
   if(now - _lastPopTime < 60) return;
-  if(now - _lastPopTime > 1500) _popStep = 0; // reset sekvence po pauze
   _lastPopTime = now;
-  // Pentatonický pitch — sekvenční s občasným skokem
-  const pIdx = (Math.random() < 0.25)
-    ? (Math.random() * _BB_PENTATONIC.length) | 0
-    : _popStep % _BB_PENTATONIC.length;
-  _popStep++;
-  const pitch = _BB_PENTATONIC[pIdx] * (0.85 + Math.random() * 0.10);
+  const pitch = _nextRhythmPitch(_OCT_POP);
   const _doPlay = () => {
     const src  = _audioCtx.createBufferSource();
     const gain = _audioCtx.createGain();
@@ -236,11 +230,27 @@ function _playPop(vol=0.075){
 // Pentatonická stupnice (major) — žádné dva tóny nezní disonantně.
 // Ratios: root, +2, +4, +7, +9 půltóny + oktáva
 const _BB_PENTATONIC = [1.000, 1.122, 1.260, 1.498, 1.682, 2.000];
-let _bounceStep = 0;
-let _shootStep = 0;
-let _popStep = 0;
+// Sdílený rhythm counter — všechny tři zvuky (pop, bounce, shoot) ho posunují,
+// takže akční sekvence (výstřel → pop pixel → bounce) zní jako melodická fráze.
+// Octave offsety oddělí zvuky do vlastních vrstev (basses/mid/highs):
+let _rhythmStep = 0;
+let _lastRhythmTime = 0;
+const _OCT_SHOOT  = 0.75;  // shoot = oktávu níž (bass vrstva)
+const _OCT_POP    = 1.00;  // pop = root oktáva (mid vrstva)
+const _OCT_BOUNCE = 1.50;  // bounce = perfect 5th nahoru (high vrstva)
 
-function _playShoot(vol=0.18){
+function _nextRhythmPitch(octMult){
+  const now = Date.now();
+  if(now - _lastRhythmTime > 1500) _rhythmStep = 0; // reset po pauze
+  _lastRhythmTime = now;
+  const idx = (Math.random() < 0.20)
+    ? (Math.random() * _BB_PENTATONIC.length) | 0  // 20% náhodný skok
+    : _rhythmStep % _BB_PENTATONIC.length;          // 80% sequential
+  _rhythmStep++;
+  return _BB_PENTATONIC[idx] * octMult * (0.95 + Math.random() * 0.10);
+}
+
+function _playShoot(vol=0.12){
   if(!_audioCtx) return;
   if(!_shootBuffers.some(Boolean)) return;
   const now = Date.now();
@@ -253,12 +263,7 @@ function _playShoot(vol=0.18){
   let r = Math.random() * total;
   let buf = pool[0].buf;
   for(const v of pool){ if(r < v.w){ buf = v.buf; break; } r -= v.w; }
-  if(now - _lastShootTime > 1500) _shootStep = 0;
-  const pIdx = (Math.random() < 0.25)
-    ? (Math.random() * _BB_PENTATONIC.length) | 0
-    : _shootStep % _BB_PENTATONIC.length;
-  _shootStep++;
-  const pitch = _BB_PENTATONIC[pIdx] * (0.85 + Math.random() * 0.10);
+  const pitch = _nextRhythmPitch(_OCT_SHOOT);
   const _doPlay = () => {
     const src  = _audioCtx.createBufferSource();
     const gain = _audioCtx.createGain();
@@ -278,15 +283,8 @@ function _playBounce(vol=0.07){
   if(Math.random() < 0.5) return; // ~50% skip — zvuk se hraje míň často
   const now = Date.now();
   if(now - _lastBounceTime < 80) return; // throttle 80ms
-  // Reset sekvence po pauze (>1.5s) → každá nová série bounce začíná melodicky
-  if(now - _lastBounceTime > 1500) _bounceStep = 0;
   _lastBounceTime = now;
-  // Vyber tón z pentatoniky — sekvence stoupá, občas náhodný skok
-  const idx = (Math.random() < 0.25)
-    ? (Math.random() * _BB_PENTATONIC.length) | 0       // 25% random skok
-    : _bounceStep % _BB_PENTATONIC.length;              // 75% sequential
-  _bounceStep++;
-  const pitch = _BB_PENTATONIC[idx] * (0.85 + Math.random() * 0.10); // octave + jemný drift
+  const pitch = _nextRhythmPitch(_OCT_BOUNCE);
   const _doPlay = () => {
     const src  = _audioCtx.createBufferSource();
     const gain = _audioCtx.createGain();
@@ -1671,7 +1669,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.29');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.30');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7072,7 +7070,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.29');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.30');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7200,7 +7198,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.29');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.30');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8072,7 +8070,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.29');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.30');
       event.detail.callback();
     });
 
