@@ -111,6 +111,8 @@ let _stepBuffer = null;
 let _kickBuffer = null;
 let _hihatBuffer = null;
 let _clapBuffer = null;
+let _beltLandBuffer = null;
+let _lastBeltLandTime = 0;
 let _padBuffer = null;
 let _beltTickBuffer = null;
 let _lastPadTime = 0;
@@ -145,6 +147,9 @@ let _layerVol = { kick: 0, hihat: 0, clap: 0, pad: 0, belt: 0 };
 let _currentLayer = null; // 'kick' | 'hihat' | 'clap' | 'pad' | 'done'
 // Ramp rates per 375ms tick — kick nejpomalejší, pad nejrychlejší
 const _LAYER_RATES = { kick: 0.011, hihat: 0.020, clap: 0.027, pad: 0.035, belt: 0.045 };
+// Decay rates při idle — pomalejší než build (postupné odeznívání po pauze)
+const _LAYER_DECAY_RATES = { hihat: 0.008, clap: 0.012, pad: 0.016, belt: 0.020 };
+const _MUSIC_IDLE_THRESHOLD = 3000; // ms — po této pauze začne stripping
 let _suckMelodyBuffer = null; // melodie pro ball suck do díry
 let _lastPopTime = 0;
 let _popFatigue = 1.0;
@@ -306,6 +311,16 @@ function _initSound(){
         console.log('[BB-SOUND] belt tick loaded, duration:', _beltTickBuffer.duration, 's');
       }
     }catch(e){ console.warn('[BB-SOUND] belt tick failed', e.message); }
+  })();
+  // Belt land — dopad balónku na pás (jemný puzzle click)
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/belt_land.wav' + v);
+      if(r.ok){
+        _beltLandBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] belt land loaded, duration:', _beltLandBuffer.duration, 's');
+      }
+    }catch(e){ console.warn('[BB-SOUND] belt land failed', e.message); }
   })();
 }
 
@@ -510,6 +525,27 @@ function _playBeltTick(vol=0.40){
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
   else _doPlay();
 }
+
+// Belt land sekvence — sdílí stejnou pentatonika minor s suck (harmonicky kompatibilní),
+// ale vlastní counter (balls dopadají častěji než sucks)
+let _beltLandStep = 0;
+function _playBeltLand(vol=0.10){
+  if(!_beltLandBuffer || !_audioCtx) return;
+  const now = Date.now();
+  if(now - _lastBeltLandTime < 50) return; // throttle proti rapid stacking
+  // Reset sekvence po 5s pauze → další dopad zase od dna stupnice
+  if(now - _lastBeltLandTime > 5000) _beltLandStep = 0;
+  _lastBeltLandTime = now;
+  // Pitch: 75% sekvenční postup po pentatonice, 25% random skok
+  const pitch = (Math.random() < 0.25)
+    ? _SUCK_SEQUENCE[(Math.random() * _SUCK_SEQUENCE.length) | 0]
+    : _SUCK_SEQUENCE[_beltLandStep % _SUCK_SEQUENCE.length];
+  _beltLandStep++;
+  const vv = vol * (0.85 + Math.random() * 0.30); // ±15% volume
+  const _doPlay = () => _wireAndPlay(_beltLandBuffer, pitch, vv);
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
 // Beat sequencer — 4-step rhythm @ 80 BPM (750ms per step)
 // Kick pattern: K . K K   (boom-pause-boom-boom)
 // Hihat pattern: . H . H  (vyplňuje offbeaty + overlap na poslední)
@@ -551,8 +587,22 @@ function _scheduleKick(){
     if(isRunning && _kickStarted && _musicEnabled){
       const i = _kickStep % _KICK_PATTERN.length;
       _onKickBeat = _KICK_PATTERN[i];
-      // Ramp current layer; postupně unlock další
-      if(_currentLayer && _currentLayer !== 'done'){
+      // Idle detection — pokud player nestřílí, layers se postupně decay zpět na kick.
+      const idleMs = Date.now() - _lastFireTime;
+      const isDecaying = idleMs > _MUSIC_IDLE_THRESHOLD;
+      if(isDecaying){
+        // Reverse-sequential decay: belt → pad → clap → hihat (kick nikdy nemizí)
+        const decayOrder = ['belt', 'pad', 'clap', 'hihat'];
+        for(const layer of decayOrder){
+          if(_layerVol[layer] > 0){
+            _layerVol[layer] = Math.max(0, _layerVol[layer] - _LAYER_DECAY_RATES[layer]);
+            // _currentLayer se vrátí na decaying layer → resumeed activita pokračuje stavbou odsud
+            _currentLayer = layer;
+            break;
+          }
+        }
+      } else if(_currentLayer && _currentLayer !== 'done'){
+        // Aktivní hra — normal ramp
         _layerVol[_currentLayer] = Math.min(1.0, _layerVol[_currentLayer] + _LAYER_RATES[_currentLayer]);
         if(_layerVol[_currentLayer] >= 1.0){
           const order = ['kick', 'hihat', 'clap', 'pad', 'belt'];
@@ -618,12 +668,35 @@ function _playStep(vol=0.40){
 }
 
 // Ball suck do díry — celá pizz melodie, BEZ pitch shiftu (zachová původní harmonii)
-function _playSuckMelody(vol=0.30){ // re-enabled v74.42 = air pressure suction
+// Suck sekvence (sdílená i s belt_land) — ascending pentatonic minor přes 2 oktávy
+const _SUCK_SEQUENCE = [0.65, 0.78, 0.9, 1.0, 1.19, 1.35, 1.6, 1.9];
+// Hole suck používá zkrácenou verzi — bez 2 nejvyšších pitches (ne moc piskotu)
+const _HOLE_SEQUENCE = _SUCK_SEQUENCE.slice(0, 6); // bez 1.6 a 1.9
+let _suckStep = 0;
+function _playSuckMelody(vol=0.147){
   if(!_audioCtx || !_suckMelodyBuffer) return;
   const now = Date.now();
-  if(now - _lastSuckTime < 1000) return;
+  if(now - _lastSuckTime < 200) return;
+  // Reset sekvence po 8s+ pauze → každá nová série začne stoupat odznova
+  if(now - _lastSuckTime > 8000) _suckStep = 0;
   _lastSuckTime = now;
-  const _doPlay = () => _wireAndPlay(_suckMelodyBuffer, 1.0, vol);
+  // Pitch: 75% sekvenční (postupuje po stupnici), 25% random skok pro variety
+  const pitch = (Math.random() < 0.25)
+    ? _HOLE_SEQUENCE[(Math.random() * _HOLE_SEQUENCE.length) | 0]
+    : _HOLE_SEQUENCE[_suckStep % _HOLE_SEQUENCE.length];
+  _suckStep++;
+  // Volume variation ±15%
+  const volVar = 0.85 + Math.random() * 0.30;
+  const _doPlay = () => {
+    _wireAndPlay(_suckMelodyBuffer, pitch, vol * volVar);
+    // 20% chance: harmonic overlap (vyšší tón v sekvenci o 2-3 stupně)
+    if(Math.random() < 0.20){
+      const offset = 2 + ((Math.random() * 2) | 0);
+      const pitch2 = _HOLE_SEQUENCE[(_suckStep + offset) % _HOLE_SEQUENCE.length];
+      setTimeout(() => _wireAndPlay(_suckMelodyBuffer, pitch2, vol * 0.55 * volVar),
+                 90 + Math.random() * 80);
+    }
+  };
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
   else _doPlay();
 }
@@ -2010,7 +2083,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.43');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.44');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6754,6 +6827,7 @@ function onCarrierClick(e){
     showFunnelWarning();
     return;
   }
+  _playBeltLand(); // jemný click feedback při zmáčknutí nosiče
   if(slot.type==='rocket'){
     let _rxSpawn,_rxSpawnY;
     const _rxCbox=e.currentTarget.querySelector('.cbox');
@@ -7415,7 +7489,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.43');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.44');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7543,7 +7617,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.43');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.44');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8437,7 +8511,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.43');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.44');
       event.detail.callback();
     });
 
