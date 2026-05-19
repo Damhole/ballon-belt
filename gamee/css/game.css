@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Bangers&display=swap');
 :root {
   --font-sans: system-ui, -apple-system, sans-serif;
   --color-text-primary: #f0f0f0;
@@ -294,9 +295,48 @@ body.renderer-3d.theme-mono-light .theme-select{color:#fff}
 /* Dev label — vždy skrytý */
 #pending-label{display:none}
 #pending-canvas{display:block;margin:0 auto;background:transparent}
-#funnel-warning{position:absolute;top:18px;left:50%;transform:translate(-50%,-4px);max-width:320px;padding:6px 12px;background:rgba(220,80,80,0.92);color:#fff;font-size:11px;font-weight:600;letter-spacing:0.02em;border-radius:6px;text-align:center;line-height:1.35;box-shadow:0 3px 10px rgba(0,0,0,0.45);pointer-events:none;opacity:0;transition:opacity 0.18s,transform 0.18s;z-index:5}
-#funnel-warning.show{opacity:1;transform:translate(-50%,0)}
-#carriers-wrap{width:360px}
+/* v74.51: funnel warning teď text na floor, typewriter write→pause→erase */
+#funnel-warning{
+  display:none; /* v74.51: nahrazeno 3D meshí v render3d_bottom */
+  position:absolute;
+  top:44px;
+  left:50%;
+  transform:translateX(-50%);
+  color:rgba(255,255,255,0.58);
+  font-family:'Bangers', 'Impact', 'Arial Black', sans-serif;
+  font-size:17px;
+  font-weight:normal;
+  letter-spacing:0.10em;
+  text-transform:uppercase;
+  white-space:nowrap;
+  pointer-events:none;
+  z-index:100;
+  opacity:0;
+  clip-path:inset(0 100% 0 0);
+  background:transparent;
+  box-shadow:none;
+  padding:0;
+  border-radius:0;
+  max-width:none;
+}
+#funnel-warning.writing{
+  opacity:1;
+  /* Smooth easing — žádné steps(), plynulý reveal jako kdyby ruka kreslila */
+  animation:fw-write 0.85s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+#funnel-warning.erasing{
+  opacity:1;
+  animation:fw-erase 0.70s cubic-bezier(0.55, 0.085, 0.68, 0.53) forwards;
+}
+@keyframes fw-write{
+  from{clip-path:inset(0 100% 0 0)}
+  to{clip-path:inset(0 0 0 0)}
+}
+@keyframes fw-erase{
+  from{clip-path:inset(0 0 0 0)}
+  to{clip-path:inset(0 0 0 100%)}
+}
+#carriers-wrap{width:360px;position:relative}
 /* Dev label — vždy skrytý */
 #carriers-label{display:none}
 #carriers-grid{display:flex;gap:4px;justify-content:center;flex-wrap:nowrap}

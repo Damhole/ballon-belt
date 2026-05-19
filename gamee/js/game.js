@@ -571,6 +571,14 @@ function _getSfxFade(){
   return 1.0 - (completeness * 0.40); // 1.0 → 0.60 (jemnější redukce)
 }
 
+
+// Theme change → redraw 3D funnel warning text (theme-aware tint)
+document.addEventListener('bb:theme-changed', () => {
+  if(window.render3dBottom && window.render3dBottom.refreshFunnelWarningTheme){
+    window.render3dBottom.refreshFunnelWarningTheme();
+  }
+});
+
 function _resetMusicState(){
   _padPlayCount = 0;
   _lastPadTime = 0;
@@ -2086,7 +2094,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.50');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.51');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6937,17 +6945,38 @@ function onCarrierClick(e){
   }
   setStatus(balls.length+' balónků v trychtýři');
 }
+let _funnelWarnTimers = [];
+let _funnelWarnPhase = 'idle'; // 'writing' | 'erasing' | 'idle'
 function showFunnelWarning(){
-  funnelWarnTimer=1.8;
-  const el=document.getElementById('funnel-warning');
-  if(el){el.textContent='Funnel full — max 4 carriers at once. Wait for balls to reach the belt.';el.classList.add('show');}
+  if(_funnelWarnPhase === 'writing') return; // už hraje → no-op
+  _funnelWarnPhase = 'writing';
+  if(window.render3dBottom && window.render3dBottom.triggerFunnelWarning){
+    window.render3dBottom.triggerFunnelWarning();
+  }
 }
+function hideFunnelWarning(){
+  if(_funnelWarnPhase !== 'writing') return;
+  _funnelWarnPhase = 'erasing';
+  if(window.render3dBottom && window.render3dBottom.hideFunnelWarning){
+    window.render3dBottom.hideFunnelWarning();
+  }
+  // Po dohrání erase (cca 0.7s) reset phase na idle
+  setTimeout(() => { _funnelWarnPhase = 'idle'; }, 750);
+}
+let _funnelClearStart = null;
 function updateFunnelWarning(dt){
-  if(funnelWarnTimer<=0)return;
-  funnelWarnTimer-=dt;
-  if(funnelWarnTimer<=0){
-    const el=document.getElementById('funnel-warning');
-    if(el)el.classList.remove('show');
+  if(_funnelWarnPhase !== 'writing'){
+    _funnelClearStart = null;
+    return;
+  }
+  const isClear = (typeof pending !== 'undefined' && pending.length <= PENDING_DISPENSE_THRESHOLD);
+  if(isClear){
+    // První moment kdy se trychtýř uvolnil → start 2s grace timer
+    if(_funnelClearStart === null) _funnelClearStart = performance.now();
+    else if(performance.now() - _funnelClearStart >= 2000) hideFunnelWarning();
+  } else {
+    // Trychtýř se znovu zaplnil → reset grace timer
+    _funnelClearStart = null;
   }
 }
 function updateGarages(){
@@ -7496,7 +7525,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.50');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.51');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7624,7 +7653,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.50');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.51');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8518,7 +8547,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.50');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.51');
       event.detail.callback();
     });
 
