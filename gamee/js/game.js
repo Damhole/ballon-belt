@@ -2145,7 +2145,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.56');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.57');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6292,7 +6292,7 @@ function _drawBlockHpOverlay(){
     const cy_flat=(b.y+b.h/2)*SCALE;
     // Tilt korekce: cy_tilted = imgHalf*(1-cos) + cy_flat*cos - halfDepth*sin
     const cy = _tiltY(cy_flat, _BLK_HALF_DEPTH);
-    const fontPx=24;
+    const fontPx=17;
     ctx.save();
     ctx.textAlign='center';
     ctx.textBaseline='middle';
@@ -6426,7 +6426,7 @@ function drawBlocks(ctx){
     // HP číslo centrované uvnitř bloku. Mystery má navíc "?" nad HP číslem.
     // Jednotná velikost čísla napříč bloky (úzké bloky měly dřív mrňavá čísla).
     const cx=(b.x+b.w/2)*SCALE, cy=(b.y+b.h/2)*SCALE;
-    const fontPx=24;
+    const fontPx=17;
     ctx.save();
     ctx.textAlign='center';
     ctx.textBaseline='middle';
@@ -7568,7 +7568,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.56');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.57');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7696,7 +7696,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.56');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.57');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8591,7 +8591,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.56');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.57');
       event.detail.callback();
     });
 

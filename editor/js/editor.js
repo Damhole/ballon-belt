@@ -164,7 +164,7 @@ let _histApplying = false; // guard: při aplikaci undo/redo nepushujeme do hist
 
 function histSnapshotLvl(lvl) {
   return JSON.parse(JSON.stringify({
-    label: lvl.label, key: lvl.key, type: lvl.type, theme: lvl.theme,
+    label: lvl.label, key: lvl.key, type: lvl.type, theme: lvl.theme, inGame: lvl.inGame,
     image: lvl.image, blocks: lvl.blocks,
     rocketTargets: lvl.rocketTargets, garage: lvl.garage,
     carrierLayouts: lvl.carrierLayouts,
@@ -178,6 +178,7 @@ function histApplySnap(lvl, snap) {
   lvl.key = snap.key;
   lvl.type = snap.type;
   if (snap.theme) lvl.theme = snap.theme; else delete lvl.theme;
+  if (snap.inGame === false) lvl.inGame = false; else delete lvl.inGame;
   lvl.image = snap.image;
   lvl.blocks = snap.blocks;
   lvl.rocketTargets = snap.rocketTargets;
@@ -479,7 +480,7 @@ async function writeGameLevelsJs(levels) {
     '// Pokud tento soubor chybí nebo je prázdný, hra automaticky použije\n' +
     '// LEVELS_FALLBACK z game.js (viz resolveLevels()).\n' +
     '// ═══════════════════════════════════════════════════════════════════════════\n' +
-    'window.LEVELS = ' + JSON.stringify(levels, null, 2) + ';\n';
+    'window.LEVELS = ' + JSON.stringify(levels.filter(l => l && l.inGame !== false), null, 2) + ';\n';
   await writable.write(content);
   await writable.close();
 }
@@ -1002,6 +1003,37 @@ function clComputeLevelStatus(lvl) {
   return { kind: 'ok', icon: '✓', reason: 'Level je hotový (pin + obrázek, bez chyb).' };
 }
 
+function _renderLevelThumb(canvas, lvl) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#0a1424';
+  ctx.fillRect(0, 0, W, H);
+  if (!lvl || !lvl.image) return;
+  const src = lvl.image.source;
+  if (src === 'custom' && Array.isArray(lvl.image.pixels)) {
+    const pixels = lvl.image.pixels;
+    const sx = W / BE_GW;
+    const sy = H / BE_IMG_GH;
+    for (let y = 0; y < BE_IMG_GH; y++) {
+      const row = pixels[y];
+      if (!Array.isArray(row)) continue;
+      for (let x = 0; x < BE_GW; x++) {
+        const c = row[x];
+        if (c == null || c < 0 || c >= BE_COLORS.length) continue;
+        ctx.fillStyle = BE_COLORS[c];
+        ctx.fillRect(Math.floor(x * sx), Math.floor(y * sy), Math.ceil(sx) + 1, Math.ceil(sy) + 1);
+      }
+    }
+  } else {
+    // Preset (smiley, moon, ...) — placeholder s názvem
+    ctx.fillStyle = '#5a7a9a';
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(src || '?', W / 2, H / 2);
+  }
+}
+
 function renderList() {
   const ul = $('level-list');
   ul.innerHTML = '';
@@ -1016,21 +1048,42 @@ function renderList() {
     handle.textContent = '≡';
     li.appendChild(handle);
 
-    const order = document.createElement('span');
-    order.className = 'level-order';
-    order.textContent = '#' + (idx + 1);
-    li.appendChild(order);
+    const thumb = document.createElement('canvas');
+    thumb.className = 'level-thumb';
+    thumb.width = 112; // 2× retina pro 56px display
+    thumb.height = 84; // 2× retina pro 42px display
+    li.appendChild(thumb);
+    _renderLevelThumb(thumb, lvl);
+
+    // Info area: 2 řádky (title; meta badges)
+    const info = document.createElement('div');
+    info.className = 'level-info';
 
     const title = document.createElement('span');
     title.className = 'level-title';
     title.innerHTML = escapeHTML(lvl.label) + '<span class="level-key">' + escapeHTML(lvl.key) + '</span>';
-    li.appendChild(title);
+    info.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'level-meta';
+
+    const order = document.createElement('span');
+    order.className = 'level-order';
+    order.textContent = '#' + (idx + 1);
+    meta.appendChild(order);
+
+    const isInGame = lvl.inGame !== false;
+    const inGameBadge = document.createElement('span');
+    inGameBadge.className = 'level-ingame ' + (isInGame ? 'is-ingame' : 'is-editor-only');
+    inGameBadge.textContent = isInGame ? '🎮' : '📝';
+    inGameBadge.title = isInGame ? 'Level půjde do hry při publishi' : 'Editor-only — do hry nepůjde';
+    meta.appendChild(inGameBadge);
 
     const diff = typeBadge(lvl);
     const badge = document.createElement('span');
     badge.className = 'diff-badge diff-' + diff.key;
     badge.textContent = diff.label;
-    li.appendChild(badge);
+    meta.appendChild(badge);
 
     // Status badge: ✓ OK / ⚠ warning / ✗ error. Rozhodnutí viz clComputeLevelStatus.
     const st = clComputeLevelStatus(lvl);
@@ -1038,7 +1091,29 @@ function renderList() {
     statusEl.className = 'level-status level-status-' + st.kind;
     statusEl.textContent = st.icon;
     statusEl.title = st.reason;
-    li.appendChild(statusEl);
+    meta.appendChild(statusEl);
+
+    info.appendChild(meta);
+    li.appendChild(info);
+
+    const share = document.createElement('button');
+    share.className = 'level-share';
+    share.textContent = '🔗';
+    share.title = 'Zkopírovat GH Pages link na tento level';
+    share.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const url = 'https://damhole.github.io/ballon-belt/gamee/index_local.html?level=' + encodeURIComponent(lvl.key);
+      navigator.clipboard.writeText(url).then(() => {
+        const original = share.textContent;
+        share.textContent = '✓';
+        share.classList.add('copied');
+        setLastAction('🔗 Link zkopírován: ' + url);
+        setTimeout(() => { share.textContent = original; share.classList.remove('copied'); }, 1200);
+      }).catch(err => {
+        alert('Kopírování selhalo: ' + err.message + '\n\nURL: ' + url);
+      });
+    });
+    li.appendChild(share);
 
     const del = document.createElement('button');
     del.className = 'level-delete';
@@ -1147,6 +1222,7 @@ function renderEditor() {
   $('f-label').value = lvl.label || '';
   $('f-type').value = lvl.type || 'relaxing';
   $('f-theme').value = lvl.theme || '';
+  $('f-in-game').checked = lvl.inGame !== false; // default true (backwards compat)
   $('f-image-source').value = (lvl.image && lvl.image.source) || 'smiley';
 
   $('f-gravity-on').checked = !!lvl.gravity;
@@ -5296,6 +5372,13 @@ function wireForm() {
     const val = e.target.value;
     if (val) L.theme = val; else delete L.theme;
     markDirty();
+  });
+  $('f-in-game').addEventListener('change', (e) => {
+    const L = lvl(); if (!L) return;
+    histPush(L, 'f-in-game');
+    if (e.target.checked) delete L.inGame; else L.inGame = false;
+    markDirty();
+    renderList(); // refresh 🎮 badge v seznamu
   });
   $('f-image-source').addEventListener('change', (e) => {
     const L = lvl(); if (!L) return;
