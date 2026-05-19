@@ -110,6 +110,7 @@ let _pizzBuffers = []; // pizzicato variants pro cannon move
 let _stepBuffer = null;
 let _suckMelodyBuffer = null; // melodie pro ball suck do díry
 let _lastPopTime = 0;
+let _popFatigue = 1.0;
 let _lastBounceTime = 0;
 let _lastClashTime = 0;
 let _lastShootTime = 0;
@@ -247,11 +248,14 @@ function _playPop(vol=0.075){
   }
   if(Math.random() < 0.33) return; // ~1 ze 3 vynechán
   const now = Date.now();
-  if(now - _lastPopTime < 60) return;
+  if(now - _lastPopTime < 200) return; // zvýšený throttle → popy se nepřekrývají
+  // Fatigue — pauza > 1s resetuje na full vol
+  if(now - _lastPopTime > 1000) _popFatigue = 1.0;
+  else _popFatigue = Math.max(0.05, _popFatigue * 0.75); // -25% per consecutive
   _lastPopTime = now;
   const pitch = _nextRhythmPitch(_OCT_POP);
   const _doPlay = () => {
-    _wireAndPlay(_popBuffer, pitch, vol, 1000);
+    _wireAndPlay(_popBuffer, pitch, vol * _popFatigue, 1000);
     if(!_popLogged){ console.log('[BB-SOUND] first pop fired, ctx state:', _audioCtx.state); _popLogged=true; }
   };
   if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
@@ -1781,7 +1785,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.32');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.33');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7186,7 +7190,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.32');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.33');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7314,7 +7318,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.32');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.33');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8193,7 +8197,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.32');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.33');
       event.detail.callback();
     });
 
