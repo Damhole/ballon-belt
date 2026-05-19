@@ -206,6 +206,16 @@ body {
   justify-content: center;
   padding: 20px 0 40px;
 }
+
+/* v74.38: PWA standalone mode (iOS Add to Home Screen → fullscreen) report ve
+   100dvh jinak než real viewport → bílý/černý pruh dole. Fix: použij 100lvh
+   (largest viewport height — žádný browser chrome) pro standalone mode. */
+@media (display-mode: standalone) {
+  html, body {
+    min-height: 100lvh;
+    height: 100lvh;
+  }
+}
 /* Browser default body margin (8 px) je chrome — zrušit, nikdy nebude v ostré hře. */
 html,body{margin:0;padding:0}
 /* iOS safe area inset bottom (home indicator) — exportováno jako CSS var
