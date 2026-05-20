@@ -839,6 +839,42 @@ function _wrapBottomDeck(){
   parent.insertBefore(deck, pending);
   deck.appendChild(pending);
   deck.appendChild(carriers);
+  // v74.64: boost zones — hold-to-speed-up (1.5×) v rozích nad funnel arch.
+  // Levá + pravá zóna pro praváky i leváky.
+  const boostL = document.createElement('div');
+  boostL.id = 'boost-zone-left';
+  boostL.className = 'boost-zone';
+  boostL.setAttribute('aria-label', 'Hold to speed up');
+  const boostR = document.createElement('div');
+  boostR.id = 'boost-zone-right';
+  boostR.className = 'boost-zone';
+  boostR.setAttribute('aria-label', 'Hold to speed up');
+  deck.appendChild(boostL);
+  deck.appendChild(boostR);
+  _wireBoostZones(boostL, boostR);
+}
+
+// v74.64: hold-to-boost wire — touchstart/mousedown = boost active, end/cancel = release.
+function _wireBoostZones(left, right){
+  const start = (e) => {
+    if(!running) return;
+    e.preventDefault();
+    _userHoldActive = true;
+    document.body.classList.add('user-boost-active');
+  };
+  const end = () => {
+    if(!_userHoldActive) return;
+    _userHoldActive = false;
+    document.body.classList.remove('user-boost-active');
+  };
+  for(const z of [left, right]){
+    z.addEventListener('touchstart', start, {passive:false});
+    z.addEventListener('touchend',    end);
+    z.addEventListener('touchcancel', end);
+    z.addEventListener('mousedown',   start);
+    z.addEventListener('mouseup',     end);
+    z.addEventListener('mouseleave',  end);
+  }
 }
 function _wireThemeSelect(){
   if (RENDERER_MODE !== '3d') return;
@@ -1243,6 +1279,21 @@ const _LEVEL_INTRO_DURATIONS = {
 const _SLOWDOWN_START_PX = 40; // od kolika pixelů zbývajících začneme zpomalovat
 const _SLOWDOWN_END_PX   = 20; // při kolika pixelech jsme zpět na 1.0×
 let _remainingPxCache = null;  // updated v beltLoop tick
+// v74.64: hold-to-boost — uživatel drží levou/pravou boost zónu → fade na 1.5× a zpět.
+let _userHoldActive = false;
+let _userHoldCurrent = 1.0;
+const _USER_HOLD_TARGET = 2.0;
+const _USER_HOLD_FADE_PER_SEC = 2.0; // 0→1.0 za 0.5s (zachovaný 0.5s fade time pro 2× boost)
+function _updateUserHold(dt){
+  // Když auto speedup po vyklízení carriers naběhne → zruš hold (auto převezme)
+  if(_carriersClearedAt !== null && _userHoldActive){
+    _userHoldActive = false;
+    document.body.classList.remove('user-boost-active');
+  }
+  const target = _userHoldActive ? _USER_HOLD_TARGET : 1.0;
+  if(_userHoldCurrent < target)      _userHoldCurrent = Math.min(target, _userHoldCurrent + _USER_HOLD_FADE_PER_SEC * dt);
+  else if(_userHoldCurrent > target) _userHoldCurrent = Math.max(target, _userHoldCurrent - _USER_HOLD_FADE_PER_SEC * dt);
+}
 function _speedMul(){
   // Base ramp z carriers cleared (1.0 → 2.0 přes 3s)
   let mul = 1.0;
@@ -1250,6 +1301,8 @@ function _speedMul(){
     const dt = performance.now() - _carriersClearedAt;
     mul = dt >= _SPEEDUP_RAMP_MS ? _SPEEDUP_MAX : 1.0 + (_SPEEDUP_MAX - 1.0) * (dt / _SPEEDUP_RAMP_MS);
   }
+  // v74.64: user hold má prioritu pokud je vyšší než base
+  mul = Math.max(mul, _userHoldCurrent);
   // Slowdown když se blíží konec — clamp mul podle remaining pixelů
   if(_remainingPxCache !== null && _remainingPxCache <= _SLOWDOWN_START_PX){
     if(_remainingPxCache <= _SLOWDOWN_END_PX) return 1.0;
@@ -2187,7 +2240,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.63');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.64');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7611,7 +7664,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.63');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.64');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7739,7 +7792,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.63');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.64');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7771,6 +7824,7 @@ function startLevel(){
   particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;smokePuffs=[];smokePuffsQueue=[];
   _carriersClearedAt=null; // v74.62: reset speed-up rampy na začátku levelu
   _remainingPxCache=null;  // v74.62: reset pixel cache (přepočítá se v beltLoop)
+  _userHoldActive=false; _userHoldCurrent=1.0; document.body.classList.remove('user-boost-active'); // v74.64
   // v74.62: lock délky podle intro animace levelu (mapping výše).
   _levelStartLockUntil=Date.now()+(_LEVEL_INTRO_DURATIONS[currentLevel]||_LEVEL_START_LOCK_DEFAULT_MS);
   _resetMusicState(); // nový level = hudba zase od foundation kick
@@ -8219,6 +8273,8 @@ function beltLoop(ts){
     const dt=(ts-lastBeltTime)/1000;
     // v74.62: detekce vyklízených carriers — nastav timestamp pro speed-up rampu
     if(_carriersClearedAt===null && running && cntCarriers()===0) _carriersClearedAt=performance.now();
+    // v74.64: tick user hold fade (vstup pro _speedMul())
+    _updateUserHold(dt);
     // v74.62: refresh remaining pixel cache pro slowdown ramp (cca 1116 cells, levné)
     { let _rp=0; for(let _y=0;_y<GH;_y++)for(let _x=0;_x<GW;_x++)if(grid[_y][_x]>=0)_rp++; _remainingPxCache=_rp; }
     const _sm=_speedMul();
@@ -8649,7 +8705,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.63');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.64');
       event.detail.callback();
     });
 

@@ -542,7 +542,30 @@ body.renderer-3d #bottom-deck {
   margin-left: auto;
   margin-right: auto;
   align-self: center;
+  position: relative; /* v74.64: anchor pro boost-zone absolute positioning */
 }
+/* v74.64: hold-to-boost zones — průhledné touch tagety v rozích nad funnel arch.
+   Hráč drží = 1.5× zrychlení (s fade). Levá + pravá pro praváky/leváky. */
+.boost-zone {
+  position: absolute;
+  top: 0;
+  width: 70px;
+  height: 170px;
+  z-index: 5;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  touch-action: none;
+}
+#boost-zone-left  { left:  0; }
+#boost-zone-right { right: 0; }
+/* Subtle pulse na main BG když je boost aktivní — vizuální cue že jsme v jiném módu */
+@keyframes boost-bg-pulse {
+  from { filter: brightness(1.0); }
+  to   { filter: brightness(1.06); }
+}
+body.user-boost-active { animation: boost-bg-pulse 0.55s ease-in-out infinite alternate; }
 /* Inner panely transparentní — wrapper drží podklad + shape */
 body.renderer-3d #bottom-deck #pending-wrap,
 body.renderer-3d #bottom-deck #carriers-wrap {
