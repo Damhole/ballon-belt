@@ -560,12 +560,29 @@ body.renderer-3d #bottom-deck {
 }
 #boost-zone-left  { left:  0; }
 #boost-zone-right { right: 0; }
-/* Subtle pulse na main BG když je boost aktivní — vizuální cue že jsme v jiném módu */
-@keyframes boost-bg-pulse {
-  from { filter: brightness(1.0); }
-  to   { filter: brightness(1.06); }
+/* v74.65: boost vignette overlay — jeden fixed div, animuje jen opacity (GPU-optim).
+   Žádný filter na body → žádné full-document recomposite per frame. Cheap na mobilu.
+   Vignette = radial gradient s warm tint, soustředěný k okrajům (centr zůstává čistý). */
+#boost-vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 30%, rgba(255, 220, 160, 0.45) 100%);
+  opacity: 0;
+  /* v74.65: z-index 0 → vignette pod #game (canvases) ale nad body bg.
+     #bg-canvas (z:9000) i game canvases (uvnitř #game) jsou nad vignette,
+     takže pulse ovlivní jen main BG kolem hry, ne herní content. */
+  z-index: 0;
+  transition: opacity 0.35s ease-out;
+  will-change: opacity;
 }
-body.user-boost-active { animation: boost-bg-pulse 0.55s ease-in-out infinite alternate; }
+body.user-boost-active #boost-vignette {
+  animation: boost-vignette-pulse 0.40s ease-in-out infinite alternate;
+}
+@keyframes boost-vignette-pulse {
+  from { opacity: 0.35; }
+  to   { opacity: 1.0; }
+}
 /* Inner panely transparentní — wrapper drží podklad + shape */
 body.renderer-3d #bottom-deck #pending-wrap,
 body.renderer-3d #bottom-deck #carriers-wrap {
