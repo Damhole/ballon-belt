@@ -309,7 +309,7 @@
   }
   .phone iframe {
     flex: 1 1 auto;
-    width: 100%; height: auto;
+    width: 100%; height: 100%;
     min-height: 0;
     border: 0;
     display: block;
@@ -317,6 +317,7 @@
     transition: opacity 0.34s ease, transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     will-change: opacity, transform;
   }
+  .phone-screen { overflow: hidden; }
 
   /* ───────── LEVEL CAROUSEL NAV ARROWS ───────── */
   .lvl-nav {
@@ -706,8 +707,8 @@
     line-height: 0;
     box-shadow: 2px 3px 0 var(--ink);
   }
-  .play-qr { display: block; width: 152px; height: 152px; line-height: 0; }
-  .play-qr svg { display: block; width: 152px; height: 152px; }
+  .play-qr { display: block; width: 152px; height: 152px; line-height: 0; max-width: 100%; }
+  .play-qr svg { display: block; width: 100%; height: 100%; }
   .play-label {
     font-family: 'Anton', 'Inter', sans-serif;
     font-size: 15px;
