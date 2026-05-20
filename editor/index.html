@@ -145,6 +145,20 @@
                   <button type="button" id="pt-generate" class="btn btn-small">🎲 Generovat</button>
                   <input type="file" id="pt-foto-file" accept="image/*" hidden>
                 </div>
+                <div class="pt-row">
+                  <label class="pt-toggle">
+                    <input type="checkbox" id="pt-merge-enable">
+                    🎨 Sloučit blízké barvy <span class="hint">(náhled před potvrzením)</span>
+                  </label>
+                </div>
+                <div id="pt-merge-controls" class="pt-row" hidden>
+                  <span class="pt-label">práh</span>
+                  <input type="range" id="pt-merge-threshold" min="5" max="120" value="35" step="5" style="width:120px">
+                  <span id="pt-merge-threshold-val" class="hint">35</span>
+                  <span id="pt-merge-info" class="hint" style="margin-left:8px"></span>
+                  <button type="button" id="pt-merge-apply" class="btn btn-small btn-accent" style="margin-left:auto">Použít</button>
+                  <button type="button" id="pt-merge-cancel" class="btn btn-small">Zrušit</button>
+                </div>
                 <div id="gen-panel" class="gen-panel" hidden>
                 <div class="gen-row">
                   <span class="gen-label">režim</span>

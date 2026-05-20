@@ -1,0 +1,1766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Plop! — Progress deck</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="./gamee/assets/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/qr-code-styling@1.6.0-rc.1/lib/qr-code-styling.js"></script>
+<style>
+  /* ===== Plop! presentation — dark navy / midnight toon look ===== */
+  :root {
+    /* Background — deep navy → near-black gradient (midnight) */
+    --bg-top:    #0e1426;
+    --bg-mid:    #070a16;
+    --bg-bot:    #02030a;
+
+    /* Card / surface tones (darker than BG mid for layered depth) */
+    --plum:      #161c34;         /* status card body */
+    --plum-deep: #0a0f1f;         /* phone body */
+    --plum-rim:  rgba(180,200,255,0.14);  /* inner rim glow */
+
+    /* Brand accents */
+    --pink-hot:  #ff2a7f;
+    --pink-soft: #ffb3cf;
+    --yellow:    #ffd23f;
+    --yellow-deep:#e8b800;
+    --cream:     #f5f1ff;
+
+    /* Toon outline — black on light cards, soft-light rim on dark surfaces */
+    --ink:       #000000;
+    --rim-light: rgba(255,255,255,0.16);
+
+    /* Status colors */
+    --ok:   #3ed27a;
+    --wip:  #ffd23f;
+    --idea: #b89bff;
+
+    /* Toon outline thickness (thinner, more refined) */
+    --ol: 2px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background:
+      radial-gradient(ellipse at top, var(--bg-top) 0%, var(--bg-mid) 60%, var(--bg-bot) 100%) fixed;
+    color: var(--cream);
+    line-height: 1.55;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  /* Parallax background layers — replaces ::before / ::after pseudo-elements */
+  .bg-parallax {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: calc(100vh + 1600px); /* extra height prevents gap at bottom on long scroll */
+    pointer-events: none;
+    z-index: 0;
+    will-change: transform;
+  }
+  .bg-glow {
+    background:
+      radial-gradient(circle at 12% 10%, rgba(255,42,127,0.17) 0, transparent 38%),
+      radial-gradient(circle at 88% 86%, rgba(255,210,63,0.11) 0, transparent 42%);
+  }
+  .bg-stars-far {
+    background-image: radial-gradient(circle, rgba(255,255,255,0.55) 1.1px, transparent 1.9px);
+    background-size: 330px 330px;
+    background-position: 20px 40px;
+    opacity: 0.28;
+    mix-blend-mode: screen;
+  }
+  .bg-stars-mid {
+    background-image: radial-gradient(circle, rgba(255,255,255,0.60) 0.7px, transparent 1.2px);
+    background-size: 195px 195px;
+    background-position: 70px 110px;
+    opacity: 0.38;
+    mix-blend-mode: screen;
+  }
+  .bg-stars-near {
+    background-image:
+      radial-gradient(circle, rgba(255,255,255,0.72) 0.8px, transparent 1.4px),
+      radial-gradient(circle, rgba(255,255,255,0.42) 0.5px, transparent 1.0px);
+    background-size: 200px 200px, 135px 135px;
+    background-position: 0 0, 80px 50px;
+    opacity: 0.50;
+    mix-blend-mode: screen;
+  }
+  .wrap {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 56px 28px 96px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ──── Toon helper — solid offset shadow, no blur (comic book) ──── */
+  .toon-shadow {
+    box-shadow: 4px 6px 0 var(--ink);
+  }
+  .toon-shadow-lg {
+    box-shadow: 6px 9px 0 var(--ink);
+  }
+
+  /* ───────── HERO ───────── */
+  .hero {
+    padding: 24px 0 12px;
+  }
+  .hero-row {
+    display: flex;
+    align-items: center;
+    gap: 28px;
+    margin-bottom: 18px;
+  }
+  .hero-icon {
+    width: 140px; height: 140px;
+    border-radius: 32px;
+    border: 1.5px solid var(--ink);
+    box-shadow: 5px 7px 0 var(--ink);
+    display: block;
+    background: var(--yellow);
+    flex: none;
+  }
+  .hero h1 {
+    font-family: 'Anton', 'Inter', sans-serif;
+    font-size: clamp(72px, 11vw, 128px);
+    margin: 0 0 14px;
+    letter-spacing: 1px;
+    color: var(--pink-hot);
+    text-transform: uppercase;
+    /* Toon stacked text outline + drop */
+    text-shadow:
+      -2px -2px 0 var(--ink),
+       2px -2px 0 var(--ink),
+      -2px  2px 0 var(--ink),
+       2px  2px 0 var(--ink),
+       5px  7px 0 rgba(0,0,0,0.75);
+    line-height: 0.92;
+  }
+  .hero .tagline {
+    font-size: 19px;
+    color: var(--cream);
+    margin: 0 0 16px;
+    font-weight: 500;
+    max-width: 560px;
+    line-height: 1.5;
+    opacity: 0.88;
+  }
+  .hero .meta {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    font-size: 13px;
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-radius: 999px;
+    background: var(--cream);
+    border: 2.5px solid var(--ink);
+    color: var(--ink);
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    box-shadow: 2px 3px 0 var(--ink);
+  }
+  .badge.accent { background: var(--yellow); }
+  .badge.pink { background: var(--pink-hot); color: var(--cream); }
+  .badge.plum { background: var(--plum); color: var(--cream); }
+
+  /* ───────── SECTION ───────── */
+  section { margin-top: 76px; }
+  h2 {
+    font-family: 'Anton', 'Inter', sans-serif;
+    font-size: 52px;
+    margin: 0 0 6px;
+    color: var(--cream);
+    letter-spacing: 0.5px;
+    line-height: 1;
+    text-transform: uppercase;
+    text-shadow: 3px 4px 0 rgba(0,0,0,0.55);
+  }
+  h2 .accent {
+    color: var(--pink-hot);
+    text-shadow:
+      -1.5px -1.5px 0 var(--ink),
+       1.5px -1.5px 0 var(--ink),
+      -1.5px  1.5px 0 var(--ink),
+       1.5px  1.5px 0 var(--ink),
+       2px 3px 0 rgba(0,0,0,0.55);
+  }
+  .section-lead {
+    color: var(--cream);
+    font-size: 15.5px;
+    margin: 6px 0 28px;
+    max-width: 680px;
+    font-weight: 500;
+    opacity: 0.72;
+  }
+
+  /* ───────── PITCH STRIP ───────── */
+  .pitch {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-top: 14px;
+  }
+  .pitch-card {
+    background: var(--cream);
+    border: var(--ol) solid var(--ink);
+    border-radius: 18px;
+    padding: 20px 18px;
+    box-shadow: 4px 6px 0 var(--ink);
+    position: relative;
+  }
+  .pitch-card .num {
+    font-family: 'Anton', 'Inter', sans-serif;
+    font-size: 52px;
+    color: var(--pink-hot);
+    line-height: 0.95;
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    text-shadow:
+      -1.5px -1.5px 0 var(--ink),
+       1.5px -1.5px 0 var(--ink),
+      -1.5px  1.5px 0 var(--ink),
+       1.5px  1.5px 0 var(--ink),
+       2px 3px 0 rgba(0,0,0,0.55);
+  }
+  .pitch-card .lbl {
+    font-size: 13.5px;
+    color: var(--ink);
+    line-height: 1.4;
+    font-weight: 600;
+  }
+
+  /* ───────── PHONE STAGE (with carousel arrows) ───────── */
+  .phone-stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 18px;
+  }
+  .phone-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+    width: 100%;
+  }
+  /* iPhone 13 Pro Max aspect (1:2.164), scaled up ~16 % for presentation presence.
+     Outer 520 × 1100 (≈ 1:2.115 body), inner screen ≈ 500 × 1080. */
+  .phone {
+    width: 100%;
+    max-width: 520px;
+    aspect-ratio: 520 / 1100;
+    background: var(--plum-deep);
+    border-radius: 56px;
+    border: 1.5px solid var(--ink);
+    box-shadow:
+      6px 10px 0 var(--ink),
+      inset 0 0 0 1.5px var(--plum-rim);
+    padding: 10px;
+    position: relative;
+    overflow: hidden;
+    flex: 0 1 520px;
+  }
+  .phone-screen {
+    width: 100%; height: 100%;
+    border-radius: 46px;
+    overflow: hidden;
+    background: var(--plum);
+    position: relative;
+    border: 1px solid rgba(0,0,0,0.4);
+    display: flex;
+    flex-direction: column;
+  }
+  /* ─── iOS-ish status bar — matches game's top BG (default pink theme) ─── */
+  .status-bar {
+    flex: none;
+    height: 32px;
+    padding: 0 22px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    /* Same color as game's body --bg-3d-top in default pink theme,
+       so the bar visually flows into the game's atmosphere. */
+    background: #ee9bb1;
+    color: #1a0612;
+    font-family: -apple-system, 'SF Pro Display', 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.2px;
+    z-index: 2;
+    position: relative;
+    transition: background 0.4s ease, color 0.4s ease;
+  }
+  .status-bar .time {
+    font-variant-numeric: tabular-nums;
+  }
+  .status-bar .indicators {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .status-bar svg {
+    display: block;
+    fill: currentColor;
+  }
+  .phone iframe {
+    flex: 1 1 auto;
+    width: 100%; height: auto;
+    min-height: 0;
+    border: 0;
+    display: block;
+    background: var(--plum);
+    transition: opacity 0.34s ease, transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: opacity, transform;
+  }
+
+  /* ───────── LEVEL CAROUSEL NAV ARROWS ───────── */
+  .lvl-nav {
+    flex: none;
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: var(--cream);
+    border: 1.5px solid var(--ink);
+    color: var(--ink);
+    cursor: pointer;
+    box-shadow: 3px 4px 0 var(--ink);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: transform 0.08s, background 0.15s, box-shadow 0.08s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .lvl-nav svg { width: 26px; height: 26px; display: block; }
+  .lvl-nav:hover { background: var(--yellow); }
+  .lvl-nav:active {
+    transform: translate(2px, 3px);
+    box-shadow: 1px 1px 0 var(--ink);
+  }
+  .lvl-nav:focus-visible { outline: 3px solid var(--pink-hot); outline-offset: 3px; }
+  .lvl-dots {
+    display: flex; gap: 9px;
+    margin-top: 18px;
+  }
+  .lvl-dot {
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.18);
+    border: 1.5px solid var(--ink);
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+    padding: 0;
+  }
+  .lvl-dot.active { background: var(--pink-hot); transform: scale(1.2); }
+  .lvl-dot:hover { background: var(--yellow); }
+  .level-caption {
+    margin-top: 26px;
+    text-align: center;
+    max-width: 520px;
+    background: var(--cream);
+    border: var(--ol) solid var(--ink);
+    border-radius: 22px;
+    box-shadow: 4px 6px 0 var(--ink);
+    padding: 18px 26px 20px;
+    position: relative;
+  }
+  .level-caption .lvl-num {
+    font-family: 'Inter', sans-serif;
+    color: var(--ink);
+    background: var(--yellow);
+    display: inline-block;
+    padding: 5px 14px;
+    border-radius: 999px;
+    border: 2px solid var(--ink);
+    font-size: 12.5px;
+    font-weight: 800;
+    letter-spacing: 2.5px;
+    box-shadow: 2px 3px 0 var(--ink);
+    margin-bottom: 14px;
+    text-transform: uppercase;
+  }
+  .lvl-meta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .lvl-meta .lvl-num { margin-bottom: 0; }
+  .lvl-difficulty {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 14px 5px 11px;
+    border-radius: 999px;
+    border: 2px solid var(--ink);
+    background: var(--cream);
+    box-shadow: 2px 3px 0 var(--ink);
+    font-size: 11.5px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: var(--ink);
+    text-transform: uppercase;
+    line-height: 1;
+  }
+  .lvl-diff-dots { display: inline-flex; gap: 3px; }
+  .lvl-diff-dots .dd {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.15);
+    border: 1.2px solid var(--ink);
+  }
+  .lvl-difficulty[data-diff="1"] .dd:nth-child(-n+1),
+  .lvl-difficulty[data-diff="2"] .dd:nth-child(-n+2) { background: var(--ok); }
+  .lvl-difficulty[data-diff="3"] .dd:nth-child(-n+3) { background: var(--wip); }
+  .lvl-difficulty[data-diff="4"] .dd:nth-child(-n+4),
+  .lvl-difficulty[data-diff="5"] .dd:nth-child(-n+5) { background: var(--pink-hot); }
+  .level-caption .lvl-title {
+    font-family: 'Anton', 'Inter', sans-serif;
+    font-size: 54px;
+    color: var(--pink-hot);
+    letter-spacing: 0.5px;
+    margin: 0 0 10px;
+    line-height: 1;
+    text-transform: uppercase;
+    text-shadow:
+      -1.5px -1.5px 0 var(--ink),
+       1.5px -1.5px 0 var(--ink),
+      -1.5px  1.5px 0 var(--ink),
+       1.5px  1.5px 0 var(--ink),
+       3px 4px 0 rgba(0,0,0,0.45);
+  }
+  .level-caption .lvl-desc {
+    font-size: 14.5px;
+    color: var(--ink);
+    line-height: 1.55;
+    max-width: 440px;
+    margin: 0 auto;
+    font-weight: 500;
+  }
+
+  /* ───────── STATUS CARDS ───────── */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .status-card {
+    background: var(--plum);
+    border: var(--ol) solid var(--ink);
+    border-radius: 22px;
+    padding: 24px 24px 20px;
+    box-shadow: 5px 7px 0 var(--ink);
+    color: var(--cream);
+    position: relative;
+  }
+  /* Inner rim like in-game wall outline */
+  .status-card::before {
+    content: ""; position: absolute; inset: 4px;
+    border-radius: 17px;
+    border: 1.5px solid var(--plum-rim);
+    pointer-events: none;
+  }
+  .status-card h3 {
+    margin: 0 0 16px;
+    font-family: 'Anton', 'Inter', sans-serif;
+    font-size: 28px;
+    letter-spacing: 0.5px;
+    color: var(--cream);
+    display: flex; align-items: center; gap: 12px;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+  .status-card h3 .dot {
+    width: 16px; height: 16px; border-radius: 50%;
+    flex: none;
+    border: 2px solid var(--ink);
+    box-shadow: 1.5px 2px 0 var(--ink);
+  }
+  .dot.ok  { background: var(--ok); }
+  .dot.wip { background: var(--wip); }
+  .dot.idea{ background: var(--idea); }
+  .status-card ul {
+    margin: 0; padding: 0; list-style: none;
+    font-size: 14px;
+  }
+  .status-card li {
+    padding: 9px 0 9px 26px;
+    color: rgba(255,245,230,0.78);
+    line-height: 1.55;
+    position: relative;
+    border-bottom: 1.5px dashed rgba(255,245,230,0.10);
+  }
+  .status-card li:last-child { border-bottom: 0; }
+  .status-card li::before {
+    content: "";
+    position: absolute; left: 4px; top: 14px;
+    width: 11px; height: 11px; border-radius: 50%;
+    background: var(--cream);
+    border: 1.5px solid var(--ink);
+  }
+  .status-card.done li::before { background: var(--ok); }
+  .status-card.wip  li::before { background: var(--wip); }
+  .status-card.next li::before { background: var(--idea); }
+  .status-card li b { color: var(--cream); font-weight: 700; }
+  .status-card li code {
+    background: rgba(255,245,230,0.12);
+    padding: 1px 6px;
+    border-radius: 5px;
+    font-size: 0.92em;
+    border: 1px solid rgba(255,245,230,0.18);
+  }
+
+  /* ───────── TIMELINE ───────── */
+  .timeline {
+    position: relative;
+    padding-left: 30px;
+    margin-top: 18px;
+  }
+  .timeline::before {
+    content: "";
+    position: absolute; left: 10px; top: 14px; bottom: 14px;
+    width: 4px;
+    background: var(--ink);
+    border-radius: 4px;
+  }
+  .ms {
+    position: relative;
+    padding: 12px 0 18px;
+  }
+  .ms::before {
+    content: "";
+    position: absolute; left: -30px; top: 18px;
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: var(--cream);
+    border: 3px solid var(--ink);
+    box-shadow: 2px 3px 0 var(--ink);
+  }
+  .ms.current::before {
+    background: var(--yellow);
+    transform: scale(1.15);
+  }
+  .ms-card {
+    background: var(--cream);
+    border: var(--ol) solid var(--ink);
+    border-radius: 16px;
+    padding: 14px 18px 16px;
+    box-shadow: 4px 5px 0 var(--ink);
+  }
+  .ms.current .ms-card {
+    background: var(--yellow);
+  }
+  .ms .ms-title {
+    font-family: 'Anton', 'Inter', sans-serif;
+    font-size: 24px;
+    color: var(--ink);
+    display: inline-block;
+    letter-spacing: 0.5px;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+  .ms .ms-ver {
+    font-family: 'Anton', 'Inter', sans-serif;
+    color: var(--pink-hot);
+    font-size: 17px;
+    margin-left: 10px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    text-shadow:
+      -1px -1px 0 var(--ink),
+       1px -1px 0 var(--ink),
+      -1px  1px 0 var(--ink),
+       1px  1px 0 var(--ink);
+  }
+  .ms .ms-desc {
+    color: var(--ink);
+    font-size: 14px;
+    margin-top: 6px;
+    line-height: 1.5;
+    font-weight: 500;
+  }
+
+  /* ───────── FOOTER ───────── */
+  footer {
+    margin-top: 72px;
+    padding: 22px 24px;
+    background: var(--plum);
+    border: var(--ol) solid var(--ink);
+    border-radius: 22px;
+    box-shadow: 5px 7px 0 var(--ink);
+    color: rgba(255,245,230,0.82);
+    font-size: 13px;
+    display: flex; flex-wrap: wrap; gap: 14px; justify-content: space-between;
+    font-weight: 500;
+  }
+  footer a {
+    color: var(--yellow);
+    text-decoration: none;
+    font-weight: 700;
+    border-bottom: 1.5px solid var(--yellow);
+  }
+  footer a:hover { color: var(--pink-soft); border-bottom-color: var(--pink-soft); }
+  footer code {
+    background: rgba(255,245,230,0.12);
+    padding: 1px 6px;
+    border-radius: 5px;
+    font-size: 0.92em;
+    border: 1px solid rgba(255,245,230,0.18);
+    color: var(--cream);
+  }
+  .footer-pitch {
+    margin-top: 14px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    max-width: 620px;
+    padding: 12px 16px;
+    background: linear-gradient(95deg, rgba(255,210,63,0.16) 0%, rgba(255,42,127,0.12) 100%);
+    border: 2px solid var(--yellow);
+    border-radius: 14px;
+    box-shadow: 3px 4px 0 var(--ink);
+  }
+  .footer-pitch .fp-pill {
+    flex: none;
+    font-family: 'Anton', 'Inter', sans-serif;
+    font-size: 12px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--ink);
+    background: var(--yellow);
+    border: 2px solid var(--ink);
+    border-radius: 999px;
+    padding: 4px 12px;
+    box-shadow: 1.5px 2px 0 var(--ink);
+    line-height: 1;
+    margin-top: 2px;
+  }
+  .footer-pitch .fp-text {
+    color: var(--cream);
+    font-size: 14px;
+    line-height: 1.55;
+    font-weight: 500;
+    opacity: 0.95;
+  }
+  .footer-pitch .fp-text b {
+    color: var(--yellow);
+    font-weight: 800;
+  }
+
+  /* ───────── DEMO META (controls + QR) ───────── */
+  .demo-meta {
+    display: flex;
+    align-items: flex-start;
+    gap: 28px;
+    margin: 8px 0 32px;
+  }
+  .demo-controls {
+    flex: 1;
+    min-width: 0;
+  }
+  .demo-lead {
+    font-size: 16px;
+    color: var(--cream);
+    margin: 0 0 14px;
+    font-weight: 500;
+    line-height: 1.65;
+    opacity: 0.88;
+    max-width: 560px;
+  }
+  .demo-tip {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--yellow);
+    border: 2px solid var(--ink);
+    border-radius: 999px;
+    padding: 8px 18px;
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--ink);
+    box-shadow: 3px 4px 0 var(--ink);
+    letter-spacing: 0.2px;
+  }
+  .play-card {
+    flex: none;
+    width: 196px;
+    background: var(--cream);
+    border: 2px solid var(--ink);
+    border-radius: 22px;
+    padding: 16px 16px 14px;
+    text-align: center;
+    box-shadow: 5px 7px 0 var(--ink);
+  }
+  .play-qr-wrap {
+    display: inline-block;
+    background: var(--cream);
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    overflow: hidden;
+    line-height: 0;
+    box-shadow: 2px 3px 0 var(--ink);
+  }
+  .play-qr { display: block; width: 152px; height: 152px; line-height: 0; }
+  .play-qr svg { display: block; width: 152px; height: 152px; }
+  .play-label {
+    font-family: 'Anton', 'Inter', sans-serif;
+    font-size: 15px;
+    color: var(--ink);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin: 11px 0 6px;
+    line-height: 1;
+  }
+  .play-link {
+    font-size: 11.5px;
+    color: var(--ink);
+    font-weight: 700;
+    text-decoration: none;
+    border-bottom: 1.5px solid var(--ink);
+    opacity: 0.7;
+    transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+    word-break: break-all;
+  }
+  .play-link:hover {
+    opacity: 1;
+    color: var(--pink-hot);
+    border-color: var(--pink-hot);
+  }
+  .play-pwa-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 10px;
+    padding: 5px 11px 5px 9px;
+    background: var(--yellow);
+    color: var(--ink);
+    border: 2px solid var(--ink);
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    box-shadow: 2px 3px 0 var(--ink);
+    cursor: help;
+    line-height: 1;
+  }
+  .play-pwa-badge svg { flex: none; }
+  @media (max-width: 720px) {
+    .demo-meta { flex-direction: column; align-items: stretch; }
+    .play-card { width: 100%; display: flex; align-items: center; gap: 18px;
+      text-align: left; padding: 14px 18px; }
+    .play-qr-wrap { flex: none; }
+    .play-qr { width: 100px; height: 100px; }
+  }
+
+  /* ───────── PLOP! BG PARTICLES ───────── */
+  #bg-particles {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ───────── SCROLL REVEAL ───────── */
+  [data-reveal] {
+    opacity: 0;
+    transform: translateY(26px);
+    transition:
+      opacity 0.55s ease,
+      transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-delay: var(--d, 0ms);
+  }
+  [data-reveal].revealed {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ───────── PHOTO IMPORT ───────── */
+  .pi-card {
+    background: var(--plum);
+    border: var(--ol) solid var(--ink);
+    border-radius: 22px;
+    padding: 28px;
+    box-shadow: 5px 7px 0 var(--ink);
+    position: relative;
+  }
+  .pi-card::before {
+    content: ""; position: absolute; inset: 4px;
+    border-radius: 17px;
+    border: 1.5px solid var(--plum-rim);
+    pointer-events: none;
+  }
+  .pi-upload-prompt {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 44px 20px;
+    border: 2.5px dashed rgba(255,245,230,0.22);
+    border-radius: 14px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .pi-upload-prompt:hover, .pi-upload-prompt.drag-over {
+    border-color: var(--yellow);
+    background: rgba(255,210,63,0.07);
+  }
+  .pi-upload-icon { font-size: 48px; line-height: 1; }
+  .pi-upload-lbl { font-size: 16px; font-weight: 600; color: var(--cream); opacity: 0.88; }
+  .pi-upload-sub { font-size: 13px; color: rgba(255,245,230,0.45); margin: -2px 0; }
+  .pi-workspace { display: flex; flex-direction: column; gap: 20px; }
+  .pi-canvases {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .pi-canvas-block { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .pi-crop-canvas {
+    display: block;
+    width: 288px; height: 216px;
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    cursor: grab;
+    box-shadow: 3px 4px 0 var(--ink);
+    touch-action: none;
+  }
+  .pi-crop-canvas:active { cursor: grabbing; }
+  .pi-quant-canvas {
+    display: block;
+    width: 180px; height: 135px;
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    box-shadow: 3px 4px 0 var(--ink);
+    image-rendering: pixelated;
+  }
+  .pi-canvas-lbl {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: rgba(255,245,230,0.50);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .pi-zoom {
+    width: 180px;
+    margin: 2px 0 0;
+    accent-color: var(--pink-hot);
+    cursor: pointer;
+  }
+  .pi-arrow {
+    font-family: 'Anton', 'Inter', sans-serif;
+    font-size: 34px;
+    color: var(--pink-hot);
+    text-shadow: 2px 3px 0 var(--ink);
+    flex: none;
+    margin-top: -20px;
+  }
+  .pi-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .pi-btn {
+    font-family: 'Anton', 'Inter', sans-serif;
+    font-size: 18px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border: 2px solid var(--ink);
+    border-radius: 999px;
+    padding: 12px 32px;
+    cursor: pointer;
+    transition: transform 0.08s, box-shadow 0.08s, background 0.15s, color 0.15s;
+    box-shadow: 3px 4px 0 var(--ink);
+    line-height: 1;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .pi-btn:active { transform: translate(2px, 3px); box-shadow: 1px 1px 0 var(--ink); }
+  .pi-btn:focus-visible { outline: 3px solid var(--pink-hot); outline-offset: 3px; }
+  .pi-btn-upload { background: var(--cream); color: var(--ink); }
+  .pi-btn-upload:hover { background: var(--yellow); }
+  .pi-btn-play { background: var(--pink-hot); color: var(--cream); }
+  .pi-btn-play:hover { background: #ff6ea6; }
+  .pi-btn-change {
+    background: rgba(255,245,230,0.10);
+    color: rgba(255,245,230,0.72);
+    font-size: 14px;
+    padding: 9px 22px;
+    box-shadow: 2px 3px 0 var(--ink);
+  }
+  .pi-btn-change:hover { background: rgba(255,245,230,0.20); color: var(--cream); }
+  @media (max-width: 640px) {
+    .pi-arrow { display: none; }
+    .pi-crop-canvas { width: min(288px, calc(100vw - 96px)); height: auto; aspect-ratio: 4/3; }
+  }
+
+  /* ───────── RESPONSIVE ───────── */
+  @media (max-width: 900px) {
+    .hero { text-align: center; }
+    .hero-row { flex-direction: column; gap: 14px; }
+    .hero-icon { margin: 0 auto; }
+    .hero .tagline { margin-left: auto; margin-right: auto; }
+    .hero .meta { justify-content: center; }
+    .pitch { grid-template-columns: repeat(2, 1fr); }
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 760px) {
+    /* Arrows under the phone, not next to it — keeps phone wide on narrow screens */
+    .phone-row { flex-wrap: wrap; gap: 0; }
+    .phone { order: 1; flex: 0 1 100%; }
+    .lvl-nav.lvl-prev { order: 2; margin: 18px 12px 0 0; }
+    .lvl-nav.lvl-next { order: 3; margin: 18px 0 0 12px; }
+  }
+  @media (max-width: 520px) {
+    .wrap { padding: 32px 18px 64px; }
+    .pitch { grid-template-columns: 1fr 1fr; }
+    .hero { column-gap: 22px; }
+    .hero-icon { width: 120px; height: 120px; border-radius: 28px; }
+    .hero h1 { font-size: 64px; }
+    h2 { font-size: 34px; }
+    .level-caption .lvl-title { font-size: 36px; }
+    .status-card h3 { font-size: 22px; }
+    .lvl-nav { width: 48px; height: 48px; }
+    .lvl-nav svg { width: 22px; height: 22px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="bg-particles"></canvas>
+<div class="bg-parallax bg-glow"       id="bg-glow"></div>
+<div class="bg-parallax bg-stars-far"  id="bg-stars-far"></div>
+<div class="bg-parallax bg-stars-mid"  id="bg-stars-mid"></div>
+<div class="bg-parallax bg-stars-near" id="bg-stars-near"></div>
+<div class="wrap">
+
+  <!-- ═════════════════════════ HERO ═════════════════════════ -->
+  <header class="hero">
+    <div class="hero-row">
+      <img class="hero-icon" src="./gamee/assets/icon-512.png" alt="Plop! icon">
+      <h1>Plop!</h1>
+    </div>
+    <p class="tagline">Single-screen puzzle game for Gamee&nbsp;— the player taps colored carriers, they drop onto the belt, and the cannon shoots balls at matching pixels in the image.</p>
+    <div class="meta">
+      <span class="badge accent">● Vertical slice</span>
+      <span class="badge">v74.62</span>
+      <span class="badge">Mobile&nbsp;portrait</span>
+      <span class="badge">Vanilla JS&nbsp;+ Three.js</span>
+      <span class="badge pink">PWA-ready</span>
+    </div>
+  </header>
+
+  <!-- ═════════════════════════ PITCH STRIP ═════════════════════════ -->
+  <section>
+    <div class="pitch">
+      <div class="pitch-card" data-reveal style="--d:0ms"><div class="num">9</div><div class="lbl">milestones completed (M1–M9)</div></div>
+      <div class="pitch-card" data-reveal style="--d:80ms"><div class="num">10</div><div class="lbl">visual themes + dev theme picker</div></div>
+      <div class="pitch-card" data-reveal style="--d:160ms"><div class="num">2.5D</div><div class="lbl">Three.js scene, 2D&nbsp;render fallback</div></div>
+      <div class="pitch-card" data-reveal style="--d:240ms"><div class="num">v74</div><div class="lbl">second test cycle, pre-release polishing</div></div>
+    </div>
+  </section>
+
+  <!-- ═════════════════════════ LIVE DEMO ═════════════════════════ -->
+  <section>
+    <h2 data-reveal>Live <span class="accent">demo</span></h2>
+    <div class="demo-meta" data-reveal style="--d:80ms">
+      <div class="demo-controls">
+        <p class="demo-lead">Tap (or click) the carriers at the bottom of the screen&nbsp;— they drop onto the belt and the cannon automatically shoots balls at matching pixels in the image above. No tutorial, no menu. Just tap and watch the pixel art come together.</p>
+        <span class="demo-tip">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
+          Best experience? Headphones&nbsp;+ mobile.
+        </span>
+      </div>
+      <div class="play-card toon-shadow">
+        <a href="https://damhole.github.io/ballon-belt/gamee/index_local.html" target="_blank" rel="noopener">
+          <div class="play-qr-wrap">
+            <div id="play-qr-render" class="play-qr"></div>
+          </div>
+        </a>
+        <div class="play-label">Play on mobile</div>
+        <a class="play-link" href="https://damhole.github.io/ballon-belt/gamee/index_local.html" target="_blank" rel="noopener">damhole.github.io/ballon-belt</a>
+        <div class="play-pwa-badge" title="Progressive Web App — installable from the browser, works offline">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+          PWA supported
+        </div>
+      </div>
+    </div>
+
+    <div class="phone-stage" data-reveal style="--d:140ms">
+      <div class="phone-row">
+        <button class="lvl-nav lvl-prev" type="button" aria-label="Previous level">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="status-bar" aria-hidden="true">
+              <span class="time" id="status-time">9:41</span>
+              <div class="indicators">
+                <!-- Signal bars -->
+                <svg width="17" height="11" viewBox="0 0 17 11" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="0"  y="7" width="3" height="4" rx="0.6"/>
+                  <rect x="4.5" y="5" width="3" height="6" rx="0.6"/>
+                  <rect x="9"  y="3" width="3" height="8" rx="0.6"/>
+                  <rect x="13.5" y="0" width="3" height="11" rx="0.6"/>
+                </svg>
+                <!-- WiFi -->
+                <svg width="16" height="12" viewBox="0 0 16 12" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M8 2.2c2.6 0 5 1 6.8 2.7l1.2-1.2C13.9 1.5 11 .3 8 .3S2.1 1.5 0 3.7l1.2 1.2C3 3.2 5.4 2.2 8 2.2z"/>
+                  <path d="M8 5.8c1.6 0 3.1.6 4.2 1.8l1.2-1.2C12 4.9 10.1 4 8 4S4 4.9 2.6 6.4l1.2 1.2C5 6.4 6.4 5.8 8 5.8z"/>
+                  <path d="M8 9.5c.6 0 1.2.2 1.6.7l-1.6 1.6L6.4 10c.4-.3 1-.5 1.6-.5z"/>
+                </svg>
+                <!-- Battery -->
+                <svg width="26" height="12" viewBox="0 0 26 12" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="0.5" y="0.5" width="22" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-opacity="0.5" stroke-width="1"/>
+                  <rect x="23.5" y="3.5" width="2" height="5" rx="0.6" opacity="0.5"/>
+                  <rect x="2" y="2" width="18" height="8" rx="1.3"/>
+                </svg>
+              </div>
+            </div>
+            <iframe
+              id="game-iframe"
+              src="./gamee/index_local.html?renderer=3d&level=moon"
+              title="Plop! — live demo"
+              allow="autoplay; fullscreen; clipboard-read; clipboard-write; gamepad; xr-spatial-tracking"
+              loading="eager"></iframe>
+          </div>
+        </div>
+        <button class="lvl-nav lvl-next" type="button" aria-label="Next level">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+      <div class="lvl-dots" id="lvl-dots"></div>
+      <div class="level-caption">
+        <div class="lvl-meta">
+          <div class="lvl-num" id="lvl-num">Featured · 1 / 4</div>
+          <div class="lvl-difficulty" id="lvl-difficulty" data-diff="2">
+            <span class="lvl-diff-dots">
+              <span class="dd"></span><span class="dd"></span><span class="dd"></span><span class="dd"></span><span class="dd"></span>
+            </span>
+            <span class="lvl-diff-label" id="lvl-diff-label">Mild</span>
+          </div>
+        </div>
+        <div class="lvl-title" id="lvl-title">Moon Violet</div>
+        <div class="lvl-desc" id="lvl-desc">Larger color palette, intro to rocket targets and the flow with an empty belt. A smooth mid-game intro.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═════════════════════════ FOTO LEVEL ═════════════════════════ -->
+  <section>
+    <h2 data-reveal>Your <span class="accent">level</span></h2>
+    <p class="section-lead" data-reveal style="--d:80ms">Upload any photo — in seconds we'll turn it into a custom level and run it right here on this page.</p>
+
+    <div class="pi-card" data-reveal style="--d:140ms">
+      <div id="pi-upload-prompt" class="pi-upload-prompt">
+        <div class="pi-upload-icon">📷</div>
+        <div class="pi-upload-lbl">Drop a photo here</div>
+        <div class="pi-upload-sub">or</div>
+        <button class="pi-btn pi-btn-upload" id="pi-btn-upload" type="button">Choose file</button>
+      </div>
+      <input type="file" id="pi-file-input" accept="image/*" style="display:none">
+      <div id="pi-workspace" class="pi-workspace" style="display:none">
+        <div class="pi-canvases">
+          <div class="pi-canvas-block">
+            <canvas id="pi-crop-canvas" class="pi-crop-canvas" width="288" height="216"></canvas>
+            <input type="range" id="pi-zoom" class="pi-zoom" min="1" max="5" step="0.02" value="1.4" aria-label="Zoom">
+            <div class="pi-canvas-lbl">Drag to pan · slider to zoom</div>
+          </div>
+          <div class="pi-arrow">→</div>
+          <div class="pi-canvas-block">
+            <canvas id="pi-quant-canvas" class="pi-quant-canvas" width="180" height="135"></canvas>
+            <div class="pi-canvas-lbl">Pixel art preview</div>
+          </div>
+        </div>
+        <div class="pi-actions">
+          <button class="pi-btn pi-btn-change" id="pi-btn-change" type="button">↩ Different photo</button>
+          <button class="pi-btn pi-btn-play" id="pi-btn-play" type="button">Play →</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═════════════════════════ STATUS ═════════════════════════ -->
+  <section>
+    <h2 data-reveal>What's <span class="accent">done</span></h2>
+    <p class="section-lead" data-reveal style="--d:80ms">The game has gone through 9&nbsp;milestones — from core mechanics to full 3D&nbsp;visuals and brand identity. Currently in the beta&nbsp;cycle&nbsp;(v74) and final polishing.</p>
+
+    <div class="grid-2">
+      <div class="status-card done" data-reveal style="--d:0ms">
+        <h3><span class="dot ok"></span>Gameplay&nbsp;&amp;&nbsp;mechanics</h3>
+        <ul>
+          <li><b>Core loop</b>&nbsp;— carriers, belt, cannon, score by color match, honeycomb carrier activation.</li>
+          <li><b>Adaptive layout</b>&nbsp;— 4–7&nbsp;carrier rows, responsive sizing 38–54&nbsp;px, iOS safe area, touch fix.</li>
+          <li><b>Funnel physics</b>&nbsp;— multi-segment bezier collider, sliding contact, smoothed normals, anti-escape.</li>
+          <li><b>Blocks, walls, mystery carriers</b>&nbsp;— reveal animation, cascade pop, denial shake; mystery with wipe reveal (balls under the cover) — v74.60.</li>
+          <li><b>End-screen "Next&nbsp;→"</b>&nbsp;— smooth continuation through the LEVELS sequence after finishing a level, cycles around — v74.58.</li>
+        </ul>
+      </div>
+
+      <div class="status-card done" data-reveal style="--d:100ms">
+        <h3><span class="dot ok"></span>2.5D&nbsp;visuals (M6–M9)</h3>
+        <ul>
+          <li><b>Three.js scene</b>&nbsp;— stylized 3D&nbsp;rendering (toon + lambert + matcap); pixels, blocks, projectiles, carriers, belt.</li>
+          <li><b>Unified 3D&nbsp;grid</b>&nbsp;— walls as a monolith (BFS + ExtrudeGeometry), rounded silhouette, outline.</li>
+          <li><b>Bottom unified frame</b>&nbsp;— belt + gap + arena as one shape with a "punched-out" hole, stencil clipping.</li>
+          <li><b>3D&nbsp;gun + muzzle flash + smoke</b>, cartoon squash&amp;stretch, motion trails, BG vignette, sparkles.</li>
+          <li><b>Block outline silhouette</b>&nbsp;— outline follows the block's overall shape (L/T/+) instead of per-cell strips — v74.56.</li>
+          <li><b>HP text in 3D&nbsp;blocks</b>&nbsp;— Impact font, depth shadow, -30&nbsp;% size — v74.55/57.</li>
+        </ul>
+      </div>
+
+      <div class="status-card done" data-reveal style="--d:180ms">
+        <h3><span class="dot ok"></span>Audio&nbsp;palette (v74.9–v74.61)</h3>
+        <ul>
+          <li><b>SFX</b>&nbsp;— pop, bounce, 4-var shoot, step (cannon move), suck (hole), carrier&nbsp;click, denial.</li>
+          <li><b>Pentatonic pitch quantization</b>&nbsp;— action sequences sound like a melodic phrase, not random beeping.</li>
+          <li><b>Adaptive music</b>&nbsp;— 5 layers (kick / hihat / clap / pad / belt&nbsp;tick) with build-up and decay after idle.</li>
+          <li><b>Mix</b>&nbsp;— pop fatigue, throttle, master volume balance tuning (shoot under pop, restrained cannon).</li>
+        </ul>
+      </div>
+
+      <div class="status-card done" data-reveal style="--d:260ms">
+        <h3><span class="dot ok"></span>Editor, AI, infra</h3>
+        <ul>
+          <li><b>Level editor</b>&nbsp;— photo import, block editor, multi-variant layouts; card UI with&nbsp;mini thumbnails and a&nbsp;2-row layout — v74.57.</li>
+          <li><b>In-game filter + share link</b>&nbsp;— checkbox per level (unchecked levels stay editor-only); 🔗&nbsp;button copies the GH&nbsp;Pages URL to clipboard — v74.57.</li>
+          <li><b>Theme picker per level</b>&nbsp;— a default theme per level, optionally overriding the global choice — v74.56.</li>
+          <li><b>Photo color minimizer</b>&nbsp;— preview mode with threshold, live preview, undo; trims the palette on photo import — v74.62.</li>
+          <li><b>AI tester</b>&nbsp;— solver hierarchy, difficulty score 0–100, heat map, curve editor + auto-tune SA.</li>
+          <li><b>Brand "Plop!"</b>&nbsp;— comic icon, version&nbsp;badge, PWA manifest, Bangers font in&nbsp;the brand identity.</li>
+          <li><b>PWA service worker</b>&nbsp;— network-first, auto-reload on update, offline fallback, safe-area inset.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═════════════════════════ NEXT UP ═════════════════════════ -->
+  <section>
+    <h2 data-reveal>What's <span class="accent">in progress</span></h2>
+    <p class="section-lead" data-reveal style="--d:80ms">Beta&nbsp;cycle (v74)&nbsp;— feature complete, but we're still wrapping up these items before release.</p>
+
+    <div class="grid-2">
+      <div class="status-card wip" data-reveal style="--d:0ms">
+        <h3><span class="dot wip"></span>Beta polish&nbsp;— P0&nbsp;/&nbsp;P1</h3>
+        <ul>
+          <li><b>Blocks fix</b>&nbsp;(P0)&nbsp;— block mechanics need a re-check after the 3D switch; silhouette outline done (v74.56), concave corners see P2.</li>
+          <li><b>Ball&#8209;to&#8209;hole check immediately</b>&nbsp;(P1)&nbsp;— right after loading instead of waiting for the end of rounds.</li>
+          <li><b>FPS&nbsp;drain diagnosis</b>&nbsp;(P1)&nbsp;— the game burns frames even idle, hunting the cause.</li>
+        </ul>
+      </div>
+
+      <div class="status-card wip" data-reveal style="--d:100ms">
+        <h3><span class="dot wip"></span>Beta polish&nbsp;— P2&nbsp;details</h3>
+        <ul>
+          <li><b>Speed up the belt</b>&nbsp;and&nbsp;flow speed&#8209;up after carriers empty (≈ 2× speed until end of level).</li>
+          <li><b>Ball highlights</b>&nbsp;for dark colors (rim&#8209;light) — black and dark blue are hard to see in the grid.</li>
+          <li><b>Block outline concave corners</b>&nbsp;— L/T/+ have a visual artifact, clean fix via merged geometry.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═════════════════════════ ROADMAP ═════════════════════════ -->
+  <section>
+    <h2 data-reveal>Roadmap &amp; <span class="accent">what's next</span></h2>
+    <p class="section-lead" data-reveal style="--d:80ms">What's next after beta wraps. Order is flexible — test feedback sets priorities.</p>
+
+    <div class="timeline">
+      <div class="ms current" data-reveal style="--d:0ms">
+        <div class="ms-card">
+          <span class="ms-title">Beta cycle — pre-release polishing</span>
+          <span class="ms-ver">v74</span>
+          <div class="ms-desc">Second test cycle. Feature complete — wrapping up bugs and UX details before release.</div>
+        </div>
+      </div>
+
+      <div class="ms" data-reveal style="--d:80ms">
+        <div class="ms-card">
+          <span class="ms-title">M10 — Replay &amp; Scrub</span>
+          <span class="ms-ver">future</span>
+          <div class="ms-desc">Curve editor v1.5&nbsp;— timeline scrubber, mini canvas, .webm export. Great for social sharing and QA bug repro.</div>
+        </div>
+      </div>
+
+      <div class="ms" data-reveal style="--d:160ms">
+        <div class="ms-card">
+          <span class="ms-title">M11 — Editor polish</span>
+          <span class="ms-ver">future</span>
+          <div class="ms-desc">Copy/paste blocks, multi-select, pipette, playtester mode, visual garage drag-drop. Brings the editor to a level non-Claude teammates can also use.</div>
+        </div>
+      </div>
+
+      <div class="ms" data-reveal style="--d:240ms">
+        <div class="ms-card">
+          <span class="ms-title">M12 — Adaptive difficulty &amp; procedural levels</span>
+          <span class="ms-ver">future</span>
+          <div class="ms-desc">localStorage player history → rule-based recommender for the next level. Template / WFC procedural generation. Key for retention and replayability.</div>
+        </div>
+      </div>
+
+      <div class="ms" data-reveal style="--d:320ms">
+        <div class="ms-card">
+          <span class="ms-title">M13 — Variable image grid</span>
+          <span class="ms-ver">future</span>
+          <div class="ms-desc">Per-level resolution, mid-game refinement, subpixel detail. Opens room for realistic portraits and rough chibi styles in one game.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═════════════════════════ FOOTER ═════════════════════════ -->
+  <footer data-reveal>
+    <div>
+      <b style="color:var(--yellow);font-family:'Anton','Inter',sans-serif;letter-spacing:1px;font-size:22px;text-transform:uppercase;text-shadow:-1px -1px 0 var(--ink),1px -1px 0 var(--ink),-1px 1px 0 var(--ink),1px 1px 0 var(--ink);">Plop!</b>
+      &nbsp;·&nbsp; v74.62 &nbsp;·&nbsp; build 2026-05-20
+      <div class="footer-pitch">
+        <span class="fp-pill">Vertical slice</span>
+        <span class="fp-text">This is a <b>vertical slice</b> — <b>the foundation is done</b>. Now there's room to push the game further both <b>audiovisually</b> and <b>content-wise</b>.</span>
+      </div>
+    </div>
+    <div style="text-align:right;">
+      <a href="mailto:denis.hrazdira@gmail.com">denis.hrazdira@gmail.com</a><br>
+      <span style="font-size:12px;opacity:0.7;">Single-file HTML&nbsp;· no build step</span>
+    </div>
+  </footer>
+
+</div>
+
+<script>
+  // ─── Level carousel ──────────────────────────────────────────────
+  const DIFF_LABELS = ['', 'Easy', 'Mild', 'Medium', 'Hard', 'Brutal'];
+  const LEVELS = [
+    {
+      key: 'moon',
+      title: 'Moon Violet',
+      difficulty: 2,
+      desc: 'Larger color palette, intro to rocket targets and the flow with an empty belt. A smooth mid-game intro.'
+    },
+    {
+      key: 'dog',
+      title: 'Doggie',
+      difficulty: 3,
+      desc: 'Medium-difficulty level with custom pixel art — shows the full range of mechanics (carriers, cannon, color match, mystery, blocks) at real game pace.'
+    },
+    {
+      key: 'violet-wall',
+      title: 'Violet Wall',
+      difficulty: 4,
+      desc: 'Brings wall mechanics into focus — HP barriers inside the image add a destructible-puzzle layer on top of the color match. Tests block tuning.'
+    },
+    {
+      key: 'pixel-pattern',
+      title: 'Pixel Pattern',
+      difficulty: 5,
+      desc: 'Abstract geometric pattern — focuses on rhythm and color matching without a recognizable subject. A pure mechanic showcase.'
+    }
+  ];
+
+  const iframe = document.getElementById('game-iframe');
+  const numEl = document.getElementById('lvl-num');
+  const titleEl = document.getElementById('lvl-title');
+  const descEl = document.getElementById('lvl-desc');
+  const dotsEl = document.getElementById('lvl-dots');
+  const diffEl = document.getElementById('lvl-difficulty');
+  const diffLabelEl = document.getElementById('lvl-diff-label');
+  let curIdx = 0;
+
+  // Build dots
+  LEVELS.forEach((_, i) => {
+    const dot = document.createElement('button');
+    dot.className = 'lvl-dot';
+    dot.type = 'button';
+    dot.setAttribute('aria-label', `Level ${i + 1}`);
+    dot.addEventListener('click', () => setLevel(i));
+    dotsEl.appendChild(dot);
+  });
+
+  // Auto-advance: každých 15s další level, dokud hráč neklikne do hry
+  let autoAdvanceTimer = null;
+  let autoAdvanceStopped = false;
+  function scheduleNextAdvance() {
+    if (autoAdvanceTimer) { clearTimeout(autoAdvanceTimer); autoAdvanceTimer = null; }
+    if (autoAdvanceStopped) return;
+    autoAdvanceTimer = setTimeout(() => {
+      autoAdvanceTimer = null;
+      if (autoAdvanceStopped) return;
+      if (window._bbCustomLevel) { scheduleNextAdvance(); return; }
+      setLevel(curIdx + 1);
+    }, 12000);
+  }
+  function stopAutoAdvance() {
+    if (autoAdvanceStopped) return;
+    autoAdvanceStopped = true;
+    if (autoAdvanceTimer) { clearTimeout(autoAdvanceTimer); autoAdvanceTimer = null; }
+  }
+
+  // Slide animace mezi levely (slide-out doleva → snap doprava → slide-in)
+  function slideToLevel(newSrc) {
+    iframe.style.opacity = '0';
+    iframe.style.transform = 'translateX(-50px)';
+    setTimeout(() => {
+      // Snap na pravou stranu bez transition
+      iframe.style.transition = 'none';
+      iframe.style.transform = 'translateX(50px)';
+      void iframe.offsetHeight; // force reflow
+      iframe.style.transition = ''; // restore CSS default
+      let done = false;
+      const finishIn = () => {
+        if (done) return; done = true;
+        iframe.removeEventListener('load', onLoad);
+        clearTimeout(fallback);
+        setTimeout(() => {
+          iframe.style.opacity = '1';
+          iframe.style.transform = 'translateX(0)';
+        }, 80);
+      };
+      const onLoad = () => finishIn();
+      iframe.addEventListener('load', onLoad);
+      const fallback = setTimeout(finishIn, 3000);
+      iframe.src = newSrc;
+    }, 400);
+  }
+
+  function setLevel(i){
+    window._bbCustomLevel = null;
+    const n = LEVELS.length;
+    curIdx = ((i % n) + n) % n;
+    const lv = LEVELS[curIdx];
+    numEl.textContent = `Featured · ${curIdx + 1} / ${n}`;
+    titleEl.textContent = lv.title;
+    descEl.textContent = lv.desc;
+    diffEl.dataset.diff = String(lv.difficulty);
+    diffLabelEl.textContent = DIFF_LABELS[lv.difficulty] || '—';
+    dotsEl.querySelectorAll('.lvl-dot').forEach((d, idx) => {
+      d.classList.toggle('active', idx === curIdx);
+    });
+    slideToLevel(`./gamee/index_local.html?renderer=3d&level=${lv.key}`);
+    scheduleNextAdvance();
+  }
+
+  document.querySelector('.lvl-prev').addEventListener('click', () => setLevel(curIdx - 1));
+  document.querySelector('.lvl-next').addEventListener('click', () => setLevel(curIdx + 1));
+
+  // Keyboard: ← / → also works when prezentace má focus mimo iframe
+  window.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'IFRAME') return; // game keys handled by iframe
+    if (e.key === 'ArrowLeft')  { setLevel(curIdx - 1); e.preventDefault(); }
+    if (e.key === 'ArrowRight') { setLevel(curIdx + 1); e.preventDefault(); }
+  });
+
+  // Init — mark dot for the initial level
+  setLevel(0);
+
+  // ─── Status bar color sync ─────────────────────────────────────
+  const statusBar = document.querySelector('.status-bar');
+
+  function textColorFor(css) {
+    // parse hex or rgb() → relative luminance → dark/light text
+    let r, g, b;
+    const hex = css.trim().match(/^#([0-9a-f]{3,6})$/i);
+    const rgb = css.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+    if (hex) {
+      const h = hex[1].length === 3 ? hex[1].replace(/(.)/g, '$1$1') : hex[1];
+      r = parseInt(h.slice(0,2),16); g = parseInt(h.slice(2,4),16); b = parseInt(h.slice(4,6),16);
+    } else if (rgb) {
+      [, r, g, b] = rgb.map(Number);
+    } else return '#1a0612';
+    return (0.299*r + 0.587*g + 0.114*b) / 255 > 0.4 ? '#1a0612' : 'rgba(255,255,255,0.88)';
+  }
+
+  function syncStatusBarColor() {
+    try {
+      const iDoc = iframe.contentDocument || iframe.contentWindow.document;
+      const color = getComputedStyle(iDoc.body).getPropertyValue('--bg-3d-top').trim();
+      if (!color) return;
+      statusBar.style.background = color;
+      statusBar.style.color = textColorFor(color);
+    } catch(_) {}
+  }
+
+  iframe.addEventListener('load', () => {
+    // game.js applies theme inside startLevel() — give it time to fire
+    setTimeout(() => {
+      syncStatusBarColor();
+      try {
+        const iDoc = iframe.contentDocument || iframe.contentWindow.document;
+        iDoc.addEventListener('bb:theme-changed', syncStatusBarColor);
+        // Klik do hry → zastavit auto-advance
+        iDoc.addEventListener('pointerdown', stopAutoAdvance, { capture: true });
+      } catch(_) {}
+    }, 500);
+  });
+
+  // ─── Styled QR code ───────────────────────────────────────────
+  new QRCodeStyling({
+    width: 152, height: 152, type: 'svg',
+    data: 'https://damhole.github.io/ballon-belt/gamee/index_local.html',
+    margin: 6,
+    dotsOptions:          { color: '#000000', type: 'square' },
+    backgroundOptions:    { color: '#ffffff' },
+    cornersSquareOptions: { color: '#000000', type: 'square' },
+    cornersDotOptions:    { color: '#000000' },
+    qrOptions:            { errorCorrectionLevel: 'M' },
+  }).append(document.getElementById('play-qr-render'));
+
+  // ─── Parallax background ──────────────────────────────────────
+  const bgLayers = [
+    { el: document.getElementById('bg-glow'),       speed: 0.02 },
+    { el: document.getElementById('bg-stars-far'),  speed: 0.05 },
+    { el: document.getElementById('bg-stars-mid'),  speed: 0.10 },
+    { el: document.getElementById('bg-stars-near'), speed: 0.165 },
+  ];
+  let rafQueued = false;
+  function tickParallax() {
+    const y = window.scrollY;
+    bgLayers.forEach(({ el, speed }) => {
+      el.style.transform = `translateY(${-y * speed}px)`;
+    });
+    rafQueued = false;
+  }
+  window.addEventListener('scroll', () => {
+    if (!rafQueued) { rafQueued = true; requestAnimationFrame(tickParallax); }
+  }, { passive: true });
+
+  // ─── Scroll reveal ─────────────────────────────────────────────
+  const ro = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('revealed');
+        ro.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.1, rootMargin: '0px 0px -48px 0px' });
+  document.querySelectorAll('[data-reveal]').forEach(el => ro.observe(el));
+
+  // ─── Plop! background particles ──────────────────────────────
+  (function () {
+    const cvs = document.getElementById('bg-particles');
+    const ctx = cvs.getContext('2d');
+    const PAL = ['#ff2a7f','#ffd23f','#3ed27a','#b89bff','#ff9f43','#54a0ff','#ffb3cf','#ff6b9d'];
+    const N = 26;
+    const POP_FRAMES = 22;
+
+    function resize() { cvs.width = window.innerWidth; cvs.height = window.innerHeight; }
+    resize();
+    window.addEventListener('resize', resize, { passive: true });
+
+    function mkParticle(fromBottom) {
+      const r = 3.5 + Math.random() * 4.5;
+      return {
+        x: Math.random() * cvs.width,
+        y: fromBottom ? cvs.height + r + Math.random() * 80 : Math.random() * cvs.height,
+        r,
+        color: PAL[Math.floor(Math.random() * PAL.length)],
+        vy: -(0.25 + Math.random() * 0.45),
+        wobblePhase: Math.random() * Math.PI * 2,
+        wobbleSpeed: 0.012 + Math.random() * 0.018,
+        wobbleAmp: 0.5 + Math.random() * 0.9,
+        life: 0,
+        maxLife: 320 + Math.random() * 220,
+        popping: false, popFrame: 0, popX: 0, popY: 0,
+        popAngles: Array.from({ length: 7 }, (_, i) => (i / 7) * Math.PI * 2 + Math.random() * 0.4),
+      };
+    }
+
+    const pts = Array.from({ length: N }, () => mkParticle(false));
+    pts.forEach(p => { p.life = Math.floor(Math.random() * p.maxLife * 0.8); p.y -= p.vy * p.life; });
+
+    function tick() {
+      ctx.clearRect(0, 0, cvs.width, cvs.height);
+      for (let i = 0; i < pts.length; i++) {
+        const p = pts[i];
+
+        // ── pop phase ──
+        if (p.popping) {
+          p.popFrame++;
+          if (p.popFrame >= POP_FRAMES) { pts[i] = mkParticle(true); continue; }
+          const pt = p.popFrame / POP_FRAMES;   // 0 → 1
+          const a  = (1 - pt) * 0.55;
+          ctx.save();
+          // 7 burst fragments flying outward
+          for (const ang of p.popAngles) {
+            const dist = pt * p.r * 5.5;
+            const br   = Math.max(p.r * 0.45 * (1 - pt), 0.5);
+            ctx.globalAlpha = a;
+            ctx.beginPath();
+            ctx.arc(p.popX + Math.cos(ang) * dist, p.popY + Math.sin(ang) * dist, br, 0, Math.PI * 2);
+            ctx.fillStyle = p.color; ctx.fill();
+          }
+          // expanding ring
+          ctx.globalAlpha = a * 0.45;
+          ctx.beginPath();
+          ctx.arc(p.popX, p.popY, p.r * (1 + pt * 3), 0, Math.PI * 2);
+          ctx.strokeStyle = p.color; ctx.lineWidth = 1.5; ctx.stroke();
+          ctx.restore();
+          continue;
+        }
+
+        // ── normal float phase ──
+        p.wobblePhase += p.wobbleSpeed;
+        p.x += Math.sin(p.wobblePhase) * p.wobbleAmp * 0.06;
+        p.y += p.vy;
+        p.life++;
+        const t = p.life / p.maxLife;
+        const alpha = (t < 0.12 ? t / 0.12 : 1) * 0.42;
+
+        if (p.life >= p.maxLife || p.y < -p.r * 3) {
+          p.popping = true; p.popFrame = 0; p.popX = p.x; p.popY = p.y;
+          continue;
+        }
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = p.color; ctx.fill();
+        ctx.globalAlpha = alpha * 0.7;
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 1.2; ctx.stroke();
+        ctx.globalAlpha = alpha * 0.65;
+        ctx.beginPath(); ctx.arc(p.x - p.r * 0.28, p.y - p.r * 0.3, p.r * 0.28, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fill();
+        ctx.restore();
+      }
+      requestAnimationFrame(tick);
+    }
+    tick();
+  })();
+
+  // ─── Photo import ─────────────────────────────────────────────
+  (function(){
+    const PI_GW = 36, PI_GH = 27, QSCALE = 5;
+    const CW = 288, CH = 216; // crop canvas internal resolution
+
+    const PI_PAL = [
+      '#3dd64a','#ff7a1a','#5bc8f5','#1b9aff','#ff4fa3','#f5d800','#8b4dff','#141414','#ffffff','#e63946','#00c8a0','#8c8c8c',
+      '#ff3b30','#c0392b','#ff6b6b','#b71c1c','#ff8a65','#bf360c',
+      '#ff9800','#e65100','#ffb300','#f57c00',
+      '#c6e617','#76d400','#ffd600','#aeea00',
+      '#00c853','#1b5e20','#69f0ae','#33691e',
+      '#00bcd4','#006064','#b2ebf2','#00e5ff',
+      '#42a5f5','#0d47a1','#82b1ff','#1565c0','#7986cb',
+      '#7c4dff','#6a1b9a','#ab47bc','#ce93d8',
+      '#e91e63','#f48fb1','#ad1457','#ff80ab',
+      '#212121','#424242','#616161','#757575',
+      '#bdbdbd','#e0e0e0','#fff9c4','#fce4ec',
+      '#795548','#5d4037','#a1887f','#d7ccc8','#bf8040','#ffcc80',
+      '#ff6e40','#40c4ff','#b9f6ca',
+    ];
+    const PI_RGB = PI_PAL.map(h => {
+      const v = parseInt(h.slice(1), 16);
+      return [(v>>16)&255, (v>>8)&255, v&255];
+    });
+
+    function piNearest(r, g, b) {
+      let best = 0, bestD = 1e18;
+      for (let i = 0; i < PI_RGB.length; i++) {
+        const c = PI_RGB[i], d = (r-c[0])**2 + (g-c[1])**2 + (b-c[2])**2;
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      return best;
+    }
+
+    function piGetSubset(data, w, h, n) {
+      const cnt = new Uint32Array(PI_PAL.length);
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i+3] < 128) continue;
+        cnt[piNearest(data[i], data[i+1], data[i+2])]++;
+      }
+      return Array.from({length: PI_PAL.length}, (_, i) => i)
+        .sort((a, b) => cnt[b] - cnt[a]).slice(0, n);
+    }
+
+    function piQuantize(data, w, h, subset) {
+      const px = Array.from({length: h}, () => new Array(w));
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y*w+x)*4;
+          const r = data[i], g = data[i+1], b = data[i+2];
+          let best = subset[0], bestD = 1e18;
+          for (const idx of subset) {
+            const c = PI_RGB[idx], d = (r-c[0])**2 + (g-c[1])**2 + (b-c[2])**2;
+            if (d < bestD) { bestD = d; best = idx; }
+          }
+          px[y][x] = best;
+        }
+      }
+      return px;
+    }
+
+    const cropCanvas  = document.getElementById('pi-crop-canvas');
+    const quantCanvas = document.getElementById('pi-quant-canvas');
+    const uploadPrompt = document.getElementById('pi-upload-prompt');
+    const workspace   = document.getElementById('pi-workspace');
+    const fileInput   = document.getElementById('pi-file-input');
+    const btnUpload   = document.getElementById('pi-btn-upload');
+    const btnChange   = document.getElementById('pi-btn-change');
+    const btnPlay     = document.getElementById('pi-btn-play');
+    const zoomSlider  = document.getElementById('pi-zoom');
+
+    let piImg = null, piPanX = 0, piPanY = 0, piImgScale = 1;
+    let piPixels = null, piSubset = null;
+    let dragActive = false, dragX0 = 0, dragY0 = 0, panX0 = 0, panY0 = 0;
+    let dragScaleX = 1, dragScaleY = 1;
+
+    function clampPan() {
+      piPanX = Math.max(0, Math.min(piPanX, Math.max(0, piImg.width  - CW * piImgScale)));
+      piPanY = Math.max(0, Math.min(piPanY, Math.max(0, piImg.height - CH * piImgScale)));
+    }
+
+    function renderCrop() {
+      const ctx = cropCanvas.getContext('2d');
+      ctx.drawImage(piImg, piPanX, piPanY, CW * piImgScale, CH * piImgScale, 0, 0, CW, CH);
+    }
+
+    function updateQuant() {
+      const tmp = document.createElement('canvas');
+      tmp.width = PI_GW; tmp.height = PI_GH;
+      const tc = tmp.getContext('2d');
+      tc.drawImage(piImg, piPanX, piPanY, CW * piImgScale, CH * piImgScale, 0, 0, PI_GW, PI_GH);
+      const id = tc.getImageData(0, 0, PI_GW, PI_GH);
+      piSubset = piGetSubset(id.data, PI_GW, PI_GH, 8);
+      piPixels = piQuantize(id.data, PI_GW, PI_GH, piSubset);
+      const qctx = quantCanvas.getContext('2d');
+      for (let y = 0; y < PI_GH; y++) {
+        for (let x = 0; x < PI_GW; x++) {
+          qctx.fillStyle = PI_PAL[piPixels[y][x]];
+          qctx.fillRect(x * QSCALE, y * QSCALE, QSCALE, QSCALE);
+        }
+      }
+    }
+
+    function baseCoverScale() {
+      // source pixels per display pixel for cover fit (image just covers canvas)
+      return Math.min(piImg.width / CW, piImg.height / CH);
+    }
+
+    function applyZoom(z) {
+      if (!piImg) return;
+      const newScale = baseCoverScale() / z;
+      // keep center of current view fixed
+      const cx = piPanX + (CW * piImgScale) / 2;
+      const cy = piPanY + (CH * piImgScale) / 2;
+      piImgScale = newScale;
+      piPanX = cx - (CW * piImgScale) / 2;
+      piPanY = cy - (CH * piImgScale) / 2;
+      clampPan();
+      renderCrop();
+      updateQuant();
+    }
+
+    function loadImage(file) {
+      if (!file || !file.type.startsWith('image/')) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          piImg = img;
+          const z = parseFloat(zoomSlider.value) || 1.4;
+          piImgScale = Math.min(img.width / CW, img.height / CH) / z;
+          piPanX = (img.width  - CW * piImgScale) / 2;
+          piPanY = (img.height - CH * piImgScale) / 2;
+          clampPan();
+          renderCrop();
+          updateQuant();
+          uploadPrompt.style.display = 'none';
+          workspace.style.display = 'flex';
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    zoomSlider.addEventListener('input', () => applyZoom(parseFloat(zoomSlider.value)));
+
+    btnUpload.addEventListener('click', (e) => { e.stopPropagation(); fileInput.click(); });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) loadImage(fileInput.files[0]);
+      fileInput.value = '';
+    });
+
+    uploadPrompt.addEventListener('click', () => fileInput.click());
+    uploadPrompt.addEventListener('dragover',  (e) => { e.preventDefault(); uploadPrompt.classList.add('drag-over'); });
+    uploadPrompt.addEventListener('dragleave', ()  => uploadPrompt.classList.remove('drag-over'));
+    uploadPrompt.addEventListener('drop', (e) => {
+      e.preventDefault(); uploadPrompt.classList.remove('drag-over');
+      if (e.dataTransfer.files[0]) loadImage(e.dataTransfer.files[0]);
+    });
+
+    btnChange.addEventListener('click', () => {
+      workspace.style.display = 'none';
+      uploadPrompt.style.display = 'flex';
+      piImg = null;
+    });
+
+    // Pan — mouse
+    cropCanvas.addEventListener('mousedown', (e) => {
+      dragActive = true;
+      dragX0 = e.clientX; dragY0 = e.clientY;
+      panX0 = piPanX; panY0 = piPanY;
+      const r = cropCanvas.getBoundingClientRect();
+      dragScaleX = piImgScale * (CW / r.width);
+      dragScaleY = piImgScale * (CH / r.height);
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragActive) return;
+      piPanX = panX0 - (e.clientX - dragX0) * dragScaleX;
+      piPanY = panY0 - (e.clientY - dragY0) * dragScaleY;
+      clampPan(); renderCrop(); updateQuant();
+    });
+    window.addEventListener('mouseup', () => { dragActive = false; });
+
+    // Pan — touch
+    cropCanvas.addEventListener('touchstart', (e) => {
+      dragActive = true;
+      dragX0 = e.touches[0].clientX; dragY0 = e.touches[0].clientY;
+      panX0 = piPanX; panY0 = piPanY;
+      const r = cropCanvas.getBoundingClientRect();
+      dragScaleX = piImgScale * (CW / r.width);
+      dragScaleY = piImgScale * (CH / r.height);
+    }, { passive: true });
+    window.addEventListener('touchmove', (e) => {
+      if (!dragActive) return;
+      piPanX = panX0 - (e.touches[0].clientX - dragX0) * dragScaleX;
+      piPanY = panY0 - (e.touches[0].clientY - dragY0) * dragScaleY;
+      clampPan(); renderCrop(); updateQuant();
+    }, { passive: true });
+    window.addEventListener('touchend', () => { dragActive = false; });
+
+    // Play
+    btnPlay.addEventListener('click', () => {
+      if (!piPixels || !piSubset) return;
+      window._bbCustomLevel = [{
+        key: 'custom',
+        label: 'Your level',
+        type: 'relaxing',
+        imageDifficulty: 2,
+        image: { source: 'custom', pixels: piPixels },
+        activePalette: piSubset,
+        blocks: [],
+        rocketTargets: null,
+        garage: null,
+      }];
+      iframe.src = './gamee/index_local.html?renderer=3d';
+      document.querySelector('.phone-stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  })();
+
+  // ─── Live clock in status bar ──────────────────────────────────
+  const timeEl = document.getElementById('status-time');
+  function updateClock(){
+    const d = new Date();
+    timeEl.textContent = d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+  updateClock();
+  setInterval(updateClock, 30000);
+</script>
+</body>
+</html>

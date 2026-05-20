@@ -1039,6 +1039,7 @@ function resolveLevels(){
       if(Array.isArray(remote)&&remote.length){console.log('[levels] using gamee.getLevels() — '+remote.length+' levels');return remote;}
     }
   }catch(e){/* Gamee API chyba – ignoruj a pokračuj na další zdroj */}
+  try{if(window.parent&&window.parent!==window&&Array.isArray(window.parent._bbCustomLevel)&&window.parent._bbCustomLevel.length){console.log('[levels] using parent._bbCustomLevel — prezentace custom level');return window.parent._bbCustomLevel;}}catch(e){}
   if(typeof window!=='undefined'&&Array.isArray(window.LEVELS)&&window.LEVELS.length){console.log('[levels] using window.LEVELS (editor) — '+window.LEVELS.length+' levels');return window.LEVELS;}
   console.log('[levels] using LEVELS_FALLBACK — '+LEVELS_FALLBACK.length+' levels');
   return LEVELS_FALLBACK;
@@ -1215,7 +1216,38 @@ let stuckPassCount=0;   // kolikrát v řadě koule prošla bez konzumace (count
 // === POJÍZDNÝ KANON ===
 let gunQueue=[];                   // fronta čekajících střel {ci,color}
 let gunFireTimer=0;
-const GUN_FIRE_INTERVAL=0.04;     // 40 ms mezi výstřely
+const GUN_FIRE_INTERVAL=0.036;    // v74.62: -10% intervalu = +10% rychlost (40 → 36 ms)
+
+// v74.62: speed-up po vyklízení všech carriers. Když cntCarriers() klesne na 0,
+// hra zrychlí lineárně 1× → 2× za 3 sekundy. Aplikuje se na: belt, cannon fire,
+// projektily, pending balls. Animace + hudba zůstávají v reálném čase.
+let _carriersClearedAt = null;
+const _SPEEDUP_RAMP_MS = 3000;
+const _SPEEDUP_MAX = 2.0;
+
+// v74.62: input lock na startu levelu — zakaž klik na carriers dokud nedoběhne
+// úvodní animace (cascade pop + mystery reveal). Fixní time lock.
+let _levelStartLockUntil = 0;
+const _LEVEL_START_LOCK_MS = 4000;
+// v74.62: na posledních ~20 pixelech zpomal zpět na 1× — finish musí být v pohodě
+const _SLOWDOWN_START_PX = 40; // od kolika pixelů zbývajících začneme zpomalovat
+const _SLOWDOWN_END_PX   = 20; // při kolika pixelech jsme zpět na 1.0×
+let _remainingPxCache = null;  // updated v beltLoop tick
+function _speedMul(){
+  // Base ramp z carriers cleared (1.0 → 2.0 přes 3s)
+  let mul = 1.0;
+  if(_carriersClearedAt !== null){
+    const dt = performance.now() - _carriersClearedAt;
+    mul = dt >= _SPEEDUP_RAMP_MS ? _SPEEDUP_MAX : 1.0 + (_SPEEDUP_MAX - 1.0) * (dt / _SPEEDUP_RAMP_MS);
+  }
+  // Slowdown když se blíží konec — clamp mul podle remaining pixelů
+  if(_remainingPxCache !== null && _remainingPxCache <= _SLOWDOWN_START_PX){
+    if(_remainingPxCache <= _SLOWDOWN_END_PX) return 1.0;
+    const t = (_remainingPxCache - _SLOWDOWN_END_PX) / (_SLOWDOWN_START_PX - _SLOWDOWN_END_PX);
+    return 1.0 + (mul - 1.0) * t;
+  }
+  return mul;
+}
 const CANNON_Y=GH*10-6;           // 304 – těsně nad spodní hranou (SCALE je 10)
 const CANNON_MIN_X=16;
 const CANNON_MAX_X=344;
@@ -2145,7 +2177,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.61');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.62');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6874,6 +6906,7 @@ function _handleDenialDelegated(e){
 function onCarrierClick(e){
   const c=+e.currentTarget.dataset.col,r=+e.currentTarget.dataset.row;
   if(!running)return;
+  if(Date.now()<_levelStartLockUntil)return; // v74.62: input lock dokud nedoběhne intro animace
   const slot=columns[c][r];
   if(!slot)return;
   // Hard limit: v trychtýři max 4 nosiče (16 koulí). Klik se neodbaví a zobrazí se varování.
@@ -7568,7 +7601,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.61');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.62');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7696,7 +7729,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.61');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.62');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7726,6 +7759,9 @@ function startLevel(){
   if(!beltLoopStarted){beltLoopStarted=true;lastBeltTime=null;requestAnimationFrame(beltLoop);}
   grid=makeGrid();belt=new Array(BELT_CAP).fill(null);pending=[];nudgeTimer=0;funnelWarnTimer=0;score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
   particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;smokePuffs=[];smokePuffsQueue=[];
+  _carriersClearedAt=null; // v74.62: reset speed-up rampy na začátku levelu
+  _remainingPxCache=null;  // v74.62: reset pixel cache (přepočítá se v beltLoop)
+  _levelStartLockUntil=Date.now()+_LEVEL_START_LOCK_MS; // v74.62: input lock dokud nedoběhne intro animace
   _resetMusicState(); // nový level = hudba zase od foundation kick
   _caCountdown=3+Math.floor(Math.random()*3); // v73.236 CA interval reset
   // v72.68: reset 3D carrier transition caches — jinak by se carriery nového levelu
@@ -8170,8 +8206,14 @@ function beltLoop(ts){
   const _animDt = (lastBeltTime!==null) ? Math.min(0.05, (ts-lastBeltTime)/1000) : 1/60;
   if(lastBeltTime!==null&&!paused){
     const dt=(ts-lastBeltTime)/1000;
+    // v74.62: detekce vyklízených carriers — nastav timestamp pro speed-up rampu
+    if(_carriersClearedAt===null && running && cntCarriers()===0) _carriersClearedAt=performance.now();
+    // v74.62: refresh remaining pixel cache pro slowdown ramp (cca 1116 cells, levné)
+    { let _rp=0; for(let _y=0;_y<GH;_y++)for(let _x=0;_x<GW;_x++)if(grid[_y][_x]>=0)_rp++; _remainingPxCache=_rp; }
+    const _sm=_speedMul();
+    const dtAdj=dt*_sm;
     const prevAnim=beltAnim;
-    beltAnim+=dt*50;
+    beltAnim+=dtAdj*57.5;  // v74.62: +15% (50 → 57.5), ×speedMul po vyklízení carriers
     // Tah 8: periodický ammo-deficit check (každé ~4 s), ukáže warning
     // pokud garáž+belt+queue nestačí na zbývající pixely a bloky.
     // Audit panel renderujeme častěji (1 s), aby hráč průběžně viděl
@@ -8312,7 +8354,7 @@ function beltLoop(ts){
       }
       if(shot){
         const ddx=shot.idealX-cannonX;
-        const step=CANNON_SPEED*dt;
+        const step=CANNON_SPEED*dtAdj;  // v74.62: cannon move zrychlí s speedMul (jinak by nestíhal fire rate)
         if(Math.abs(ddx)<=step) cannonX=shot.idealX;
         else cannonX+=Math.sign(ddx)*step;
         cannonAngle=shot.angle;
@@ -8324,7 +8366,7 @@ function beltLoop(ts){
           _playStep();
         }
         if(Math.abs(shot.idealX-cannonX)<=CANNON_ARRIVE_EPS){
-          gunFireTimer+=dt;
+          gunFireTimer+=dtAdj;  // v74.62: speedMul ovlivní fire rate
           if(gunFireTimer>=GUN_FIRE_INTERVAL){
             // Rhythm fire: snap NA BEAT jen na začátku nové fire sekvence
             // (po pauze >400ms). Continuous fire běží normálně bez rhythm gate.
@@ -8373,9 +8415,9 @@ function beltLoop(ts){
     _profAccum.dispatch+=performance.now()-_td0;
 
     const _tu0=performance.now();
-    updateParticles(dt);
+    updateParticles(dtAdj);  // v74.62: projektily zrychlí s speedMul
     const _tu1=performance.now();
-    updatePending(dt);
+    updatePending(dtAdj);    // v74.62: pending balls zrychlí s speedMul
     const _tu2=performance.now();
     _profAccum.updateParticles+=_tu1-_tu0;
     _profAccum.updatePending+=_tu2-_tu1;
@@ -8596,7 +8638,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.61');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.62');
       event.detail.callback();
     });
 

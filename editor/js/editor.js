@@ -4061,6 +4061,128 @@ function wirePixelToolbar() {
   const clr = $('pt-clear-all');
   if (clr) clr.addEventListener('click', beClearAllPixels);
 
+  // v74.62: merge similar colors — preview mode (checkbox toggle → live náhled → Použít / Zrušit).
+  // Backup originálních pixelů se drží v _mergePreviewBackup; slider live-updates náhled,
+  // Použít = histPush + finalizace, Zrušit = restore z backup.
+  let _mergePreviewBackup = null;
+  const mergeEnable = $('pt-merge-enable');
+  const mergeControls = $('pt-merge-controls');
+  const mergeSlider = $('pt-merge-threshold');
+  const mergeVal = $('pt-merge-threshold-val');
+  const mergeInfo = $('pt-merge-info');
+  const mergeApplyBtn = $('pt-merge-apply');
+  const mergeCancelBtn = $('pt-merge-cancel');
+
+  function _restoreFromBackup(pixels) {
+    if (!_mergePreviewBackup) return;
+    for (let y = 0; y < pixels.length; y++) {
+      const row = pixels[y], orig = _mergePreviewBackup[y];
+      if (!row || !orig) continue;
+      for (let x = 0; x < row.length; x++) row[x] = orig[x];
+    }
+  }
+
+  function _applyMergePreview() {
+    const lvl = beCurrentLvl();
+    if (!lvl || !lvl.image || lvl.image.source !== 'custom' || !Array.isArray(lvl.image.pixels)) return;
+    const pixels = lvl.image.pixels;
+    _restoreFromBackup(pixels);
+    const threshold = parseFloat(mergeSlider.value) || 35;
+    const useCount = new Map();
+    for (const row of pixels) {
+      if (!Array.isArray(row)) continue;
+      for (const c of row) {
+        if (c == null || c < 0 || c >= BE_COLORS.length) continue;
+        useCount.set(c, (useCount.get(c) || 0) + 1);
+      }
+    }
+    if (useCount.size < 2) {
+      mergeInfo.textContent = 'méně než 2 barvy — není co slučovat';
+      renderBlockCanvas();
+      return;
+    }
+    const usedSorted = [...useCount.entries()].sort((a, b) => b[1] - a[1]).map(e => e[0]);
+    const remap = new Map();
+    const reps = [];
+    for (const ci of usedSorted) {
+      const [r, g, b] = FI_PAL_RGB[ci];
+      let bestRep = -1, bestD = Infinity;
+      for (const rep of reps) {
+        const [pr, pg, pb] = FI_PAL_RGB[rep];
+        const d = Math.sqrt((r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2);
+        if (d < bestD && d <= threshold) { bestD = d; bestRep = rep; }
+      }
+      if (bestRep === -1) { reps.push(ci); remap.set(ci, ci); }
+      else { remap.set(ci, bestRep); }
+    }
+    const mergedCount = useCount.size - reps.length;
+    for (let y = 0; y < pixels.length; y++) {
+      const row = pixels[y];
+      if (!Array.isArray(row)) continue;
+      for (let x = 0; x < row.length; x++) {
+        const c = row[x];
+        if (c == null || c < 0) continue;
+        const r = remap.get(c);
+        if (r !== undefined && r !== c) row[x] = r;
+      }
+    }
+    mergeInfo.textContent = mergedCount > 0
+      ? '→ sloučí ' + mergedCount + ' barev (' + useCount.size + ' → ' + reps.length + ')'
+      : 'nic se nesloučí — zvyš práh';
+    renderBlockCanvas();
+  }
+
+  function _enterMergePreview() {
+    const lvl = beCurrentLvl();
+    if (!lvl || !lvl.image || lvl.image.source !== 'custom' || !Array.isArray(lvl.image.pixels)) {
+      alert('Merge colors funguje jen na custom image (kde máš pixely).');
+      mergeEnable.checked = false;
+      return;
+    }
+    _mergePreviewBackup = lvl.image.pixels.map(row => Array.isArray(row) ? row.slice() : row);
+    mergeControls.hidden = false;
+    _applyMergePreview();
+  }
+
+  function _exitMergePreview(applyChanges) {
+    const lvl = beCurrentLvl();
+    if (lvl && lvl.image && Array.isArray(lvl.image.pixels) && _mergePreviewBackup) {
+      if (applyChanges) {
+        // Save current (merged) state, restore original, histPush, re-apply merged
+        const pixels = lvl.image.pixels;
+        const merged = pixels.map(row => Array.isArray(row) ? row.slice() : row);
+        _restoreFromBackup(pixels);
+        histPush(lvl, 'merge-colors');
+        for (let y = 0; y < pixels.length; y++) {
+          const row = pixels[y], m = merged[y];
+          if (!row || !m) continue;
+          for (let x = 0; x < row.length; x++) row[x] = m[x];
+        }
+        markDirty();
+        renderList();
+        setLastAction('🎨 Merge colors potvrzeno (práh ' + mergeSlider.value + ').');
+      } else {
+        _restoreFromBackup(lvl.image.pixels);
+        renderBlockCanvas();
+      }
+    }
+    _mergePreviewBackup = null;
+    mergeControls.hidden = true;
+    mergeInfo.textContent = '';
+    mergeEnable.checked = false;
+  }
+
+  if (mergeEnable) mergeEnable.addEventListener('change', () => {
+    if (mergeEnable.checked) _enterMergePreview();
+    else _exitMergePreview(false);
+  });
+  if (mergeSlider) mergeSlider.addEventListener('input', () => {
+    mergeVal.textContent = mergeSlider.value;
+    if (_mergePreviewBackup) _applyMergePreview();
+  });
+  if (mergeApplyBtn) mergeApplyBtn.addEventListener('click', () => _exitMergePreview(true));
+  if (mergeCancelBtn) mergeCancelBtn.addEventListener('click', () => _exitMergePreview(false));
+
   wirePhotoImport();
   wireGenerator();
 }

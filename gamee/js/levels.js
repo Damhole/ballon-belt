@@ -600,7 +600,7 @@ window.LEVELS = [
           57,
           57,
           55,
-          50,
+          49,
           57,
           16,
           59,
@@ -644,7 +644,7 @@ window.LEVELS = [
           59,
           16,
           60,
-          58,
+          51,
           32,
           32,
           32,
@@ -661,7 +661,7 @@ window.LEVELS = [
           32,
           52,
           52,
-          58,
+          51,
           52,
           32
         ],
@@ -681,12 +681,12 @@ window.LEVELS = [
           60,
           60,
           60,
-          58,
+          51,
           53,
           53,
           53,
-          58,
-          58,
+          51,
+          51,
           32,
           32,
           32,
@@ -695,8 +695,8 @@ window.LEVELS = [
           32,
           32,
           32,
-          58,
-          58,
+          51,
+          51,
           53,
           53,
           60,
@@ -718,26 +718,26 @@ window.LEVELS = [
           60,
           60,
           53,
-          58,
-          58,
+          51,
+          51,
           53,
           53,
           53,
-          60,
-          60,
-          58,
-          32,
-          32,
-          32,
-          32,
-          32,
-          58,
-          58,
           60,
           60,
           51,
-          58,
-          58,
+          32,
+          32,
+          32,
+          32,
+          32,
+          51,
+          51,
+          60,
+          60,
+          51,
+          51,
+          51,
           16,
           60
         ],
@@ -748,14 +748,14 @@ window.LEVELS = [
           32,
           32,
           32,
-          58,
+          51,
           59,
           16,
           60,
           60,
           60,
           60,
-          58,
+          51,
           53,
           53,
           53,
@@ -765,17 +765,17 @@ window.LEVELS = [
           53,
           53,
           53,
-          58,
-          58,
-          58,
+          51,
+          51,
+          51,
           60,
           60,
           60,
           57,
           51,
           51,
-          58,
-          58,
+          51,
+          51,
           16,
           51
         ],
@@ -792,7 +792,7 @@ window.LEVELS = [
           60,
           60,
           57,
-          56,
+          48,
           48,
           48,
           60,
@@ -811,9 +811,9 @@ window.LEVELS = [
           51,
           51,
           51,
-          58,
-          58,
-          58,
+          51,
+          51,
+          51,
           60,
           52
         ],
@@ -825,7 +825,7 @@ window.LEVELS = [
           32,
           32,
           32,
-          58,
+          51,
           60,
           53,
           53,
@@ -849,8 +849,8 @@ window.LEVELS = [
           57,
           57,
           57,
-          58,
-          58,
+          51,
+          51,
           60,
           51,
           32
@@ -875,11 +875,11 @@ window.LEVELS = [
           53,
           53,
           53,
-          58,
+          51,
           60,
           60,
           53,
-          58,
+          51,
           60,
           60,
           60,
@@ -887,8 +887,8 @@ window.LEVELS = [
           57,
           57,
           51,
-          58,
-          58,
+          51,
+          51,
           51,
           32,
           32
@@ -908,26 +908,26 @@ window.LEVELS = [
           53,
           52,
           52,
-          11,
+          57,
           48,
           49,
-          50,
+          49,
           49,
           52,
           53,
           60,
-          50,
+          49,
           51,
           60,
           60,
           57,
           57,
           51,
-          58,
-          58,
-          58,
-          58,
-          58,
+          51,
+          51,
+          51,
+          51,
+          51,
           32,
           32
         ],
@@ -952,16 +952,16 @@ window.LEVELS = [
           48,
           48,
           49,
-          58,
-          58,
-          47,
+          51,
+          51,
+          7,
           7,
           60,
           60,
           16,
           57,
-          58,
-          58,
+          51,
+          51,
           53,
           53,
           51,
@@ -985,44 +985,6 @@ window.LEVELS = [
           52,
           51,
           49,
-          7,
-          7,
-          7,
-          7,
-          7,
-          50,
-          53,
-          48,
-          48,
-          57,
-          60,
-          60,
-          58,
-          52,
-          58,
-          60,
-          51,
-          32,
-          32,
-          32,
-          32
-        ],
-        [
-          32,
-          32,
-          32,
-          32,
-          51,
-          52,
-          52,
-          52,
-          52,
-          52,
-          52,
-          52,
-          52,
-          51,
-          47,
           7,
           7,
           7,
@@ -1030,15 +992,53 @@ window.LEVELS = [
           7,
           49,
           53,
+          48,
+          48,
+          57,
+          60,
+          60,
+          51,
+          52,
+          51,
+          60,
+          51,
+          32,
+          32,
+          32,
+          32
+        ],
+        [
+          32,
+          32,
+          32,
+          32,
           58,
-          58,
+          52,
+          52,
+          52,
+          52,
+          52,
+          52,
+          52,
+          52,
+          51,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          49,
+          53,
+          51,
+          51,
           60,
           16,
           60,
           60,
           60,
           53,
-          58,
+          51,
           52,
           32,
           32,
@@ -1050,11 +1050,11 @@ window.LEVELS = [
           32,
           32,
           51,
-          51,
+          58,
           52,
           52,
           52,
-          11,
+          57,
           52,
           51,
           51,
@@ -1065,18 +1065,18 @@ window.LEVELS = [
           7,
           7,
           48,
-          47,
+          7,
           51,
-          58,
+          51,
           53,
-          58,
+          51,
           60,
           16,
           60,
           60,
           16,
           57,
-          58,
+          51,
           32,
           32,
           32,
@@ -1092,21 +1092,21 @@ window.LEVELS = [
           52,
           52,
           52,
-          50,
+          49,
           51,
           51,
-          11,
-          11,
+          57,
+          57,
           48,
           48,
-          47,
-          47,
+          7,
+          7,
           7,
           48,
           51,
-          58,
+          51,
           52,
-          58,
+          51,
           60,
           60,
           60,
@@ -1123,14 +1123,14 @@ window.LEVELS = [
         ],
         [
           32,
-          58,
+          51,
           57,
           59,
           58,
+          58,
           52,
           52,
-          52,
-          50,
+          49,
           7,
           49,
           49,
@@ -1140,11 +1140,11 @@ window.LEVELS = [
           48,
           49,
           48,
-          11,
+          57,
           51,
           51,
-          58,
-          58,
+          51,
+          51,
           60,
           58,
           58,
@@ -1165,26 +1165,26 @@ window.LEVELS = [
           16,
           59,
           60,
-          52,
+          58,
           52,
           52,
           48,
-          47,
-          47,
-          47,
+          7,
+          7,
+          7,
           7,
           7,
           7,
           7,
           48,
           48,
-          50,
-          11,
+          49,
+          57,
           51,
           51,
-          58,
-          58,
-          58,
+          51,
+          51,
+          51,
           58,
           57,
           52,
@@ -1203,28 +1203,28 @@ window.LEVELS = [
           59,
           59,
           60,
-          52,
+          58,
           52,
           52,
           48,
-          47,
-          47,
-          47,
-          47,
+          7,
+          7,
+          7,
+          7,
           7,
           7,
           7,
           7,
           48,
-          11,
-          11,
-          11,
-          58,
-          58,
+          57,
+          57,
+          57,
+          51,
+          51,
+          51,
           51,
           58,
           58,
-          51,
           32,
           32,
           32,
@@ -1241,27 +1241,27 @@ window.LEVELS = [
           59,
           16,
           60,
-          52,
-          52,
+          58,
+          58,
           52,
           48,
           51,
-          56,
-          56,
-          56,
-          7,
-          7,
-          47,
           48,
-          56,
-          11,
-          11,
+          48,
+          48,
+          7,
+          7,
+          7,
+          48,
+          48,
+          57,
+          57,
+          51,
           51,
           51,
           51,
           51,
           58,
-          51,
           52,
           32,
           32,
@@ -1280,26 +1280,26 @@ window.LEVELS = [
           16,
           60,
           51,
-          52,
+          58,
           52,
           52,
           44,
           44,
           44,
-          56,
-          56,
-          56,
-          56,
+          48,
+          48,
+          48,
+          48,
           7,
           7,
-          50,
+          49,
           51,
-          11,
+          57,
           51,
           51,
           51,
           58,
-          51,
+          58,
           32,
           32,
           32,
@@ -1318,8 +1318,8 @@ window.LEVELS = [
           60,
           60,
           51,
-          52,
-          51,
+          58,
+          58,
           44,
           44,
           44,
@@ -1327,16 +1327,16 @@ window.LEVELS = [
           44,
           44,
           44,
-          56,
+          48,
           49,
           48,
           7,
-          47,
+          7,
+          51,
           51,
           51,
           51,
           58,
-          51,
           32,
           32,
           32,
@@ -1366,52 +1366,52 @@ window.LEVELS = [
           44,
           44,
           44,
-          47,
-          47,
-          47,
-          50,
-          51,
-          51,
-          51,
-          51,
-          32,
-          32,
-          32,
-          32,
-          32,
-          32,
-          32,
-          32,
-          32,
-          32,
-          32,
-          32
-        ],
-        [
-          16,
-          59,
-          16,
-          60,
-          60,
-          51,
-          51,
-          57,
-          44,
-          44,
-          44,
-          44,
-          44,
-          44,
-          44,
-          48,
-          48,
-          48,
+          7,
+          7,
+          7,
           49,
           51,
           51,
           51,
-          51,
+          58,
+          58,
           32,
+          32,
+          32,
+          32,
+          32,
+          32,
+          32,
+          32,
+          32,
+          32,
+          32
+        ],
+        [
+          16,
+          59,
+          16,
+          60,
+          60,
+          51,
+          51,
+          57,
+          44,
+          44,
+          44,
+          44,
+          44,
+          44,
+          44,
+          48,
+          48,
+          48,
+          49,
+          51,
+          51,
+          51,
+          58,
+          58,
           32,
           32,
           32,
@@ -1443,12 +1443,12 @@ window.LEVELS = [
           48,
           49,
           48,
-          11,
+          57,
           51,
           51,
           51,
-          51,
-          32,
+          58,
+          58,
           32,
           32,
           32,
@@ -1478,13 +1478,13 @@ window.LEVELS = [
           49,
           49,
           48,
-          50,
-          50,
+          49,
+          49,
           51,
           51,
           51,
-          51,
-          51,
+          58,
+          58,
           32,
           32,
           32,
@@ -1510,8 +1510,8 @@ window.LEVELS = [
           51,
           51,
           51,
-          11,
-          11,
+          57,
+          57,
           51,
           51,
           51,
@@ -1521,7 +1521,7 @@ window.LEVELS = [
           51,
           51,
           51,
-          51,
+          58,
           32,
           32,
           32,
@@ -1752,40 +1752,43 @@ window.LEVELS = [
           [
             {
               "type": "carrier",
-              "color": 53
+              "color": 7,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 32
-            },
-            {
-              "type": "carrier",
-              "color": 51
-            },
-            {
-              "type": "carrier",
-              "color": 60
+              "color": 51,
+              "hidden": false
             },
             {
               "type": "wall"
             },
             {
               "type": "carrier",
-              "color": 58
+              "color": 60,
+              "hidden": false
             },
             {
               "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 32,
+              "hidden": false
             }
           ],
           [
             {
               "type": "carrier",
-              "color": 44,
+              "color": 48,
               "hidden": true
             },
             {
               "type": "carrier",
-              "color": 16,
+              "color": 49,
               "hidden": true
             },
             {
@@ -1795,35 +1798,30 @@ window.LEVELS = [
             },
             {
               "type": "carrier",
-              "color": 7,
-              "hidden": true
-            },
-            {
-              "type": "wall"
+              "color": 52,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 11
+              "color": 44,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 47,
+              "color": 53,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 16,
               "hidden": true
             }
           ],
           [
             {
               "type": "carrier",
-              "color": 49,
-              "hidden": true
-            },
-            {
-              "type": "wall"
-            },
-            {
-              "type": "carrier",
-              "color": 50,
-              "hidden": true
+              "color": 7,
+              "hidden": false
             },
             {
               "type": "carrier",
@@ -1832,29 +1830,7 @@ window.LEVELS = [
             },
             {
               "type": "carrier",
-              "color": 48,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 54,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 52,
-              "hidden": true
-            }
-          ],
-          [
-            {
-              "type": "carrier",
-              "color": 51,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 56,
+              "color": 60,
               "hidden": true
             },
             {
@@ -1864,13 +1840,110 @@ window.LEVELS = [
             },
             {
               "type": "carrier",
-              "color": 60,
+              "color": 51,
               "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 32,
+              "hidden": false
             },
             {
               "type": "carrier",
               "color": 58,
               "hidden": true
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 48,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 52,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 57,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 51,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 32,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 60,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": true
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 32,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 32,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 32,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 32,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 32,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 32,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 51,
+              "hidden": true
+            }
+          ]
+        ],
+        "curveAnnotations": [],
+        "cols": 7
+      },
+      {
+        "name": "dog-medium-v1",
+        "difficulty": "medium",
+        "grid": [
+          [
+            {
+              "type": "carrier",
+              "color": 57,
+              "hidden": false
+            },
+            {
+              "type": "wall"
             },
             {
               "type": "wall"
@@ -1878,10 +1951,65 @@ window.LEVELS = [
             {
               "type": "carrier",
               "color": 32,
-              "hidden": true
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 58,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": false
+            },
+            {
+              "type": "wall"
             }
           ],
           [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 59,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 52,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 48,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 32,
+              "hidden": false
+            },
+            null,
+            {
+              "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 60,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 51,
+              "hidden": false
+            },
             {
               "type": "carrier",
               "color": 51,
@@ -1892,22 +2020,8 @@ window.LEVELS = [
             },
             {
               "type": "carrier",
-              "color": 53
-            },
-            {
-              "type": "carrier",
-              "color": 60,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 57,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 58,
-              "hidden": true
+              "color": 32,
+              "hidden": false
             },
             {
               "type": "carrier",
@@ -1919,21 +2033,56 @@ window.LEVELS = [
             {
               "type": "carrier",
               "color": 32,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 51,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 55,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 49,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 60,
               "hidden": true
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 51,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 16,
+              "hidden": false
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
             },
             {
               "type": "carrier",
               "color": 32,
-              "hidden": true
-            },
-            {
-              "type": "carrier",
-              "color": 32
-            },
-            {
-              "type": "carrier",
-              "color": 32,
-              "hidden": true
+              "hidden": false
             },
             {
               "type": "carrier",
@@ -1942,10 +2091,72 @@ window.LEVELS = [
             },
             {
               "type": "wall"
+            }
+          ],
+          [
+            {
+              "type": "carrier",
+              "color": 32,
+              "hidden": false
             },
             {
               "type": "carrier",
-              "color": 32
+              "color": 52,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 60,
+              "hidden": true
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 48,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 32,
+              "hidden": true
+            }
+          ],
+          [
+            {
+              "type": "wall"
+            },
+            {
+              "type": "wall"
+            },
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 44,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 7,
+              "hidden": false
+            },
+            {
+              "type": "carrier",
+              "color": 53,
+              "hidden": true
+            },
+            {
+              "type": "carrier",
+              "color": 57,
+              "hidden": true
             }
           ]
         ],
@@ -4587,7 +4798,7 @@ window.LEVELS = [
   },
   {
     "key": "pixel-pattern",
-    "label": "Nový level",
+    "label": "Pixel Pattern",
     "type": "hardcore",
     "image": {
       "source": "custom",
