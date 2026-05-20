@@ -1225,10 +1225,20 @@ let _carriersClearedAt = null;
 const _SPEEDUP_RAMP_MS = 3000;
 const _SPEEDUP_MAX = 2.0;
 
-// v74.62: input lock na startu levelu — zakaž klik na carriers dokud nedoběhne
-// úvodní animace (cascade pop + mystery reveal). Fixní time lock.
+// v74.62: input lock na startu levelu — délka podle toho jestli má level intro
+// animaci OBRAZKU (smiley/moon/starwars/frog/mondrian build-up). Bez intro: jen
+// krátký lock pro cascade pop. S intro: dost dlouhý ať animace dohraje (jinak by
+// player vystřelil pixely → animace přepsala -1 zpět na barvu → unwinnable).
 let _levelStartLockUntil = 0;
-const _LEVEL_START_LOCK_MS = 4000;
+const _LEVEL_START_LOCK_DEFAULT_MS = 700; // cascade pop ~0.55s + buffer
+const _LEVEL_INTRO_DURATIONS = {
+  // Časy jsou MAX duration intro animace + 200ms buffer (viz startLevel intro switch)
+  smiley:   2000,
+  moon:     2200,
+  starwars: 2400,
+  frog:     3500,
+  mondrian: 2500,
+};
 // v74.62: na posledních ~20 pixelech zpomal zpět na 1× — finish musí být v pohodě
 const _SLOWDOWN_START_PX = 40; // od kolika pixelů zbývajících začneme zpomalovat
 const _SLOWDOWN_END_PX   = 20; // při kolika pixelech jsme zpět na 1.0×
@@ -2177,7 +2187,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.62');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.63');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7601,7 +7611,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.62');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.63');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7729,7 +7739,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.62');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.63');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7761,7 +7771,8 @@ function startLevel(){
   particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;smokePuffs=[];smokePuffsQueue=[];
   _carriersClearedAt=null; // v74.62: reset speed-up rampy na začátku levelu
   _remainingPxCache=null;  // v74.62: reset pixel cache (přepočítá se v beltLoop)
-  _levelStartLockUntil=Date.now()+_LEVEL_START_LOCK_MS; // v74.62: input lock dokud nedoběhne intro animace
+  // v74.62: lock délky podle intro animace levelu (mapping výše).
+  _levelStartLockUntil=Date.now()+(_LEVEL_INTRO_DURATIONS[currentLevel]||_LEVEL_START_LOCK_DEFAULT_MS);
   _resetMusicState(); // nový level = hudba zase od foundation kick
   _caCountdown=3+Math.floor(Math.random()*3); // v73.236 CA interval reset
   // v72.68: reset 3D carrier transition caches — jinak by se carriery nového levelu
@@ -8638,7 +8649,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.62');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.63');
       event.detail.callback();
     });
 
