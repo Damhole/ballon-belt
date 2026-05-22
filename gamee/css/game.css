@@ -550,7 +550,10 @@ body.renderer-3d #bottom-deck {
   position: absolute;
   top: 0;
   width: 70px;
-  height: 170px;
+  /* v74.66: height dynamicky podle pozice carriers grid (JS set CSS var
+     na #bottom-deck). Default 110px = bezpečná hodnota pro většinu layoutů
+     než JS změří aktuální. */
+  height: var(--boost-zone-h, 110px);
   z-index: 5;
   background: transparent;
   cursor: pointer;
@@ -567,11 +570,10 @@ body.renderer-3d #bottom-deck {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse at center, transparent 30%, rgba(255, 220, 160, 0.45) 100%);
+  /* v74.66: silnější tint (alpha 0.45 → 0.75) + gradient sahá víc dovnitř
+     (transparent center 30% → 15%) = víc tinted area kolem hry. */
+  background: radial-gradient(ellipse at center, transparent 15%, rgba(255, 215, 145, 0.75) 100%);
   opacity: 0;
-  /* v74.65: z-index 0 → vignette pod #game (canvases) ale nad body bg.
-     #bg-canvas (z:9000) i game canvases (uvnitř #game) jsou nad vignette,
-     takže pulse ovlivní jen main BG kolem hry, ne herní content. */
   z-index: 0;
   transition: opacity 0.35s ease-out;
   will-change: opacity;
@@ -580,7 +582,7 @@ body.user-boost-active #boost-vignette {
   animation: boost-vignette-pulse 0.40s ease-in-out infinite alternate;
 }
 @keyframes boost-vignette-pulse {
-  from { opacity: 0.35; }
+  from { opacity: 0.45; }
   to   { opacity: 1.0; }
 }
 /* Inner panely transparentní — wrapper drží podklad + shape */

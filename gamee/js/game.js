@@ -2240,7 +2240,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.65');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.66');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6798,6 +6798,22 @@ function _recomputeCarrierLayout(){
     window.render3dBottom.updateCarriers(columns, COLORS);
     if (window.render3dBottom.updateWalls) window.render3dBottom.updateWalls(columns);
   }
+  _updateBoostZoneHeight(); // v74.66: responsive height pro boost zones
+}
+
+// v74.66: změř pozici #carriers-grid uvnitř #bottom-deck a nastav CSS var
+// --boost-zone-h tak, aby boost zóny končily TĚSNĚ nad gridem (neoverflawly
+// na vrchní řadu carriers). Bezpečný buffer -4px.
+function _updateBoostZoneHeight(){
+  const deck = document.getElementById('bottom-deck');
+  const grid = document.getElementById('carriers-grid');
+  if (!deck || !grid) return;
+  requestAnimationFrame(() => {
+    const deckRect = deck.getBoundingClientRect();
+    const gridRect = grid.getBoundingClientRect();
+    const h = Math.max(40, gridRect.top - deckRect.top - 4);
+    deck.style.setProperty('--boost-zone-h', h + 'px');
+  });
 }
 window.addEventListener('resize', _recomputeCarrierLayout);
 // iOS Safari URL bar dynamicky mění visualViewport (window.innerHeight zůstává
@@ -7664,7 +7680,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.65');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.66');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7792,7 +7808,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.65');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.66');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8188,6 +8204,7 @@ function startLevel(){
   updateGarages();
   drawGrid();drawBelt();drawPending();drawCarriers();
   setStatus('Klikni na aktivní nosič');
+  _updateBoostZoneHeight(); // v74.66: responsive boost zone height (po level setup)
 }
 // ── UI: Difficulty badge ────────────────────────────────────────────────────
 // Badge byl odstraněn (UI cleanup v28) — funkce zůstává jen jako no-op pro
@@ -8705,7 +8722,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.65');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.66');
       event.detail.callback();
     });
 
