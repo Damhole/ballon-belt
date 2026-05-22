@@ -7,14 +7,14 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// v74.75: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v74.75';
+// v74.76: version stamp pro watchdog
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v74.76';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
 const PENDING_CANVAS_H = 50;   // výška #pending-canvas (v71.6: půlka)
 const BELT_CAP        = 14;    // max balls na pásu
-// v74.75: cycle zkrácen — ball max uvnitř right box, nepřeteče (match game.js)
+// v74.76: cycle zkrácen — ball max uvnitř right box, nepřeteče (match game.js)
 const BELT_STARTX     = 18;    // posun -32px vůči původním 50, max xCSSrel=353
 const BELT_ENDX       = BELT_STARTX + 24 * (14 - 1); // 330
 const BELT_SPACING    = 24;    // 14×24 = 336 (cycle)
@@ -357,7 +357,7 @@ function _buildRevealMaterial(mysteryTex) {
     // jsme v opaque pass kde renderOrder 144 < 150 → pending balls draw po reveal mesh.
     // Smooth edge alpha už nebude (discard je hard), což je acceptable trade-off.
     transparent: false,
-    // v74.75: depthTest:false → reveal mesh vždy překryje carriers (renderOrder 144
+    // v74.76: depthTest:false → reveal mesh vždy překryje carriers (renderOrder 144
     // mezi carriers ~110 a pending 150). Carrier balls jsou pod coverem během wipe,
     // postupně se odhalují jak uRevealT roste. Pending balls (renderOrder 150) renderují
     // až po reveal mesh, takže přes něj normálně létají.
@@ -487,7 +487,7 @@ function init() {
 
   // Three.js renderer — toon look nepotřebuje shadow mapy (cel-shading je flat)
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, stencil: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));  // v74.75: cap 1.5× (perf)
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));  // v74.76: cap 1.5× (perf)
   renderer.setSize(canvasFullW, H, false);
   renderer.setClearColor(0, 0);
   renderer.shadowMap.enabled = false;  // v73.216: real shadow nefungoval, zpět na disk
@@ -853,12 +853,12 @@ function init() {
   contentGroup.add(st.beltOutlineMesh);
 
   _buildBeltTrack(contentGroup, W, toonGrad, st.beltCenterY);
-  _loadBeltBoxes(contentGroup, toonGrad); // v74.75: 3D krabice po stranách belt
+  _loadBeltBoxes(contentGroup, toonGrad); // v74.76: 3D krabice po stranách belt
   _initUnifiedFrame();  // v73.54: belt + skulina + arena jako jeden 3D povrch
 
   st.ready = true;
-  st._dirty = true; // v74.75: first frame render
-  // v74.75: shader pre-warm — kompiluj všechny WebGL programy předem aby
+  st._dirty = true; // v74.76: first frame render
+  // v74.76: shader pre-warm — kompiluj všechny WebGL programy předem aby
   // při prvním use (carrier fire, pending ball spawn) nebyl 50–200ms jam.
   try {
     st.renderer.compile(st.scene, st.camera);
@@ -888,7 +888,7 @@ function _buildBeltTrack(parent, W, toonGrad, beltCenterY) {
   st.beltEdgeBot = edgeBot;
 }
 
-// v74.75: GLB loader pro belt-side krabice (BeltBoxLeft, BeltBoxRight).
+// v74.76: GLB loader pro belt-side krabice (BeltBoxLeft, BeltBoxRight).
 // Asset: 1m = 50px konvence. Boxy překryjí rollers — left box přes rollerL,
 // right box přes rollerR. Detekce object names přes traverse.
 function _loadBeltBoxes(parent, toonGrad) {
@@ -1422,7 +1422,7 @@ function _rebuildUnifiedFrame() {
   const key = `${st.beltCenterY}|${st.carriersTopCSS}|${st.carriersBottomCSS}`;
   if (key === st.lastFrameKey) return;
   st.lastFrameKey = key;
-  st._slotCacheValid = false; // v74.75: layout reálně mění slot pozice
+  st._slotCacheValid = false; // v74.76: layout reálně mění slot pozice
   _disposeUnifiedFrame();
   _initUnifiedFrame();
 }
@@ -1607,7 +1607,7 @@ function _initUnifiedFrame() {
   const floorMaxY = floorGeom.boundingBox.max.y + FLOOR_SHIFT_Y; // world Y nejvyššího vertexu
   const carriersBg = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
   const floorMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(carriersBg) });
-  // v74.75: gradient injection — bottom (low Y, = nejnižší row) je světlejší ×1.18,
+  // v74.76: gradient injection — bottom (low Y, = nejnižší row) je světlejší ×1.18,
   // top (= belt area) má base color × 1.0. Inject přes onBeforeCompile.
   floorMat.onBeforeCompile = (shader) => {
     shader.uniforms.uFloorMinY = { value: floorMinY };
@@ -2053,12 +2053,12 @@ function _clipSelfIntersections(points) {
 
 function updateCarriers(columns, colorsArr) {
   if (!st.ready || !columns) return;
-  st._dirty = true; // v74.75: carriers update = layout change → vždy dirty
+  st._dirty = true; // v74.76: carriers update = layout change → vždy dirty
 
   // v73.103: rebuild frame pokud carriers pozice změnila (responzivní layout)
   _rebuildUnifiedFrame();
 
-  // v74.75: per-slot measurement cache — během anim se layout nemění, takže
+  // v74.76: per-slot measurement cache — během anim se layout nemění, takže
   // místo per-frame getBoundingClientRect (36 carriers × ~3 rect calls = 108
   // forced layouts/frame) cache pozice + dynScale. Invalidace přes
   // _invalidateSlotCache() (resize, level start, theme change).
@@ -2113,7 +2113,7 @@ function updateCarriers(columns, colorsArr) {
         // Spočítej pozici z .cbox (nyní revealed slot)
         const cboxR = slotDivs[r].querySelector('.cbox');
         if (cboxR) {
-          // v74.75: reveal trigger — 1× per slot reveal, neoptimalizujeme cache
+          // v74.76: reveal trigger — 1× per slot reveal, neoptimalizujeme cache
           const crR = cboxR.getBoundingClientRect();
           const refL = st._cachedRefLeft !== undefined ? st._cachedRefLeft : (refRect ? refRect.left : 0);
           const canT = st._cachedCanvasTop !== undefined ? st._cachedCanvasTop : (canvasRect ? canvasRect.top : 0);
@@ -2135,7 +2135,7 @@ function updateCarriers(columns, colorsArr) {
       if (isHiddenVisual) {
         const cboxHid = slotDivs[r].querySelector('.cbox-hid');
         if (!cboxHid) continue;
-        // v74.75: cache hidden slot pos
+        // v74.76: cache hidden slot pos
         const hidCacheKey = 'h:' + c + ',' + r;
         let xWh, yWh, dynScaleH;
         const cachedH = useCache ? st._slotCache.get(hidCacheKey) : null;
@@ -2220,7 +2220,7 @@ function updateCarriers(columns, colorsArr) {
         // popT 0.30..0.55: slot settled at 1.0, ball cascade runs
       }
 
-      // v74.75: cache slot pos + dynScale (jinak getBoundingClientRect per slot per frame)
+      // v74.76: cache slot pos + dynScale (jinak getBoundingClientRect per slot per frame)
       const slotCacheKey = c + ',' + r;
       let xW, yW, dynScale;
       const cached = useCache ? st._slotCache.get(slotCacheKey) : null;
@@ -2485,7 +2485,7 @@ function updateCarriers(columns, colorsArr) {
   if (st.carrierMesh.instanceColor) st.carrierMesh.instanceColor.needsUpdate = true;
   st.carrierOutlineMesh.count = ballIdx;
   st.carrierOutlineMesh.instanceMatrix.needsUpdate = true;
-  // v74.75: track přítomnost mystery slotů — jejich textura scrolluje a tedy
+  // v74.76: track přítomnost mystery slotů — jejich textura scrolluje a tedy
   // vyžaduje continuous render kde jsou visible.
   let myTotal = 0;
   for (let r = 0; r < rowMysteryIdx.length; r++) myTotal += rowMysteryIdx[r] || 0;
@@ -2510,9 +2510,9 @@ function updateCarriers(columns, colorsArr) {
   }
 }
 
-// v74.75: dirty helper pro bottom scénu — krátký a explicit
+// v74.76: dirty helper pro bottom scénu — krátký a explicit
 function _bottomMarkDirty() { st._dirty = true; }
-// v74.75: invalidace per-slot měření cache — volat při resize, level start, theme change
+// v74.76: invalidace per-slot měření cache — volat při resize, level start, theme change
 function invalidateSlotCache() {
   st._slotCacheValid = false;
   if (st._slotCache) st._slotCache.clear();
@@ -2899,7 +2899,7 @@ function _countFilled(projectiles) {
 
 function updatePending(pendingArr, colorsArr) {
   if (!st.ready) return;
-  // v74.75: dirty pokud má aspoň jednu pending ball (pohybují se každý frame)
+  // v74.76: dirty pokud má aspoň jednu pending ball (pohybují se každý frame)
   if (pendingArr && pendingArr.length > 0) st._dirty = true;
   const dummy = st._dummy;
   const c3    = st._col3;
@@ -2978,7 +2978,7 @@ function updatePending(pendingArr, colorsArr) {
 
 function updateBelt(beltArr, beltAnim, colorsArr) {
   if (!st.ready) return;
-  // v74.75: dirty pokud má aspoň jednu belt ball (belt anim posouvá)
+  // v74.76: dirty pokud má aspoň jednu belt ball (belt anim posouvá)
   if (beltArr) { for (let i = 0; i < beltArr.length; i++) { if (beltArr[i]) { st._dirty = true; break; } } }
   const dummy = st._dummy;
   const c3    = st._col3;
@@ -3031,7 +3031,7 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
     if (!b) continue;
 
     const xCSSrel = BELT_STARTX + (i * BELT_SPACING + offset) % BELT_TOTAL;
-    // v74.75: visibility cull odstraněn. Balls jsou vždy v range 20..369,
+    // v74.76: visibility cull odstraněn. Balls jsou vždy v range 20..369,
     // box mesh řeší occlusion přes depth test (inside left/right box → hidden).
     const xCSS = st.beltOffsetX + xCSSrel;
 
@@ -3061,7 +3061,7 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
 
 // ─── Render ──────────────────────────────────────────────────────────────────
 
-// v74.75: dirty-flag render skipping pro bottom scénu — analogie top scene.
+// v74.76: dirty-flag render skipping pro bottom scénu — analogie top scene.
 // Skip render pokud žádná pending/belt ball + žádná aktivní carrier anim.
 // Bezpečnostní fallback: vždy 1× za 60 framů (1 fps base).
 function render() {
@@ -3369,12 +3369,26 @@ function _disposeWallMeshes() {
   st.wallOutlineMeshes.length = 0;
 }
 
+let _wallCacheKey = null;
 function updateWalls(columns) {
   if (!st.ready || !st._wallMat) return;
-  st._dirty = true; // v74.75: walls update = layout/color change
-  // Theme color match — read --carriers-3d-bg z aktuálního theme
+  // v74.76: cache key — walls jsou statické per level, na carrier klik se nemění.
+  // Předtím per drawCarriers (= per klik) dispose + rebuild ALL wall ExtrudeGeometries
+  // = obrovská ztráta. Theme bg + wall pozice = invariant per level.
   const cs = getComputedStyle(document.body);
   const bgColor = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
+  // Hash walls pozice + theme color
+  let wallKey = bgColor + '|';
+  for(let c=0; c<columns.length; c++){
+    const col = columns[c];
+    if(!col) continue;
+    for(let r=0; r<col.length; r++){
+      if(col[r] && col[r].wall === true) wallKey += c+','+r+';';
+    }
+  }
+  if(wallKey === _wallCacheKey) return; // Walls unchanged → skip rebuild
+  _wallCacheKey = wallKey;
+  st._dirty = true; // walls update = layout/color change
   // Wall barva = bgColor lightened ~+8 % HSL lightness — wall mírně vyniká z bg.
   const wallCol = new THREE.Color(bgColor);
   const hsl = { h: 0, s: 0, l: 0 };
@@ -3469,8 +3483,8 @@ function updateWalls(columns) {
 // (nový level s víc řadami = vyšší deck). Bez resize by se bottom rows renderovaly
 // MIMO canvas (clipped).
 function resize() {
-  st._dirty = true; // v74.75: viewport change → refresh
-  st._slotCacheValid = false; // v74.75: layout může změnit slot pozice
+  st._dirty = true; // v74.76: viewport change → refresh
+  st._slotCacheValid = false; // v74.76: layout může změnit slot pozice
   if (!st.ready || !st.canvas) return;
   const gameEl   = document.getElementById('game');
   const beltWrap = document.getElementById('belt-wrap');
@@ -3612,7 +3626,7 @@ function refreshBeltTint() {
   const evenMixed = mix(baseEven);
   const oddMixed  = mix(baseOdd);
   st._beltTint = { even: evenMixed, odd: oddMixed };
-  // v74.75: inner barva odvozená z plate odd-tinted barvy + lighter (HSL L+0.28)
+  // v74.76: inner barva odvozená z plate odd-tinted barvy + lighter (HSL L+0.28)
   // → automaticky ladí s každým theme + je dostatečně světlá.
   if (st.beltPlateInnerMesh) {
     const innerColor = oddMixed.clone();
@@ -3689,8 +3703,8 @@ function refreshWallColor() {
 // v73.257: setPixelRatio per tier — největší win na mobile (retina 2× = 4× pixelů).
 function setQualityTier(tier){
   st.qualityTier = Math.max(0, Math.min(2, tier|0));
-  st._dirty = true; // v74.75: tier change → vynucený refresh
-  // v74.75: pixel ratio cap 1.5× pro VŠECHNY tiery (perf)
+  st._dirty = true; // v74.76: tier change → vynucený refresh
+  // v74.76: pixel ratio cap 1.5× pro VŠECHNY tiery (perf)
   if (st.renderer) {
     const dpr = window.devicePixelRatio || 1;
     st.renderer.setPixelRatio(Math.min(dpr, 1.5));

@@ -2289,7 +2289,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.75');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.76');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7785,7 +7785,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.75');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.76');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7913,7 +7913,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.75');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.76');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8400,8 +8400,14 @@ function beltLoop(ts){
     if(_carriersClearedAt===null && running && cntCarriers()===0) _carriersClearedAt=performance.now();
     // v74.64: tick user hold fade (vstup pro _speedMul())
     _updateUserHold(dt);
-    // v74.62: refresh remaining pixel cache pro slowdown ramp (cca 1116 cells, levné)
-    { let _rp=0; for(let _y=0;_y<GH;_y++)for(let _x=0;_x<GW;_x++)if(grid[_y][_x]>=0)_rp++; _remainingPxCache=_rp; }
+    // v74.62: refresh remaining pixel cache pro slowdown ramp.
+    // v74.76: VYPNUTO přes flag — 1116 iterací × 60fps = 67k ops/s. Kód zachován pro
+    // budoucí use. Důsledek: end-of-level slowdown ramp neaktivní (game stays at full
+    // speedup až do konce). Manual boost (user hold) funguje normálně.
+    const _ENABLE_PIXEL_COUNT_TICK = false;
+    if(_ENABLE_PIXEL_COUNT_TICK){
+      let _rp=0; for(let _y=0;_y<GH;_y++)for(let _x=0;_x<GW;_x++)if(grid[_y][_x]>=0)_rp++; _remainingPxCache=_rp;
+    }
     const _sm=_speedMul();
     const dtAdj=dt*_sm;
     const prevAnim=beltAnim;
@@ -8830,7 +8836,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.75');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.76');
       event.detail.callback();
     });
 
