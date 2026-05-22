@@ -2289,7 +2289,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.78');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.79');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7785,7 +7785,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.78');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.79');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7913,7 +7913,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.78');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.79');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7948,6 +7948,7 @@ function startLevel(){
   particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;smokePuffs=[];smokePuffsQueue=[];
   _carriersClearedAt=null; // v74.62: reset speed-up rampy na začátku levelu
   _remainingPxCache=null;  // v74.62: reset pixel cache (přepočítá se v beltLoop)
+  if(typeof window!=='undefined') window._lastPxCountTime=0; // v74.79: force recount hned 1. tickem
   _userHoldActive=false; _userHoldCurrent=1.0; document.body.classList.remove('user-boost-active'); // v74.64
   // v74.62: lock délky podle intro animace levelu (mapping výše).
   _levelStartLockUntil=Date.now()+(_LEVEL_INTRO_DURATIONS[currentLevel]||_LEVEL_START_LOCK_DEFAULT_MS);
@@ -8400,13 +8401,14 @@ function beltLoop(ts){
     if(_carriersClearedAt===null && running && cntCarriers()===0) _carriersClearedAt=performance.now();
     // v74.64: tick user hold fade (vstup pro _speedMul())
     _updateUserHold(dt);
-    // v74.62: refresh remaining pixel cache pro slowdown ramp.
-    // v74.76: VYPNUTO přes flag — 1116 iterací × 60fps = 67k ops/s. Kód zachován pro
-    // budoucí use. Důsledek: end-of-level slowdown ramp neaktivní (game stays at full
-    // speedup až do konce). Manual boost (user hold) funguje normálně.
-    const _ENABLE_PIXEL_COUNT_TICK = false;
-    if(_ENABLE_PIXEL_COUNT_TICK){
+    // v74.79: refresh remaining pixel cache pro slowdown ramp — throttle na 2 Hz.
+    // Předtím per-frame (67k ops/s, v74.76 vypnuté). Teď každých 500ms = 2200 ops/s
+    // = ~30× méně než originál, ~zdarma. Slowdown ramp vizuálně plynulý díky lerp.
+    if(!window._lastPxCountTime) window._lastPxCountTime = 0;
+    const _nowPx = performance.now();
+    if(_nowPx - window._lastPxCountTime > 500){
       let _rp=0; for(let _y=0;_y<GH;_y++)for(let _x=0;_x<GW;_x++)if(grid[_y][_x]>=0)_rp++; _remainingPxCache=_rp;
+      window._lastPxCountTime = _nowPx;
     }
     const _sm=_speedMul();
     const dtAdj=dt*_sm;
@@ -8416,6 +8418,14 @@ function beltLoop(ts){
     // pokud garáž+belt+queue nestačí na zbývající pixely a bloky.
     // Audit panel renderujeme častěji (1 s), aby hráč průběžně viděl
     // celkový stav projektilů i když zrovna není deficit.
+    // v74.79: ammo audit recalc VYPNUTO. Předtím:
+    //   - ammoDeficit check 4s (varování že nemáš dost ammo na zbývající pixely)
+    //   - audit panel display 1s (debug chips v ⚙ overlay)
+    //   - drift detector 6Hz (leak detection)
+    // Všechno volá computeAmmoAudit = O(8 colors × 1116 cells + 50 slots + belt + pending)
+    // = ~10k ops × 6Hz = ~60k ops/s zbytečně pro production. Toggle pro dev re-enable.
+    const _ENABLE_AMMO_AUDIT = false;
+    if(_ENABLE_AMMO_AUDIT){
     ammoCheckTimer+=dt;
     if(ammoCheckTimer>=4){
       ammoCheckTimer=0;
@@ -8453,6 +8463,7 @@ function beltLoop(ts){
         window._driftPrev={totalHave:cur.totalHave,totalNeed:cur.totalNeed};
       }
     }
+    } // end if(_ENABLE_AMMO_AUDIT)
     checkLaunchPoint(prevAnim,beltAnim);
 
     const _td0=performance.now();
@@ -8843,7 +8854,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.78');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.79');
       event.detail.callback();
     });
 
