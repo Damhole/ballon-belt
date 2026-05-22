@@ -227,6 +227,16 @@ html,body{margin:0;padding:0}
    bez scroll/zoom potřeby. */
 *{-webkit-tap-highlight-color:transparent}
 #game{touch-action:manipulation}
+/* v74.67: zakázat text selection + long-press context menu + iOS touch callout
+   napříč celou hrou. Hold gestures (boost zone) jinak triggerovaly selection nebo
+   "Look up" popup → rušilo gameplay. */
+#game, #game *, #boost-vignette {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
 /* #game padding-top adaptivní (v71.18) — když je v levelu dost místa
    (carriers se nemusely shrinkovat), JS přidá --game-top-extra pro komfortní
    odsazení od horní hrany telefonu. Při tight space = 0, layout zůstává
