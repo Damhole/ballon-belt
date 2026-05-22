@@ -60,8 +60,8 @@ function _makeChromeMatcap() {
   return tex;
 }
 
-// v74.72: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v74.72';
+// v74.73: version stamp pro watchdog — game.js compare proti tomuto
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v74.73';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
@@ -139,6 +139,33 @@ const state = {
 };
 
 const _dummy = new THREE.Object3D();
+
+// v74.73: Object pools pro particles — eliminuje GC pressure.
+// Free-list pattern: dead particle se ne-garbage, ale recyklate do poolu.
+// Slot drží persistentní THREE.Color → žádný .clone()/new Color() per spawn.
+const _shardPool = [];
+function _acquireShard(){
+  const s = _shardPool.pop();
+  if(s) return s;
+  return { x:0,y:0,z:0, vx:0,vy:0,vz:0, rot:0,vRot:0, scaleStart:0,scaleEnd:0,
+           t:0,life:0, color:new THREE.Color(), gravity:false };
+}
+function _releaseShard(s){ _shardPool.push(s); }
+const _ghostPool = [];
+function _acquireGhost(){
+  const g = _ghostPool.pop();
+  if(g) return g;
+  return { x:0,y:0, color:new THREE.Color(), t:0,life:0 };
+}
+function _releaseGhost(g){ _ghostPool.push(g); }
+const _dustPool = [];
+function _acquireDust(){
+  const d = _dustPool.pop();
+  if(d) return d;
+  return { x:0,y:0, vx:0,vy:0, phase:0,freq:0, brightness:0,
+           t:0,life:0, cr:0,cg:0,cb:0 };
+}
+function _releaseDust(d){ _dustPool.push(d); }
 
 // v73.1: image-area frame — outer rounded rect s vnitřním otvorem (hole) přes ExtrudeGeometry.
 // Vytvoří dojem "ražby" / cavity v case panelu, pixel art je vidět skrz hole.
@@ -509,7 +536,7 @@ function init(canvas, opts) {
     alpha: true,
     premultipliedAlpha: true,
   });
-  state.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));  // v74.72: top canvas 1.75× (image area = hlavní pozornost, vyšší detail vs bottom 1.5×)
+  state.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));  // v74.73: top canvas 1.75× (image area = hlavní pozornost, vyšší detail vs bottom 1.5×)
   state.renderer.setSize(W, H, false); // false = neměnit CSS rozměr canvasu
   state.renderer.setClearColor(0x000000, 0);
   state.renderer.shadowMap.enabled = true;
@@ -583,8 +610,8 @@ function init(canvas, opts) {
   );
   state.pixelMesh.count = 0;
   state.pixelMesh.frustumCulled = false; // statická scéna, culling stejně nepomůže
-  // v74.72: receiveShadow vypnut (ušetří ~1M PCF lookups/frame).
-  // v74.72-revert: castShadow zpět ON — pixely pořád vrhají stín (na shadowGround/frame).
+  // v74.73: receiveShadow vypnut (ušetří ~1M PCF lookups/frame).
+  // v74.73-revert: castShadow zpět ON — pixely pořád vrhají stín (na shadowGround/frame).
   //   V MED tier se beztak vypne přes setQualityTier — default je MED (game.js _perfTier=1).
   state.pixelMesh.castShadow = true;
   state.pixelMesh.receiveShadow = false;
@@ -648,7 +675,7 @@ function init(canvas, opts) {
     blockMatOpts.emissive = 0xffffff;
     blockMatOpts.emissiveIntensity = 0.5;
   }
-  // v74.72: Toon material sjednocuje vzhled bloků se zbytkem 3D scény (carriers/balls)
+  // v74.73: Toon material sjednocuje vzhled bloků se zbytkem 3D scény (carriers/balls)
   const blockMat = new THREE.MeshToonMaterial(blockMatOpts);
   state.blockMesh = new THREE.InstancedMesh(blockGeom, blockMat, MAX_BLOCK_INSTANCES);
   state.blockMesh.instanceColor = new THREE.InstancedBufferAttribute(
@@ -763,12 +790,12 @@ function init(canvas, opts) {
   state.dustMesh.renderOrder = 38; // pod ghosts, nad pixely
   state.pixelsGroup.add(state.dustMesh);
 
-  // v74.72: gun (gunBody + gunHead) z GLB — async load
+  // v74.73: gun (gunBody + gunHead) z GLB — async load
   _loadGun();
 
   state.ready = true;
-  state._dirty = true; // v74.72: po init první render musí proběhnout
-  // v74.72: PRE-WARM SHADER COMPILE — bez tohohle iOS Safari kompiluje shadery
+  state._dirty = true; // v74.73: po init první render musí proběhnout
+  // v74.73: PRE-WARM SHADER COMPILE — bez tohohle iOS Safari kompiluje shadery
   // až při prvním use (shards, flash, dust, CA, projektily, shadow) → 50–200ms
   // freeze v prvních sekundách hry. compile() projde všechny mat ve scéně a
   // GPU prográmy zkompiluje předem.
@@ -791,7 +818,7 @@ function init(canvas, opts) {
   return true;
 }
 
-// v74.72: gun — gunBody (statický korpus, posunuje se s cannonX) + gunHead
+// v74.73: gun — gunBody (statický korpus, posunuje se s cannonX) + gunHead
 // (otáčí se s cannonAngle). Origins nastavené v Blenderu (pivot gunHead = base
 // kde se napojuje na body). Sdílí GLB s belt boxy.
 function _loadGun() {
@@ -942,19 +969,17 @@ function triggerBounceSpark(gridX, gridY, vx, vy, hexColor) {
   const speed = 35;
   for (let i = 0; i < count; i++) {
     const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
-    state.shards.push({
-      x: wx, y: wy, z: PIXEL_LIFT * 0.9,
-      vx: Math.cos(angle) * speed * (0.6 + Math.random() * 0.6),
-      vy: Math.sin(angle) * speed * 0.3,
-      vz: 25 + Math.random() * 30,
-      rot: Math.random() * Math.PI,
-      vRot: (Math.random() - 0.5) * 8,
-      scaleStart: 0.35,
-      scaleEnd: 0,
-      t: 0, life: 0.22,
-      color: color.clone(),
-      gravity: true,
-    });
+    const s = _acquireShard();
+    s.x = wx; s.y = wy; s.z = PIXEL_LIFT * 0.9;
+    s.vx = Math.cos(angle) * speed * (0.6 + Math.random() * 0.6);
+    s.vy = Math.sin(angle) * speed * 0.3;
+    s.vz = 25 + Math.random() * 30;
+    s.rot = Math.random() * Math.PI;
+    s.vRot = (Math.random() - 0.5) * 8;
+    s.scaleStart = 0.35; s.scaleEnd = 0;
+    s.t = 0; s.life = 0.22;
+    s.color.copy(color); s.gravity = true;
+    state.shards.push(s);
   }
 }
 
@@ -973,15 +998,14 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
 
   // Helper: spawn collapse shard (full-size shrinks to nothing in place)
   const spawnCollapse = () => {
-    state.shards.push({
-      x: wx, y: wy, z: PIXEL_LIFT,
-      vx: 0, vy: 0, vz: -12,
-      rot: 0, vRot: 0,
-      scaleStart: 1.0,
-      scaleEnd: 0.0,
-      t: 0, life: 0.12,           // rychlejší zhroucení (220 → 120ms)
-      color: color.clone(), gravity: false,
-    });
+    const s = _acquireShard();
+    s.x = wx; s.y = wy; s.z = PIXEL_LIFT;
+    s.vx = 0; s.vy = 0; s.vz = -12;
+    s.rot = 0; s.vRot = 0;
+    s.scaleStart = 1.0; s.scaleEnd = 0.0;
+    s.t = 0; s.life = 0.12;       // rychlejší zhroucení
+    s.color.copy(color); s.gravity = false;
+    state.shards.push(s);
   };
   // Helper: spawn shatter shards (small cubes flying out with gravity).
   // v73.253: silnější výbuch — bohatší variace velikostí, počátečních pozic,
@@ -996,38 +1020,37 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
       const vz0   = (isBig ? 55 : (isSmall ? 110 : 85)) * (0.7 + Math.random() * 0.7) * speedMul;
       const sSt   = (isBig ? 0.65 : (isSmall ? 0.30 : 0.48)) * scaleMul;
       const sEn   = sSt * (0.30 + Math.random() * 0.30);
-      state.shards.push({
-        x: wx + (Math.random() - 0.5) * 2.5,
-        y: wy + (Math.random() - 0.5) * 2.5,
-        z: PIXEL_LIFT * (0.95 + Math.random() * 0.25),
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed * (0.30 + Math.random() * 0.25),
-        vz: vz0,
-        rot: Math.random() * Math.PI * 2,
-        vRot: (Math.random() - 0.5) * 22,
-        scaleStart: sSt,
-        scaleEnd: sEn,
-        t: 0, life: 0.24 + Math.random() * 0.18,   // 240–420 ms
-        color: color.clone(), gravity: true,
-      });
+      const s = _acquireShard();
+      s.x = wx + (Math.random() - 0.5) * 2.5;
+      s.y = wy + (Math.random() - 0.5) * 2.5;
+      s.z = PIXEL_LIFT * (0.95 + Math.random() * 0.25);
+      s.vx = Math.cos(angle) * speed;
+      s.vy = Math.sin(angle) * speed * (0.30 + Math.random() * 0.25);
+      s.vz = vz0;
+      s.rot = Math.random() * Math.PI * 2;
+      s.vRot = (Math.random() - 0.5) * 22;
+      s.scaleStart = sSt; s.scaleEnd = sEn;
+      s.t = 0; s.life = 0.24 + Math.random() * 0.18;
+      s.color.copy(color); s.gravity = true;
+      state.shards.push(s);
     }
   };
   // v73.253: krátký bílý "flash" shard v centru — měkký puls bezprostředně po
   // destrukci. AdditiveBlending nemá BoxGeometry shard, ale použít bílou
   // barvu + rychlý fade dává podobný dojem hot spotu.
   const spawnFlash = () => {
-    state.shards.push({
-      x: wx, y: wy, z: PIXEL_LIFT * 1.2,
-      vx: 0, vy: 0, vz: 30,
-      rot: Math.random() * Math.PI, vRot: 6,
-      scaleStart: 1.05, scaleEnd: 0.20,
-      t: 0, life: 0.10,
-      color: new THREE.Color(0xffffff),
-      gravity: false,
-    });
+    const s = _acquireShard();
+    s.x = wx; s.y = wy; s.z = PIXEL_LIFT * 1.2;
+    s.vx = 0; s.vy = 0; s.vz = 30;
+    s.rot = Math.random() * Math.PI; s.vRot = 6;
+    s.scaleStart = 1.05; s.scaleEnd = 0.20;
+    s.t = 0; s.life = 0.10;
+    s.color.setRGB(1, 1, 1);
+    s.gravity = false;
+    state.shards.push(s);
   };
 
-  // v74.72: particles zapnuty na všech tierech — full shard count, flash všude.
+  // v74.73: particles zapnuty na všech tierech — full shard count, flash všude.
   // Reálný thermal cost particles je mizivý vs cost wave/shadow.
   const shardCount = DESTROY_SHARDS_PER_PIXEL;
   if (state.destroyMode === 'collapse') {
@@ -1050,24 +1073,28 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
 // Red ghost posunutý +CA_OFFSET_X, cyan ghost posunutý -CA_OFFSET_X. AdditiveBlending fade.
 function triggerPixelCA(gx, gy, hexColor) {
   if (!state.ready || !state.ghostMesh) return;
-  // v74.72: CA zůstává i na LOW — cost je mizivý (1 extra draw call, fade 180ms)
+  // v74.73: CA zůstává i na LOW — cost je mizivý (1 extra draw call, fade 180ms)
   state._dirty = true;
   const col = _getColor(hexColor);
   const wx = gx * SCALE + SCALE / 2;
   const wy = gy * SCALE + SCALE / 2;
   // Red channel emphasis — offset right + slight upward lift
-  state.ghosts.push({
-    x: wx + CA_OFFSET_X, y: wy - CA_OFFSET_Y,
-    color: new THREE.Color(col.r * 0.85 + 0.15, col.g * 0.05, col.b * 0.05),
-    t: 0, life: CA_LIFE,
-  });
+  const gR = _acquireGhost();
+  gR.x = wx + CA_OFFSET_X; gR.y = wy - CA_OFFSET_Y;
+  gR.color.setRGB(col.r * 0.85 + 0.15, col.g * 0.05, col.b * 0.05);
+  gR.t = 0; gR.life = CA_LIFE;
+  state.ghosts.push(gR);
   // Cyan channel emphasis — offset left + slight upward lift
-  state.ghosts.push({
-    x: wx - CA_OFFSET_X, y: wy - CA_OFFSET_Y,
-    color: new THREE.Color(col.r * 0.05, col.g * 0.3 + 0.1, col.b * 0.85 + 0.15),
-    t: 0, life: CA_LIFE,
-  });
-  while (state.ghosts.length > MAX_GHOSTS) state.ghosts.shift();
+  const gC = _acquireGhost();
+  gC.x = wx - CA_OFFSET_X; gC.y = wy - CA_OFFSET_Y;
+  gC.color.setRGB(col.r * 0.05, col.g * 0.3 + 0.1, col.b * 0.85 + 0.15);
+  gC.t = 0; gC.life = CA_LIFE;
+  state.ghosts.push(gC);
+  // Cap pool size — recyklate nejstaršího místo .shift() (alloc-free)
+  while (state.ghosts.length > MAX_GHOSTS) {
+    const dropped = state.ghosts.shift();
+    if(dropped) _releaseGhost(dropped);
+  }
 }
 
 // v73.238: spawne pár dust motes na zničeném pixelu. Dožijí DUST_LIFE_MIN..MAX
@@ -1076,7 +1103,7 @@ function triggerPixelCA(gx, gy, hexColor) {
 const DUST_TINT_CHANCE = 0.35;
 function triggerDustBurst(gx, gy, hexColor) {
   if (!state.ready || !state.dustMesh) return;
-  // v74.72: dust zůstává i na LOW — cost je mizivý (1 extra draw call)
+  // v74.73: dust zůstává i na LOW — cost je mizivý (1 extra draw call)
   state._dirty = true;
   const wx = gx * SCALE + SCALE / 2;
   const wy = (state.GH - gy) * SCALE - SCALE / 2;
@@ -1085,30 +1112,32 @@ function triggerDustBurst(gx, gy, hexColor) {
   for (let i = 0; i < count; i++) {
     const a = Math.random() * Math.PI * 2;
     const useTint = tintColor && Math.random() < DUST_TINT_CHANCE;
-    state.dust.push({
-      x: wx + (Math.random() - 0.5) * 4,
-      y: wy + (Math.random() - 0.5) * 4,
-      vx: Math.cos(a) * DUST_SPEED * (0.5 + Math.random() * 0.6),
-      vy: Math.sin(a) * DUST_SPEED * (0.3 + Math.random() * 0.5),
-      phase: Math.random() * Math.PI * 2,
-      freq: 1.4 + Math.random() * 2.2,
-      brightness: 0.45 + Math.random() * 0.45,
-      t: 0,
-      life: DUST_LIFE_MIN + Math.random() * (DUST_LIFE_MAX - DUST_LIFE_MIN),
-      // Barva: buď tint pixelu (boostnutý pro additive viditelnost) nebo bílá
-      cr: useTint ? Math.min(1, tintColor.r * 1.3 + 0.1) : 1,
-      cg: useTint ? Math.min(1, tintColor.g * 1.3 + 0.1) : 1,
-      cb: useTint ? Math.min(1, tintColor.b * 1.3 + 0.1) : 1,
-    });
+    const d = _acquireDust();
+    d.x = wx + (Math.random() - 0.5) * 4;
+    d.y = wy + (Math.random() - 0.5) * 4;
+    d.vx = Math.cos(a) * DUST_SPEED * (0.5 + Math.random() * 0.6);
+    d.vy = Math.sin(a) * DUST_SPEED * (0.3 + Math.random() * 0.5);
+    d.phase = Math.random() * Math.PI * 2;
+    d.freq = 1.4 + Math.random() * 2.2;
+    d.brightness = 0.45 + Math.random() * 0.45;
+    d.t = 0;
+    d.life = DUST_LIFE_MIN + Math.random() * (DUST_LIFE_MAX - DUST_LIFE_MIN);
+    d.cr = useTint ? Math.min(1, tintColor.r * 1.3 + 0.1) : 1;
+    d.cg = useTint ? Math.min(1, tintColor.g * 1.3 + 0.1) : 1;
+    d.cb = useTint ? Math.min(1, tintColor.b * 1.3 + 0.1) : 1;
+    state.dust.push(d);
   }
-  while (state.dust.length > MAX_DUST) state.dust.shift();
+  while (state.dust.length > MAX_DUST) {
+    const dropped = state.dust.shift();
+    if(dropped) _releaseDust(dropped);
+  }
 }
 
 // Hit bounce při odrazu projektilu od špatné barvy — jen hit pixel + bezprostřední sousedi.
 // Menší a rychlejší než destroy wave: centrum dostane plný amp, okolí útlumem.
 function triggerPixelHit(gx, gy) {
   if (!state.ready) return;
-  // v74.72: LOW tier — hit bounce OFF. Stejný updateGrid full-rewrite mechanismus
+  // v74.73: LOW tier — hit bounce OFF. Stejný updateGrid full-rewrite mechanismus
   // jako wave, agregátně může stát víc (mnoho bounces per projektil).
   if ((state.qualityTier || 0) >= 2) return;
   state._dirty = true;
@@ -1137,7 +1166,7 @@ function triggerPixelHit(gx, gy) {
 // Sousední pixely poskočí nahoru se zpožděním úměrným vzdálenosti.
 function triggerPixelWave(gx, gy) {
   if (!state.ready) return;
-  // v74.72: LOW tier — wave OFF. updateGrid re-write všech ~750 pixel positions
+  // v74.73: LOW tier — wave OFF. updateGrid re-write všech ~750 pixel positions
   // per frame na 0.36s je největší per-destruction cost. Particles zůstávají všude.
   if ((state.qualityTier || 0) >= 2) return;
   state._dirty = true;
@@ -1166,7 +1195,7 @@ function triggerPixelWave(gx, gy) {
 // Update animací. Volá se z beltLoop každý frame s dt v sekundách.
 function updateAnimations(dt) {
   if (!state.ready || !state.shardMesh) return;
-  // v74.72: pokud cokoli aktivního (shards/ghosts/dust/waves), označit scénu jako dirty
+  // v74.73: pokud cokoli aktivního (shards/ghosts/dust/waves), označit scénu jako dirty
   if (state.shards.length > 0 || state.ghosts.length > 0 || state.dust.length > 0 || state.pixelBounce.size > 0) {
     state._dirty = true;
   }
@@ -1175,7 +1204,14 @@ function updateAnimations(dt) {
   for (let i = state.shards.length - 1; i >= 0; i--) {
     const s = state.shards[i];
     s.t += dt;
-    if (s.t >= s.life) { state.shards.splice(i, 1); continue; }
+    if (s.t >= s.life) {
+      // v74.73: swap-pop + release do poolu (žádný splice shift, žádný GC)
+      _releaseShard(s);
+      const last = state.shards.length - 1;
+      if (i !== last) state.shards[i] = state.shards[last];
+      state.shards.pop();
+      continue;
+    }
     s.x += s.vx * dt;
     s.y += s.vy * dt;
     s.z += s.vz * dt;
@@ -1208,7 +1244,13 @@ function updateAnimations(dt) {
   if (state.ghostMesh) {
     for (let i = state.ghosts.length - 1; i >= 0; i--) {
       state.ghosts[i].t += dt;
-      if (state.ghosts[i].t >= state.ghosts[i].life) state.ghosts.splice(i, 1);
+      const _g = state.ghosts[i];
+      if (_g.t >= _g.life) {
+        _releaseGhost(_g);
+        const last = state.ghosts.length - 1;
+        if (i !== last) state.ghosts[i] = state.ghosts[last];
+        state.ghosts.pop();
+      }
     }
     let gi = 0;
     for (const g of state.ghosts) {
@@ -1233,7 +1275,13 @@ function updateAnimations(dt) {
     for (let di = state.dust.length - 1; di >= 0; di--) {
       const d = state.dust[di];
       d.t += dt;
-      if (d.t >= d.life) { state.dust.splice(di, 1); continue; }
+      if (d.t >= d.life) {
+        _releaseDust(d);
+        const last = state.dust.length - 1;
+        if (di !== last) state.dust[di] = state.dust[last];
+        state.dust.pop();
+        continue;
+      }
       d.x += d.vx * dt;
       d.y += d.vy * dt;
       d.phase += d.freq * dt;
@@ -1275,11 +1323,11 @@ function updateAnimations(dt) {
     }
     if (anyActive && state._lastGrid && state._lastColors) {
       updateGrid(state._lastGrid, state._lastColors);
-      // v74.72: aktivní vlny posouvají Z pixelů → shadow map musí refreshnout
+      // v74.73: aktivní vlny posouvají Z pixelů → shadow map musí refreshnout
       if (state.sun && !state.sun.shadow.autoUpdate) state.sun.shadow.needsUpdate = true;
     }
   }
-  // v74.72: aktivní shards (destrukce, sparks) také posouvají objekty → refresh shadow
+  // v74.73: aktivní shards (destrukce, sparks) také posouvají objekty → refresh shadow
   if (state.sun && !state.sun.shadow.autoUpdate && state.shards.length > 0) {
     state.sun.shadow.needsUpdate = true;
   }
@@ -1293,7 +1341,7 @@ function updateAnimations(dt) {
 function updateBlocks(blocks, COLORS) {
   if (!state.ready || !state.blockMesh) return;
   state._dirty = true;
-  // v74.72: blocks se mohou změnit (HP klesá, blok zničen) → shadow refresh
+  // v74.73: blocks se mohou změnit (HP klesá, blok zničen) → shadow refresh
   if (state.sun && !state.sun.shadow.autoUpdate) state.sun.shadow.needsUpdate = true;
   const H = state.GH * SCALE;
   const mesh = state.blockMesh;
@@ -1518,7 +1566,7 @@ function updateGrid(grid, COLORS) {
   state.pixelOutlineMesh.instanceMatrix.needsUpdate = true;
 }
 
-// v74.72: dirty-flag render skipping. Top scéna se renderuje JEN když se něco
+// v74.73: dirty-flag render skipping. Top scéna se renderuje JEN když se něco
 // změnilo (mutace nastaví state._dirty = true). Bezpečnostní fallback: vždy
 // 1× za 60 framů (1 fps base) — pokud někde mutace zapomeneme označit, scéna
 // se obnoví max po 1 s.
@@ -1538,7 +1586,7 @@ function _markDirty() { state._dirty = true; }
 function isReady() {
   return state.ready;
 }
-// v74.72: zjištění zda běží jakákoli 3D anim — beltLoop tím zařídí, aby render
+// v74.73: zjištění zda běží jakákoli 3D anim — beltLoop tím zařídí, aby render
 // pokračoval i po endGame dokud particles z poslední destrukce nedohrají.
 function hasActiveAnimations() {
   if (!state.ready) return false;
@@ -1550,7 +1598,7 @@ function hasActiveAnimations() {
 
 function setVisible(visible) {
   if (state.canvasEl) state.canvasEl.style.display = visible ? 'block' : 'none';
-  if (visible) state._dirty = true; // v74.72: po zviditelnění vynucený refresh
+  if (visible) state._dirty = true; // v74.73: po zviditelnění vynucený refresh
 }
 
 // Cleanup pro level switch nebo dispose. Nepoužíváme zatím (state je per-page),
@@ -1616,16 +1664,15 @@ function updateProjectiles(particles) {
     // v73.50: motion trail — každých ~40 ms spawn drobný shard za projektilem.
     if (state.shardMesh && (!p._lastTrail || now - p._lastTrail > 40)) {
       p._lastTrail = now;
-      state.shards.push({
-        x: p.x, y: p.y, z: PROJECTILE_Z,
-        vx: 0, vy: 0, vz: 0,
-        rot: 0, vRot: 0,
-        scaleStart: 0.28,
-        scaleEnd: 0,
-        t: 0, life: 0.18,
-        color: _getColor(p.color).clone(),
-        gravity: false,
-      });
+      const s = _acquireShard();
+      s.x = p.x; s.y = p.y; s.z = PROJECTILE_Z;
+      s.vx = 0; s.vy = 0; s.vz = 0;
+      s.rot = 0; s.vRot = 0;
+      s.scaleStart = 0.28; s.scaleEnd = 0;
+      s.t = 0; s.life = 0.18;
+      s.color.copy(_getColor(p.color));
+      s.gravity = false;
+      state.shards.push(s);
     }
     // v73.46: squash & stretch po bounce — XY squash (smáčknuté), Z stretch (vytažené dolů).
     // Curve: 0..0.18 s. Peak squash hned po bouncu, oscillation back to normal.
@@ -1677,8 +1724,8 @@ if (typeof window !== 'undefined') {
     updateBlocks,
     updateBlockOutlines,
     updateProjectiles,
-    setCannonPosition,    // v74.72
-    triggerMuzzleFlash,   // v74.72
+    setCannonPosition,    // v74.73
+    triggerMuzzleFlash,   // v74.73
     triggerPixelDestroy,
     triggerPixelCA,       // v73.228
     triggerDustBurst,     // v73.238
@@ -1693,7 +1740,7 @@ if (typeof window !== 'undefined') {
       const shadowsOn = (t === 0) && !state._shadowsStuckOff;
       const shadowsChanged = (state.renderer && state.renderer.shadowMap.enabled !== shadowsOn);
 
-      // v74.72: top canvas 1.75× (image area = pixely + bloky = hlavní pozornost,
+      // v74.73: top canvas 1.75× (image area = pixely + bloky = hlavní pozornost,
       // vyšší detail). Bottom canvas drží 1.5× (UI elementy = méně critical).
       // Asymetrický split: top má ~36% víc pixelů než bottom, ale 23% méně než
       // původní 2× retina.
@@ -1707,7 +1754,7 @@ if (typeof window !== 'undefined') {
       if (state.projectileMesh) state.projectileMesh.castShadow = shadowsOn;
       if (state.shardMesh) state.shardMesh.castShadow = shadowsOn;
 
-      // v74.72: HIGH = plné stíny (512 PCFSoft), ALE on-demand (autoUpdate=false).
+      // v74.73: HIGH = plné stíny (512 PCFSoft), ALE on-demand (autoUpdate=false).
       // Refresh jen při destrukci / aktivních waves / lítajících projektilech.
       // Identicky vypadá, ale ~30–50% menší GPU cost při statické scéně → méně tepla.
       if (shadowsOn && state.sun && state.renderer) {
@@ -1727,7 +1774,7 @@ if (typeof window !== 'undefined') {
         });
         if (state.renderer) state.renderer.shadowMap.needsUpdate = true;
       }
-      state._dirty = true; // v74.72: tier change → vynucený refresh
+      state._dirty = true; // v74.73: tier change → vynucený refresh
       // Cleanup particles při downgrade na LOW
       if (t >= 2) {
         if (state.dust) state.dust.length = 0;
@@ -1747,7 +1794,7 @@ if (typeof window !== 'undefined') {
     updateAnimations,
     render,
     isReady,
-    hasActiveAnimations, // v74.72
+    hasActiveAnimations, // v74.73
     setVisible,
     dispose,
     setStyle,

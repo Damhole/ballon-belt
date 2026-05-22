@@ -1359,6 +1359,22 @@ let particles=[],particleCanvas,particleCtx;
 let smokePuffs=[], smokePuffsQueue=[];
 let shards=[];                    // odlétající střípky při zásahu – jen vizuál, nezasahují do fyziky
 let confetti=[];                  // konfety na konci levelu – rozletí se, gravitace, postupně zmizí
+
+// v74.73: Object pools — eliminuje GC pressure z particles. Free-list pattern.
+const _shardPool2D = [];
+function _acquireShard2D(){
+  const s = _shardPool2D.pop();
+  if(s) return s;
+  return { x:0,y:0, vx:0,vy:0, size:0, rot:0, vrot:0, life:0, maxLife:0, color:'' };
+}
+function _releaseShard2D(s){ _shardPool2D.push(s); }
+const _smokePuffPool = [];
+function _acquireSmokePuff(){
+  const p = _smokePuffPool.pop();
+  if(p) return p;
+  return { x:0,y:0, dx:0,dy:0, t0:0, duration:0, scaleMul:0 };
+}
+function _releaseSmokePuff(p){ _smokePuffPool.push(p); }
 function spawnConfetti(){
   const palette=['#ff4fa3','#f5d800','#3dd64a','#5bc8f5','#ff7a1a','#8b4dff','#ffffff','#1b9aff'];
   // Tři výbuchy z dolního okraje – střed, levá, pravá strana
@@ -1392,17 +1408,17 @@ function spawnPopShards(x,y,color){
   for(let i=0;i<n;i++){
     const ang=(i/n)*Math.PI*2+(Math.random()-0.5)*0.7;
     const spd=70+Math.random()*110;
-    shards.push({
-      x,y,
-      vx:Math.cos(ang)*spd,
-      vy:Math.sin(ang)*spd-45,           // lehký impuls vzhůru, pak gravitace
-      size:1.6+Math.random()*2.4,
-      rot:Math.random()*Math.PI,
-      vrot:(Math.random()-0.5)*12,
-      life:0,
-      maxLife:0.35+Math.random()*0.28,
-      color
-    });
+    const s = _acquireShard2D();
+    s.x = x; s.y = y;
+    s.vx = Math.cos(ang)*spd;
+    s.vy = Math.sin(ang)*spd-45;
+    s.size = 1.6+Math.random()*2.4;
+    s.rot = Math.random()*Math.PI;
+    s.vrot = (Math.random()-0.5)*12;
+    s.life = 0;
+    s.maxLife = 0.35+Math.random()*0.28;
+    s.color = color;
+    shards.push(s);
   }
 }
 
@@ -1422,17 +1438,17 @@ function spawnBlockExplosion(blk){
     for(let i=0;i<perCell;i++){
       const ang=Math.random()*Math.PI*2;
       const spd=120+Math.random()*180;
-      shards.push({
-        x:cx,y:cy,
-        vx:Math.cos(ang)*spd,
-        vy:Math.sin(ang)*spd-60,
-        size:2.2+Math.random()*2.6,
-        rot:Math.random()*Math.PI,
-        vrot:(Math.random()-0.5)*14,
-        life:0,
-        maxLife:0.55+Math.random()*0.4,
-        color
-      });
+      const s = _acquireShard2D();
+      s.x = cx; s.y = cy;
+      s.vx = Math.cos(ang)*spd;
+      s.vy = Math.sin(ang)*spd-60;
+      s.size = 2.2+Math.random()*2.6;
+      s.rot = Math.random()*Math.PI;
+      s.vrot = (Math.random()-0.5)*14;
+      s.life = 0;
+      s.maxLife = 0.55+Math.random()*0.4;
+      s.color = color;
+      shards.push(s);
     }
   }
 }
@@ -2188,7 +2204,13 @@ function updateParticles(dt){
   for(let i=shards.length-1;i>=0;i--){
     const s=shards[i];
     s.life+=dt;
-    if(s.life>=s.maxLife){shards.splice(i,1);continue;}
+    if(s.life>=s.maxLife){
+      _releaseShard2D(s);
+      const last=shards.length-1;
+      if(i!==last) shards[i]=shards[last];
+      shards.pop();
+      continue;
+    }
     s.vy+=300*dt;
     s.vx*=0.96;
     s.x+=s.vx*dt; s.y+=s.vy*dt;
@@ -2255,7 +2277,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.72');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.73');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -2549,14 +2571,14 @@ function spawnSmokePuff(scaleMul){
   // 21 px (14 muzzle + 7 forward offset) podél cannon angle → cloud sedí před hlavní
   const muzzleX=cannonX+Math.cos(cannonAngle)*21;
   const muzzleY=CANNON_Y+Math.sin(cannonAngle)*21;
-  smokePuffs.push({
-    x:muzzleX, y:muzzleY,
-    dx:(Math.random()-0.5)*4,
-    dy:-12-Math.random()*4,
-    t0:performance.now(),
-    duration:550,
-    scaleMul:scaleMul||1.0,
-  });
+  const p = _acquireSmokePuff();
+  p.x = muzzleX; p.y = muzzleY;
+  p.dx = (Math.random()-0.5)*4;
+  p.dy = -12-Math.random()*4;
+  p.t0 = performance.now();
+  p.duration = 550;
+  p.scaleMul = scaleMul||1.0;
+  smokePuffs.push(p);
 }
 function updateAndDrawSmokePuffs(){
   if(!particleCtx) return;
@@ -2574,7 +2596,13 @@ function updateAndDrawSmokePuffs(){
   for(let i=smokePuffs.length-1;i>=0;i--){
     const p=smokePuffs[i];
     const dt=now-p.t0;
-    if(dt>=p.duration){ smokePuffs.splice(i,1); continue; }
+    if(dt>=p.duration){
+      _releaseSmokePuff(p);
+      const last=smokePuffs.length-1;
+      if(i!==last) smokePuffs[i]=smokePuffs[last];
+      smokePuffs.pop();
+      continue;
+    }
     const t=Math.max(0,Math.min(1,dt/p.duration)); // clamp pro newly-spawned puffy
     const easeOut=1-Math.pow(1-t,2);
     // Scale pop-in: 0→1 v prvních 25%, pak grow lehce do 1.15
@@ -7740,7 +7768,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.72');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.73');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7868,7 +7896,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.72');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.73');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -7897,6 +7925,9 @@ function startLevel(){
   gamee.gameStart();
   if(!beltLoopStarted){beltLoopStarted=true;lastBeltTime=null;requestAnimationFrame(beltLoop);}
   grid=makeGrid();belt=new Array(BELT_CAP).fill(null);pending=[];nudgeTimer=0;funnelWarnTimer=0;score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
+  // v74.73: release particle objekty zpět do poolu před clear (zachová pool capacity)
+  for(const s of shards) _releaseShard2D(s);
+  for(const p of smokePuffs) _releaseSmokePuff(p);
   particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;smokePuffs=[];smokePuffsQueue=[];
   _carriersClearedAt=null; // v74.62: reset speed-up rampy na začátku levelu
   _remainingPxCache=null;  // v74.62: reset pixel cache (přepočítá se v beltLoop)
@@ -8782,7 +8813,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.72');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.73');
       event.detail.callback();
     });
 
