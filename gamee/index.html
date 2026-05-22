@@ -1,20 +1,20 @@
 <!DOCTYPE html>
 <head>
   <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-  <title>Balloon Belt v74.73</title>
+  <title>Balloon Belt v74.74</title>
   <script type="text/javascript" src="./lib/gamee-js.min.js"></script>
   <meta name="viewport" content="width=460,viewport-fit=cover">
   <!-- PWA support odstraněna z prod verze — Gamee iframe ji nepotřebuje, a PWA
        install z prod by spustil real Gamee SDK bez parent → broken hra. PWA
        install funguje JEN z index_local.html (se stub SDK). -->
-  <link rel="stylesheet" href="./css/game.css?v=74.73">
+  <link rel="stylesheet" href="./css/game.css?v=74.74">
   <script>var module = {};</script>
 </head>
 <body onload="initGame()">
 <canvas id="bg-canvas" aria-hidden="true"></canvas>
 <div id="boost-vignette" aria-hidden="true"></div>
 <div id="game">
-  <div id="version-badge"><span class="game-name">Plop!</span> <span class="ver-num">v74.73</span></div>
+  <div id="version-badge"><span class="game-name">Plop!</span> <span class="ver-num">v74.74</span></div>
   <!-- Top UI (h1 + score bar) bylo odstraněno v29 — v Gamee tyto informace
        zobrazuje platform wrapper, a editor preview je kompaktnější bez nich.
        Legacy ID score / belt-count / carriers-left jsou zachovány jako skryté
@@ -88,7 +88,7 @@
   </div>
   <div id="carriers-wrap">
     <div id="funnel-warning"></div>
-    <!-- v74.73: boost tutorial tip — 1× per device po prvním funnel warning -->
+    <!-- v74.74: boost tutorial tip — 1× per device po prvním funnel warning -->
     <div id="boost-tip" hidden aria-hidden="true">
       <div class="boost-tip-bubble">
         <span class="boost-tip-icon">💡</span>
@@ -111,9 +111,9 @@
   }
 }
 </script>
-<script type="module" src="./js/render3d.js?v=74.73"></script>
-<script type="module" src="./js/render3d_bottom.js?v=74.73"></script>
-<script type="text/javascript" src="./js/levels.js?v=74.73"></script>
-<script type="text/javascript" src="./js/game.js?v=74.73"></script>
+<script type="module" src="./js/render3d.js?v=74.74"></script>
+<script type="module" src="./js/render3d_bottom.js?v=74.74"></script>
+<script type="text/javascript" src="./js/levels.js?v=74.74"></script>
+<script type="text/javascript" src="./js/game.js?v=74.74"></script>
 </body>
 </html>

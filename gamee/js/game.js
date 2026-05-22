@@ -1241,18 +1241,30 @@ const LAUNCH_TRACK=LAUNCH_X-BELT_STARTX;          // 162
 function beltCount(){let c=0;for(let i=0;i<BELT_CAP;i++)if(belt[i])c++;return c;}
 function beltIsFull(){return beltCount()>=BELT_CAP;}
 function beltIsEmpty(){for(let i=0;i<BELT_CAP;i++)if(belt[i])return false;return true;}
-function findBeltLoadSlot(ballX,beltAnim){
+function findBeltLoadSlot(ballX,beltAnim,preferEmpty){
   // ballX je v FUN coords (= canvas X). Belt-svg lokální coord = ballX - beltOffsetX.
   // 2D: FUN.w=360, beltOffsetX=0. 3D: FUN.w=420, beltOffsetX=30.
+  // v74.74: preferEmpty mode — vrátí nejbližší PRÁZDNÝ slot v toleranci 1.5× spacing.
+  // Bez něj jsme vraceli closest regardless of state → koule čekala i když byl
+  // vedle prázdný slot (gate by pushed ball back místo loading).
   const beltOffsetX=(FUN.w-360)/2;
-  const target=ballX-beltOffsetX-BELT_STARTX;  // target track pozice (= i*spacing+offset mod total)
+  const target=ballX-beltOffsetX-BELT_STARTX;
   const offset=beltAnim%BELT_TOTAL;
   let bestSlot=0, bestDist=Infinity;
+  let bestEmpty=-1, bestEmptyDist=Infinity;
   for(let i=0;i<BELT_CAP;i++){
     const slotPos=(i*BELT_SPACING+offset)%BELT_TOTAL;
     let dist=Math.abs(slotPos-target);
     dist=Math.min(dist,BELT_TOTAL-dist);  // wrap-aware
     if(dist<bestDist){bestDist=dist;bestSlot=i;}
+    if(preferEmpty && belt[i]===null && dist<bestEmptyDist){
+      bestEmptyDist=dist; bestEmpty=i;
+    }
+  }
+  // Preferuj empty slot v tolerance 1.5× spacing — koule chytne i lehce vzdálený
+  // prázdný slot místo čekání na "ideální" výklon.
+  if(preferEmpty && bestEmpty!==-1 && bestEmptyDist < BELT_SPACING*1.5){
+    return bestEmpty;
   }
   return bestSlot;
 }
@@ -2277,7 +2289,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.73');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.74');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7369,7 +7381,12 @@ function _archXAtY(segs,y){
   const first=segs[0],last=segs[segs.length-1];
   return Math.abs(y-first.y)<Math.abs(y-last.y)?first.x:last.x;
 }
+// v74.74: nudge VYPNUT — po findBeltLoadSlot fix (empty slot preference) by neměl být
+// potřeba. Pokud se balls zase zaseknou v reálné hře, můžeme zapnout zpět nebo
+// předělat na něco méně aggresivního.
+const _NUDGE_ENABLED = false;
 function nudgeStuckNearOpening(dt){
+  if(!_NUDGE_ENABLED) return;
   // Periodicky (každých ~0.45s) najdi kouli nejblíže otvoru a pokud má malou rychlost,
   // dej jí cílený impulz vzhůru s mírnou korekcí ke středu otvoru. Napodobuje
   // „lehké cvrnknutí" — vypadá přirozeně, neexploduje fronta.
@@ -7593,10 +7610,10 @@ function updatePending(dt){
     for(let i=pending.length-1;i>=0;i--){
       const b=pending[i];
       if(b.y+b.r<FUN.narrowY-4){
-        // v73.189: Position-aware load — najdi slot pásu jehož vizuální pozice je nejblíž
-        // ball.x. Naloží jen pokud je ten slot prázdný. Pokud obsazený, kulička čeká
-        // (push down) dokud se prázdný slot nedostane na její pozici.
-        const slotIdx=findBeltLoadSlot(b.x,beltAnim);
+        // v74.74: preferEmpty=true — najde nejbližší PRÁZDNÝ slot v toleranci 1.5× spacing.
+        // Předtím vrátil closest regardless of state → kdyby byl closest full, ball padl zpět
+        // i když byl vedle prázdný slot. Teď chytne empty pokud je v rozumné vzdálenosti.
+        const slotIdx=findBeltLoadSlot(b.x,beltAnim,true);
         if(belt[slotIdx]===null){
           pending.splice(i,1);
           delete b.x; delete b.y; delete b.vx; delete b.vy; delete b.r;
@@ -7768,7 +7785,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.73');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.74');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7896,7 +7913,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.73');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.74');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8813,7 +8830,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.73');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.74');
       event.detail.callback();
     });
 
