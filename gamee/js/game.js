@@ -1132,9 +1132,10 @@ const _fpsFrames=[];
 let _fpsLastUpdate=0;
 // === v73.255: PERF QUALITY MANAGER ===
 // 3 tiers: 0=HIGH (vše zapnuto), 1=MED (bez shadow + půl částic), 2=LOW (jen základ).
-// Auto-step-down: FPS pod 45 po 2.5s → tier++. Step-up: FPS nad 55 po 6s → tier--.
-// Manual: window.setPerfTier(0|1|2) → zapne manualní režim (žádný auto).
-let _perfTier=0;
+// v74.70: default tier = MED (shadows off). Auto step-down LOW možný (FPS<29).
+// Auto step-up max MED (LOW→MED OK, MED→HIGH ne — HIGH se zatím vyhýbáme).
+// Manual: window.setPerfTier(0|1|2) → zapne manualní režim (override cap).
+let _perfTier=1;
 let _perfManual=false;
 let _perfLowSince=0;
 let _perfHighSince=0;
@@ -1189,7 +1190,8 @@ function _perfAutoUpdate(fps, ts){
   } else if(fps>PERF_FPS_UP){
     if(!_perfHighSince) _perfHighSince=ts;
     _perfLowSince=0;
-    if(_perfTier>0 && ts-_perfHighSince>=PERF_UP_HOLD_MS){
+    // v74.70: cap step-up na MED — LOW→MED OK, MED→HIGH ne (HIGH zatím skip)
+    if(_perfTier>1 && ts-_perfHighSince>=PERF_UP_HOLD_MS){
       _applyPerfTier(_perfTier-1);
       _perfLastChangeAt=ts;
       _perfHighSince=ts;
@@ -2247,7 +2249,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.69');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.70');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -6329,6 +6331,8 @@ function _ensureR3D(){
   if(overlay) overlay.style.display='block';
   _r3dInited=true;
   window._applyThemeFrameColors(_THEMES.find(t => document.body.classList.contains('theme-' + t)) || 'pink');
+  // v74.70: aplikuj default MED tier hned po init renderer-u (shadows off, retina full)
+  if(window.render3d.setQualityTier) window.render3d.setQualityTier(_perfTier);
   return true;
 }
 
@@ -6343,6 +6347,8 @@ function _ensureR3DBottom(){
   if(!ok) return false;
   _r3dBottomInited=true;
   window._applyThemeFrameColors(_THEMES.find(t => document.body.classList.contains('theme-' + t)) || 'pink');
+  // v74.70: aplikuj default MED tier i na bottom renderer
+  if(window.render3dBottom.setQualityTier) window.render3dBottom.setQualityTier(_perfTier);
   return true;
 }
 
@@ -7723,7 +7729,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.69');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.70');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7851,7 +7857,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.69');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.70');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8765,7 +8771,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.69');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.70');
       event.detail.callback();
     });
 
