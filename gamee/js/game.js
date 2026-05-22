@@ -1299,6 +1299,12 @@ function _updateUserHold(dt){
     _userHoldActive = false;
     document.body.classList.remove('user-boost-active');
   }
+  // v74.72: pokud auto-speedup naskočí během boost tip display → dismiss tip
+  // (hráč už nemá co zkoušet, auto-2× převzal kontrolu)
+  if(_carriersClearedAt !== null){
+    const tip = document.getElementById('boost-tip');
+    if(tip && !tip.hidden) _dismissBoostTip();
+  }
   const target = _userHoldActive ? _USER_HOLD_TARGET : 1.0;
   if(_userHoldCurrent < target)      _userHoldCurrent = Math.min(target, _userHoldCurrent + _USER_HOLD_FADE_PER_SEC * dt);
   else if(_userHoldCurrent > target) _userHoldCurrent = Math.max(target, _userHoldCurrent - _USER_HOLD_FADE_PER_SEC * dt);
@@ -2249,7 +2255,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.71');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.72');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7140,12 +7146,17 @@ try { _boostTipShown = localStorage.getItem('bb-tip-boost-shown') === '1'; } cat
 let _boostTipDismissTimer = null;
 function _maybeShowBoostTip(){
   if(_boostTipShown) return;
+  // v74.72: skip pokud běží auto-speedup (carriers vyklízeny) — boost stejně
+  // nemá efekt (auto-2× přebíjí), hráč si nemá co zkusit.
+  if(_carriersClearedAt !== null) return;
   const tip = document.getElementById('boost-tip');
   if(!tip) return;
   _boostTipShown = true;
   try { localStorage.setItem('bb-tip-boost-shown', '1'); } catch(e){}
   // Krátká pauza ať funnel warning erase dokončí
   setTimeout(() => {
+    // v74.72: re-check — během 600ms mohlo dojít k vyklízení carriers
+    if(_carriersClearedAt !== null) return;
     tip.hidden = false;
     tip.classList.remove('fade-out');
     // Auto-dismiss po 6s
@@ -7729,7 +7740,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.71');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.72');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7857,7 +7868,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.71');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.72');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8771,7 +8782,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.71');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.72');
       event.detail.callback();
     });
 
