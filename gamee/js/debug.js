@@ -135,6 +135,17 @@
     });
     overlay.appendChild(rhythmPill);
 
+    // ── Reset boost tutorial tip pill (v74.69) ──────────────────────────
+    var resetTipPill = document.createElement('button');
+    resetTipPill.type = 'button';
+    resetTipPill.className = 'dbg-pill';
+    resetTipPill.textContent = '💡 Reset tip';
+    resetTipPill.title = 'Vymaže bb-tip-boost-shown localStorage flag + hned tip zobrazí';
+    resetTipPill.addEventListener('click', function () {
+      if(window._bbResetBoostTip) window._bbResetBoostTip();
+    });
+    overlay.appendChild(resetTipPill);
+
     // ── Move version-badge do body (out of #game flex) — vždy viditelný
     var versionBadge = document.getElementById('version-badge');
     if (versionBadge) {

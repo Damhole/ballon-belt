@@ -573,6 +573,106 @@ body.renderer-3d #bottom-deck {
 }
 #boost-zone-left  { left:  0; }
 #boost-zone-right { right: 0; }
+
+/* v74.68: tutorial tip pro boost zone — 1× per device po prvním funnel warning.
+   Bubble centrovaný ve funnel area (~kde byl 3D funnel warning text),
+   animovaná ruka u pravé boost zóny. Žije v #bottom-deck (přesunuto JSem). */
+#boost-tip {
+  position: absolute;
+  /* funnel warning 3D mesh sedí v FUN.narrowY + 112 ≈ 126 CSS px od top canvasu;
+     bubble top: 95 px aby vrchol bubliny byl těsně nad tím textem area */
+  top: 95px; left: 0; right: 0;
+  pointer-events: none;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+#boost-tip[hidden] { display: none; }
+.boost-tip-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  background: #fffdf5;
+  color: #1f1428;
+  padding: 9px 16px;
+  border-radius: 14px;
+  border: 2px solid #1f1428;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  box-shadow: 0 3px 0 #1f1428, 0 6px 14px rgba(0,0,0,0.30);
+  margin-top: 8px;
+  transform-origin: center top;
+  /* Jen entrance pop — žádná continuous pulsace. Attention drží ruka + kruh. */
+  animation: boost-tip-pop 0.45s cubic-bezier(.34,1.56,.64,1) both;
+}
+.boost-tip-icon { font-size: 15px; line-height: 1; }
+.boost-tip-text { line-height: 1.1; }
+.boost-tip-hand {
+  position: absolute;
+  /* Hand ukazuje DO pravé boost zone — v rohu mezi belt boxem a carriers grid,
+     v místě kde je vidět jen main BG (mimo funnel arch). Boost zone je
+     right:0 width:70 top:0 height:~110. Center = right:35, top:55 v deck.
+     Relativně k tip (top:95) → top: -40, horizontalně right:35. */
+  top: -90px;
+  right: 35px;
+  font-size: 44px;
+  transform-origin: 50% 80%;
+  filter: drop-shadow(0 3px 4px rgba(0,0,0,0.45));
+  animation: boost-tip-hand-press 2.4s ease-in-out infinite;
+}
+/* Pulsující kruh pod rukou — rozjede se plynule během hold fáze, sbalí se při release.
+   Synchronizováno s hand-press cycle 2.4s. */
+.boost-tip-hand::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: calc(60% - 25px);
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.5);
+  border: 2px solid #fff;
+  pointer-events: none;
+  z-index: -1;
+  transform: scale(0);
+  /* cubic-bezier in-out cubic — S-curve s pomalým startem, rychlejším středem,
+     pomalým dojezdem. Aplikovaný per-segment mezi keyframy. */
+  animation: boost-tip-hand-ripple 2.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+@keyframes boost-tip-hand-ripple {
+  0%, 100% { transform: scale(0);    opacity: 0;    }  /* retracted: schovaný */
+  10%      { transform: scale(0.08); opacity: 0.20; } /* jemné objevení, ne pop */
+  72%      { transform: scale(1.15); opacity: 0.95; } /* peak — full hold pressure */
+  90%      { transform: scale(0);    opacity: 0;    } /* plynulý collapse */
+}
+@keyframes boost-tip-pop {
+  from { opacity: 0; transform: translateY(-14px) scale(0.6); }
+  to   { opacity: 1; transform: translateY(0)    scale(1.0); }
+}
+@keyframes boost-tip-attention {
+  0%, 100% { transform: scale(1.0);  box-shadow: 0 3px 0 #1f1428, 0 6px 14px rgba(0,0,0,0.30); }
+  50%      { transform: scale(1.04); box-shadow: 0 4px 0 #1f1428, 0 9px 20px rgba(0,0,0,0.40); }
+}
+/* Hand "tap and HOLD" — startuje DOLE (retracted), zvedne se NAHORU stisknout,
+   HOLD nahoře (60% cyklu = ~1.4s držení), pak retract zpět dolů. Cyklus 2.4s. */
+@keyframes boost-tip-hand-press {
+  0%, 100% { transform: translateY(13px) scale(1.0); }                   /* retracted dole */
+  12%      { transform: translateY(0)    scale(0.85); }                  /* zvednutá + press */
+  72%      { transform: translateY(0)    scale(0.85); }                  /* HOLD nahoře */
+  85%      { transform: translateY(13px) scale(1.0); }                   /* retract dolů */
+}
+#boost-tip.fade-out .boost-tip-bubble,
+#boost-tip.fade-out .boost-tip-hand {
+  animation: boost-tip-out 0.35s ease-in forwards;
+}
+@keyframes boost-tip-out {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.9); }
+}
 /* v74.65: boost vignette overlay — jeden fixed div, animuje jen opacity (GPU-optim).
    Žádný filter na body → žádné full-document recomposite per frame. Cheap na mobilu.
    Vignette = radial gradient s warm tint, soustředěný k okrajům (centr zůstává čistý). */

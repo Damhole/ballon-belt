@@ -852,6 +852,10 @@ function _wrapBottomDeck(){
   deck.appendChild(boostL);
   deck.appendChild(boostR);
   _wireBoostZones(boostL, boostR);
+  // v74.68: přesun #boost-tip z #carriers-wrap do #bottom-deck → pozice
+  // odpovídá funnel warning (3D mesh v FUN.narrowY + 112), nezavazí v carriers area.
+  const boostTip = document.getElementById('boost-tip');
+  if (boostTip && boostTip.parentElement !== deck) deck.appendChild(boostTip);
 }
 
 // v74.64: hold-to-boost wire — touchstart/mousedown = boost active, end/cancel = release.
@@ -861,6 +865,7 @@ function _wireBoostZones(left, right){
     e.preventDefault();
     _userHoldActive = true;
     document.body.classList.add('user-boost-active');
+    _dismissBoostTip(); // v74.68: user discovered the boost → tutorial mission done
   };
   const end = () => {
     if(!_userHoldActive) return;
@@ -2242,7 +2247,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.67');
+          gamee.updateScore(score,playTime,'balloon-belt-v74.68');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7119,7 +7124,43 @@ function hideFunnelWarning(){
   }
   // Po dohrání erase (cca 0.7s) reset phase na idle
   setTimeout(() => { _funnelWarnPhase = 'idle'; }, 750);
+  _maybeShowBoostTip(); // v74.68: tutorial tip (1× per device)
 }
+
+// v74.68: boost tutorial tip — zobrazí se 1× per device po prvním funnel warning.
+// Persistence v localStorage ('bb-tip-boost-shown'). Auto-dismiss po 6s OR po use boost.
+let _boostTipShown = false;
+try { _boostTipShown = localStorage.getItem('bb-tip-boost-shown') === '1'; } catch(e){}
+let _boostTipDismissTimer = null;
+function _maybeShowBoostTip(){
+  if(_boostTipShown) return;
+  const tip = document.getElementById('boost-tip');
+  if(!tip) return;
+  _boostTipShown = true;
+  try { localStorage.setItem('bb-tip-boost-shown', '1'); } catch(e){}
+  // Krátká pauza ať funnel warning erase dokončí
+  setTimeout(() => {
+    tip.hidden = false;
+    tip.classList.remove('fade-out');
+    // Auto-dismiss po 6s
+    _boostTipDismissTimer = setTimeout(() => _dismissBoostTip(), 6000);
+  }, 600);
+}
+function _dismissBoostTip(){
+  const tip = document.getElementById('boost-tip');
+  if(!tip || tip.hidden) return;
+  if(_boostTipDismissTimer){ clearTimeout(_boostTipDismissTimer); _boostTipDismissTimer = null; }
+  tip.classList.add('fade-out');
+  setTimeout(() => { tip.hidden = true; tip.classList.remove('fade-out'); }, 400);
+}
+// v74.69: dev API — jen resetuje shown flag, tip se znova objeví AŽ při příštím
+// funnel warning ("MAX 4 CARRIERS AT ONCE!"). Imituje first-time-player flow.
+window._bbResetBoostTip = function(){
+  try { localStorage.removeItem('bb-tip-boost-shown'); } catch(e){}
+  _boostTipShown = false;
+  // Skryj případně zobrazený tip (z předchozího triggeru ve stejné session)
+  _dismissBoostTip();
+};
 let _funnelClearStart = null;
 function updateFunnelWarning(dt){
   if(_funnelWarnPhase !== 'writing'){
@@ -7682,7 +7723,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.67');
+    gamee.updateScore(score,playTime,'balloon-belt-v74.68');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7810,7 +7851,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.67');
+  gamee.updateScore(score,playTime,'balloon-belt-v74.68');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8724,7 +8765,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.67');
+      gamee.updateScore(score,playTime,'balloon-belt-v74.68');
       event.detail.callback();
     });
 
