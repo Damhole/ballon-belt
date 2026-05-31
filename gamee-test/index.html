@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
+  <title>Balloon Belt v74.80</title>
+  <script type="text/javascript" src="./lib/gamee-js.min.js"></script>
+  <meta name="viewport" content="width=460,viewport-fit=cover">
+  <!-- PWA support odstraněna z prod verze — Gamee iframe ji nepotřebuje, a PWA
+       install z prod by spustil real Gamee SDK bez parent → broken hra. PWA
+       install funguje JEN z index_local.html (se stub SDK). -->
+  <link rel="stylesheet" href="./css/game.css?v=74.80">
+  <script>var module = {};</script>
+</head>
+<body onload="initGame()">
+<canvas id="bg-canvas" aria-hidden="true"></canvas>
+<div id="boost-vignette" aria-hidden="true"></div>
+<div id="game">
+  <div id="version-badge"><span class="game-name">Plop!</span> <span class="ver-num">v74.80</span></div>
+  <!-- Top UI (h1 + score bar) bylo odstraněno v29 — v Gamee tyto informace
+       zobrazuje platform wrapper, a editor preview je kompaktnější bez nich.
+       Legacy ID score / belt-count / carriers-left jsou zachovány jako skryté
+       elementy, aby kód, který do nich píše, neházel. -->
+  <div style="display:none">
+    <span id="score">0</span><span id="belt-count">0</span><span id="carriers-left">0</span>
+  </div>
+  <div class="controls">
+    <div class="ctrl-row-top">
+      <div class="ctrl-group">
+        <span class="ctrl-label">level</span>
+        <div class="stepper">
+          <button class="step-arrow" id="level-prev" aria-label="předchozí level">‹</button>
+          <span class="step-label" id="level-label">tvary</span>
+          <button class="step-arrow" id="level-next" aria-label="další level">›</button>
+        </div>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">complexity</span>
+        <div class="seg">
+          <button class="btn active" data-diff="easy">1</button>
+          <button class="btn" data-diff="medium">2</button>
+          <button class="btn" data-diff="hard">3</button>
+        </div>
+      </div>
+      <div class="ctrl-group ctrl-group-theme" id="theme-group" hidden>
+        <span class="ctrl-label">theme</span>
+        <select id="theme-select" class="theme-select">
+          <option value="pink">pink</option>
+          <option value="ocean">ocean</option>
+          <option value="sunset">sunset</option>
+          <option value="forest">forest</option>
+          <option value="lavender">lavender</option>
+          <option value="mono-dark">mono dark</option>
+          <option value="mystery">mystery</option>
+          <option value="neon">neon</option>
+          <option value="experiment">experiment</option>
+          <option value="experiment2">experiment 2</option>
+        </select>
+      </div>
+    </div>
+  </div>
+  <div id="status">Klikni na aktivní nosič</div>
+  <div id="ammo-audit" hidden></div>
+  <div id="image-area">
+    <canvas id="pixel-canvas" width="360" height="310"></canvas>
+    <!-- 3D render layer (Fáze 1+). Aktivuje se přes ?renderer=3d v URL.
+         Position absolute, překryje pixel-canvas. V 2D módu je display:none. -->
+    <canvas id="three-canvas" width="360" height="310" style="position:absolute;left:0;top:0;width:360px;height:310px;z-index:1;display:none;pointer-events:none"></canvas>
+    <!-- Block HP overlay (Fáze 2). HP čísla a mystery "?" pro 3D bloky.
+         Z-index 3 = nad three-canvas (1) i particle-canvas (2). -->
+    <canvas id="block-overlay-canvas" width="360" height="310" style="position:absolute;left:0;top:0;width:360px;height:310px;z-index:3;display:none;pointer-events:none"></canvas>
+    <div id="overlay">
+      <div id="overlay-box">
+        <h3 id="overlay-title">Konec</h3>
+        <p id="overlay-msg"></p>
+        <div class="overlay-actions">
+          <button id="restart-btn">Hrát znovu</button>
+          <button id="next-btn">Další →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="belt-wrap">
+    <div id="belt-label">dopravní pás → obraz</div>
+    <svg id="belt-svg" viewBox="0 0 360 64" xmlns="http://www.w3.org/2000/svg"></svg>
+  </div>
+  <div id="pending-wrap">
+    <div id="pending-label">ve frontě</div>
+    <canvas id="pending-canvas" width="360" height="50"></canvas>
+  </div>
+  <div id="carriers-wrap">
+    <div id="funnel-warning"></div>
+    <!-- v74.79: boost tutorial tip — 1× per device po prvním funnel warning -->
+    <div id="boost-tip" hidden aria-hidden="true">
+      <div class="boost-tip-bubble">
+        <span class="boost-tip-icon">💡</span>
+        <span class="boost-tip-text">TIP: Press &amp; hold for double speed</span>
+      </div>
+      <div class="boost-tip-hand">👆</div>
+    </div>
+    <div id="carriers-label">nosiče</div>
+    <div id="carriers-grid"></div>
+  </div>
+</div>
+<!-- Three.js přes importmap. Modul render3d.js si naimportuje 'three' a vystaví
+     API přes window.render3d. body onload="initGame()" se spustí až po načtení
+     všech scriptů včetně module type, takže game.js vidí window.render3d. -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "./lib/three.module.min.js",
+    "three/addons/loaders/GLTFLoader.js": "./lib/GLTFLoader.js"
+  }
+}
+</script>
+<script type="module" src="./js/render3d.js?v=74.80"></script>
+<script type="module" src="./js/render3d_bottom.js?v=74.80"></script>
+<script type="module" src="./js/render3d_unified.js?v=74.80"></script>
+<script type="text/javascript" src="./js/levels.js?v=74.80"></script>
+<script type="text/javascript" src="./js/game.js?v=74.80"></script>
+</body>
+</html>

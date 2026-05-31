@@ -1,0 +1,8923 @@
+// v73.278: VERSION CONSTANT + WATCHDOG (rozšířen na render3d moduly)
+// Porovnává HTML #version-badge + window.BB_VERSION_R3D + window.BB_VERSION_R3DB
+// proti BB_VERSION. Kterákoli mismatch → force reload (sessionStorage guard).
+const BB_VERSION = 'v73.278';
+(function _versionWatchdog(){
+  function check(){
+    var badge = document.getElementById('version-badge');
+    if (!badge) { setTimeout(check, 100); return; }
+    // Render3d moduly jsou ESM, mohou se načítat asynchronně.
+    // Pokud BB_VERSION_R3D/R3DB ještě nejsou exposed, počkat krátce.
+    if (window.BB_VERSION_R3D === undefined || window.BB_VERSION_R3DB === undefined) {
+      setTimeout(check, 100);
+      return;
+    }
+    var htmlVer = (badge.textContent || '').trim();
+    var checks = [
+      ['HTML',            htmlVer],
+      ['render3d',        window.BB_VERSION_R3D],
+      ['render3dBottom',  window.BB_VERSION_R3DB],
+    ];
+    var bad = checks.filter(function(c){ return c[1] && c[1] !== BB_VERSION; });
+    if (!bad.length) return;
+    var key = 'bb-reload-attempted-' + BB_VERSION;
+    if (sessionStorage.getItem(key)) {
+      console.warn('[BB] Version mismatch po reloadu přetrvává:', bad, '(JS=' + BB_VERSION + '). Zkus Cmd+Shift+R.');
+      return;
+    }
+    sessionStorage.setItem(key, '1');
+    console.warn('[BB] Stale modul(y):', bad, '— force reload.');
+    var url = new URL(location.href);
+    url.searchParams.set('_bb_v', Date.now());
+    location.replace(url.toString());
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', check);
+  else check();
+})();
+
+const COLORS=[
+  // 0–11  výchozí (původní)
+  '#3dd64a','#ff7a1a','#5bc8f5','#1b9aff','#ff4fa3','#f5d800','#8b4dff','#141414','#ffffff','#e63946','#00c8a0','#8c8c8c',
+  // 12–17  červené
+  '#ff3b30','#c0392b','#ff6b6b','#b71c1c','#ff8a65','#bf360c',
+  // 18–21  oranžové
+  '#ff9800','#e65100','#ffb300','#f57c00',
+  // 22–25  žluté / limetky
+  '#c6e617','#76d400','#ffd600','#aeea00',
+  // 26–29  zelené
+  '#00c853','#1b5e20','#69f0ae','#33691e',
+  // 30–33  tyrkysové / cyan
+  '#00bcd4','#006064','#b2ebf2','#00e5ff',
+  // 34–38  modré
+  '#42a5f5','#0d47a1','#82b1ff','#1565c0','#7986cb',
+  // 39–42  fialové
+  '#7c4dff','#6a1b9a','#ab47bc','#ce93d8',
+  // 43–46  růžové / magenta
+  '#e91e63','#f48fb1','#ad1457','#ff80ab',
+  // 47–50  tmavé neutrály
+  '#212121','#424242','#616161','#757575',
+  // 51–54  světlé neutrály
+  '#bdbdbd','#e0e0e0','#fff9c4','#fce4ec',
+  // 55–60  hnědé / teplé
+  '#795548','#5d4037','#a1887f','#d7ccc8','#bf8040','#ffcc80',
+  // 61–63  speciální
+  '#ff6e40','#40c4ff','#b9f6ca',
+];
+const BELT_CAP=14;
+let COLS=7; // může být přepsáno buildColsFromLayout pro layout s méně sloupci
+const GW=36,GH=31,IMG_GH=27;
+const UPC=4;
+const PPU=10;
+// Playtester tolerance — kolik pixelů smí zůstat nedořešených a stále uznáme "solved".
+// Default 40 = UPC*PPU = jeden výchozí carrier worth of projectiles. Reasoning: pokud
+// solver nechá max 1 carrier neoštudírovaný kvůli timing nuancím, level je v podstatě
+// dohratelný (extra carrier + chytré timing = success). Bez tolerance: tight balance
+// + jakákoli timing chyba = "fail" i když je level v reálu OK.
+const SOLVED_TOLERANCE_PX=UPC*PPU;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RENDERER_MODE — feature flag pro 2.5D upgrade (Fáze 1+).
+//   '3d' = Three.js scéna (pixely jako InstancedMesh BoxGeometry) — DEFAULT
+//   '2d' = legacy Canvas2D pipeline (dev fallback, debugging)
+// Default flipped na 3D v v71.13 — po M6 ukončení a v71 responsive polishi
+// je 3D plnohodnotná hlavní zkušenost. ?renderer=2d je opt-in dev fallback.
+// Bloky/projektily/UI zatím zůstávají 2D (Fáze 2+ je posune). Při 3D módu
+// pixel-canvas pořád existuje a slouží jako podklad pro 2D bloky
+// (three-canvas má alpha, prosvítá).
+// ═══════════════════════════════════════════════════════════════════════════
+const RENDERER_MODE = (function(){
+  try {
+    const m = new URLSearchParams(location.search).get('renderer');
+    return (m === '2d') ? '2d' : '3d';
+  } catch(_e) { return '3d'; }
+})();
+// v73.240: dočasné vypnutí kruhového 2D pop efektu (rázová vlna + bílý záblesk).
+// Zpátky zapnout: window._DEBUG_DISABLE_POP_CIRCLE = false v DevTools console.
+window._DEBUG_DISABLE_POP_CIRCLE = true;
+// v73.253: 2D rozstřikové shardy (spawnPopShards). 3D shards z render3d.js
+// dělají stejnou práci a nepřebíjí scénu 2D layer.
+window._DEBUG_DISABLE_POP_SHARDS = true;
+
+// ─── Sound system ────────────────────────────────────────────────────────────
+const _audioCtx = (() => {
+  try { return new (window.AudioContext || window.webkitAudioContext)(); } catch(e){ return null; }
+})();
+let _popBuffer = null;
+let _bounceBuffer = null;
+let _clashBuffer = null;
+let _shootBuffers = []; // 4 variants — náhodný výběr při výstřelu
+let _pizzBuffers = []; // pizzicato variants pro cannon move
+let _stepBuffer = null;
+let _kickBuffer = null;
+let _hihatBuffer = null;
+let _clapBuffer = null;
+let _beltLandBuffer = null;
+let _denialBuffer = null;
+let _lastBeltLandTime = 0;
+let _lastDenialTime = 0;
+let _padBuffer = null;
+let _beltTickBuffer = null;
+let _lastPadTime = 0;
+let _padPlayCount = 0; // crescendo boost v rámci session
+let _kickIntervalId = null;
+// Sekvenční layer build-up: každá vrstva nahraje, dosáhne max, pak startuje další.
+// Každá další vrstva ramp-uje rychleji než předchozí.
+let _kickStarted = false; // beat začne až po prvním výstřelu hráče
+// Music master toggle — default off, persisted v localStorage, ovládá z dev overlay
+let _musicEnabled = (function(){
+  try {
+    const v = localStorage.getItem('bb-music');
+    return v === null ? true : v === '1'; // opt-out: default ON pokud nebylo nikdy nastaveno
+  } catch(e){ return true; }
+})();
+// Rhythm fire — soft snap kanonu na music tick (jen pokud music on)
+let _rhythmFire = (function(){
+  try {
+    const v = localStorage.getItem('bb-rhythm-fire');
+    return v === null ? true : v === '1'; // opt-out: default ON
+  } catch(e){ return true; }
+})();
+let _lastMusicTick = 0; // timestamp posledního scheduler ticku
+let _lastFireTime = 0; // timestamp posledního cannon fire (pro rhythm idle detection)
+let _onKickBeat = false; // true pokud aktuální tick je v _KICK_PATTERN (downbeat)
+window._bbSetRhythmFire = function(enabled){
+  _rhythmFire = !!enabled;
+  try { localStorage.setItem('bb-rhythm-fire', enabled ? '1' : '0'); } catch(e){}
+};
+window._bbGetRhythmFire = function(){ return _rhythmFire; };
+window._bbSetMusicEnabled = function(enabled){
+  _musicEnabled = !!enabled;
+  try { localStorage.setItem('bb-music', enabled ? '1' : '0'); } catch(e){}
+  if(!enabled) _resetMusicState(); // vypnout = okamžitě ztichnout layery
+};
+window._bbGetMusicEnabled = function(){ return _musicEnabled; };
+let _layerVol = { kick: 0, hihat: 0, clap: 0, pad: 0, belt: 0 };
+let _currentLayer = null; // 'kick' | 'hihat' | 'clap' | 'pad' | 'done'
+// Ramp rates per 375ms tick — kick nejpomalejší, pad nejrychlejší
+const _LAYER_RATES = { kick: 0.011, hihat: 0.020, clap: 0.027, pad: 0.035, belt: 0.045 };
+// Decay rates při idle — pomalejší než build (postupné odeznívání po pauze)
+const _LAYER_DECAY_RATES = { hihat: 0.008, clap: 0.012, pad: 0.016, belt: 0.020 };
+const _MUSIC_IDLE_THRESHOLD = 3000; // ms — po této pauze začne stripping
+let _suckMelodyBuffer = null; // melodie pro ball suck do díry
+let _lastPopTime = 0;
+let _popFatigue = 1.0;
+let _lastBounceTime = 0;
+let _lastClashTime = 0;
+let _lastShootTime = 0;
+let _lastPizzTime = 0;
+let _lastSuckTime = 0;
+let _lastPizzTargetX = -9999; // shot.idealX kdy naposled hrál pizz
+
+function _initSound(){
+  if(!_audioCtx) return;
+  console.log('[BB-SOUND] init, audioCtx state:', _audioCtx.state);
+  // Proaktivní resume na první dotyk/klik — browsers suspendují AudioContext do user gesture
+  const _resume = () => {
+    if(_audioCtx.state==='suspended') {
+      _audioCtx.resume().then(()=>console.log('[BB-SOUND] resumed, state:', _audioCtx.state));
+    }
+  };
+  document.addEventListener('touchstart', _resume, {once:true, passive:true});
+  document.addEventListener('click',      _resume, {once:true});
+  // WAV první (bulletproof, žádný encoder delay), MP3 fallback
+  const v = '?v=' + (window._BB_SOUND_V || Date.now());
+  const urls = ['./assets/sounds/pop.wav' + v, './assets/sounds/pop.mp3' + v];
+  (async()=>{
+    for(const url of urls){
+      try{
+        console.log('[BB-SOUND] fetching', url);
+        const r = await fetch(url);
+        if(!r.ok) { console.log('[BB-SOUND]   HTTP', r.status); continue; }
+        const ab = await r.arrayBuffer();
+        console.log('[BB-SOUND]   bytes:', ab.byteLength);
+        _popBuffer = await _audioCtx.decodeAudioData(ab);
+        console.log('[BB-SOUND]   decoded ok, duration:', _popBuffer.duration, 's, channels:', _popBuffer.numberOfChannels);
+        break;
+      }catch(e){
+        console.warn('[BB-SOUND]   failed', url, e.message);
+      }
+    }
+    if(!_popBuffer) console.error('[BB-SOUND] no buffer loaded');
+  })();
+  // Bounce (wrong-color pixel) — paralelně s popem
+  (async()=>{
+    const urls = ['./assets/sounds/bounce.wav' + v, './assets/sounds/bounce.mp3' + v];
+    for(const url of urls){
+      try{
+        const r = await fetch(url);
+        if(!r.ok) continue;
+        _bounceBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] bounce decoded, duration:', _bounceBuffer.duration, 's');
+        break;
+      }catch(e){ console.warn('[BB-SOUND] bounce failed', url, e.message); }
+    }
+  })();
+  // Clash (občasná varianta popu — ~1 ze 10)
+  (async()=>{
+    const urls = ['./assets/sounds/clash.wav' + v];
+    for(const url of urls){
+      try{
+        const r = await fetch(url);
+        if(!r.ok) continue;
+        _clashBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] clash decoded, duration:', _clashBuffer.duration, 's');
+        break;
+      }catch(e){ console.warn('[BB-SOUND] clash failed', url, e.message); }
+    }
+  })();
+  // Shoot — 4 varianty bubble plop, náhodný výběr při výstřelu z děla
+  (async()=>{
+    const variants = ['shoot_a','shoot_b','shoot_c','shoot_d'];
+    for(let i=0; i<variants.length; i++){
+      try{
+        const r = await fetch('./assets/sounds/' + variants[i] + '.wav' + v);
+        if(!r.ok) continue;
+        _shootBuffers[i] = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+      }catch(e){ console.warn('[BB-SOUND] shoot variant failed', variants[i]); }
+    }
+    console.log('[BB-SOUND] shoot variants loaded:', _shootBuffers.filter(Boolean).length, '/ 4');
+  })();
+  // Pizzicato (cannon move) — 3 varianty
+  (async()=>{
+    const variants = ['pizz_1','pizz_2','pizz_3'];
+    for(let i=0; i<variants.length; i++){
+      try{
+        const r = await fetch('./assets/sounds/' + variants[i] + '.wav' + v);
+        if(!r.ok) continue;
+        _pizzBuffers[i] = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+      }catch(e){ console.warn('[BB-SOUND] pizz variant failed', variants[i]); }
+    }
+    console.log('[BB-SOUND] pizz variants loaded:', _pizzBuffers.filter(Boolean).length, '/ 3');
+  })();
+  // Suck melody — celá pizzicato fráze pro ball do díry
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/suck_melody.wav' + v);
+      if(r.ok){
+        _suckMelodyBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] suck melody loaded, duration:', _suckMelodyBuffer.duration, 's');
+      }
+    }catch(e){ console.warn('[BB-SOUND] suck melody failed', e.message); }
+  })();
+  // Step slide — foley step pro cannon move (decentní textura)
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/step_slide.wav' + v);
+      if(r.ok){
+        _stepBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] step slide loaded, duration:', _stepBuffer.duration, 's');
+      }
+    }catch(e){ console.warn('[BB-SOUND] step slide failed', e.message); }
+  })();
+  // Soft kick drum — sparse beat v pozadí
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/kick.wav' + v);
+      if(r.ok){
+        _kickBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] kick loaded, duration:', _kickBuffer.duration, 's');
+        _scheduleKick();
+      }
+    }catch(e){ console.warn('[BB-SOUND] kick failed', e.message); }
+  })();
+  // Hi-hat
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/hihat.wav' + v);
+      if(r.ok){
+        _hihatBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] hihat loaded, duration:', _hihatBuffer.duration, 's');
+      }
+    }catch(e){ console.warn('[BB-SOUND] hihat failed', e.message); }
+  })();
+  // Clap
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/clap.wav' + v);
+      if(r.ok){
+        _clapBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] clap loaded, duration:', _clapBuffer.duration, 's');
+      }
+    }catch(e){ console.warn('[BB-SOUND] clap failed', e.message); }
+  })();
+  // Ambient pad
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/pad_am7.wav' + v);
+      if(r.ok){
+        _padBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] pad loaded, duration:', _padBuffer.duration, 's');
+      }
+    }catch(e){ console.warn('[BB-SOUND] pad failed', e.message); }
+  })();
+  // Belt tick — jemný mechanický klik (suplující bezici pas)
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/belt_tick.wav' + v);
+      if(r.ok){
+        _beltTickBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] belt tick loaded, duration:', _beltTickBuffer.duration, 's');
+      }
+    }catch(e){ console.warn('[BB-SOUND] belt tick failed', e.message); }
+  })();
+  // Belt land — dopad balónku na pás (jemný puzzle click)
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/belt_land.wav' + v);
+      if(r.ok){
+        _beltLandBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] belt land loaded, duration:', _beltLandBuffer.duration, 's');
+      }
+    }catch(e){ console.warn('[BB-SOUND] belt land failed', e.message); }
+  })();
+  // Denial — klik na inactive/locked/mystery carrier
+  (async()=>{
+    try{
+      const r = await fetch('./assets/sounds/denial.wav' + v);
+      if(r.ok){
+        _denialBuffer = await _audioCtx.decodeAudioData(await r.arrayBuffer());
+        console.log('[BB-SOUND] denial loaded, duration:', _denialBuffer.duration, 's');
+      }
+    }catch(e){ console.warn('[BB-SOUND] denial failed', e.message); }
+  })();
+}
+
+let _popLogged = false;
+function _playClash(vol=0.08){
+  if(!_clashBuffer || !_audioCtx) return;
+  const now = Date.now();
+  if(now - _lastClashTime < 200) return; // clash je vzácný, ale chraň před stackem
+  _lastClashTime = now;
+  const _doPlay = () => {
+    const src  = _audioCtx.createBufferSource();
+    const gain = _audioCtx.createGain();
+    src.playbackRate.value = 0.9 + Math.random() * 0.2;
+    gain.gain.value = vol * (0.7 + Math.random() * 0.3);
+    src.buffer = _clashBuffer;
+    src.connect(gain);
+    gain.connect(_audioCtx.destination);
+    src.start(0);
+  };
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+function _playPop(vol=0.075){
+  if(!_popBuffer || !_audioCtx) {
+    if(!_popLogged){ console.warn('[BB-SOUND] _playPop called but no buffer/ctx', {buf:!!_popBuffer, ctx:!!_audioCtx}); _popLogged=true; }
+    return;
+  }
+  if(Math.random() < 0.33) return; // ~1 ze 3 vynechán
+  const now = Date.now();
+  if(now - _lastPopTime < 200) return; // zvýšený throttle → popy se nepřekrývají
+  // Fatigue — pauza > 1s resetuje na full vol
+  if(now - _lastPopTime > 1000) _popFatigue = 1.0;
+  else _popFatigue = Math.max(0.05, _popFatigue * 0.75); // -25% per consecutive
+  _lastPopTime = now;
+  const pitch = _nextRhythmPitch(_OCT_POP);
+  const _doPlay = () => {
+    _wireAndPlay(_popBuffer, pitch, vol * _popFatigue * _getSfxFade(), 1000);
+    if(!_popLogged){ console.log('[BB-SOUND] first pop fired, ctx state:', _audioCtx.state); _popLogged=true; }
+  };
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+// Pentatonická MINOR (rain/ocean variant) — měkčí, relaxační (Asian/lullaby feel).
+// Ratios: root, +3m, +4p, +5p, +7m, oktáva (semitones: 0, 3, 5, 7, 10, 12)
+const _BB_PENTATONIC = [1.000, 1.189, 1.335, 1.498, 1.782, 2.000];
+// Sdílený rhythm counter — všechny tři zvuky (pop, bounce, shoot) ho posunují,
+// action sekvence zní jako jedna melodická fráze.
+// Oktávy blíž k sobě (vs variant #2) → zvuky se mísí jako přírodní šum.
+let _rhythmStep = 0;
+let _lastRhythmTime = 0;
+const _OCT_SHOOT  = 0.85;  // bass jen mírně
+const _OCT_POP    = 1.00;
+const _OCT_BOUNCE = 1.25;  // mírná vrstva nad popem
+
+// Shared output bus — lowpass filtr + stereo splitter pro relaxační měkký feel
+let _audioBus = null;
+function _ensureAudioBus(){
+  if(_audioBus || !_audioCtx) return _audioBus;
+  const lp = _audioCtx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 2500;  // tlumí ostré výšky → zaoblý sound
+  lp.Q.value = 0.5;
+  lp.connect(_audioCtx.destination);
+  _audioBus = lp;
+  return _audioBus;
+}
+
+function _nextRhythmPitch(octMult){
+  const now = Date.now();
+  if(now - _lastRhythmTime > 1500) _rhythmStep = 0;
+  _lastRhythmTime = now;
+  const idx = (Math.random() < 0.20)
+    ? (Math.random() * _BB_PENTATONIC.length) | 0
+    : _rhythmStep % _BB_PENTATONIC.length;
+  _rhythmStep++;
+  // Detune ±3 cents pro jemný drift (jako přírodní variabilita)
+  return _BB_PENTATONIC[idx] * octMult * (0.97 + Math.random() * 0.06);
+}
+
+// Helper: připojí source přes panner + envelope na shared bus; vrátí src node (onended hook)
+function _wireAndPlay(buf, pitch, vol, lowpassCutoff){
+  const src  = _audioCtx.createBufferSource();
+  const gain = _audioCtx.createGain();
+  const pan  = _audioCtx.createStereoPanner();
+  src.playbackRate.value = pitch;
+  pan.pan.value = (Math.random() - 0.5) * 0.8;
+  const t = _audioCtx.currentTime;
+  const peakVol = vol * (0.7 + Math.random() * 0.3);
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(peakVol, t + 0.008);
+  src.buffer = buf;
+  src.connect(gain);
+  // Volitelný per-zvuk lowpass (např. pop má vlastní 1500Hz pro tlumení výšek)
+  if(lowpassCutoff){
+    const lp = _audioCtx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = lowpassCutoff;
+    lp.Q.value = 0.5;
+    gain.connect(lp);
+    lp.connect(pan);
+  } else {
+    gain.connect(pan);
+  }
+  pan.connect(_ensureAudioBus() || _audioCtx.destination);
+  src.start(0);
+  return src;
+}
+
+function _playShoot(vol=0.05){
+  if(!_audioCtx) return;
+  if(!_shootBuffers.some(Boolean)) return;
+  const now = Date.now();
+  if(now - _lastShootTime < 35) return; // throttle při rychlé palbě
+  _lastShootTime = now;
+  // Vážená náhoda: shoot_d (index 3) o 50% méně častý než a/b/c
+  const weights = [1, 1, 1, 0];
+  const pool = _shootBuffers.map((b, i) => b ? {buf: b, w: weights[i]} : null).filter(Boolean);
+  const total = pool.reduce((s, v) => s + v.w, 0);
+  let r = Math.random() * total;
+  let buf = pool[0].buf;
+  for(const v of pool){ if(r < v.w){ buf = v.buf; break; } r -= v.w; }
+  const pitch = _nextRhythmPitch(_OCT_SHOOT);
+  if(!_kickStarted && _musicEnabled){
+    _kickStarted = true;
+    _currentLayer = 'kick';
+    _layerVol.kick = 0.25; // kick startuje na audible minimum, ramp odsud
+  }
+  const _doPlay = () => _wireAndPlay(buf, pitch, vol * _getSfxFade());
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+// Cannon move — sekvencer: noty se nepřekrývají, čekají si na řadu.
+// Pohyb dela = pokus o trigger. Pokud nota hraje, naplánuje se další po dohrání.
+// Pentatonika advancuje vždy → vzniká kontinuální melodie z pohybu.
+let _pizzActive = false;
+let _pizzPending = false;
+function _playPizz(vol=0.08){ return; // DISABLED — user hledá lepší zvuk
+  if(!_audioCtx) return;
+  const buffers = _pizzBuffers.filter(Boolean);
+  if(!buffers.length) return;
+  // Pokud už nota hraje → pamatuj že byl pohyb, ať se po dohrání spustí další
+  if(_pizzActive){ _pizzPending = true; return; }
+  _pizzActive = true;
+  const buf = buffers[(Math.random() * buffers.length) | 0];
+  const pitch = _nextRhythmPitch(1.00); // pentatonika advancuje → melodický postup
+  const _doPlay = () => {
+    const src = _wireAndPlay(buf, pitch, vol);
+    src.onended = () => {
+      _pizzActive = false;
+      if(_pizzPending){
+        _pizzPending = false;
+        _playPizz(vol); // hned zahraj další (pohyb se stal během play)
+      }
+    };
+  };
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+// Sparse kick drum — random interval 3-6s, hraje jen pokud hra běží
+function _playKick(vol=3.00){
+  if(!_kickBuffer || !_audioCtx) return;
+  const _doPlay = () => _wireAndPlay(_kickBuffer, 1.0, vol);
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+function _playHihat(vol=0.425){
+  if(!_hihatBuffer || !_audioCtx) return;
+  const pitch = 0.95 + Math.random() * 0.10; // jemná pitch variace
+  const _doPlay = () => _wireAndPlay(_hihatBuffer, pitch, vol);
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+function _playClap(vol=0.44){
+  if(!_clapBuffer || !_audioCtx) return;
+  const pitch = 0.95 + Math.random() * 0.10;
+  const _doPlay = () => _wireAndPlay(_clapBuffer, pitch, vol);
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+// Pad pitches — A minor pentatonic ratios + oktávy.
+// 0.5 = oktávu níž (deep), 0.75 = 5p níž, 1.0 = root, 1.5 = 5p nahoru (bright), 2.0 = oktávu nahoru
+const _PAD_PITCHES = [0.5, 0.75, 1.0, 1.0, 1.0, 1.5, 2.0]; // root weighted častěji
+function _playPad(vol=0.55, pitch){
+  if(!_padBuffer || !_audioCtx) return;
+  const p = pitch !== undefined ? pitch : _PAD_PITCHES[(Math.random() * _PAD_PITCHES.length) | 0];
+  const _doPlay = () => _wireAndPlay(_padBuffer, p, vol);
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+function _playBeltTick(vol=0.40){
+  if(!_beltTickBuffer || !_audioCtx) return;
+  const pitch = 0.95 + Math.random() * 0.10; // jemná pitch variation
+  const _doPlay = () => _wireAndPlay(_beltTickBuffer, pitch, vol);
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+// Carrier click melodie — pevná melodická sekvence v nižší/střední oktávě.
+// Po sériích kliků za sebou vznikne rozpoznatelná melodie, žádné vysoké tóny.
+// A minor pentatonic lower-mid range: 0.50 (A2), 0.595 (C3), 0.667 (D3), 0.749 (E3), 0.891 (G3), 1.0 (A3), 1.189 (C4)
+const _CARRIER_PITCHES = [0.50, 0.595, 0.667, 0.749, 0.891, 1.0, 1.189];
+// Melodie — wandering pentatonic phrase, 16 kroků, opakuje se. Mix up/down pro melodický feel.
+const _CARRIER_MELODY = [0, 2, 3, 5, 4, 3, 2, 4, 5, 3, 2, 0, 2, 4, 3, 1];
+let _beltLandStep = 0;
+function _playBeltLand(vol=0.153){
+  if(!_beltLandBuffer || !_audioCtx) return;
+  const now = Date.now();
+  if(now - _lastBeltLandTime < 50) return;
+  // Reset melodie po 5s pauze → další série začne od začátku
+  if(now - _lastBeltLandTime > 5000) _beltLandStep = 0;
+  _lastBeltLandTime = now;
+  // Pitch z definované melodie (sekvenční postup, loopuje)
+  const idx = _CARRIER_MELODY[_beltLandStep % _CARRIER_MELODY.length];
+  const pitch = _CARRIER_PITCHES[idx];
+  _beltLandStep++;
+  const vv = vol * (0.9 + Math.random() * 0.20); // ±10% volume (menší variace = melodie zní stabilněji)
+  const _doPlay = () => _wireAndPlay(_beltLandBuffer, pitch, vv);
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+function _playDenial(vol=0.18){
+  if(!_denialBuffer || !_audioCtx) return;
+  const now = Date.now();
+  if(now - _lastDenialTime < 150) return; // throttle
+  _lastDenialTime = now;
+  const pitch = 0.92 + Math.random() * 0.16; // ±8% pitch jitter
+  const vv = vol * (0.85 + Math.random() * 0.30); // ±15% volume
+  const _doPlay = () => _wireAndPlay(_denialBuffer, pitch, vv);
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+// Beat sequencer — 4-step rhythm @ 80 BPM (750ms per step)
+// Kick pattern: K . K K   (boom-pause-boom-boom)
+// Hihat pattern: . H . H  (vyplňuje offbeaty + overlap na poslední)
+// 8-step rhythm @ 80 BPM (375ms per step, 3s loop)
+// Kick:  K . . . K . K .   (downbeats + last beat)
+// Hihat: . . H . . . H .   (backbeats)
+// Clap:  . . . . . . . D   (double-clap jen na konci loopu = fill)
+const _KICK_PATTERN  = [true, false, false, false, true, false, true, false];
+const _HIHAT_PATTERN = [false, false, true, false, false, false, true, false];
+const _CLAP_PATTERN  = [false, false, false, false, false, false, false, true];
+const _BELT_PATTERN  = [false, true, false, true, false, true, false, true]; // off-beats (mezi kicky)
+let _kickStep = 0;
+// SFX (pop/bounce/shoot/step) fade — jak music vrstvy postupně narůstají,
+// gameplay zvuky se ztišují → music dostává prostor "promluvit".
+// 0% music = 1.0 SFX (full), 100% music = 0.35 SFX (background level).
+function _getSfxFade(){
+  if(!_musicEnabled || !_kickStarted) return 1.0; // bez music = plné SFX
+  const layers = _layerVol.kick + _layerVol.hihat + _layerVol.clap + _layerVol.pad + _layerVol.belt;
+  const completeness = layers / 5; // 0..1
+  return 1.0 - (completeness * 0.40); // 1.0 → 0.60 (jemnější redukce)
+}
+
+
+// Theme change → redraw 3D funnel warning text (theme-aware tint)
+document.addEventListener('bb:theme-changed', () => {
+  if(window.render3dBottom && window.render3dBottom.refreshFunnelWarningTheme){
+    window.render3dBottom.refreshFunnelWarningTheme();
+  }
+});
+
+function _resetMusicState(){
+  _padPlayCount = 0;
+  _lastPadTime = 0;
+  _kickStep = 0;
+  _popFatigue = 1.0;
+  _kickStarted = false;
+  _layerVol = { kick: 0, hihat: 0, clap: 0, pad: 0, belt: 0 };
+  _currentLayer = null;
+}
+
+function _scheduleKick(){
+  if(_kickIntervalId) clearTimeout(_kickIntervalId);
+  const delay = 375; // 80 BPM 8th notes
+  _kickIntervalId = setTimeout(() => {
+    const isRunning = typeof running !== 'undefined' && running;
+    _lastMusicTick = Date.now();
+    if(isRunning && _kickStarted && _musicEnabled){
+      const i = _kickStep % _KICK_PATTERN.length;
+      _onKickBeat = _KICK_PATTERN[i];
+      // Idle detection — pokud player nestřílí, layers se postupně decay zpět na kick.
+      const idleMs = Date.now() - _lastFireTime;
+      const isDecaying = idleMs > _MUSIC_IDLE_THRESHOLD;
+      if(isDecaying){
+        // Reverse-sequential decay: belt → pad → clap → hihat (kick nikdy nemizí)
+        const decayOrder = ['belt', 'pad', 'clap', 'hihat'];
+        for(const layer of decayOrder){
+          if(_layerVol[layer] > 0){
+            _layerVol[layer] = Math.max(0, _layerVol[layer] - _LAYER_DECAY_RATES[layer]);
+            // _currentLayer se vrátí na decaying layer → resumeed activita pokračuje stavbou odsud
+            _currentLayer = layer;
+            break;
+          }
+        }
+      } else if(_currentLayer && _currentLayer !== 'done'){
+        // Aktivní hra — normal ramp
+        _layerVol[_currentLayer] = Math.min(1.0, _layerVol[_currentLayer] + _LAYER_RATES[_currentLayer]);
+        if(_layerVol[_currentLayer] >= 1.0){
+          const order = ['kick', 'hihat', 'clap', 'pad', 'belt'];
+          const next = order[order.indexOf(_currentLayer) + 1];
+          _currentLayer = next || 'done';
+        }
+      }
+      // Kick — vždy hraje (vol roste 0.25 → 1.0)
+      if(_KICK_PATTERN[i] && _layerVol.kick > 0){
+        _playKick(2.00 * _layerVol.kick);
+      }
+      // Hihat — hraje až kick dosáhne 1.0
+      if(_HIHAT_PATTERN[i] && _layerVol.hihat > 0){
+        _playHihat(0.85 * _layerVol.hihat);
+      }
+      // Clap — hraje až hihat dosáhne 1.0
+      if(_CLAP_PATTERN[i] && _layerVol.clap > 0){
+        _playClap(0.63 * _layerVol.clap);
+      }
+      // Pad — hraje až clap dosáhne 1.0
+      if(i === 0 && _layerVol.pad > 0){
+        const now = Date.now();
+        if(now - _lastPadTime > 25000) _padPlayCount = 0;
+        if(now - _lastPadTime > 10000){
+          _padPlayCount++;
+          const padCrescendo = 1.0 + Math.min(0.40, _padPlayCount * 0.05);
+          const pitch1 = _PAD_PITCHES[(Math.random() * _PAD_PITCHES.length) | 0];
+          _playPad(0.55 * _layerVol.pad * padCrescendo, pitch1);
+          _lastPadTime = now;
+          if(Math.random() < 0.35){
+            const altPitches = _PAD_PITCHES.filter(p => p !== pitch1);
+            const pitch2 = altPitches[(Math.random() * altPitches.length) | 0];
+            setTimeout(() => _playPad(0.40 * _layerVol.pad * padCrescendo, pitch2),
+                       1000 + Math.random() * 2000);
+          }
+        }
+      }
+      // Belt tick — mechanický klik na off-beaty (5. vrstva, unlocks po padu)
+      if(_BELT_PATTERN[i] && _layerVol.belt > 0){
+        _playBeltTick(0.40 * _layerVol.belt);
+      }
+    }
+    _kickStep++;
+    _scheduleKick();
+  }, delay);
+}
+
+// Cannon move — foley step slide, sequencer (no overlap), bez pitch shiftu.
+// Velmi decentní — textura, ne melodie. Pokud step hraje, další pohyb se zahodí.
+let _stepActive = false;
+function _playStep(vol=0.40){
+  if(!_audioCtx || !_stepBuffer) return;
+  if(_stepActive) return; // jednoduchý anti-overlap (žádné queueing — slide nemá smysl skládat)
+  _stepActive = true;
+  // Mírná pitch variace pro přirozenost (ne pentatonika — textura)
+  const pitch = 0.92 + Math.random() * 0.16;
+  const _doPlay = () => {
+    const src = _wireAndPlay(_stepBuffer, pitch, vol * _getSfxFade());
+    src.onended = () => { _stepActive = false; };
+  };
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+// Ball suck do díry — celá pizz melodie, BEZ pitch shiftu (zachová původní harmonii)
+// Suck sekvence (sdílená i s belt_land) — ascending pentatonic minor přes 2 oktávy
+const _SUCK_SEQUENCE = [0.65, 0.78, 0.9, 1.0, 1.19, 1.35, 1.6, 1.9];
+// Hole suck používá zkrácenou verzi — bez 2 nejvyšších pitches (ne moc piskotu)
+const _HOLE_SEQUENCE = [0.50, 0.595, 0.667, 0.749, 0.84, 0.94]; // A min pentatonic nízká oktáva, těsnější intervaly
+let _suckStep = 0;
+function _playSuckMelody(vol=0.147){
+  if(!_audioCtx || !_suckMelodyBuffer) return;
+  const now = Date.now();
+  if(now - _lastSuckTime < 200) return;
+  // Reset sekvence po 8s+ pauze → každá nová série začne stoupat odznova
+  if(now - _lastSuckTime > 8000) _suckStep = 0;
+  _lastSuckTime = now;
+  // Pitch: 75% sekvenční (postupuje po stupnici), 25% random skok pro variety
+  const pitch = (Math.random() < 0.25)
+    ? _HOLE_SEQUENCE[(Math.random() * _HOLE_SEQUENCE.length) | 0]
+    : _HOLE_SEQUENCE[_suckStep % _HOLE_SEQUENCE.length];
+  _suckStep++;
+  // Volume variation ±15%
+  const volVar = 0.85 + Math.random() * 0.30;
+  const _doPlay = () => {
+    _wireAndPlay(_suckMelodyBuffer, pitch, vol * volVar);
+    // 20% chance: harmonic overlap (vyšší tón v sekvenci o 2-3 stupně)
+    if(Math.random() < 0.20){
+      const offset = 2 + ((Math.random() * 2) | 0);
+      const pitch2 = _HOLE_SEQUENCE[(_suckStep + offset) % _HOLE_SEQUENCE.length];
+      setTimeout(() => _wireAndPlay(_suckMelodyBuffer, pitch2, vol * 0.55 * volVar),
+                 90 + Math.random() * 80);
+    }
+  };
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+
+function _playBounce(vol=0.07){
+  if(!_bounceBuffer || !_audioCtx) return;
+  if(Math.random() < 0.5) return; // ~50% skip — zvuk se hraje míň často
+  const now = Date.now();
+  if(now - _lastBounceTime < 80) return; // throttle 80ms
+  _lastBounceTime = now;
+  const pitch = _nextRhythmPitch(_OCT_BOUNCE);
+  const _doPlay = () => _wireAndPlay(_bounceBuffer, pitch, vol * _getSfxFade());
+  if(_audioCtx.state === 'suspended') _audioCtx.resume().then(_doPlay);
+  else _doPlay();
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// Aktivuje CSS .renderer-3d na body — game.css má pod tím selektorem
+// celé environment styly (pink BG, soft shadows, rounded frames). Stane se
+// jakmile body existuje (může to být před DOMContentLoaded pokud jsme inline).
+//
+// Plus optional ?theme=X (pink|ocean|sunset|forest|lavender|mono-dark|mystery|neon).
+// Default = pink (žádný extra class). Theme class se přidá k body společně
+// s renderer-3d. Hot-swap přes window.setTheme('ocean') v konzoli.
+//
+// Priorita volby: URL ?theme= (explicitní pro tuto session, vyhrává) →
+// localStorage (persisted preference) → 'pink' (default).
+const _THEMES = ['pink','ocean','sunset','forest','lavender','mono-dark','mystery','neon','experiment','experiment2'];
+
+// Per-theme defaults pro THREE.js frame materiály (nemění se CSS cascadou).
+// CSS vars (bg-top, bg-bottom, floor) se mění automaticky přes .theme-X třídu.
+// v73.274: outline hodnoty sjednoceny s CSS --image-canvas-outline (picture frame).
+// Picture i bottom frame teď používají stejný hex per téma.
+const THEME_FRAME_COLORS = {
+  'pink':        { imgFrame: '#f4b8c8', botFrame: '#f4b8c8', outline: '#8a5066', mysteryBase: '#1c0410' },
+  'ocean':       { imgFrame: '#a8d8f0', botFrame: '#a8d8f0', outline: '#3a6070', mysteryBase: '#02080e' },
+  'sunset':      { imgFrame: '#f0c8a0', botFrame: '#f0c8a0', outline: '#7a3820', mysteryBase: '#180808' },
+  'forest':      { imgFrame: '#c0dca8', botFrame: '#c0dca8', outline: '#3a5830', mysteryBase: '#040c06' },
+  'lavender':    { imgFrame: '#d8c8f0', botFrame: '#d8c8f0', outline: '#504090', mysteryBase: '#0a0418' },
+  'mono-dark':   { imgFrame: '#dcdcdc', botFrame: '#dcdcdc', outline: '#484848', mysteryBase: '#060606' },
+  'experiment':  { imgFrame: '#d8c0a8', botFrame: '#d8c0a8', outline: '#5c4030', mysteryBase: '#060a10' },
+  'experiment2': { imgFrame: '#e8d4a8', botFrame: '#e8d4a8', outline: '#706028', mysteryBase: '#180a28' },
+  'mystery':     { imgFrame: '#7050b8', botFrame: '#7050b8', outline: '#402878', mysteryBase: '#040108' },
+  'neon':        { imgFrame: '#00e8f8', botFrame: '#00e8f8', outline: '#00a0b8', mysteryBase: '#000002' },
+};
+window._applyThemeFrameColors = function(name) {
+  const c = THEME_FRAME_COLORS[name] || THEME_FRAME_COLORS['pink'];
+  if (window.render3d?.setImageFrameColor)          window.render3d.setImageFrameColor(c.imgFrame);
+  if (window.render3dBottom?.setBottomFrameColor)   window.render3dBottom.setBottomFrameColor(c.botFrame);
+  if (window.render3dBottom?.setOutlineColor)       window.render3dBottom.setOutlineColor(c.outline);
+  if (window.render3dBottom?.setMysteryBaseColor) {
+    window.render3dBottom.setMysteryBaseColor(c.mysteryBase);
+    window.render3dBottom.rebuildMysteryTexture?.();
+  }
+  // Floor + wall: CSS var se změní přes .theme-X class, ale mesh musí přečíst novou hodnotu.
+  if (window.render3dBottom?.refreshFloorColor) window.render3dBottom.refreshFloorColor();
+  if (window.render3dBottom?.refreshWallColor)  window.render3dBottom.refreshWallColor();
+  if (window.render3dBottom?.refreshBeltTint)   window.render3dBottom.refreshBeltTint();
+};
+
+const _THEME_FROM_URL = (function(){
+  try {
+    const t = new URLSearchParams(location.search).get('theme');
+    return _THEMES.includes(t) ? t : null;
+  } catch (_e) { return null; }
+})();
+const _THEME = _THEME_FROM_URL || 'pink'; // (URL nebo default; storage vyřešíme níže)
+// Z localStorage si pamatujeme poslední volbu (přebije URL ?theme=, pokud
+// je rozdílná). Designerovi se po reloadu vrátí jeho stálá preference.
+function _loadStoredTheme(){
+  try {
+    const v = localStorage.getItem('bb-theme-3d');
+    return _THEMES.includes(v) ? v : null;
+  } catch (_e) { return null; }
+}
+function _persistTheme(name){
+  try { localStorage.setItem('bb-theme-3d', name); } catch (_e) {}
+}
+
+// Priorita: URL > localStorage > default 'pink'.
+const _INITIAL_THEME = _THEME_FROM_URL || _loadStoredTheme() || 'pink';
+
+function _applyBodyClasses(){
+  if (!document.body) return;
+  if (RENDERER_MODE === '3d') document.body.classList.add('renderer-3d');
+  // Pink je default v :root, takže žádnou class nepřidáváme. Ostatní témata mají vlastní class.
+  if (_INITIAL_THEME !== 'pink') document.body.classList.add('theme-' + _INITIAL_THEME);
+}
+
+// V 3D módu wrapneme #pending-wrap + #carriers-wrap do parent #bottom-deck.
+// To umožní jeden clip-path na celý spodní panel (funnel/trychtýř shape).
+function _wrapBottomDeck(){
+  if (RENDERER_MODE !== '3d') return;
+  const pending = document.getElementById('pending-wrap');
+  const carriers = document.getElementById('carriers-wrap');
+  if (!pending || !carriers || pending.parentElement?.id === 'bottom-deck') return;
+  const parent = pending.parentElement;
+  const deck = document.createElement('div');
+  deck.id = 'bottom-deck';
+  parent.insertBefore(deck, pending);
+  deck.appendChild(pending);
+  deck.appendChild(carriers);
+  // v74.64: boost zones — hold-to-speed-up (1.5×) v rozích nad funnel arch.
+  // Levá + pravá zóna pro praváky i leváky.
+  const boostL = document.createElement('div');
+  boostL.id = 'boost-zone-left';
+  boostL.className = 'boost-zone';
+  boostL.setAttribute('aria-label', 'Hold to speed up');
+  const boostR = document.createElement('div');
+  boostR.id = 'boost-zone-right';
+  boostR.className = 'boost-zone';
+  boostR.setAttribute('aria-label', 'Hold to speed up');
+  deck.appendChild(boostL);
+  deck.appendChild(boostR);
+  _wireBoostZones(boostL, boostR);
+  // v74.68: přesun #boost-tip z #carriers-wrap do #bottom-deck → pozice
+  // odpovídá funnel warning (3D mesh v FUN.narrowY + 112), nezavazí v carriers area.
+  const boostTip = document.getElementById('boost-tip');
+  if (boostTip && boostTip.parentElement !== deck) deck.appendChild(boostTip);
+}
+
+// v74.64: hold-to-boost wire — touchstart/mousedown = boost active, end/cancel = release.
+function _wireBoostZones(left, right){
+  const start = (e) => {
+    if(!running) return;
+    e.preventDefault();
+    _userHoldActive = true;
+    document.body.classList.add('user-boost-active');
+    _dismissBoostTip(); // v74.68: user discovered the boost → tutorial mission done
+  };
+  const end = () => {
+    if(!_userHoldActive) return;
+    _userHoldActive = false;
+    document.body.classList.remove('user-boost-active');
+  };
+  for(const z of [left, right]){
+    z.addEventListener('touchstart', start, {passive:false});
+    z.addEventListener('touchend',    end);
+    z.addEventListener('touchcancel', end);
+    z.addEventListener('mousedown',   start);
+    z.addEventListener('mouseup',     end);
+    z.addEventListener('mouseleave',  end);
+    // v74.67: blok long-press context menu (iOS "Look up" popup, desktop right-click)
+    z.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+}
+function _wireThemeSelect(){
+  if (RENDERER_MODE !== '3d') return;
+  const grp = document.getElementById('theme-group');
+  const sel = document.getElementById('theme-select');
+  if (!grp || !sel) return;
+  grp.hidden = false;
+  sel.value = _INITIAL_THEME;
+  sel.addEventListener('change', () => {
+    window.setTheme(sel.value);
+    _persistTheme(sel.value);
+  });
+}
+if (document.body) _applyBodyClasses();
+else document.addEventListener('DOMContentLoaded', _applyBodyClasses);
+document.addEventListener('DOMContentLoaded', _wireThemeSelect);
+document.addEventListener('DOMContentLoaded', _wrapBottomDeck);
+
+// Hot-swap theme za běhu — pro rychlé porovnání bez reloadu page.
+// Volání: window.setTheme('ocean') v DevTools console.
+window.setTheme = function(name) {
+  if (!_THEMES.includes(name)) {
+    console.warn('[BB] Neznámý theme:', name, '— dostupné:', _THEMES);
+    return false;
+  }
+  for (const t of _THEMES) document.body.classList.remove('theme-' + t);
+  if (name !== 'pink') document.body.classList.add('theme-' + name);
+  // Sync UI selectu (pokud existuje), ať se ukáže aktivní volba.
+  const sel = document.getElementById('theme-select');
+  if (sel && sel.value !== name) sel.value = name;
+  window._applyThemeFrameColors(name);
+  document.dispatchEvent(new CustomEvent('bb:theme-changed', { detail: name }));
+  return true;
+};
+window.listThemes = () => _THEMES.slice();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BLOCKS (Okruh 2) — puzzle-style HP walls inside the image area
+//   • shape:  'rect' | 'cross' | 'L' | 'T' | 'circle'
+//   • x,y:    top-left in image pixel coords (0..GW-1 × 0..IMG_GH-1)
+//   • w,h:    bounding box in image pixels
+//   • color:  0..8 (index to COLORS)
+//   • hp:     HP measured in PROJECTILES (PPU=10 → hp=80 means 8 balls = 2 carriers)
+//
+// Projectile of matching color → subtracts 1 HP. Wrong color → bounces.
+// Targeting (pickTargetForColor): weighted random between pixels (w=1) and
+// blocks (w=hp), so partially-damaged blocks lose priority vs fresh pixels.
+// ═══════════════════════════════════════════════════════════════════════════
+function _rotateMaskCW(m,nRows,nCols){
+  const out=[];
+  for(let r=0;r<nCols;r++)out.push(new Array(nRows).fill(false));
+  for(let y=0;y<nRows;y++)for(let x=0;x<nCols;x++)out[x][nRows-1-y]=m[y][x];
+  return out;
+}
+function blockMask(shape,w,h,rot){
+  rot=((rot||0)%4+4)%4;
+  const bw=rot%2===0?w:h, bh=rot%2===0?h:w;
+  const m=[]; for(let y=0;y<bh;y++){m.push(new Array(bw).fill(false));}
+  if(shape==='rect'){
+    for(let y=0;y<bh;y++)for(let x=0;x<bw;x++)m[y][x]=true;
+  } else if(shape==='cross'){
+    const cx=Math.floor((bw-1)/2), cy=Math.floor((bh-1)/2);
+    const armW=Math.max(1,Math.floor(bw/3)), armH=Math.max(1,Math.floor(bh/3));
+    for(let y=0;y<bh;y++)for(let x=0;x<bw;x++){
+      if(Math.abs(y-cy)<=Math.floor(armH/2)) m[y][x]=true;
+      if(Math.abs(x-cx)<=Math.floor(armW/2)) m[y][x]=true;
+    }
+  } else if(shape==='L'){
+    const thick=Math.max(1,Math.floor(Math.min(bw,bh)/2));
+    for(let y=0;y<bh;y++)for(let x=0;x<thick;x++)m[y][x]=true;
+    for(let y=bh-thick;y<bh;y++)for(let x=0;x<bw;x++)m[y][x]=true;
+  } else if(shape==='T'){
+    const thick=Math.max(1,Math.floor(Math.min(bw,bh)/2));
+    for(let y=0;y<thick;y++)for(let x=0;x<bw;x++)m[y][x]=true;
+    const stemW=Math.max(1,Math.floor(bw/3));
+    const stemX=Math.floor((bw-stemW)/2);
+    for(let y=thick;y<bh;y++)for(let x=stemX;x<stemX+stemW;x++)m[y][x]=true;
+  } else if(shape==='circle'){
+    const cx=(bw-1)/2, cy=(bh-1)/2, rx=bw/2, ry=bh/2;
+    for(let y=0;y<bh;y++)for(let x=0;x<bw;x++){
+      const nx=(x-cx)/rx, ny=(y-cy)/ry;
+      m[y][x]=(nx*nx+ny*ny)<=1.0;
+    }
+  }
+  let res=m, cw=bw, ch=bh;
+  for(let i=0;i<rot;i++){ res=_rotateMaskCW(res,ch,cw); [cw,ch]=[ch,cw]; }
+  return res;
+}
+
+// Cover test — returns true if image pixel (gx,gy) is blocked by a live block.
+function blockCoversPixel(blk,gx,gy){
+  const lx=gx-blk.x, ly=gy-blk.y;
+  if(lx<0||ly<0||lx>=blk.w||ly>=blk.h)return false;
+  return blk._mask[ly][lx];
+}
+
+// Find the first live block whose mask contains the given image pixel (gx,gy).
+// Returns block or null.
+function findBlockAtPixel(gx,gy){
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    if(blockCoversPixel(b,gx,gy))return b;
+  }
+  return null;
+}
+
+// Smaže pixely pod solid blokem (grid[y][x] = -1 pro každou buňku masky).
+// Volá se při zničení solid bloku — blok byl neprůhledný, takže pixely pod nejsou
+// „odhalené odměnou". Mystery blok tohle nevolá (pod ním zůstávají originální pixely).
+function clearPixelsUnderBlock(blk){
+  for(let ly=0;ly<blk.h;ly++)for(let lx=0;lx<blk.w;lx++){
+    if(!blk._mask[ly][lx])continue;
+    const gx=blk.x+lx, gy=blk.y+ly;
+    if(gy<0||gy>=GH||gx<0||gx>=GW)continue;
+    grid[gy][gx]=-1;
+  }
+}
+
+// Hydrate a level's block definitions into live runtime instances with _mask + HP.
+// kind:
+//   'solid'   – default. Barevný blok, trefí jen shodná barva, projektil pop-ne,
+//               při zničení se pixely pod blokem smažou (blok byl neprůhledný – fér).
+//   'mystery' – šedý "?" blok. Zasáhne libovolná barva, projektil se odrazí (ne pop),
+//               HP -1 za zásah, při zničení se odhalí pixely pod blokem.
+function hydrateBlocks(defs){
+  if(!Array.isArray(defs))return [];
+  return defs.map(d=>({
+    kind:d.kind==='mystery'?'mystery':'solid',
+    shape:d.shape||'rect',
+    x:d.x|0, y:d.y|0,
+    w:Math.max(1,d.w|0), h:Math.max(1,d.h|0),
+    color:d.color|0,
+    hp:Math.max(1,d.hp|0),
+    maxHp:Math.max(1,d.hp|0),
+    _mask:blockMask(d.shape||'rect',Math.max(1,d.w|0),Math.max(1,d.h|0),d.rot),
+  }));
+}
+
+let currentBlocks=[];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LEVEL REGISTRY — PRIORITY CHAIN
+//   1) gamee.getLevels()    ← Gamee platform (pokud v budoucnu nabídne)
+//   2) window.LEVELS        ← generováno TVÝM editorem (gamee/js/levels.js)
+//   3) LEVELS_FALLBACK      ← hardcoded default v tomhle souboru (safety net)
+//
+// Každý level = { key, label, type, imageDifficulty, image, blocks, rocketTargets, garage }
+// type:             'relaxing' | 'medium' | 'hard' | 'hardcore'
+// imageDifficulty:  1..5 (hodnotí obraz: pixely + bloky + překážky)
+// blocks:           pole definic blokových překážek (Okruh 2 – zatím []).
+// rocketTargets:    2 color indexy pro raketové nosiče (null = level nepodporuje rakety).
+// garage:           { col, carriers:[{color}] } nebo null (null = level nemá garáž).
+// ═══════════════════════════════════════════════════════════════════════════
+const LEVELS_FALLBACK=[
+  {
+    key:'smiley', label:'smajlík', type:'relaxing', imageDifficulty:1,
+    image:{source:'smiley'},
+    // Testovací blok (Okruh 2): růžový obdélník 8×3 pod bradou smajlíka v modrém
+    // pozadí, HP 20 = 2 koule. Hráč ho musí rozbít; je mimo obraz (nekryje pixely).
+    blocks:[{shape:'rect',x:14,y:24,w:8,h:3,color:4,hp:20}],
+    rocketTargets:[8,7],
+    garage:{col:3,carriers:[{color:3},{color:0},{color:4}]}
+  },
+  {
+    key:'moon', label:'měsíc', type:'relaxing', imageDifficulty:1,
+    image:{source:'moon'},
+    blocks:[],
+    rocketTargets:[8,5],
+    garage:{col:4,carriers:[{color:5},{color:2},{color:6}]}
+  },
+  {
+    key:'starwars', label:'C-3PO', type:'relaxing', imageDifficulty:1,
+    image:{source:'starwars'},
+    blocks:[],
+    rocketTargets:[5,1],
+    garage:{col:3,carriers:[{color:5},{color:1},{color:8}]}
+  },
+  {
+    key:'frog', label:'žabka', type:'relaxing', imageDifficulty:1,
+    image:{source:'frog'},
+    blocks:[],
+    rocketTargets:[0,7],
+    garage:{col:3,carriers:[{color:0},{color:7},{color:3}]}
+  },
+  {
+    key:'mondrian', label:'Mondrian', type:'relaxing', imageDifficulty:1,
+    image:{source:'mondrian'},
+    blocks:[],
+    rocketTargets:null,
+    garage:null
+  }
+];
+// Zkus postupně zdroje levelů — první neprázdný vyhrává.
+function resolveLevels(){
+  try{
+    if(typeof gamee!=='undefined'&&typeof gamee.getLevels==='function'){
+      const remote=gamee.getLevels();
+      if(Array.isArray(remote)&&remote.length){console.log('[levels] using gamee.getLevels() — '+remote.length+' levels');return remote;}
+    }
+  }catch(e){/* Gamee API chyba – ignoruj a pokračuj na další zdroj */}
+  try{if(window.parent&&window.parent!==window&&Array.isArray(window.parent._bbCustomLevel)&&window.parent._bbCustomLevel.length){console.log('[levels] using parent._bbCustomLevel — prezentace custom level');return window.parent._bbCustomLevel;}}catch(e){}
+  if(typeof window!=='undefined'&&Array.isArray(window.LEVELS)&&window.LEVELS.length){console.log('[levels] using window.LEVELS (editor) — '+window.LEVELS.length+' levels');return window.LEVELS;}
+  console.log('[levels] using LEVELS_FALLBACK — '+LEVELS_FALLBACK.length+' levels');
+  return LEVELS_FALLBACK;
+}
+const LEVELS=resolveLevels();
+// Helper — najdi plnou definici levelu podle klíče (fallback na první level).
+function getLevelDef(key){return LEVELS.find(l=>l.key===key)||LEVELS[0];}
+// Default complexity pro level — respektuje designer pin (lvl.defaultComplexity).
+// Fallback chain: pin → první complexity s existující variantou → 'easy'.
+// Volá se při přepnutí levelu, aby hráč dostal to, co designer označil jako
+// výchozí (ne to, co měl nastavené u předchozího levelu).
+function resolveDefaultDifficulty(key){
+  const def=getLevelDef(key);
+  if(!def)return 'easy';
+  const pin=def.defaultComplexity;
+  const variants=Array.isArray(def.carrierLayouts)?def.carrierLayouts:[];
+  const hasVariant=(d)=>variants.some(v=>v&&v.difficulty===d&&Array.isArray(v.grid)&&v.grid.length);
+  if(pin&&['easy','medium','hard'].includes(pin)&&hasVariant(pin))return pin;
+  for(const d of ['easy','medium','hard'])if(hasVariant(d))return d;
+  return 'easy';
+}
+// Převod carrier difficulty stringu na 1..5 rank.
+function carrierDifficultyRank(diff){return diff==='easy'?1:diff==='medium'?3:5;}
+// Kombinace dvou os → celková obtížnost (label + key pro CSS třídu).
+function computeTotalDifficulty(imgDiff,carrDiff){
+  const total=imgDiff+carrDiff; // 2..10
+  if(total<=3)return{key:'relaxing',label:'Relaxing'};
+  if(total<=5)return{key:'medium',label:'Medium'};
+  if(total<=7)return{key:'hard',label:'Hard'};
+  return{key:'hardcore',label:'Hard-core'};
+}
+let grid,belt,pending,columns,score,loops,running,difficulty='easy',gravityOn=false,rocketsOn=false,garageMode='off',currentLevel='smiley';
+let _ptInitGrid=null,_ptInitColumns=null,_ptInitPxCounts=null,_ptInitBlocks=null; // playtester snapshot při startu levelu
+// True když makeColumns postavil grid z `level.carrierLayouts[...]` (layout-based).
+// startLevel podle toho ví, že má PŘESKOČIT rocket + garage injekci (layout už má
+// rakety/garáž embedded jako tiles). False = auto-generovaný grid = injekce jede jako dřív.
+let columnsFromLayout=false;
+// Když preview iframe (editor) chce force-loadnout konkrétní variantu carrier layoutu
+// (?variant=NAME v URL), uložíme název sem; pickLayoutVariant ho preferuje před náhodou.
+let _forcedVariantName=null;
+// garageMode: 'off' | 'single' (1 náhodný směr) | 'multi' (2-4 náhodné směry)
+const GAR_DIR_VEC={N:[0,-1],S:[0,1],W:[-1,0],E:[1,0]};
+let beltAnim=0,lastBeltTime=null;
+// FPS counter (dev/preview overlay v rohu canvasu) — kruhový buffer posledních
+// 30 frame timestampů, update text + barva každých 250 ms.
+const _fpsFrames=[];
+let _fpsLastUpdate=0;
+// === v73.255: PERF QUALITY MANAGER ===
+// 3 tiers: 0=HIGH (vše zapnuto), 1=MED (bez shadow + půl částic), 2=LOW (jen základ).
+// v74.70: default tier = MED (shadows off). Auto step-down LOW možný (FPS<29).
+// Auto step-up max MED (LOW→MED OK, MED→HIGH ne — HIGH se zatím vyhýbáme).
+// Manual: window.setPerfTier(0|1|2) → zapne manualní režim (override cap).
+let _perfTier=1;
+let _perfManual=false;
+let _perfLowSince=0;
+let _perfHighSince=0;
+let _perfLastChangeAt=0;            // v73.258: timestamp posledního tier change
+const PERF_FPS_DOWN=45;          // HIGH → MED threshold
+const PERF_FPS_DOWN_TO_LOW=29;   // v73.261: MED → LOW threshold (přísnější)
+const PERF_FPS_UP=55;
+const PERF_DOWN_HOLD_MS=10000;      // v73.299: 4→10s — dáme hře šanci se srovnat
+const PERF_UP_HOLD_MS=8000;
+const PERF_CHANGE_COOLDOWN_MS=5000; // po každé změně 5s žádná další = max 1 flash
+function _applyPerfTier(tier){
+  _perfTier=tier;
+  if(window.render3d && window.render3d.setQualityTier) window.render3d.setQualityTier(tier);
+  if(window.render3dBottom && window.render3dBottom.setQualityTier) window.render3dBottom.setQualityTier(tier);
+  // v73.257: pause bg-canvas particle smyčku na MED/LOW — je to vlastní rAF
+  // co paintuje 30 hvězd full-viewport každý frame nezávisle na game loopu.
+  if(tier>=1 && _bgParticleRAF){
+    cancelAnimationFrame(_bgParticleRAF);
+    _bgParticleRAF=null;
+    const bg=document.getElementById('bg-canvas');
+    if(bg){ const c=bg.getContext('2d'); c.clearRect(0,0,bg.width,bg.height); }
+  } else if(tier===0 && !_bgParticleRAF){
+    _initBgParticles();
+  }
+  console.info('[BB-PERF] quality tier =', tier, ['HIGH','MED','LOW'][tier]);
+}
+window.setPerfTier=function(tier){
+  _perfManual=true;
+  _applyPerfTier(Math.max(0,Math.min(2,tier|0)));
+};
+window.setPerfAuto=function(){
+  _perfManual=false;
+  console.info('[BB-PERF] auto mode re-enabled');
+};
+function _perfAutoUpdate(fps, ts){
+  if(_perfManual) return;
+  // v73.258: cooldown po každé tier change → krátké okno bez dalších změn
+  // (jinak HIGH→MED→LOW kaskáda dělala 2 flashe rychle za sebou).
+  if(ts-_perfLastChangeAt < PERF_CHANGE_COOLDOWN_MS){ _perfLowSince=0; _perfHighSince=0; return; }
+  // v73.261: práh pro downgrade se liší podle current tieru.
+  // HIGH → MED při fps < 45. MED → LOW jen když fps ≤ 29 (přísnější — LOW
+  // znamená sticky shadows-off, takže ji aktivujeme až když to opravdu hoří).
+  const downThreshold = _perfTier === 0 ? PERF_FPS_DOWN : PERF_FPS_DOWN_TO_LOW;
+  if(fps<downThreshold){
+    if(!_perfLowSince) _perfLowSince=ts;
+    _perfHighSince=0;
+    if(_perfTier<2 && ts-_perfLowSince>=PERF_DOWN_HOLD_MS){
+      _applyPerfTier(_perfTier+1);
+      _perfLastChangeAt=ts;
+      _perfLowSince=ts;
+    }
+  } else if(fps>PERF_FPS_UP){
+    if(!_perfHighSince) _perfHighSince=ts;
+    _perfLowSince=0;
+    // v74.70: cap step-up na MED — LOW→MED OK, MED→HIGH ne (HIGH zatím skip)
+    if(_perfTier>1 && ts-_perfHighSince>=PERF_UP_HOLD_MS){
+      _applyPerfTier(_perfTier-1);
+      _perfLastChangeAt=ts;
+      _perfHighSince=ts;
+    }
+  } else {
+    _perfLowSince=0;
+    _perfHighSince=0;
+  }
+}
+// Per-frame profiler — kumuluje čas v jednotlivých sekcích beltLoop. Reset
+// při každém FPS updatu (250 ms okno). Když FPS spadne pod práh, log do konzole.
+// gap = čas mezi 2 rAF callbacky (signal browser throttle / freeze).
+// totalLoop = celkový čas v beltLoop callbacku (game work + ammo audit + drift).
+// ammoAudit = computeAmmoAudit() vol. každý frame v drift detectoru
+// dispatch = cannon dispatch (queue scan + pickCannonShot + force-fire) — drahé při velkém queue
+const _profAccum={drawBelt:0,drawParticles:0,drawPending:0,updateParticles:0,updatePending:0,
+  ammoAudit:0, dispatch:0, totalLoop:0, gap:0, gapMax:0, frames:0};
+let _profLastWarn=0;
+let _profLastTs=0;
+// Toggle pro [BB-FPS] console logy. Default OFF (nezahlcuje konzoli při běžné
+// hře). Shift+P v okně hry zapne/vypne. Persistuje v localStorage.
+let _profLogEnabled=false;
+try { _profLogEnabled = localStorage.getItem('bb-prof-log') === '1'; } catch(e) {}
+// Limit: max 4 nosiče (= 16 koulí) v trychtýři současně. Hard block:
+// pokud pending > 12, klik na nosič se ignoruje a zobrazí se varování.
+const PENDING_DISPENSE_THRESHOLD=12; // > 12 → klik je odmítnut
+let funnelWarnTimer=0; // vteřin do skrytí varování
+let nudgeTimer=0; // periodické „pomoc uvízlé kouli" pro natural anti-stuck
+// Gamee state
+let paused=false, gameStarted=false, playTime=0, playTimer=null, beltLoopStarted=false;
+let _lastRenderActive=true; // v73.280: tracking pro pause-render-on-overlay (krok 2/5)
+let ammoCheckTimer=0;
+// === BELT LAUNCH POINT ===
+const BELT_LX=28,BELT_RX=332,BELT_BALL_R=14;
+// v73.303: belt cycle zkrácen — ball max xCSSrel=355 (uvnitř right box 327..363),
+// nepřeteče vpravo. Balls emerge z left box (xCSSrel=20 inside ox-3..ox+33).
+const BELT_STARTX=18;                              // -32px shift vůči původním 50, max xCSSrel=353
+const BELT_ENDX=BELT_STARTX+24*(14-1);             // 330
+const BELT_SPACING=24;                              // 14×24 = 336 cycle
+const BELT_TOTAL=BELT_CAP*BELT_SPACING;            // 336
+const LAUNCH_X=180;                                // střed pásu – otvor
+const LAUNCH_TRACK=LAUNCH_X-BELT_STARTX;          // 162
+
+// v73.189: Belt jako sparse pole délky BELT_CAP — null = prázdný slot, ball = obsazený.
+// Loading je position-aware: ball se naloží do slotu jehož vizuální pozice je nejblíž
+// ball.x, a jen pokud je ten slot prázdný. Jinak ball čeká.
+function beltCount(){let c=0;for(let i=0;i<BELT_CAP;i++)if(belt[i])c++;return c;}
+function beltIsFull(){return beltCount()>=BELT_CAP;}
+function beltIsEmpty(){for(let i=0;i<BELT_CAP;i++)if(belt[i])return false;return true;}
+function findBeltLoadSlot(ballX,beltAnim,preferEmpty){
+  // ballX je v FUN coords (= canvas X). Belt-svg lokální coord = ballX - beltOffsetX.
+  // 2D: FUN.w=360, beltOffsetX=0. 3D: FUN.w=420, beltOffsetX=30.
+  // v74.74: preferEmpty mode — vrátí nejbližší PRÁZDNÝ slot v toleranci 1.5× spacing.
+  // Bez něj jsme vraceli closest regardless of state → koule čekala i když byl
+  // vedle prázdný slot (gate by pushed ball back místo loading).
+  const beltOffsetX=(FUN.w-360)/2;
+  const target=ballX-beltOffsetX-BELT_STARTX;
+  const offset=beltAnim%BELT_TOTAL;
+  let bestSlot=0, bestDist=Infinity;
+  let bestEmpty=-1, bestEmptyDist=Infinity;
+  for(let i=0;i<BELT_CAP;i++){
+    const slotPos=(i*BELT_SPACING+offset)%BELT_TOTAL;
+    let dist=Math.abs(slotPos-target);
+    dist=Math.min(dist,BELT_TOTAL-dist);  // wrap-aware
+    if(dist<bestDist){bestDist=dist;bestSlot=i;}
+    if(preferEmpty && belt[i]===null && dist<bestEmptyDist){
+      bestEmptyDist=dist; bestEmpty=i;
+    }
+  }
+  // Preferuj empty slot v tolerance 1.5× spacing — koule chytne i lehce vzdálený
+  // prázdný slot místo čekání na "ideální" výklon.
+  if(preferEmpty && bestEmpty!==-1 && bestEmptyDist < BELT_SPACING*1.5){
+    return bestEmpty;
+  }
+  return bestSlot;
+}
+let noMatchPasses=0;
+let stuckPassCount=0;   // kolikrát v řadě koule prošla bez konzumace (count===0)
+// === POJÍZDNÝ KANON ===
+let gunQueue=[];                   // fronta čekajících střel {ci,color}
+let gunFireTimer=0;
+const GUN_FIRE_INTERVAL=0.036;    // v74.62: -10% intervalu = +10% rychlost (40 → 36 ms)
+
+// v74.62: speed-up po vyklízení všech carriers. Když cntCarriers() klesne na 0,
+// hra zrychlí lineárně 1× → 2× za 3 sekundy. Aplikuje se na: belt, cannon fire,
+// projektily, pending balls. Animace + hudba zůstávají v reálném čase.
+let _carriersClearedAt = null;
+const _SPEEDUP_RAMP_MS = 3000;
+const _SPEEDUP_MAX = 2.0;
+
+// v74.62: input lock na startu levelu — délka podle toho jestli má level intro
+// animaci OBRAZKU (smiley/moon/starwars/frog/mondrian build-up). Bez intro: jen
+// krátký lock pro cascade pop. S intro: dost dlouhý ať animace dohraje (jinak by
+// player vystřelil pixely → animace přepsala -1 zpět na barvu → unwinnable).
+let _levelStartLockUntil = 0;
+const _LEVEL_START_LOCK_DEFAULT_MS = 700; // cascade pop ~0.55s + buffer
+const _LEVEL_INTRO_DURATIONS = {
+  // Časy jsou MAX duration intro animace + 200ms buffer (viz startLevel intro switch)
+  smiley:   2000,
+  moon:     2200,
+  starwars: 2400,
+  frog:     3500,
+  mondrian: 2500,
+};
+// v74.62: na posledních ~20 pixelech zpomal zpět na 1× — finish musí být v pohodě
+const _SLOWDOWN_START_PX = 40; // od kolika pixelů zbývajících začneme zpomalovat
+const _SLOWDOWN_END_PX   = 20; // při kolika pixelech jsme zpět na 1.0×
+let _remainingPxCache = null;  // updated v beltLoop tick
+// v74.64: hold-to-boost — uživatel drží levou/pravou boost zónu → fade na 1.5× a zpět.
+let _userHoldActive = false;
+let _userHoldCurrent = 1.0;
+const _USER_HOLD_TARGET = 2.0;
+const _USER_HOLD_FADE_PER_SEC = 2.0; // 0→1.0 za 0.5s (zachovaný 0.5s fade time pro 2× boost)
+function _updateUserHold(dt){
+  // Když auto speedup po vyklízení carriers naběhne → zruš hold (auto převezme)
+  if(_carriersClearedAt !== null && _userHoldActive){
+    _userHoldActive = false;
+    document.body.classList.remove('user-boost-active');
+  }
+  // v74.72: pokud auto-speedup naskočí během boost tip display → dismiss tip
+  // (hráč už nemá co zkoušet, auto-2× převzal kontrolu)
+  if(_carriersClearedAt !== null){
+    const tip = document.getElementById('boost-tip');
+    if(tip && !tip.hidden) _dismissBoostTip();
+  }
+  const target = _userHoldActive ? _USER_HOLD_TARGET : 1.0;
+  if(_userHoldCurrent < target)      _userHoldCurrent = Math.min(target, _userHoldCurrent + _USER_HOLD_FADE_PER_SEC * dt);
+  else if(_userHoldCurrent > target) _userHoldCurrent = Math.max(target, _userHoldCurrent - _USER_HOLD_FADE_PER_SEC * dt);
+}
+function _speedMul(){
+  // Base ramp z carriers cleared (1.0 → 2.0 přes 3s)
+  let mul = 1.0;
+  if(_carriersClearedAt !== null){
+    const dt = performance.now() - _carriersClearedAt;
+    mul = dt >= _SPEEDUP_RAMP_MS ? _SPEEDUP_MAX : 1.0 + (_SPEEDUP_MAX - 1.0) * (dt / _SPEEDUP_RAMP_MS);
+  }
+  // v74.64: user hold má prioritu pokud je vyšší než base
+  mul = Math.max(mul, _userHoldCurrent);
+  // Slowdown když se blíží konec — clamp mul podle remaining pixelů
+  if(_remainingPxCache !== null && _remainingPxCache <= _SLOWDOWN_START_PX){
+    if(_remainingPxCache <= _SLOWDOWN_END_PX) return 1.0;
+    const t = (_remainingPxCache - _SLOWDOWN_END_PX) / (_SLOWDOWN_START_PX - _SLOWDOWN_END_PX);
+    return 1.0 + (mul - 1.0) * t;
+  }
+  return mul;
+}
+const CANNON_Y=GH*10-6;           // 304 – těsně nad spodní hranou (SCALE je 10)
+const CANNON_MIN_X=16;
+const CANNON_MAX_X=344;
+const CANNON_SPEED=560;           // px/s podél spodní hrany
+const CANNON_ARRIVE_EPS=1.5;      // px – kdy se považuje za „na pozici"
+const CANNON_LEAD=0.4;            // 0..1 – jak blízko pod cíl kanon dojede (nižší = víc rotace hlavně)
+let cannonX=LAUNCH_X, cannonAngle=-Math.PI/2;
+let cannonLock=null;              // {ci, gx, gy, idealX, angle, type} – drží vybraný cíl, aby kanon nekmital
+let cannonSidePref=0;             // -1=levá polovina, 1=pravá, 0=žádná preference (přepočítat)
+let cannonSideShots=0;            // počet vystřelených ran s aktuální preferencí
+const CANNON_SIDE_COMMIT=15;      // po kolika ranách se kanon rozhodne přehodnotit stranu
+let cannonIdleT=0;                // čas co kanon nevystřelil (watchdog proti zamrznutí queue)
+let introSeq=0;                   // token pro zrušení naplánovaného intra při resetu/přepnutí levelu
+// === CHROMATIC ABERRATION RANDOM INTERVAL (v73.236) ===
+// CA se spustí každý 3.–5. zničený pixel (náhodně). Bez heat/streak.
+let _caCountdown=3+Math.floor(Math.random()*3); // 3..5
+function _caBumpHeat(){ /* no-op — počítadlo se dekrementuje až v _caMaybeTrigger per pixel */ }
+function _caMaybeTrigger(gx,gy,hex){
+  _caCountdown--;
+  if(_caCountdown<=0){
+    _caCountdown=3+Math.floor(Math.random()*3); // nový interval 3..5
+    if(window.render3d && window.render3d.triggerPixelCA){
+      window.render3d.triggerPixelCA(gx,gy,hex);
+    }
+  }
+}
+// === BOUNCING PARTICLE SYSTEM ===
+let particles=[],particleCanvas,particleCtx;
+// 2D smoke puffs — bílé kruhy s outline co se odpaří po posledním cannon fire.
+// Queue: scheduled spawns staggered 500/610/730 ms po posledním shotu.
+let smokePuffs=[], smokePuffsQueue=[];
+let shards=[];                    // odlétající střípky při zásahu – jen vizuál, nezasahují do fyziky
+let confetti=[];                  // konfety na konci levelu – rozletí se, gravitace, postupně zmizí
+
+// v74.73: Object pools — eliminuje GC pressure z particles. Free-list pattern.
+const _shardPool2D = [];
+function _acquireShard2D(){
+  const s = _shardPool2D.pop();
+  if(s) return s;
+  return { x:0,y:0, vx:0,vy:0, size:0, rot:0, vrot:0, life:0, maxLife:0, color:'' };
+}
+function _releaseShard2D(s){ _shardPool2D.push(s); }
+const _smokePuffPool = [];
+function _acquireSmokePuff(){
+  const p = _smokePuffPool.pop();
+  if(p) return p;
+  return { x:0,y:0, dx:0,dy:0, t0:0, duration:0, scaleMul:0 };
+}
+function _releaseSmokePuff(p){ _smokePuffPool.push(p); }
+function spawnConfetti(){
+  const palette=['#ff4fa3','#f5d800','#3dd64a','#5bc8f5','#ff7a1a','#8b4dff','#ffffff','#1b9aff'];
+  // Tři výbuchy z dolního okraje – střed, levá, pravá strana
+  const bursts=[{x:180,y:300},{x:70,y:300},{x:290,y:300}];
+  bursts.forEach((b,bi)=>{
+    const n=50;
+    const baseAng=-Math.PI/2+(bi===1?-0.35:bi===2?0.35:0); // mírně do stran
+    for(let i=0;i<n;i++){
+      const ang=baseAng+(Math.random()-0.5)*1.1;
+      const spd=220+Math.random()*220;
+      confetti.push({
+        x:b.x+(Math.random()-0.5)*8,
+        y:b.y,
+        vx:Math.cos(ang)*spd+(Math.random()-0.5)*40,
+        vy:Math.sin(ang)*spd,
+        size:2+Math.random()*3.5,
+        ratio:0.35+Math.random()*0.5,
+        rot:Math.random()*Math.PI*2,
+        vrot:(Math.random()-0.5)*18,
+        life:0,
+        maxLife:1.3+Math.random()*1.1,
+        color:palette[(Math.random()*palette.length)|0],
+        delay:bi*0.12+Math.random()*0.08
+      });
+    }
+  });
+}
+function spawnPopShards(x,y,color){
+  if(window._DEBUG_DISABLE_POP_SHARDS) return; // v73.253: 2D rozstřik vypnut, 3D verze v render3d.js
+  const n=8;
+  for(let i=0;i<n;i++){
+    const ang=(i/n)*Math.PI*2+(Math.random()-0.5)*0.7;
+    const spd=70+Math.random()*110;
+    const s = _acquireShard2D();
+    s.x = x; s.y = y;
+    s.vx = Math.cos(ang)*spd;
+    s.vy = Math.sin(ang)*spd-45;
+    s.size = 1.6+Math.random()*2.4;
+    s.rot = Math.random()*Math.PI;
+    s.vrot = (Math.random()-0.5)*12;
+    s.life = 0;
+    s.maxLife = 0.35+Math.random()*0.28;
+    s.color = color;
+    shards.push(s);
+  }
+}
+
+// Velký výbuch když se blok zničí: hodně shardů z každé vyplněné buňky masky,
+// rychlejší + většího rozměru než běžný pop. Barva matche bloku.
+function spawnBlockExplosion(blk){
+  const color=COLORS[blk.color]||'#fff';
+  const cells=[];
+  for(let ly=0;ly<blk.h;ly++)for(let lx=0;lx<blk.w;lx++){
+    if(blk._mask[ly][lx])cells.push({lx,ly});
+  }
+  // Shard count podle rozlohy, omezené na rozumný počet
+  const perCell=Math.max(2,Math.floor(18/Math.max(1,cells.length/4)));
+  for(const {lx,ly} of cells){
+    const cx=(blk.x+lx)*SCALE+SCALE/2;
+    const cy=(blk.y+ly)*SCALE+SCALE/2;
+    for(let i=0;i<perCell;i++){
+      const ang=Math.random()*Math.PI*2;
+      const spd=120+Math.random()*180;
+      const s = _acquireShard2D();
+      s.x = cx; s.y = cy;
+      s.vx = Math.cos(ang)*spd;
+      s.vy = Math.sin(ang)*spd-60;
+      s.size = 2.2+Math.random()*2.6;
+      s.rot = Math.random()*Math.PI;
+      s.vrot = (Math.random()-0.5)*14;
+      s.life = 0;
+      s.maxLife = 0.55+Math.random()*0.4;
+      s.color = color;
+      shards.push(s);
+    }
+  }
+}
+const SCALE=10;
+const PSPEED=320;
+const PSPREAD=0.35;
+const MAX_PER_COLOR=10;
+
+function initParticleCanvas(){
+  if(particleCanvas)return;
+  particleCanvas=document.createElement('canvas');
+  // HD resolution: internal × DPR (min 2×) pro crisp rendering na retina + CSS
+  // stretch v 3D módu. Drawing code zůstává v 360×310 coords díky ctx.scale.
+  const _DPR=Math.max(2,window.devicePixelRatio||1);
+  particleCanvas.width=360*_DPR;particleCanvas.height=310*_DPR;
+  particleCanvas.style.cssText='position:absolute;left:0;top:0;width:360px;height:310px;pointer-events:none;z-index:2';
+  document.getElementById('image-area').appendChild(particleCanvas);
+  particleCtx=particleCanvas.getContext('2d');
+  particleCtx.scale(_DPR,_DPR);
+}
+
+// ─── BG ATMOSPHERE: sparkle particles (v73.115) ──────────────────────────
+let _bgParticleRAF = null;
+function _initBgParticles(){
+  // v73.283: bg-canvas particles vypnuté — ušetří ~0.5–1 ms/frame thermal cost.
+  // Pokud bys je chtěl zpět, smaž tenhle return + zaple znovu via _applyPerfTier.
+  if(_bgParticleRAF){cancelAnimationFrame(_bgParticleRAF);_bgParticleRAF=null;}
+  const bg=document.getElementById('bg-canvas');
+  if(bg){ const c=bg.getContext('2d'); c.clearRect(0,0,bg.width,bg.height); bg.style.display='none'; }
+  return;
+  // eslint-disable-next-line no-unreachable
+  if(RENDERER_MODE!=='3d')return;
+  const canvas=document.getElementById('bg-canvas');
+  if(!canvas)return;
+  if(_bgParticleRAF){cancelAnimationFrame(_bgParticleRAF);_bgParticleRAF=null;}
+  const ctx=canvas.getContext('2d');
+  let W,H;
+  function resize(){W=canvas.width=window.innerWidth;H=canvas.height=window.innerHeight;}
+  resize();
+  window.addEventListener('resize',resize,{passive:true});
+  // v73.266: dust-style particles (z v73.264), počet snížen ze 14 na 7.
+  // Canvas má z-index 9000 = lítají NAD vším (rám, pixely, koule).
+  const N=7;
+  const pts=[];
+  for(let i=0;i<N;i++){
+    const ang=Math.random()*Math.PI*2;
+    pts.push({
+      x:Math.random()*window.innerWidth,
+      y:Math.random()*window.innerHeight,
+      r:0.8+Math.random()*1.1, // v73.267: max ~1.9 px (o třetinu menší než 2.8)
+      vx:Math.cos(ang)*(0.10+Math.random()*0.18),
+      vy:Math.sin(ang)*(0.10+Math.random()*0.18),
+      ph:Math.random()*Math.PI*2,
+      freq:0.010+Math.random()*0.024,
+      bright:0.30+Math.random()*0.35,
+    });
+  }
+  function tick(){
+    // v73.281: pauza paint cyklu pokud overlay vidět (lastRenderActive false)
+    // — rAF schedule pokračuje (cheap), ale GPU paint cost = 0.
+    if(!_lastRenderActive){
+      _bgParticleRAF=requestAnimationFrame(tick);
+      return;
+    }
+    // v73.268: čistší rendering — bez halo, bez additive blending
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle='#ffffff';
+    for(const p of pts){
+      p.ph+=p.freq;
+      p.x+=p.vx;
+      p.y+=p.vy;
+      if(p.x<-10) p.x=W+5; else if(p.x>W+10) p.x=-5;
+      if(p.y<-10) p.y=H+5; else if(p.y>H+10) p.y=-5;
+      const a=p.bright*Math.max(0,Math.sin(p.ph));
+      if(a<0.01) continue;
+      ctx.globalAlpha=a;
+      ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();
+    }
+    ctx.globalAlpha=1;
+    _bgParticleRAF=requestAnimationFrame(tick);
+  }
+  tick();
+}
+// ─────────────────────────────────────────────────────────────────────────
+
+// Najde nejbližší pixel dané barvy v gridu (display souřadnice)
+// Pozor: ignoruje pixely pod živými bloky (projektil by je nemohl trefit).
+function nearestSameColor(ci,px,py){
+  let best=null,bd=Infinity;
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    if(grid[y][x]!==ci)continue;
+    if(findBlockAtPixel(x,y))continue; // skrytý pod blokem
+    const tx=x*SCALE+SCALE/2,ty=y*SCALE+SCALE/2;
+    const d=(tx-px)**2+(ty-py)**2;
+    if(d<bd){bd=d;best={tx,ty};}
+  }
+  return best;
+}
+
+// Má daná barva nějaký cíl — ať už volný pixel, solid blok stejné barvy, nebo
+// libovolný mystery blok (mystery přijímá libovolnou barvu)? Používá se k detekci
+// "už pro mě není co trefit → pop" ve fyzice.
+// Cache: per-frame memo (viz _hasTargetCache nahoře). Volá se pro každý queue
+// item v dispatch loopu, takže s velkou queue mnoho redundantních volání.
+function hasAnyTargetForColor(ci){
+  if(typeof _hasTargetCache!=='undefined' && _hasTargetCache.has(ci))
+    return _hasTargetCache.get(ci);
+  const result=_hasAnyTargetForColorImpl(ci);
+  if(typeof _hasTargetCache!=='undefined') _hasTargetCache.set(ci,result);
+  return result;
+}
+function _hasAnyTargetForColorImpl(ci){
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    if(b.kind==='mystery')return true;
+    if(b.color===ci)return true;
+  }
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    if(grid[y][x]===ci && !findBlockAtPixel(x,y)) return true;
+  }
+  return false;
+}
+// Přísnější varianta — má barva DOSAŽITELNÝ cíl (exposed pixel v komponentě
+// navázané na prázdno, nebo živý blok)? Používá se v dispatchi cannonu, aby
+// se nehromadila queue na barvě, co má pixely jen uvnitř uzavřeného prostoru.
+function hasReachableTargetForColor(ci){
+  if(getReachableCountOfColor(grid,ci)>0) return true;
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    if(b.kind==='mystery')return true;
+    if(b.color===ci)return true;
+  }
+  return false;
+}
+
+// Najde nejbližší cíl (pixel NEBO blok) dané barvy. Používá se po odrazu
+// od zdi pro přesměrování + jako hlavní steering heuristika.
+// Mystery blok se bere jako wildcard (libovolná barva ho může trefit).
+function nearestTargetForColor(ci,px,py){
+  let best=null, bd=Infinity;
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    if(b.kind!=='mystery'&&b.color!==ci)continue;
+    const tx=(b.x+b.w/2)*SCALE, ty=(b.y+b.h/2)*SCALE;
+    const d=(tx-px)**2+(ty-py)**2;
+    if(d<bd){bd=d;best={tx,ty,kind:'block',ref:b};}
+  }
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    if(grid[y][x]!==ci)continue;
+    if(findBlockAtPixel(x,y))continue;
+    const tx=x*SCALE+SCALE/2, ty=y*SCALE+SCALE/2;
+    const d=(tx-px)**2+(ty-py)**2;
+    if(d<bd){bd=d;best={tx,ty,kind:'pixel'};}
+  }
+  return best;
+}
+
+// Weighted-random target selection pro color ci.
+//   • každý pixel dané barvy (a nezakrytý blokem): weight 1
+//   • každý živý solid blok dané barvy: weight = blk.hp
+//   • každý živý mystery blok (libovolná barva ho trefí): weight = blk.hp
+// Vrací {tx,ty,kind:'pixel'|'block',ref?} nebo null.
+function pickTargetForColor(ci){
+  const cands=[];
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    if(b.kind!=='mystery'&&b.color!==ci)continue;
+    const cx=(b.x+b.w/2)*SCALE, cy=(b.y+b.h/2)*SCALE;
+    cands.push({tx:cx,ty:cy,kind:'block',ref:b,w:b.hp});
+  }
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    if(grid[y][x]!==ci)continue;
+    if(findBlockAtPixel(x,y))continue;
+    cands.push({tx:x*SCALE+SCALE/2,ty:y*SCALE+SCALE/2,kind:'pixel',w:1});
+  }
+  if(!cands.length)return null;
+  const total=cands.reduce((s,c)=>s+c.w,0);
+  let r=Math.random()*total;
+  for(const c of cands){ if((r-=c.w)<=0) return c; }
+  return cands[cands.length-1];
+}
+
+// Vybere střelu pro kanon: vrátí {idealX, angle, dist, type} pro nejlepší cíl barvy ci.
+// Upřednostňuje přímé zásahy, jinak zkusí odraz od levé/pravé stěny nebo stropu.
+// Když nic čisté není, vrátí direct s penaltou (projektil se zkusí proflákat přes odraz).
+// Zkusí najít úhel (přímý nebo odrazový), který simulací trefí cíl. Vrací {angle,type} nebo null.
+function findShotFromX(idealX,cannonYPos,tx,ty,ci,targetBlock){
+  const WALL_L=1,WALL_R=358,WALL_T=1;
+  const MUZZLE=14;
+  const tries=[];
+  tries.push({type:'direct',angle:Math.atan2(ty-cannonYPos,tx-idealX)});
+  {
+    const t=idealX/(idealX+tx);
+    const by=cannonYPos+(ty-cannonYPos)*t;
+    if(by>WALL_T&&by<cannonYPos-5)
+      tries.push({type:'bank-L',angle:Math.atan2(by-cannonYPos,WALL_L-idealX)});
+  }
+  {
+    const t=(WALL_R-idealX)/((WALL_R-idealX)+(WALL_R-tx));
+    const by=cannonYPos+(ty-cannonYPos)*t;
+    if(by>WALL_T&&by<cannonYPos-5)
+      tries.push({type:'bank-R',angle:Math.atan2(by-cannonYPos,WALL_R-idealX)});
+  }
+  {
+    const t=cannonYPos/(cannonYPos+ty);
+    const bx=idealX+(tx-idealX)*t;
+    if(bx>WALL_L+5&&bx<WALL_R-5)
+      tries.push({type:'bank-T',angle:Math.atan2(WALL_T-cannonYPos,bx-idealX)});
+  }
+  for(const tr of tries){
+    const mx=idealX+Math.cos(tr.angle)*MUZZLE;
+    const my=cannonYPos+Math.sin(tr.angle)*MUZZLE;
+    if(simulateShotReaches(mx,my,tr.angle,ci,240,targetBlock)) return tr;
+  }
+  return null;
+}
+
+// Per-frame cache pro pickCannonShot a hasAnyTargetForColor — dispatch loop
+// volá tyto funkce pro každý queue item, ale výsledek je stejný pro všechny
+// items stejné barvy v rámci 1 framu (grid se mezi nimi nemění). Cache se
+// invaliduje na začátku každého beltLoop callbacku.
+let _frameCacheTick=0;
+const _pickShotCache=new Map();
+const _hasTargetCache=new Map();
+function _invalidateFrameCache(){
+  _frameCacheTick++;
+  _pickShotCache.clear();
+  _hasTargetCache.clear();
+}
+function pickCannonShot(ci,cannonXPos,cannonYPos){
+  // Cache key — barva + cannonX (cannonY je konstanta CANNON_Y). cannonX se
+  // mezi framy mění (cannon se posouvá), ale uvnitř 1 framu je stabilní.
+  const ckey=ci+':'+(cannonXPos|0);
+  if(_pickShotCache.has(ckey)) return _pickShotCache.get(ckey);
+  const result=_pickCannonShotImpl(ci,cannonXPos,cannonYPos);
+  _pickShotCache.set(ckey,result);
+  return result;
+}
+function _pickCannonShotImpl(ci,cannonXPos,cannonYPos){
+  const exposed=getExposedPixelsOfColor(grid,ci);
+  const targets=exposed.map(({x,y})=>({
+    tx:x*SCALE+SCALE/2, ty:y*SCALE+SCALE/2, kind:'pixel', gx:x, gy:y
+  }));
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    // Mystery blok je cíl pro libovolnou barvu; solid jen pro shodnou.
+    if(b.kind!=='mystery'&&b.color!==ci)continue;
+    // Aim points: střed bloku + každá EXPOSED edge cell (mask cell s alespoň
+    // jedním sousedem mimo blok). Když blok vyčuhuje jen jedním pixelem zpod
+    // pixelového blob-u, aim na střed je blokovaný, ale aim na ten vyčuhující
+    // pixel projde čistou LoS. Pro každý aim point se vytvoří separátní
+    // candidate target — findShotFromX si vybere ten, ze kterého se trefí.
+    const cx=Math.floor(b.x+b.w/2), cy=Math.floor(b.y+b.h/2);
+    targets.push({
+      tx:(b.x+b.w/2)*SCALE, ty:(b.y+b.h/2)*SCALE,
+      kind:'block', gx:cx, gy:cy, blockRef:b
+    });
+    if(b._mask){
+      for(let ly=0;ly<b.h;ly++)for(let lx=0;lx<b.w;lx++){
+        if(!b._mask[ly][lx])continue;
+        // edge cell = aspoň jeden sousední (N/S/E/W) je mimo masku
+        const edge=
+          (ly===0||!b._mask[ly-1][lx])||
+          (ly===b.h-1||!b._mask[ly+1][lx])||
+          (lx===0||!b._mask[ly][lx-1])||
+          (lx===b.w-1||!b._mask[ly][lx+1]);
+        if(!edge)continue;
+        const gx=b.x+lx, gy=b.y+ly;
+        targets.push({
+          tx:gx*SCALE+SCALE/2, ty:gy*SCALE+SCALE/2,
+          kind:'block', gx, gy, blockRef:b
+        });
+      }
+    }
+  }
+  if(!targets.length)return null;
+  const candidates=[];
+  for(const t of targets){
+    const {tx,ty}=t;
+    const rawIdeal=cannonXPos+(tx-cannonXPos)*CANNON_LEAD;
+    const lerpX=Math.max(CANNON_MIN_X,Math.min(CANNON_MAX_X,rawIdeal));
+    const underX=Math.max(CANNON_MIN_X,Math.min(CANNON_MAX_X,tx));
+    // Zkus různé pozice kanonu – od preferované (lerp) po krajní fallbacky.
+    // První pozice s úspěšnou trajektorií vyhrává.
+    const positions=[lerpX,underX,CANNON_MIN_X+20,CANNON_MAX_X-20];
+    let found=null;
+    for(const pos of positions){
+      const shot=findShotFromX(pos,cannonYPos,tx,ty,ci,t.blockRef||null);
+      if(shot){found={idealX:pos,angle:shot.angle,type:shot.type};break;}
+    }
+    if(found){
+      candidates.push({idealX:found.idealX,tx,ty,angle:found.angle,type:found.type,kind:t.kind,blockRef:t.blockRef});
+    } else {
+      // Skutečně žádná cesta – blokovaný fallback (použijeme jen pokud fakt nic lepšího není)
+      candidates.push({idealX:lerpX,tx,ty,angle:Math.atan2(ty-cannonYPos,tx-lerpX),type:'blocked',kind:t.kind,blockRef:t.blockRef});
+    }
+  }
+  const typeWeight={direct:0,'bank-L':1,'bank-R':1,'bank-T':2,blocked:3};
+  // Kanon se „rozhoduje" po CANNON_SIDE_COMMIT ranách: zjistí, kde má víc cílů (levá/pravá
+  // polovina plátna) a commitne se na tu stranu. Bez kmitání po jednom projektilu, ale
+  // zároveň nezanedbá druhou stranu, když tam zbývá víc kuliček.
+  const midX=(CANNON_MIN_X+CANNON_MAX_X)/2;
+  const pool=candidates.filter(c=>c.type!=='blocked');
+  // Žádný target s LoS → vracíme null. Dispatch rotuje queue a hledá jinou
+  // barvu s LoS. Když ani jedna barva nemá LoS, spadne to na
+  // pickCannonShotForceBlocked (watchdog last-resort). Dřívější blocked-pixel
+  // fallback („particle fyzika si cestu najde") střílel přes zdi a particly
+  // se kupily → odstraněno.
+  if(!pool.length) return null;
+  const active=pool;
+  if(cannonSidePref===0||cannonSideShots>=CANNON_SIDE_COMMIT){
+    let leftC=0,rightC=0;
+    for(const c of active){
+      if(c.tx<midX)leftC++;else rightC++;
+    }
+    if(leftC>rightC)cannonSidePref=-1;
+    else if(rightC>leftC)cannonSidePref=1;
+    else cannonSidePref=(cannonXPos>=midX)?-1:1;
+    cannonSideShots=0;
+  }
+  candidates.sort((a,b)=>{
+    const aB=a.type==='blocked'?1:0, bB=b.type==='blocked'?1:0;
+    if(aB!==bB) return aB-bB;
+    const rowA=Math.floor(a.ty/SCALE), rowB=Math.floor(b.ty/SCALE);
+    if(rowA!==rowB) return rowB-rowA;
+    const tw=typeWeight[a.type]-typeWeight[b.type];
+    if(tw!==0) return tw;
+    const aSide=a.tx<midX?-1:1;
+    const bSide=b.tx<midX?-1:1;
+    const aMatch=aSide===cannonSidePref?0:1;
+    const bMatch=bSide===cannonSidePref?0:1;
+    if(aMatch!==bMatch)return aMatch-bMatch;
+    return Math.abs(a.tx-cannonXPos)-Math.abs(b.tx-cannonXPos);
+  });
+  return candidates[0];
+}
+
+// Watchdog last-resort: vrátí nejlepší blocked trajektorii na libovolný target
+// (pixel i blok) nebo null, pokud barva nemá žádný target. Používá se, když
+// normální pickCannonShot vrací null po dlouhou dobu a projektily se v gunQueue
+// kupí — raději vystřelíme blocked a ať particle fyzika něco dělá, než držet
+// queue zamrzlou.
+function pickCannonShotForceBlocked(ci,cannonXPos,cannonYPos){
+  // Force varianta — bere VŠECHNY pixely barvy (nejen exposed) + všechny bloky,
+  // aby se watchdog nezaseknul když je barva zaboxovaná uvnitř blobu.
+  const targets=[];
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    if(grid[y][x]!==ci)continue;
+    if(findBlockAtPixel(x,y))continue;
+    targets.push({tx:x*SCALE+SCALE/2, ty:y*SCALE+SCALE/2, kind:'pixel', gx:x, gy:y});
+  }
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    if(b.kind!=='mystery'&&b.color!==ci)continue;
+    targets.push({
+      tx:(b.x+b.w/2)*SCALE, ty:(b.y+b.h/2)*SCALE,
+      kind:'block', gx:Math.floor(b.x+b.w/2), gy:Math.floor(b.y+b.h/2), blockRef:b
+    });
+  }
+  if(!targets.length)return null;
+  // Nejbližší target (jednoduše podle euklidovské vzdálenosti od kanonu).
+  let best=null, bestD=Infinity;
+  for(const t of targets){
+    const d=Math.hypot(t.tx-cannonXPos, t.ty-cannonYPos);
+    if(d<bestD){bestD=d; best=t;}
+  }
+  if(!best)return null;
+  const rawIdeal=cannonXPos+(best.tx-cannonXPos)*CANNON_LEAD;
+  const lerpX=Math.max(CANNON_MIN_X,Math.min(CANNON_MAX_X,rawIdeal));
+  return {
+    idealX:lerpX, tx:best.tx, ty:best.ty,
+    angle:Math.atan2(best.ty-cannonYPos, best.tx-lerpX),
+    type:'blocked', kind:best.kind, blockRef:best.blockRef||null
+  };
+}
+
+function launchBouncingParticles(matching,cm,onDone){
+  if(!matching.size){onDone();return;}
+  particlesFlying=true;
+  let popped=0,total=0;
+  let done=false;
+  const finish=()=>{if(done)return;done=true;particlesFlying=false;onDone();};
+  const safety=setTimeout(finish,2500);
+  const onPop=()=>{popped++;if(popped>=total){clearTimeout(safety);finish();}};
+
+  for(const c of matching){
+    // Spočítej kolik pixelů té barvy v gridu skutečně existuje
+    let pixelCount=0;
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++)if(grid[y][x]===c)pixelCount++;
+    if(pixelCount===0)continue; // žádný cíl, přeskoč
+    const prev=remainingUnits[c]||0;
+    const budget=cm[c]*PPU+prev;
+    // Nikdy nevypusť víc projektilů než je cílů a než je MAX_PER_COLOR
+    const count=Math.min(budget,MAX_PER_COLOR,pixelCount);
+    // Přebytek uložit, ale taky ho ořezat na rozumný max (2× počet pixelů)
+    remainingUnits[c]=Math.min(budget-count, pixelCount*2);
+    for(let i=0;i<count;i++){
+      total++;
+      // Start ze středu pásu – spodní hrana canvasu, mírný rozptyl ±25px okolo středu
+      const spawnX=155+Math.random()*50;      // 155–205px ≈ střed pásu
+      const spawnY=GH*SCALE-2;               // úplný spodek canvasu (308px)
+      const angle=-Math.PI/2+(Math.random()-0.5)*Math.PI*0.7; // ±63° od svislice
+      particles.push({
+        x:spawnX, y:spawnY,
+        vx:Math.cos(angle)*PSPEED,
+        vy:Math.sin(angle)*PSPEED,
+        ci:c, color:COLORS[c],
+        phase:'fly',
+        stuckT:0,
+        popR:0, popX:0, popY:0,
+        onPop
+      });
+    }
+  }
+  if(total===0){clearTimeout(safety);finish();}
+}
+
+function randomFreePos(){
+  // Najdi náhodnou volnou pozici kdekoliv na canvasu
+  for(let a=0;a<60;a++){
+    const rx=5+Math.random()*350;
+    const ry=5+Math.random()*(GH*SCALE-10);
+    const gx=Math.floor(rx/SCALE),gy=Math.floor(ry/SCALE);
+    if(gy>=0&&gy<GH&&gx>=0&&gx<GW&&grid[gy][gx]===-1)
+      return {x:rx,y:ry};
+  }
+  return {x:155+Math.random()*50,y:GH*SCALE-5}; // fallback
+}
+
+function respawnParticle(p){
+  // Tah 5f: „chytrý escape". Když je projektil zaseknutý (lepí se na hranu
+  // nepřátelského bloku / pixelu), prohledej okolí ve 24 směrech a najdi
+  // nejbližší bod, odkud je volná viditelnost (LoS) na cíl. Tam otoč vektor
+  // rychlosti. Projektil se prostřelí přes několik cel prázdného/vlastního
+  // prostoru na pozici s čistou střelou a pak trefí cíl. Žádný teleport,
+  // žádný ping-pong, žádné ničení projektilu.
+  if(!hasAnyTargetForColor(p.ci)){ p.phase='pop'; p.popX=p.x; p.popY=p.y; p.onPop(); return; }
+  // Tah 7: když je barva uzamčená (žádná LoS-dostupná cíl), nedělej smart
+  // escape – jen rozhoď do největšího otevřeného směru, ať se odlepí.
+  const losNear=losReachableTargetForColor(p.ci,p.x,p.y);
+  if(!losNear){
+    const DIRS=24;
+    let openA=null, openLen=0;
+    for(let i=0;i<DIRS;i++){
+      const a=(i/DIRS)*Math.PI*2 + Math.random()*0.1;
+      const dx=Math.cos(a), dy=Math.sin(a);
+      let len=0;
+      for(let step=1;step<=8;step++){
+        const gx=Math.floor((p.x+dx*step*SCALE)/SCALE);
+        const gy=Math.floor((p.y+dy*step*SCALE)/SCALE);
+        if(gy<0||gy>=GH||gx<0||gx>=GW) break;
+        const blk=findBlockAtPixel(gx,gy);
+        if(blk&&blk.kind!=='mystery'&&blk.color!==p.ci) break;
+        const cell=grid[gy]&&grid[gy][gx];
+        if(cell!==undefined&&cell!==-1&&cell!==p.ci) break;
+        len++;
+      }
+      if(len>openLen){ openLen=len; openA=a; }
+    }
+    if(openA!==null){
+      p.vx=Math.cos(openA)*PSPEED;
+      p.vy=Math.sin(openA)*PSPEED;
+    }
+    p.stuckT=0; p.bounceStreak=0;
+    return;
+  }
+  const near=pickTargetForColor(p.ci)||nearestTargetForColor(p.ci,p.x,p.y);
+  if(!near){ p.phase='pop'; p.popX=p.x; p.popY=p.y; p.onPop(); return; }
+  // 1) Pokud z aktuální pozice vidíme cíl, namiř přímo.
+  if(hasLineOfSight(p.x,p.y,near.tx,near.ty,p.ci)){
+    const a=Math.atan2(near.ty-p.y,near.tx-p.x)+(Math.random()-0.5)*PSPREAD;
+    p.vx=Math.cos(a)*PSPEED; p.vy=Math.sin(a)*PSPEED;
+    p.stuckT=0; p.bounceStreak=0;
+    return;
+  }
+  // 2) Prohledej 24 směrů × několik vzdáleností – najdi nejbližší bod, ze
+  // kterého je LoS na cíl a cesta k němu vede přes prázdno/vlastní barvu.
+  const DIRS=24;
+  let bestA=null, bestDist=Infinity;
+  for(let i=0;i<DIRS;i++){
+    const a=(i/DIRS)*Math.PI*2;
+    const dx=Math.cos(a), dy=Math.sin(a);
+    for(let step=2;step<=16;step++){
+      const rx=p.x+dx*step*SCALE*0.5;
+      const ry=p.y+dy*step*SCALE*0.5;
+      if(rx<5||rx>355||ry<5||ry>GH*SCALE-5) break;
+      const gx=Math.floor(rx/SCALE), gy=Math.floor(ry/SCALE);
+      if(gy<0||gy>=GH||gx<0||gx>=GW) break;
+      const blk=findBlockAtPixel(gx,gy);
+      if(blk&&blk.kind!=='mystery'&&blk.color!==p.ci) break;
+      const cell=grid[gy]&&grid[gy][gx];
+      if(cell!==undefined&&cell!==-1&&cell!==p.ci) break;
+      if(hasLineOfSight(rx,ry,near.tx,near.ty,p.ci)){
+        if(step<bestDist){ bestDist=step; bestA=a; }
+        break;
+      }
+    }
+  }
+  if(bestA!==null){
+    p.vx=Math.cos(bestA)*PSPEED;
+    p.vy=Math.sin(bestA)*PSPEED;
+    p.stuckT=0; p.bounceStreak=0;
+    return;
+  }
+  // 3) Žádná escape pozice v okolí → přesměruj aspoň do největšího
+  // otevřeného směru (greedy) aby se projektil pohnul. Stuck counter
+  // neresetujeme – pokud to nepomůže, další respawn zkusí znovu.
+  let openA=null, openLen=0;
+  for(let i=0;i<DIRS;i++){
+    const a=(i/DIRS)*Math.PI*2;
+    const dx=Math.cos(a), dy=Math.sin(a);
+    let len=0;
+    for(let step=1;step<=12;step++){
+      const gx=Math.floor((p.x+dx*step*SCALE)/SCALE);
+      const gy=Math.floor((p.y+dy*step*SCALE)/SCALE);
+      if(gy<0||gy>=GH||gx<0||gx>=GW) break;
+      const blk=findBlockAtPixel(gx,gy);
+      if(blk&&blk.kind!=='mystery'&&blk.color!==p.ci) break;
+      const cell=grid[gy]&&grid[gy][gx];
+      if(cell!==undefined&&cell!==-1&&cell!==p.ci) break;
+      len++;
+    }
+    if(len>openLen){ openLen=len; openA=a; }
+  }
+  if(openA!==null){
+    p.vx=Math.cos(openA)*PSPEED;
+    p.vy=Math.sin(openA)*PSPEED;
+    p.stuckT=0;
+    // bounceStreak neresetujeme – pokud se zasekne znova, postupně
+    // doroste a zkusíme další escape.
+  }
+}
+
+// Odsimuluje let projektilu stejnou fyzikou jako updateParticles —
+// stěny + odraz od wrong-color pixelů a non-target mystery bloků.
+// Bounce cap brání ping-pongu a zároveň drží simulaci blízko reality
+// (s každým odrazem roste numerická divergence vůči reálnému particlu,
+// který má drobný spread na fire angle). Limit ~4 odrazů → 95%+ shoda.
+function simulateShotReaches(sx,sy,angle,targetCi,maxSteps=600,targetBlock=null){
+  let x=sx,y=sy;
+  let vx=Math.cos(angle)*PSPEED, vy=Math.sin(angle)*PSPEED;
+  const dt=1/60;
+  const YMAX=GH*SCALE-2;
+  let bounces=0;
+  const BOUNCE_CAP=4;
+  for(let s=0;s<maxSteps;s++){
+    let nx=x+vx*dt, ny=y+vy*dt;
+    let wallBounced=false;
+    if(nx<1){nx=1; vx=Math.abs(vx); wallBounced=true;}
+    else if(nx>358){nx=358; vx=-Math.abs(vx); wallBounced=true;}
+    if(ny<2){ny=2; vy=Math.abs(vy); wallBounced=true;}
+    else if(ny>YMAX) return false;
+    const hit=firstCollisionOnPath(x,y,nx,ny,targetCi);
+    if(hit){
+      // Detekce: cíl trefen?
+      if(hit.blk){
+        if(hit.blk.kind==='mystery'){
+          if(targetBlock===hit.blk) return true;
+          // mystery v cestě → odraz (HP simulace neřešíme)
+        } else if(hit.blk.color===targetCi){
+          return true;
+        }
+        // wrong-color blok → odraz
+      } else {
+        if(hit.cell===targetCi) return true;
+        // wrong-color pixel → odraz
+      }
+      // Odraz: flip vx/vy podle směru přechodu z prev cell do hit cell
+      // (přesně jako updateParticles na řádku 1081/1119/1165).
+      const prevGx=Math.floor(x/SCALE), prevGy=Math.floor(y/SCALE);
+      if(prevGx!==hit.gx) vx=-vx;
+      if(prevGy!==hit.gy) vy=-vy;
+      if(prevGx===hit.gx&&prevGy===hit.gy){vx=-vx; vy=-vy;}
+      bounces++;
+      if(bounces>BOUNCE_CAP) return false;
+      // Position zůstává před kolizí (jako updateParticles při bounce — nudge
+      // se aplikuje až další iterací). Tím se vyhneme zaseknutí v hit cell.
+      continue;
+    }
+    if(wallBounced){
+      bounces++;
+      if(bounces>BOUNCE_CAP) return false;
+    }
+    x=nx; y=ny;
+  }
+  return false;
+}
+function hasLineOfSight(x1,y1,x2,y2,ownColor){
+  // Paprsek z (x1,y1) do (x2,y2) – vrátí false pokud kříží špatnou barvu.
+  // Tah 7c: při diagonálním přechodu mezi buňkami kontroluje OBA sousední
+  // rohy – pokud jsou oba blokované, paprsek tudy neprojde (žádná „corner-cut"
+  // štěrbina). Tím se zabrání detekci cíle za zdivem, které má jen diagonální
+  // kontakt mezi rohy bloků.
+  const dx=x2-x1,dy=y2-y1;
+  const steps=Math.max(4,Math.ceil(Math.sqrt(dx*dx+dy*dy)/(SCALE*0.5)));
+  let lastGx=Math.floor(x1/SCALE), lastGy=Math.floor(y1/SCALE);
+  const cellBlocks=(gx,gy)=>{
+    if(gy<0||gy>=IMG_GH||gx<0||gx>=GW)return false;
+    const blk=findBlockAtPixel(gx,gy);
+    if(blk){
+      if(blk.kind==='mystery')return false;
+      return blk.color!==ownColor;
+    }
+    const cell=grid[gy][gx];
+    return cell!==-1 && cell!==ownColor;
+  };
+  for(let s=1;s<steps;s++){
+    const t=s/steps;
+    const gx=Math.floor((x1+dx*t)/SCALE);
+    const gy=Math.floor((y1+dy*t)/SCALE);
+    if(gx===lastGx && gy===lastGy) continue;
+    if(gx!==lastGx && gy!==lastGy){
+      // Diagonální přechod — obě buňky u rohu musí být volné.
+      if(cellBlocks(gx,lastGy) && cellBlocks(lastGx,gy)) return false;
+    }
+    if(cellBlocks(gx,gy)) return false;
+    lastGx=gx; lastGy=gy;
+  }
+  return true;
+}
+
+// Vrátí nejbližší cíl barvy ci, ke kterému je z (px,py) volná LoS.
+// Pokud žádný → null = „barva uzamčena", projektil má jen poletovat.
+function losReachableTargetForColor(ci,px,py){
+  let best=null, bd=Infinity;
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    if(b.kind!=='mystery'&&b.color!==ci)continue;
+    const tx=(b.x+b.w/2)*SCALE, ty=(b.y+b.h/2)*SCALE;
+    const d=(tx-px)**2+(ty-py)**2;
+    if(d<bd && hasLineOfSight(px,py,tx,ty,ci)){bd=d;best={tx,ty,kind:'block',ref:b};}
+  }
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    if(grid[y][x]!==ci)continue;
+    if(findBlockAtPixel(x,y))continue;
+    const tx=x*SCALE+SCALE/2, ty=y*SCALE+SCALE/2;
+    const d=(tx-px)**2+(ty-py)**2;
+    if(d<bd && hasLineOfSight(px,py,tx,ty,ci)){bd=d;best={tx,ty,kind:'pixel'};}
+  }
+  return best;
+}
+
+function steerAfterBounce(p){
+  // Tah 7: přímá LoS → namíř na cíl.
+  const near=losReachableTargetForColor(p.ci,p.x,p.y);
+  if(near){
+    const dx=near.tx-p.x, dy=near.ty-p.y;
+    const angle=Math.atan2(dy,dx)+(Math.random()-0.5)*PSPREAD;
+    p.vx=Math.cos(angle)*PSPEED;
+    p.vy=Math.sin(angle)*PSPEED;
+    return;
+  }
+  // Žádný cíl barvy → jen jemně rozptyl aktuální vektor (±~16°) proti ping-pongu.
+  if(!hasAnyTargetForColor(p.ci)){
+    const cur=Math.atan2(p.vy,p.vx);
+    const a=cur+(Math.random()-0.5)*Math.PI*0.18;
+    p.vx=Math.cos(a)*PSPEED;
+    p.vy=Math.sin(a)*PSPEED;
+    return;
+  }
+  // Tah 7e: cíl existuje, ale LoS z aktuální pozice je blokovaná. Zkus najít
+  // úhel, který přes odraz od zdi stejně dorazí (simulace jako u děla).
+  // Když takovou trajektorii objevíme, projektil ji převezme. Když ne,
+  // rozptýlíme aktuální vektor proti zamrznutí.
+  const TRIES=20;
+  let bestA=null, bestAlign=-Infinity;
+  const curA=Math.atan2(p.vy,p.vx);
+  for(let i=0;i<TRIES;i++){
+    const a=Math.random()*Math.PI*2;
+    if(simulateShotReaches(p.x,p.y,a,p.ci)){
+      // Preferuj úhel blízký aktuálnímu směru — odraz pak vypadá přirozeně,
+      // ne jako ostré teleport-přemíření.
+      const align=Math.cos(a-curA);
+      if(align>bestAlign){ bestAlign=align; bestA=a; }
+    }
+  }
+  if(bestA!==null){
+    p.vx=Math.cos(bestA)*PSPEED;
+    p.vy=Math.sin(bestA)*PSPEED;
+    return;
+  }
+  const a=curA+(Math.random()-0.5)*Math.PI*0.18;
+  p.vx=Math.cos(a)*PSPEED;
+  p.vy=Math.sin(a)*PSPEED;
+}
+
+// Tah 6: swept collision. Vrátí první buňku na cestě (x1,y1)->(x2,y2),
+// která má blok nebo nenulovou barvu. Při diagonálním přechodu buněk
+// zkontroluje oba sousední rohy → žádný „corner-cut" tunelem mezi bloky.
+function firstCollisionOnPath(x1,y1,x2,y2,ci){
+  const dx=x2-x1, dy=y2-y1;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  if(dist<0.5) return null;
+  const steps=Math.max(4, Math.ceil(dist*2));
+  let lastGx=Math.floor(x1/SCALE), lastGy=Math.floor(y1/SCALE);
+  for(let s=1;s<=steps;s++){
+    const t=s/steps;
+    const cx=x1+dx*t, cy=y1+dy*t;
+    const gx=Math.floor(cx/SCALE), gy=Math.floor(cy/SCALE);
+    if(gx===lastGx && gy===lastGy) continue;
+    // Diagonální přechod: corner-cut JEN když jsou OBA sousední rohy
+    // blokované (jinak projektil legitimně prošel volným sousedem do cílové
+    // buňky a umělé odrazení by ho vrhlo zpět do blokovaného souseda).
+    if(gx!==lastGx && gy!==lastGy){
+      const aX=gx, aY=lastGy, bX=lastGx, bY=gy;
+      const aIn=(aY>=0&&aY<GH&&aX>=0&&aX<GW);
+      const bIn=(bY>=0&&bY<GH&&bX>=0&&bX<GW);
+      const blkA=aIn?findBlockAtPixel(aX,aY):null;
+      const blkB=bIn?findBlockAtPixel(bX,bY):null;
+      const celA=aIn?grid[aY][aX]:-1;
+      const celB=bIn?grid[bY][bX]:-1;
+      const blockedA=!!blkA || (celA>-1 && celA!==ci);
+      const blockedB=!!blkB || (celB>-1 && celB!==ci);
+      if(blockedA && blockedB){
+        if(blkA) return {gx:aX, gy:aY, cx, cy, blk:blkA, cell:-1};
+        if(blkB) return {gx:bX, gy:bY, cx, cy, blk:blkB, cell:-1};
+        return {gx:aX, gy:aY, cx, cy, blk:null, cell:celA};
+      }
+    }
+    if(gy>=0&&gy<GH&&gx>=0&&gx<GW){
+      const blk=findBlockAtPixel(gx,gy);
+      if(blk) return {gx, gy, cx, cy, blk, cell:-1};
+      const cell=grid[gy][gx];
+      if(cell>-1) return {gx, gy, cx, cy, blk:null, cell};
+    }
+    lastGx=gx; lastGy=gy;
+  }
+  return null;
+}
+
+// v74.53: per-color "last pixel position" — when only 1 pixel of color ci remains,
+// projektily téhle barvy mají 2.5× collider radius (snadnější finish).
+let _lastPxPosByColor = null;
+function _recomputeLastPxPos(){
+  if(typeof grid === 'undefined' || !grid) return;
+  const counts = new Array(COLORS.length).fill(0);
+  const positions = new Array(COLORS.length).fill(null);
+  for(let yy=0; yy<GH; yy++){
+    for(let xx=0; xx<GW; xx++){
+      const ci = grid[yy][xx];
+      if(ci >= 0){
+        counts[ci]++;
+        if(counts[ci] === 1) positions[ci] = {gx: xx, gy: yy};
+        else positions[ci] = null; // > 1 → reset
+      }
+    }
+  }
+  _lastPxPosByColor = positions;
+}
+
+function updateParticles(dt){
+  _recomputeLastPxPos();
+  for(let i=shards.length-1;i>=0;i--){
+    const s=shards[i];
+    s.life+=dt;
+    if(s.life>=s.maxLife){
+      _releaseShard2D(s);
+      const last=shards.length-1;
+      if(i!==last) shards[i]=shards[last];
+      shards.pop();
+      continue;
+    }
+    s.vy+=300*dt;
+    s.vx*=0.96;
+    s.x+=s.vx*dt; s.y+=s.vy*dt;
+    s.rot+=s.vrot*dt;
+  }
+  for(let i=confetti.length-1;i>=0;i--){
+    const c=confetti[i];
+    if(c.delay>0){c.delay-=dt;continue;}
+    c.life+=dt;
+    if(c.life>=c.maxLife){confetti.splice(i,1);continue;}
+    c.vy+=260*dt;
+    c.vx*=0.985;
+    c.x+=c.vx*dt; c.y+=c.vy*dt;
+    c.rot+=c.vrot*dt;
+    c.vrot*=0.992;
+  }
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    if(!p)continue;
+    if(p.phase==='rocket'){
+      p.totalT+=dt; p.trailT+=dt;
+      const dx=p.tx-p.x, dy=p.ty-p.y;
+      const d=Math.hypot(dx,dy);
+      if(d<4||p.totalT>2.5){
+        // Výbuch – vymaž pixely cílové barvy v okruhu.
+        // Když v radiusu nic není (např. centroid padl mimo barvu),
+        // přecíluj na nejbližší existující pixel téže barvy.
+        let gxC=Math.floor(p.tx/SCALE), gyC=Math.floor(p.ty/SCALE);
+        const R=5, maxDestroy=20;
+        const collect=(cx,cy)=>{
+          const out=[];
+          for(let ry=-R;ry<=R&&out.length<maxDestroy;ry++)
+            for(let rx=-R;rx<=R&&out.length<maxDestroy;rx++){
+              if(rx*rx+ry*ry>R*R)continue;
+              const xx=cx+rx, yy=cy+ry;
+              if(xx<0||xx>=GW||yy<0||yy>=IMG_GH)continue;
+              if(grid[yy][xx]===p.ci)out.push({xx,yy});
+            }
+          return out;
+        };
+        let hits=collect(gxC,gyC);
+        if(!hits.length){
+          const near=findNearestPixelOfColor(p.ci,gxC,gyC);
+          if(near){gxC=near.gx;gyC=near.gy;p.tx=gxC*SCALE+SCALE/2;p.ty=gyC*SCALE+SCALE/2;hits=collect(gxC,gyC);}
+        }
+        const destroyed=hits.length;
+        if(destroyed>0) _caBumpHeat(); // v73.235: rocket batch = 1 bump heat
+        for(const h of hits){
+          // 3D destruction trigger BEFORE grid mutation (color z grid)
+          if(RENDERER_MODE==='3d' && window.render3d && window.render3d.triggerPixelDestroy){
+            const ci=grid[h.yy][h.xx];
+            if(ci>=0){
+              window.render3d.triggerPixelDestroy(h.xx, h.yy, COLORS[ci]);
+              _caMaybeTrigger(h.xx, h.yy, COLORS[ci]); // v73.235
+              if(window.render3d.triggerDustBurst) window.render3d.triggerDustBurst(h.xx, h.yy, COLORS[ci]); // v73.239
+            }
+          }
+          grid[h.yy][h.xx]=-1;
+          // 2D pop shards layer — běží v obou módech (user chce kombinaci 2D + 3D).
+          _playPop(0.06);
+          spawnPopShards(h.xx*SCALE+SCALE/2,h.yy*SCALE+SCALE/2,p.color);
+        }
+        if(destroyed){
+          drawGrid();
+          score+=destroyed*10;
+          document.getElementById('score').textContent=score;
+          gamee.updateScore(score,playTime,'balloon-belt-v74.80');
+        }
+        // Rázová vlna
+        particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
+        particles.splice(i,1);
+        if(running&&!anyTargetLeft()){setTimeout(()=>{if(running)endGame(true);},80);}
+        continue;
+      }
+      p.x+=dx/d*p.speed*dt;
+      p.y+=dy/d*p.speed*dt;
+      continue;
+    }
+    if(p.phase==='pop'){
+      p.popR+=dt*(p.maxPopR?p.maxPopR*9:90);
+      if(p.popR>(p.maxPopR||10))particles.splice(i,1);
+      continue;
+    }
+
+    // Tah 5e: žádný totalT cap. Projektil žije dokud netrefí vlastní cíl
+    // nebo dokud barva nemá žádný živý cíl (řeší check níže na
+    // hasAnyTargetForColor). Hráč jinak ztratí projektily naprázdno a
+    // nedohraje level.
+    p.totalT=(p.totalT||0)+dt;
+
+    // Udržuj konstantní rychlost (billiard – bez wobble, přímý let)
+    const spd=Math.sqrt(p.vx*p.vx+p.vy*p.vy)||1;
+    p.vx=p.vx/spd*PSPEED; p.vy=p.vy/spd*PSPEED;
+
+    // Pokud pro barvu neexistuje žádný živý cíl (pixel ani blok) → pop
+    if(!hasAnyTargetForColor(p.ci)){p.phase='pop';p.popX=p.x;p.popY=p.y;p.onPop();continue;}
+
+    // Navrhovaná nová pozice
+    let nx=p.x+p.vx*dt, ny=p.y+p.vy*dt;
+    let wallBounced=false;
+
+    // Odraz od stěn → po stěně nasměruj k cíli
+    const YMAX=GH*SCALE-2;
+    if(nx<1){nx=1;p.vx=Math.abs(p.vx);wallBounced=true;}
+    if(nx>358){nx=358;p.vx=-Math.abs(p.vx);wallBounced=true;}
+    if(ny<2){ny=2;p.vy=Math.abs(p.vy);wallBounced=true;}
+    if(ny>YMAX){ny=YMAX;p.vy=-Math.abs(p.vy);wallBounced=true;}
+
+    // Kontrola gridu – swept collision (Tah 6) zabrání corner-cut tunelům
+    let gx, gy, cell, hitBlock;
+    const hit=firstCollisionOnPath(p.x,p.y,nx,ny,p.ci);
+    if(hit){
+      gx=hit.gx; gy=hit.gy;
+      hitBlock=hit.blk||null;
+      cell=hit.cell;
+      // Posuň projektil na bod kolize (nx/ny), aby odrazové směrování
+      // vycházelo ze správné polohy a nespadlo do dříve přeskočené buňky.
+      nx=hit.cx; ny=hit.cy;
+    } else {
+      gx=Math.floor(nx/SCALE); gy=Math.floor(ny/SCALE);
+      cell=(gy>=0&&gy<GH&&gx>=0&&gx<GW)?grid[gy][gx]:-1;
+      hitBlock=(gy>=0&&gy<GH&&gx>=0&&gx<GW)?findBlockAtPixel(gx,gy):null;
+    }
+
+    let anyBounce=wallBounced;
+
+    if(hitBlock){
+      if(hitBlock.kind==='mystery'){
+        // Mystery blok: libovolná barva -1 HP, projektil se ODRAZÍ (nepop-ne).
+        hitBlock.hp-=1;
+        if(hitBlock.hp<=0){
+          // Odhaleno! Pixely pod blokem zůstávají (blok je jen "sundáme").
+          spawnBlockExplosion(hitBlock);
+          currentBlocks=currentBlocks.filter(b=>b!==hitBlock);
+          drawGrid();
+          // Projektil pokračuje v letu za odhalenou plochu (odraz se neprovede,
+          // když blok zmizel — jen přesměrujeme na nejbližší cíl své barvy).
+          steerAfterBounce(p);
+          p.x=nx; p.y=ny; p.stuckT=0;
+        } else {
+          const prevGx=Math.floor(p.x/SCALE),prevGy=Math.floor(p.y/SCALE);
+          if(prevGx!==gx)p.vx=-p.vx;
+          if(prevGy!==gy)p.vy=-p.vy;
+          if(prevGx===gx&&prevGy===gy){p.vx=-p.vx;p.vy=-p.vy;}
+          anyBounce=true;
+          drawGrid(); // překreslit HP číslo
+        }
+      } else if(hitBlock.color===p.ci){
+        // Solid blok, color match → blok utrpí 1 HP (1 projektil = 1 HP), projektil pop
+        {
+          const oldGx=Math.floor(p.x/SCALE), oldGy=Math.floor(p.y/SCALE);
+          const steps=Math.max(1,Math.abs(gx-oldGx)+Math.abs(gy-oldGy));
+          const crossed=[];
+          for(let s=1;s<=steps;s++){
+            const fx=p.x+(nx-p.x)*(s/steps), fy=p.y+(ny-p.y)*(s/steps);
+            const cx=Math.floor(fx/SCALE), cy=Math.floor(fy/SCALE);
+            const blk=findBlockAtPixel(cx,cy);
+            if(blk&&blk!==hitBlock)crossed.push({cx,cy,col:blk.color,hp:blk.hp});
+          }
+          if(crossed.length) console.log('[BB-DEBUG] block hit CROSSED OTHER BLOCK', {ci:p.ci, from:[oldGx,oldGy], to:[gx,gy], hitCol:hitBlock.color, hitHP:hitBlock.hp, crossed});
+        }
+        hitBlock.hp-=1;
+        p.phase='pop'; p.popX=nx; p.popY=ny; p.onPop();
+        spawnPopShards(nx,ny,p.color);
+        if(hitBlock.hp<=0){
+          // Blok zničen → exploze + smazat pixely pod + odstranit z aktivních.
+          // Solid blok byl neprůhledný → pixely pod NEZŮSTÁVAJÍ jako odměna.
+          clearPixelsUnderBlock(hitBlock);
+          spawnBlockExplosion(hitBlock);
+          currentBlocks=currentBlocks.filter(b=>b!==hitBlock);
+        }
+        drawGrid();
+        if(running&&!anyTargetLeft()){
+          particles.forEach(q=>{if(q.phase==='fly'){q.phase='pop';q.popX=q.x;q.popY=q.y;}});
+          setTimeout(()=>{if(running)endGame(true);},80);
+        }
+      } else {
+        // Solid blok, nesprávná barva → odraz
+        const prevGx=Math.floor(p.x/SCALE),prevGy=Math.floor(p.y/SCALE);
+        if(prevGx!==gx)p.vx=-p.vx;
+        if(prevGy!==gy)p.vy=-p.vy;
+        if(prevGx===gx&&prevGy===gy){p.vx=-p.vx;p.vy=-p.vy;}
+        // Tah 5g + 6c: bezpečný nudge – posuň jen pokud by cesta
+        // nevrazila do dalšího bloku/pixelu (jinak zůstaň, další frame
+        // to zkusí znovu s flipnutou rychlostí).
+        {
+          const _nx=p.x+p.vx*dt, _ny=p.y+p.vy*dt;
+          if(!firstCollisionOnPath(p.x,p.y,_nx,_ny,p.ci)){ p.x=_nx; p.y=_ny; }
+        }
+        anyBounce=true;
+        p.stuckT+=dt;
+        if(p.stuckT>1.2){
+          console.log('[BB-DEBUG] respawn (stuck)', {ci:p.ci, atX:p.x|0, atY:p.y|0, blockColor:hitBlock.color, blockHP:hitBlock.hp});
+          respawnParticle(p);
+        }
+      }
+    } else {
+      // v74.53: expanded collider pro POSLEDNÍ pixel barvy (2.5× collider radius)
+      // — usnadní dohrání levelu, single pixel uprostřed často trvá věčnost.
+      if(cell !== p.ci && _lastPxPosByColor && _lastPxPosByColor[p.ci]){
+        const lpp = _lastPxPosByColor[p.ci];
+        const cx = lpp.gx * SCALE + SCALE/2;
+        const cy = lpp.gy * SCALE + SCALE/2;
+        const ddx = nx - cx, ddy = ny - cy;
+        const R = SCALE * 2.5;
+        if(ddx*ddx + ddy*ddy <= R*R){
+          gx = lpp.gx;
+          gy = lpp.gy;
+          cell = p.ci;
+        }
+      }
+    }
+    if(cell===p.ci){
+      // Vlastní barva → znič pixel
+      {
+        // Diagnostika: jestli se mezi starou a novou buňkou nějaký blok
+        // „přeskočil" (corner-cut / tunnel), vypíšeme to. Pokud byla jakákoli
+        // buňka na cestě pokryta blokem, projektil by se měl odrazit → log.
+        const oldGx=Math.floor(p.x/SCALE), oldGy=Math.floor(p.y/SCALE);
+        const steps=Math.max(1,Math.abs(gx-oldGx)+Math.abs(gy-oldGy));
+        const crossed=[];
+        for(let s=1;s<=steps;s++){
+          const fx=p.x+(nx-p.x)*(s/steps), fy=p.y+(ny-p.y)*(s/steps);
+          const cx=Math.floor(fx/SCALE), cy=Math.floor(fy/SCALE);
+          const blk=findBlockAtPixel(cx,cy);
+          if(blk)crossed.push({cx,cy,col:blk.color,hp:blk.hp});
+        }
+        if(crossed.length) console.log('[BB-DEBUG] pixel destroy CROSSED BLOCK', {ci:p.ci, from:[oldGx,oldGy], to:[gx,gy], crossed});
+      }
+      // v73.235: CA heat bump + maybe trigger pro normální (single-pixel) destrukci
+      _caBumpHeat();
+      // 3D destruction trigger BEFORE grid mutation (color z grid)
+      if(RENDERER_MODE==='3d' && window.render3d && window.render3d.triggerPixelDestroy){
+        const ci=grid[gy][gx];
+        if(ci>=0){
+          window.render3d.triggerPixelDestroy(gx, gy, COLORS[ci]);
+          _caMaybeTrigger(gx, gy, COLORS[ci]); // v73.235
+          if(window.render3d.triggerDustBurst) window.render3d.triggerDustBurst(gx, gy, COLORS[ci]); // v73.239
+        }
+      }
+      grid[gy][gx]=-1;
+      if(gravityOn)applyGravityToCol(grid,gx);
+      drawGrid();
+      p.phase='pop'; p.popX=nx; p.popY=ny; p.onPop();
+      // 2D pop shards layer — běží v obou módech (user chce kombinaci 2D + 3D).
+      _playPop();
+      spawnPopShards(nx,ny,p.color);
+      if(running&&!anyTargetLeft()){
+        particles.forEach(q=>{if(q.phase==='fly'){q.phase='pop';q.popX=q.x;q.popY=q.y;}});
+        setTimeout(()=>{if(running)endGame(true);},80);
+      }
+    } else if(cell>-1){
+      // Špatná barva → fyzikální odraz ze strany nárazu
+      const prevGx=Math.floor(p.x/SCALE),prevGy=Math.floor(p.y/SCALE);
+      if(prevGx!==gx)p.vx=-p.vx;
+      if(prevGy!==gy)p.vy=-p.vy;
+      if(prevGx===gx&&prevGy===gy){p.vx=-p.vx;p.vy=-p.vy;}
+      // Tah 5g + 6c: bezpečný nudge (viz výše).
+      {
+        const _nx=p.x+p.vx*dt, _ny=p.y+p.vy*dt;
+        if(!firstCollisionOnPath(p.x,p.y,_nx,_ny,p.ci)){ p.x=_nx; p.y=_ny; }
+      }
+      if(RENDERER_MODE==='3d' && window.render3d?.triggerPixelHit) window.render3d.triggerPixelHit(gx, gy);
+      _playBounce();
+      anyBounce=true;
+      p.stuckT+=dt;
+      if(p.stuckT>1.2){respawnParticle(p);}
+    } else {
+      p.x=nx; p.y=ny; p.stuckT=0; p.bounceStreak=0;
+    }
+
+    // Po každém odrazu: sleduj streak a eskapuj z rohu pokud je příliš dlouhý
+    if(anyBounce && p.phase==='fly'){
+      // v73.46: timestamp pro squash & stretch toon effect (render3d.js applies scale curve).
+      p.bounceT0 = performance.now();
+      // v73.49: cartoon spark effect při wall bounce (jen wallBounced, ne block bounce).
+      if(wallBounced && RENDERER_MODE==='3d' && window.render3d && window.render3d.triggerBounceSpark){
+        window.render3d.triggerBounceSpark(p.x, p.y, p.vx, p.vy, COLORS[p.ci]);
+      }
+      p.bounceStreak=(p.bounceStreak||0)+1;
+      if(p.bounceStreak>8){
+        respawnParticle(p);
+      } else {
+        steerAfterBounce(p);
+      }
+    }
+  }
+}
+
+function drawCannon(){
+  if(!particleCtx)return;
+  // v73.337: v 3D módu sync cannon hole position + skip 2D drawing (hole je 3D mesh)
+  if(RENDERER_MODE==='3d' && window.render3d?.setCannonPosition){
+    window.render3d.setCannonPosition(cannonX, CANNON_Y, cannonAngle);
+    return;
+  }
+  const ctx=particleCtx;
+  // Preview barvu ukážeme jen když má front queue item DOSAŽITELNÝ cíl
+  // (jinak to vypadá jako „zamrzlá střela na hlavni").
+  let nextColor=null;
+  if(gunQueue.length>0){
+    const ci=gunQueue[0].ci;
+    if(hasReachableTargetForColor(ci)) nextColor=gunQueue[0].color;
+  }
+  ctx.save();
+  ctx.translate(cannonX,CANNON_Y);
+  // Stín pod kanonem
+  ctx.fillStyle='rgba(0,0,0,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(0,6,15,3,0,0,Math.PI*2);
+  ctx.fill();
+  // Podvozek (lichoběžník)
+  ctx.fillStyle='#2b2d35';
+  ctx.strokeStyle='#6a6e78';
+  ctx.lineWidth=1;
+  ctx.beginPath();
+  ctx.moveTo(-15,5);
+  ctx.lineTo(15,5);
+  ctx.lineTo(11,-3);
+  ctx.lineTo(-11,-3);
+  ctx.closePath();
+  ctx.fill();ctx.stroke();
+  // Kolečka – statická (pohyb naznačený stínem)
+  ctx.fillStyle='#111';
+  ctx.beginPath();ctx.arc(-9,5,2.2,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(9,5,2.2,0,Math.PI*2);ctx.fill();
+  // Otočný talíř
+  ctx.fillStyle='#44464f';
+  ctx.beginPath();ctx.arc(0,-3,5,0,Math.PI*2);ctx.fill();
+  // Hlaveň – otočená k cíli (-PI/2 = svisle nahoru)
+  ctx.rotate(cannonAngle+Math.PI/2);
+  ctx.fillStyle='#4d5058';
+  ctx.strokeStyle='#7a7e88';
+  ctx.lineWidth=1;
+  ctx.fillRect(-2.6,-15,5.2,14);
+  ctx.strokeRect(-2.6,-15,5.2,14);
+  // Hrdlo – barevné náznak další střely
+  if(nextColor){
+    ctx.fillStyle=nextColor;
+    ctx.beginPath();
+    ctx.arc(0,-15,2.2,0,Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,0.4)';
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+// 2D smoke puffs — schedule 3 staggered puffs ~500ms po posledním cannon fire.
+function scheduleSmokePuffs(){
+  const t0=performance.now()+500;
+  // v74.53: jen 2 puffs místo 3, jemnější scale
+  smokePuffsQueue=[
+    {t:t0,     scale:0.32},
+    {t:t0+140, scale:0.38},
+  ];
+}
+function spawnSmokePuff(scaleMul){
+  // 21 px (14 muzzle + 7 forward offset) podél cannon angle → cloud sedí před hlavní
+  const muzzleX=cannonX+Math.cos(cannonAngle)*21;
+  const muzzleY=CANNON_Y+Math.sin(cannonAngle)*21;
+  const p = _acquireSmokePuff();
+  p.x = muzzleX; p.y = muzzleY;
+  p.dx = (Math.random()-0.5)*4;
+  p.dy = -12-Math.random()*4;
+  p.t0 = performance.now();
+  p.duration = 550;
+  p.scaleMul = scaleMul||1.0;
+  smokePuffs.push(p);
+}
+function updateAndDrawSmokePuffs(){
+  if(!particleCtx) return;
+  const now=performance.now();
+  // Spawn queued puffs
+  for(let i=smokePuffsQueue.length-1;i>=0;i--){
+    if(now>=smokePuffsQueue[i].t){
+      spawnSmokePuff(smokePuffsQueue[i].scale);
+      smokePuffsQueue.splice(i,1);
+    }
+  }
+  // Update + draw existing puffs
+  const ctx=particleCtx;
+  ctx.save();
+  for(let i=smokePuffs.length-1;i>=0;i--){
+    const p=smokePuffs[i];
+    const dt=now-p.t0;
+    if(dt>=p.duration){
+      _releaseSmokePuff(p);
+      const last=smokePuffs.length-1;
+      if(i!==last) smokePuffs[i]=smokePuffs[last];
+      smokePuffs.pop();
+      continue;
+    }
+    const t=Math.max(0,Math.min(1,dt/p.duration)); // clamp pro newly-spawned puffy
+    const easeOut=1-Math.pow(1-t,2);
+    // Scale pop-in: 0→1 v prvních 25%, pak grow lehce do 1.15
+    let s;
+    if(t<0.25) s=(t/0.25)*1.0;
+    else       s=1.0+(t-0.25)*0.20;
+    const radius=Math.max(0.1,7*p.scaleMul*s); // 10→7 menší
+    const x=p.x+p.dx*easeOut;
+    const y=p.y+p.dy*easeOut;
+    // Fade — max opacity 0.55, fade-out od 35%
+    const op=t<0.35 ? 0.55 : 0.55*(1.0-(t-0.35)/0.65);
+    ctx.globalAlpha=Math.max(0,op);
+    ctx.fillStyle='#ffffff';
+    ctx.beginPath();
+    ctx.arc(x,y,radius,0,Math.PI*2);
+    ctx.fill();
+    // Outline jemnější, mizí dřív
+    ctx.strokeStyle='rgba(60,40,60,0.22)';
+    ctx.lineWidth=0.8;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawParticles(){
+  if(!particleCtx)return;
+  particleCtx.clearRect(0,0,360,310);
+  drawCannon();
+  updateAndDrawSmokePuffs();
+  // V 3D módu: 'fly' fáze projektily renderuje render3d (sphere instances).
+  // Rocket/pop/confetti/shards fáze zůstávají 2D na particle-canvas.
+  const _use3DProj = RENDERER_MODE==='3d' && window.render3d && window.render3d.isReady && window.render3d.isReady();
+  if(_use3DProj){
+    window.render3d.updateProjectiles(particles);
+  }
+  for(const p of particles){
+    if(p.phase==='fly'){
+      if(_use3DProj) continue; // 3D sphere render přes render3d.updateProjectiles výše
+      const spd=Math.sqrt(p.vx*p.vx+p.vy*p.vy)||1;
+      // Stopa
+      particleCtx.save();
+      particleCtx.globalAlpha=0.28;
+      particleCtx.beginPath();
+      particleCtx.arc(p.x-p.vx/spd*10,p.y-p.vy/spd*10,3.2,0,Math.PI*2);
+      particleCtx.fillStyle=p.color;particleCtx.fill();
+      particleCtx.restore();
+      // Balónek
+      particleCtx.save();
+      particleCtx.beginPath();
+      particleCtx.arc(p.x,p.y,4.8,0,Math.PI*2);
+      particleCtx.fillStyle=p.color;particleCtx.fill();
+      particleCtx.strokeStyle='rgba(0,0,0,0.28)';particleCtx.lineWidth=1;particleCtx.stroke();
+      particleCtx.beginPath();
+      particleCtx.arc(p.x-1.5,p.y-1.5,1.6,0,Math.PI*2);
+      particleCtx.fillStyle='rgba(255,255,255,0.5)';particleCtx.fill();
+      particleCtx.restore();
+    } else if(p.phase==='rocket'){
+      const dx=p.tx-p.x, dy=p.ty-p.y;
+      const ang=Math.atan2(dy,dx);
+      // Plamenná stopa – pulzující z kouře za raketou
+      const tx=p.x-Math.cos(ang)*8, ty=p.y-Math.sin(ang)*8;
+      particleCtx.save();
+      particleCtx.globalAlpha=0.55;
+      particleCtx.beginPath();
+      particleCtx.arc(tx,ty,4+Math.sin(p.totalT*40)*1.2,0,Math.PI*2);
+      particleCtx.fillStyle='#ffb347';particleCtx.fill();
+      particleCtx.globalAlpha=0.85;
+      particleCtx.beginPath();
+      particleCtx.arc(tx+Math.cos(ang)*2,ty+Math.sin(ang)*2,2.2,0,Math.PI*2);
+      particleCtx.fillStyle='#fff7c2';particleCtx.fill();
+      particleCtx.restore();
+      // Tělo rakety
+      particleCtx.save();
+      particleCtx.translate(p.x,p.y);
+      particleCtx.rotate(ang);
+      particleCtx.fillStyle='#e8e8ee';
+      particleCtx.fillRect(-5,-2.2,10,4.4);
+      particleCtx.fillStyle=p.color;
+      particleCtx.fillRect(2,-2.2,3,4.4);
+      particleCtx.strokeStyle='rgba(0,0,0,0.45)';
+      particleCtx.lineWidth=0.8;
+      particleCtx.strokeRect(-5,-2.2,10,4.4);
+      // Špička
+      particleCtx.beginPath();
+      particleCtx.moveTo(5,-2.2);particleCtx.lineTo(8,0);particleCtx.lineTo(5,2.2);particleCtx.closePath();
+      particleCtx.fillStyle='#c0c4cc';particleCtx.fill();particleCtx.stroke();
+      particleCtx.restore();
+    } else if(!window._DEBUG_DISABLE_POP_CIRCLE){
+      // v73.240: kruhový 2D pop efekt + bílý záblesk. Lze dočasně vypnout
+      // přes window._DEBUG_DISABLE_POP_CIRCLE = true (DevTools console).
+      const maxR=p.maxPopR||10;
+      const alpha=Math.max(0,1-p.popR/maxR);
+      particleCtx.save();
+      particleCtx.globalAlpha=alpha;
+      particleCtx.beginPath();
+      particleCtx.arc(p.popX,p.popY,p.popR,0,Math.PI*2);
+      particleCtx.strokeStyle=p.color;particleCtx.lineWidth=2;particleCtx.stroke();
+      // Rychlý světelný záblesk
+      if(p.popR<4){
+        particleCtx.globalAlpha=0.55*(1-p.popR/4);
+        particleCtx.beginPath();
+        particleCtx.arc(p.popX,p.popY,6+p.popR,0,Math.PI*2);
+        particleCtx.fillStyle='#ffffff';particleCtx.fill();
+      }
+      particleCtx.restore();
+    }
+  }
+  // Konfety – nad vším, fade podle životnosti
+  for(const c of confetti){
+    if(c.delay>0)continue;
+    const t=c.life/c.maxLife;
+    const alpha=Math.max(0,1-t*t);
+    particleCtx.save();
+    particleCtx.globalAlpha=alpha;
+    particleCtx.translate(c.x,c.y);
+    particleCtx.rotate(c.rot);
+    particleCtx.fillStyle=c.color;
+    const w=c.size, h=c.size*c.ratio;
+    particleCtx.fillRect(-w/2,-h/2,w,h);
+    particleCtx.strokeStyle='rgba(0,0,0,0.25)';
+    particleCtx.lineWidth=0.6;
+    particleCtx.strokeRect(-w/2,-h/2,w,h);
+    particleCtx.restore();
+  }
+  // Střípky – vykreslí se nad particly (hezky překryjí pop ring)
+  for(const s of shards){
+    const t=s.life/s.maxLife;
+    const alpha=Math.max(0,1-t*t);
+    particleCtx.save();
+    particleCtx.globalAlpha=alpha;
+    particleCtx.translate(s.x,s.y);
+    particleCtx.rotate(s.rot);
+    particleCtx.fillStyle=s.color;
+    particleCtx.fillRect(-s.size/2,-s.size/2,s.size,s.size);
+    particleCtx.strokeStyle='rgba(0,0,0,0.35)';
+    particleCtx.lineWidth=0.5;
+    particleCtx.strokeRect(-s.size/2,-s.size/2,s.size,s.size);
+    particleCtx.restore();
+  }
+}
+function makeGridShapes(){
+  const g=[];
+  for(let y=0;y<IMG_GH;y++){
+    const r=[];
+    for(let x=0;x<GW;x++){
+      if(y===IMG_GH-1){r.push(-1);continue;}
+      r.push(Math.floor(y/3)%2===0?5:6);
+    }
+    g.push(r);
+  }
+  const shapes=[
+    {cx:18,cy:13,rx:14,ry:11,c:1},{cx:18,cy:14,rx:10,ry:8,c:0},
+    {cx:11,cy:16,rx:6,ry:5,c:3},{cx:25,cy:16,rx:6,ry:5,c:2},
+    {cx:11,cy:17,rx:4,ry:3,c:4},{cx:25,cy:17,rx:4,ry:3,c:6}
+  ];
+  for(const s of shapes)
+    for(let y=0;y<IMG_GH-1;y++)for(let x=0;x<GW;x++){
+      const dx=(x-s.cx)/s.rx,dy=(y-s.cy)/s.ry;
+      if(dx*dx+dy*dy<=1)g[y][x]=s.c;
+    }
+  return g;
+}
+function makeGridStripes(){
+  const g=[];
+  for(let y=0;y<IMG_GH;y++)g.push(new Array(GW).fill(-1));
+  const cw=Math.floor(GW/3);
+  const pats=[
+    [{c:0,h:3},{c:3,h:2},{c:5,h:2},{c:4,h:2},{c:0,h:3},{c:3,h:2},{c:5,h:2},{c:4,h:3},{c:0,h:2},{c:6,h:3},{c:5,h:3}],
+    [{c:1,h:2},{c:4,h:3},{c:6,h:2},{c:3,h:2},{c:2,h:3},{c:1,h:2},{c:4,h:3},{c:0,h:2},{c:6,h:2},{c:1,h:3},{c:4,h:3}],
+    [{c:2,h:3},{c:4,h:2},{c:2,h:2},{c:0,h:3},{c:3,h:2},{c:2,h:2},{c:0,h:3},{c:4,h:2},{c:2,h:3},{c:0,h:3},{c:3,h:2}]
+  ];
+  for(let col=0;col<3;col++){
+    const xs=col*cw,xe=col===2?GW:xs+cw;
+    let y=0;
+    for(const s of pats[col]){
+      for(let dy=0;dy<s.h&&y<IMG_GH-1;dy++,y++)
+        for(let x=xs;x<xe;x++)g[y][x]=s.c;
+      if(y>=IMG_GH-1)break;
+    }
+  }
+  return g;
+}
+function makeGridMix(){
+  const g=makeGridStripes();
+  for(let y=Math.floor(IMG_GH*0.55);y<IMG_GH-1;y++)for(let x=0;x<GW;x++)g[y][x]=5;
+  const shapes=[
+    {cx:8,cy:21,rx:5,ry:3,c:1},{cx:18,cy:22,rx:5,ry:3,c:0},
+    {cx:28,cy:21,rx:5,ry:3,c:3},{cx:13,cy:23,rx:3,ry:2,c:4},{cx:23,cy:23,rx:3,ry:2,c:6}
+  ];
+  for(const s of shapes)
+    for(let y=0;y<IMG_GH-1;y++)for(let x=0;x<GW;x++){
+      const dx=(x-s.cx)/s.rx,dy=(y-s.cy)/s.ry;
+      if(dx*dx+dy*dy<=1)g[y][x]=s.c;
+    }
+  return g;
+}
+function makeGridSmiley(variant){
+  // variant: 'final' (default) | 'neutral' (straight mouth, obě oči) | 'wink' (úsměv + zavřené pravé oko)
+  variant=variant||'final';
+  // Barvy: 0 zelená, 1 oranžová, 2 světlomodrá, 3 modrá, 4 růžová, 5 žlutá, 6 fialová, 7 černá, 8 bílá
+  const BG=3, SKIN=5, OUTL=7, BLUSH=4, EYEW=8, TONG=8;
+  const g=new Array(IMG_GH);
+  for(let y=0;y<IMG_GH;y++)g[y]=new Array(GW).fill(BG);
+  const cx=17.5, cy=12.5, R=11.2, r=10.2;
+  // Tvář – žlutá výplň s černou konturou
+  for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+    const d=Math.hypot(x-cx,y-cy);
+    if(d<=R){g[y][x]=(d>=r)?OUTL:SKIN;}
+  }
+  // Duhový paprskový rámeček v rozích (ať to vypadá hot)
+  const rays=[
+    {cx:2,cy:2,c:1},{cx:33,cy:2,c:0},
+    {cx:2,cy:24,c:6},{cx:33,cy:24,c:4}
+  ];
+  for(const s of rays)for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+    const d=Math.hypot(x-s.cx,y-s.cy);
+    if(d<=2.2&&g[y][x]===BG)g[y][x]=s.c;
+  }
+  // Oči – černý kroužek s bílým highlightem, pravé lze zavřít (wink)
+  const eyes=[{x:13,y:10},{x:22,y:10}];
+  for(let i=0;i<eyes.length;i++){
+    const e=eyes[i];
+    const closed=(variant==='wink'&&i===1);
+    if(closed){
+      for(let xx=e.x-2;xx<=e.x+2;xx++)if(xx>=0&&xx<GW)g[e.y][xx]=OUTL;
+      g[e.y-1][e.x-2]=OUTL;g[e.y-1][e.x+2]=OUTL;
+    } else {
+      for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+        const d=Math.hypot(x-e.x,y-e.y);
+        if(d<=2.4)g[y][x]=OUTL;
+      }
+      for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+        const d=Math.hypot(x-(e.x-0.6),y-(e.y-0.6));
+        if(d<=0.9)g[y][x]=EYEW;
+      }
+    }
+  }
+  // Tvářičky – růžové skvrny jen přes žlutou kůži
+  for(const c of [{x:9,y:14},{x:26,y:14}])
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+      const dx=x-c.x,dy=(y-c.y)*1.3;
+      if(dx*dx+dy*dy<=3.2&&g[y][x]===SKIN)g[y][x]=BLUSH;
+    }
+  // Pusa – pro 'neutral' rovná linka, jinak úsměv s bílým „zubem"
+  if(variant==='neutral'){
+    for(let xx=14;xx<=21;xx++)if(g[16][xx]===SKIN)g[16][xx]=OUTL;
+  } else {
+    const mcx=17.5, mcy=14.2, mR=6.0, mr=4.9;
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+      const dx=(x-mcx), dy=(y-mcy)*1.25;
+      const d=Math.hypot(dx,dy);
+      if(y>=mcy&&d<=mR&&g[y][x]===SKIN){
+        if(d>=mr)g[y][x]=OUTL;
+        else if(y>=mcy+1.2)g[y][x]=TONG;
+      }
+    }
+  }
+  return g;
+}
+function makeGridMoon(variant){
+  // variant: 'empty'|'moon'|'plusses'|'stars'|'final'|'twinkle-a'|'twinkle-b' (default 'final')
+  variant=variant||'final';
+  const BG=6, CRES=2, DARK=7, STAR=8, PLUS=5;
+  const g=new Array(IMG_GH);
+  for(let y=0;y<IMG_GH;y++)g[y]=new Array(GW).fill(BG);
+  const hasMoon=variant!=='empty';
+  const hasPlusses=variant==='plusses'||variant==='stars'||variant==='final'||variant==='twinkle-a'||variant==='twinkle-b';
+  const hasStars=variant==='stars'||variant==='final'||variant==='twinkle-a'||variant==='twinkle-b';
+  if(hasMoon){
+    const cx=18.5, cy=13.5, R=10.4, off=4.2;
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+      const d1=Math.hypot(x-cx,y-cy);
+      const d2=Math.hypot(x-(cx+off),y-cy);
+      if(d1<=R)g[y][x]=(d2<=R)?DARK:CRES;
+    }
+  }
+  const plusses=[{x:6,y:6},{x:33,y:12},{x:5,y:17},{x:28,y:1},{x:14,y:25},{x:32,y:25},{x:2,y:25}];
+  if(hasPlusses)for(const p of plusses){
+    const cells=[{x:p.x,y:p.y},{x:p.x-1,y:p.y},{x:p.x+1,y:p.y},{x:p.x,y:p.y-1},{x:p.x,y:p.y+1}];
+    for(const q of cells){
+      if(q.x>=0&&q.x<GW&&q.y>=0&&q.y<IMG_GH&&g[q.y][q.x]===BG)g[q.y][q.x]=PLUS;
+    }
+  }
+  const bgStars=[{x:3,y:2},{x:7,y:1},{x:31,y:3},{x:33,y:7},{x:2,y:11},{x:34,y:14},{x:4,y:22},{x:31,y:22},{x:10,y:25},{x:26,y:25},{x:1,y:17},{x:16,y:0}];
+  const innerStars=[{x:19,y:9},{x:22,y:12},{x:24,y:9},{x:18,y:17},{x:24,y:17},{x:21,y:15}];
+  if(hasStars){
+    for(const s of bgStars)if(g[s.y]&&g[s.y][s.x]===BG)g[s.y][s.x]=STAR;
+    for(const s of innerStars)if(g[s.y]&&g[s.y][s.x]===DARK)g[s.y][s.x]=STAR;
+  }
+  // Zablikání – některé hvězdičky dočasně nažloutlé
+  if(variant==='twinkle-a'||variant==='twinkle-b'){
+    const setA=[{x:7,y:1},{x:33,y:7},{x:19,y:9},{x:24,y:17},{x:10,y:25}];
+    const setB=[{x:3,y:2},{x:34,y:14},{x:22,y:12},{x:18,y:17},{x:1,y:17},{x:31,y:22}];
+    const twinkle=variant==='twinkle-a'?setA:setB;
+    for(const s of twinkle)if(g[s.y]&&g[s.y][s.x]===STAR)g[s.y][s.x]=PLUS;
+  }
+  return g;
+}
+function makeGridC3PO(variant){
+  // C-3PO – zlatá robotí hlava se dvěma kulatými očima a mřížkou pusy,
+  // na tmavém mozaikovém pozadí.
+  // varianty: 'final' (default), 'ha-open' – otevřená pusa pro smích.
+  variant=variant||'final';
+  const BG=7, GOLD=5, SHADOW=1, EYE=1, DARK=7, WHITE=8;
+  const g=[];
+  for(let y=0;y<IMG_GH;y++)g.push(new Array(GW).fill(BG));
+  // Barevné střípky v pozadí (mozaika)
+  const speckles=[
+    [1,1,2],[4,2,4],[7,0,6],[11,2,0],[29,1,3],[32,2,6],[34,0,2],[27,3,4],
+    [2,5,4],[34,5,0],[1,8,6],[33,7,3],[0,12,4],[35,10,6],[1,15,0],[34,13,2],
+    [0,18,3],[35,17,4],[2,21,6],[33,22,0],[5,25,2],[30,25,6],[15,26,3],[22,26,4],
+    [10,25,0],[25,26,2],[1,25,4],[34,25,3],[8,20,6],[27,20,2]
+  ];
+  for(const [x,y,c] of speckles)if(x>=0&&x<GW&&y>=0&&y<IMG_GH)g[y][x]=c;
+  // Hlava – protažený ovál
+  const cx=17.5, cy=11, rx=9.5, ry=10;
+  for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+    const dx=(x-cx)/rx, dy=(y-cy)/ry;
+    if(dx*dx+dy*dy<=1)g[y][x]=GOLD;
+  }
+  // Krk – lichoběžník pod hlavou
+  for(let y=20;y<=25;y++){
+    const w=7-Math.floor((y-20)/2);
+    for(let x=Math.floor(cx-w);x<=Math.ceil(cx+w);x++){
+      if(x>=0&&x<GW)g[y][x]=(y>=24)?SHADOW:GOLD;
+    }
+  }
+  // Hrany hlavy – stín (oranžová), nejdřív detekuj, pak obarvi
+  const edge=[];
+  for(let y=0;y<IMG_GH;y++){
+    edge.push([]);
+    for(let x=0;x<GW;x++){
+      let e=false;
+      if(g[y][x]===GOLD){
+        for(const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]]){
+          const nx=x+dx, ny=y+dy;
+          if(nx<0||nx>=GW||ny<0||ny>=IMG_GH||g[ny][nx]!==GOLD){e=true;break;}
+        }
+      }
+      edge[y].push(e);
+    }
+  }
+  for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++)if(edge[y][x])g[y][x]=SHADOW;
+  // Oči – tmavý kruh s oranžovým zářícím středem
+  const eyes=[{x:13,y:10},{x:22,y:10}];
+  for(const e of eyes){
+    for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){
+      const d=Math.hypot(dx,dy);
+      if(d<=2.3){
+        const nx=e.x+dx, ny=e.y+dy;
+        if(nx>=0&&nx<GW&&ny>=0&&ny<IMG_GH)g[ny][nx]=DARK;
+      }
+    }
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+      const d=Math.hypot(dx,dy);
+      if(d<=1.2){
+        const nx=e.x+dx, ny=e.y+dy;
+        if(nx>=0&&nx<GW&&ny>=0&&ny<IMG_GH)g[ny][nx]=EYE;
+      }
+    }
+    // Bílý odlesk
+    g[e.y-1][e.x]=WHITE;
+  }
+  // Nos – svislá linka mezi očima
+  for(let y=12;y<=15;y++)if(g[y]&&g[y][17]===GOLD)g[y][17]=SHADOW;
+  if(variant==='ha-open'){
+    // Mechanické otevření – čelist sjede dolů o 2 řádky.
+    // Horní ret zůstává, mezi ním a mřížkou se objeví tmavá mezera.
+    for(let x=11;x<=24;x++){
+      if(g[16]&&g[16][x]===GOLD)g[16][x]=SHADOW; // horní ret
+    }
+    for(let y=17;y<=18;y++)for(let x=12;x<=23;x++){
+      if(g[y]&&g[y][x]!==BG)g[y][x]=DARK;        // tmavá mezera v ústech
+    }
+    for(let x=12;x<=23;x++){
+      for(let y=19;y<=20;y++){
+        if(g[y]&&g[y][x]!==BG)g[y][x]=(x%2===0?DARK:GOLD); // přesunutá mřížka
+      }
+    }
+    for(let x=11;x<=24;x++){
+      if(g[21]&&g[21][x]===GOLD)g[21][x]=SHADOW; // dolní ret o 2 níž
+    }
+  } else {
+    // Ústa – mřížka se svislými tmavými pruhy
+    for(let x=12;x<=23;x++){
+      for(let y=17;y<=18;y++){
+        if(g[y]&&g[y][x]!==BG)g[y][x]=(x%2===0?DARK:GOLD);
+      }
+    }
+    // Horní a spodní lem pusy
+    for(let x=11;x<=24;x++){
+      if(g[16]&&(g[16][x]===GOLD))g[16][x]=SHADOW;
+      if(g[19]&&(g[19][x]===GOLD))g[19][x]=SHADOW;
+    }
+  }
+  // Uši / výstupky po stranách hlavy
+  for(let dy=-1;dy<=1;dy++){
+    if(g[11+dy])g[11+dy][6]=SHADOW;
+    if(g[11+dy])g[11+dy][29]=SHADOW;
+  }
+  return g;
+}
+function makeGridFrog(variant, yOff){
+  // Žabka (Keroppi-styl) vynořující se z vody. Hlava = široký ovál, nahoře
+  // dvě vyčnívající oční bulvy. yOff posune tělo dolů → postupné vynoření.
+  variant=variant||'final';
+  yOff=yOff||0;
+  const BG=8, GREEN=0, OUT=7, WATER=2, WATER_D=3, PINK=4, WHITE=8;
+  const g=[];
+  for(let y=0;y<IMG_GH;y++)g.push(new Array(GW).fill(BG));
+  // Voda
+  const wcx=18, wcy=21, wrx=16, wry=5, WATER_Y=18;
+  for(let y=17;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+    const dx=(x-wcx)/wrx, dy=(y-wcy)/wry;
+    if(dx*dx+dy*dy<=1)g[y][x]=WATER;
+  }
+  for(let y=17;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+    const dx=(x-wcx)/wrx, dy=(y-wcy)/wry;
+    const r=dx*dx+dy*dy;
+    if(r>0.78&&r<=1&&g[y][x]===WATER)g[y][x]=WATER_D;
+  }
+  if(variant==='water-only')return g;
+  // Hlava – široký plochý ovál
+  const headCX=18, headCY=13+yOff, headRX=11, headRY=5.6;
+  // Oční bulvy – dva kruhy nad hlavou
+  const eyeLCX=12, eyeRCX=24, eyeCY=7+yOff, eyeR=3.8;
+  const isHead=(x,y)=>{
+    const dx=(x-headCX)/headRX, dy=(y-headCY)/headRY;
+    return dx*dx+dy*dy<=1;
+  };
+  const isEye=(x,y)=>{
+    const dl=(x-eyeLCX)*(x-eyeLCX)+(y-eyeCY)*(y-eyeCY);
+    if(dl<=eyeR*eyeR)return true;
+    const dr=(x-eyeRCX)*(x-eyeRCX)+(y-eyeCY)*(y-eyeCY);
+    return dr<=eyeR*eyeR;
+  };
+  const cells=new Set();
+  for(let y=0;y<WATER_Y;y++)for(let x=0;x<GW;x++){
+    if(isHead(x,y)||isEye(x,y)){
+      g[y][x]=GREEN;
+      cells.add(y*GW+x);
+    }
+  }
+  // Kontura proti pozadí (ne proti vodě)
+  const edges=[];
+  for(let y=0;y<IMG_GH;y++){
+    const row=[];
+    for(let x=0;x<GW;x++){
+      let e=false;
+      if(cells.has(y*GW+x)){
+        for(const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]]){
+          const nx=x+dx, ny=y+dy;
+          if(nx<0||nx>=GW||ny<0||ny>=IMG_GH){e=true;break;}
+          if(!cells.has(ny*GW+nx)&&g[ny][nx]===BG){e=true;break;}
+        }
+      }
+      row.push(e);
+    }
+    edges.push(row);
+  }
+  for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++)if(edges[y][x])g[y][x]=OUT;
+  const paint=(y,x,c,onlyIfBody)=>{
+    if(y<0||y>=WATER_Y||x<0||x>=GW)return;
+    if(onlyIfBody&&g[y][x]!==GREEN&&g[y][x]!==OUT)return;
+    g[y][x]=c;
+  };
+  // Bílky očí – vnitřek bulvy
+  const innerR=eyeR-1.0;
+  for(let y=0;y<WATER_Y;y++)for(let x=0;x<GW;x++){
+    const dl=(x-eyeLCX)*(x-eyeLCX)+(y-eyeCY)*(y-eyeCY);
+    if(dl<=innerR*innerR&&cells.has(y*GW+x))g[y][x]=WHITE;
+    const dr=(x-eyeRCX)*(x-eyeRCX)+(y-eyeCY)*(y-eyeCY);
+    if(dr<=innerR*innerR&&cells.has(y*GW+x))g[y][x]=WHITE;
+  }
+  // Zornice – velké černé kruhy se světlým odleskem
+  const pupilR=1.9;
+  const pupY=eyeCY+0.4;
+  for(let y=0;y<WATER_Y;y++)for(let x=0;x<GW;x++){
+    const dl=Math.hypot(x-eyeLCX,y-pupY);
+    if(dl<=pupilR&&cells.has(y*GW+x))g[y][x]=OUT;
+    const dr=Math.hypot(x-eyeRCX,y-pupY);
+    if(dr<=pupilR&&cells.has(y*GW+x))g[y][x]=OUT;
+  }
+  // Odlesky
+  paint(Math.round(pupY-1), eyeLCX, WHITE);
+  paint(Math.round(pupY-1), eyeRCX, WHITE);
+  // Tvářičky – růžové skvrny po stranách hlavy
+  const cheekY=headCY+2;
+  for(const ccx of [8,28]){
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+      if(dx*dx+dy*dy<=2){
+        const yy=cheekY+dy, xx=ccx+dx;
+        if(yy>=0&&yy<WATER_Y&&xx>=0&&xx<GW&&g[yy][xx]===GREEN)g[yy][xx]=PINK;
+      }
+    }
+  }
+  // Úsměv – nízký oblouček pod očima
+  const mouthY=headCY+2;
+  paint(mouthY+1,16,OUT,true);
+  paint(mouthY+1,17,OUT,true);
+  paint(mouthY+1,18,OUT,true);
+  paint(mouthY+1,19,OUT,true);
+  paint(mouthY,15,OUT,true);
+  paint(mouthY,20,OUT,true);
+  return g;
+}
+function makeGridMondrian(){
+  // Mondrian – komplexní kompozice s více bloky (inspirováno Composition with Large Red Plane)
+  // Barvy: 1=červená, 3=modrá, 5=žlutá, 7=černá, 8=bílá
+  const BL=7,WH=8,RE=1,BU=3,YE=5;
+  const g=[];
+  for(let y=0;y<IMG_GH;y++)g.push(new Array(GW).fill(-1));
+  const fill=(x0,y0,x1,y1,c)=>{for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++)g[y][x]=c;};
+
+  // Vnější rám (2px)
+  fill(0,0,35,1,BL); fill(0,25,35,26,BL);
+  fill(0,0,1,26,BL); fill(34,0,35,26,BL);
+
+  // Žluté proužky nahoře a dole
+  fill(2,2,33,3,YE);
+  fill(2,23,33,24,YE);
+
+  // Černé linky
+  fill(0,4,35,5,BL);      // H0 plná (pod horním žlutým)
+  fill(10,0,11,26,BL);    // V1 plná (~28% zleva)
+  fill(24,0,25,26,BL);    // V2 plná (~67% zleva)
+  fill(10,13,35,14,BL);   // H1 částečná (vpravo od V1)
+  fill(0,18,25,19,BL);    // H2 částečná (vlevo od V2)
+  fill(17,4,18,14,BL);    // V3 částečná (střední sekce, jen horní část)
+  fill(29,13,30,26,BL);   // V4 částečná (pravá sekce, jen dolní část)
+
+  // Barevné bloky
+  fill(2,6,9,17,BU);      // velká modrá vlevo nahoře
+  fill(2,20,9,22,WH);     // bílá vlevo dole
+  fill(12,6,16,12,RE);    // červená střed-vlevo nahoře
+  fill(19,6,23,12,WH);    // bílá střed-vpravo nahoře
+  fill(12,15,23,17,WH);   // bílá střed (mezi H1 a H2)
+  fill(12,20,23,22,RE);   // červená střed dole
+  fill(26,6,33,12,WH);    // bílá vpravo nahoře
+  fill(26,15,28,22,BU);   // modrá vpravo-dole vlevo od V4
+  fill(31,15,33,22,WH);   // bílá vpravo-dole vpravo od V4
+  return g;
+}
+// Generuje grid z uživatelských pixel dat (image.source === 'custom').
+// pixels = 2D array rozměru IMG_GH × GW, hodnoty -1..8 (případně null/undefined → -1).
+function makeGridCustom(pixels){
+  const g=[];
+  for(let y=0;y<IMG_GH;y++){
+    const row=new Array(GW).fill(-1);
+    if(Array.isArray(pixels)&&Array.isArray(pixels[y])){
+      for(let x=0;x<GW;x++){
+        const v=pixels[y][x];
+        row[x]=(Number.isInteger(v)&&v>=0&&v<COLORS.length)?v:-1;
+      }
+    }
+    g.push(row);
+  }
+  return g;
+}
+function makeGrid(){
+  // Výběr generátoru: primárně podle image.source z level definition (data-driven),
+  // fallback na currentLevel key (zpětná kompatibilita, když level nemá image.source).
+  const def=(typeof getLevelDef==='function')?getLevelDef(currentLevel):null;
+  const src=(def&&def.image&&def.image.source)||currentLevel;
+  let g;
+  if(src==='custom')g=makeGridCustom(def&&def.image&&def.image.pixels);
+  else if(src==='moon')g=makeGridMoon();
+  else if(src==='starwars')g=makeGridC3PO();
+  else if(src==='frog')g=makeGridFrog();
+  else if(src==='mondrian')g=makeGridMondrian();
+  else g=makeGridSmiley();
+  // 4 prázdné řady dole (buffer zóna)
+  for(let i=0;i<4;i++)g.push(new Array(GW).fill(-1));
+  return g;
+}
+function countPixels(g){
+  const c=new Array(COLORS.length).fill(0);
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++)if(g[y][x]>=0)c[g[y][x]]++;
+  return c;
+}
+// Počet projektilů potřebných pro level: pixely v gridu + HP živých bloků.
+// Pixely pod solid blokem už v gridu neexistují (vyčistí se při startu levelu,
+// viz clearSolidBlockFootprints v startLevel), takže countPixels nepřidá jejich
+// barvy do c. Pod mystery blokem pixely zůstávají a jsou správně započítány
+// (mystery se po zničení pouze sundá).
+//
+// HP bloků:
+//   • solid: HP se přičte k barvě bloku (jen ta barva ho může zničit)
+//   • mystery: HP se rozdělí mezi existující barvy pixelů proporcionálně
+//     (mystery přijímá libovolnou barvu)
+function countPixelsAndBlocks(g){
+  const c=countPixels(g);
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    if(b.kind==='mystery'){
+      const totalPx=c.reduce((a,v)=>a+v,0);
+      if(totalPx>0){
+        for(let i=0;i<c.length;i++)if(c[i]>0) c[i]+=Math.ceil(b.hp*(c[i]/totalPx));
+      } else {
+        c[0]=(c[0]||0)+b.hp;
+      }
+    } else {
+      c[b.color]=(c[b.color]||0)+b.hp;
+    }
+  }
+  return c;
+}
+function colorDepth(g){
+  const d=new Array(COLORS.length).fill(0),cnt=new Array(COLORS.length).fill(0);
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    const c=g[y][x];if(c<0)continue;
+    d[c]+=Math.min(x,GW-1-x,y,GH-1-y);cnt[c]++;
+  }
+  return d.map((v,i)=>cnt[i]?v/cnt[i]:0);
+}
+function progressionLayers(g){
+  // Simuluje postupné odkrývání obrazu. Layer 0 = barvy dostupné od začátku (na obvodu),
+  // layer 1 = barvy dostupné po vyčištění layer 0, atd. Používá se pro hard-mode
+  // ordering: needed (nízký layer) → hluboko, non-critical (vysoký layer) → nahoru.
+  const layers={};
+  const g2=g.map(r=>r.slice());
+  let layer=0;
+  while(layer<20){
+    const avail=getAvailableColors(g2);
+    if(!avail.size)break;
+    for(const c of avail)if(!(c in layers))layers[c]=layer;
+    for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+      if(avail.has(g2[y][x]))g2[y][x]=-1;
+    }
+    layer++;
+  }
+  return layers;
+}
+function getOpenEmptyCells(g){
+  const open=new Set();
+  const stack=[];
+  const push=(x,y)=>{
+    const k=y*GW+x;
+    if(open.has(k))return;
+    if(g[y][x]!==-1)return;
+    open.add(k);stack.push([x,y]);
+  };
+  for(let x=0;x<GW;x++)push(x,GH-1);
+  while(stack.length){
+    const [x,y]=stack.pop();
+    if(x>0)push(x-1,y);
+    if(x<GW-1)push(x+1,y);
+    if(y>0)push(x,y-1);
+    if(y<GH-1)push(x,y+1);
+  }
+  return open;
+}
+function getReachableCountOfColor(g,color){
+  // Vrátí počet pixelů v souvislých komponentách, které mají aspoň 1 přímo vystavený pixel.
+  // Projektily dokážou kaskádově zničit celou komponentu, jakmile se dostanou k jednomu vystavenému.
+  const open=getOpenEmptyCells(g);
+  const reachable=new Set();
+  const stack=[];
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    if(g[y][x]!==color)continue;
+    let exp=false;
+    if(y>0&&open.has((y-1)*GW+x))exp=true;
+    else if(y<GH-1&&open.has((y+1)*GW+x))exp=true;
+    else if(x>0&&open.has(y*GW+(x-1)))exp=true;
+    else if(x<GW-1&&open.has(y*GW+(x+1)))exp=true;
+    if(exp){
+      const k=y*GW+x;
+      if(!reachable.has(k)){reachable.add(k);stack.push([x,y]);}
+    }
+  }
+  while(stack.length){
+    const [x,y]=stack.pop();
+    for(const [nx,ny] of [[x-1,y],[x+1,y],[x,y-1],[x,y+1]]){
+      if(nx<0||nx>=GW||ny<0||ny>=GH)continue;
+      const k=ny*GW+nx;
+      if(reachable.has(k))continue;
+      if(g[ny][nx]!==color)continue;
+      reachable.add(k);
+      stack.push([nx,ny]);
+    }
+  }
+  return reachable.size;
+}
+function getExposedPixelsOfColor(g,color){
+  const open=getOpenEmptyCells(g);
+  const out=[];
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    if(g[y][x]!==color)continue;
+    // Pixel pod živým blokem není dosažitelný — projektil by se odrazil od bloku.
+    if(findBlockAtPixel(x,y))continue;
+    let exp=false;
+    if(y>0&&open.has((y-1)*GW+x))exp=true;
+    else if(y<GH-1&&open.has((y+1)*GW+x))exp=true;
+    else if(x>0&&open.has(y*GW+(x-1)))exp=true;
+    else if(x<GW-1&&open.has(y*GW+(x+1)))exp=true;
+    if(exp)out.push({x,y});
+  }
+  return out;
+}
+function getAvailableColors(g){
+  const open=getOpenEmptyCells(g);
+  const s=new Set();
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    const c=g[y][x];
+    if(c===-1||s.has(c))continue;
+    let exp=false;
+    if(y>0&&open.has((y-1)*GW+x))exp=true;
+    else if(y<GH-1&&open.has((y+1)*GW+x))exp=true;
+    else if(x>0&&open.has(y*GW+(x-1)))exp=true;
+    else if(x<GW-1&&open.has(y*GW+(x+1)))exp=true;
+    if(exp)s.add(c);
+  }
+  // Bloky jsou externí cíle nad obrazem — barva živého bloku je vždy dostupná.
+  // Mystery blok přijímá libovolnou barvu → přidáme všechny barvy.
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    if(b.kind==='mystery'){for(let k=0;k<COLORS.length;k++)s.add(k);break;}
+    s.add(b.color);
+  }
+  return s;
+}
+function anyLeft(g){
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++)if(g[y][x]!==-1)return true;
+  return false;
+}
+// Zbývá nějaký cíl k dokončení obrazu – pixel NEBO živý blok.
+// Používá se pro detekci "hra hotova". Samotný anyLeft(grid) nestačí, protože
+// hráč může mít zničit ještě zbývající bloky i když grid je prázdný.
+function anyTargetLeft(){
+  if(currentBlocks.some(b=>b.hp>0))return true;
+  return anyLeft(grid);
+}
+function applyGravityTo(g){
+  for(let x=0;x<GW;x++) applyGravityToCol(g,x);
+}
+function applyGravityToCol(g,col){
+  const px=[];
+  for(let y=0;y<IMG_GH-1;y++)if(g[y][col]!==-1)px.push(g[y][col]);
+  for(let y=0;y<IMG_GH-1;y++){
+    const fb=(IMG_GH-2)-y;
+    g[y][col]=fb<px.length?px[px.length-1-fb]:-1;
+  }
+}
+
+function isHoneycombSolvable(startGrid,cols){
+  // Simulates honeycomb play: each step picks any currently-active carrier
+  // (top row or any with a null neighbor) whose color maximally reduces remaining pixels.
+  // If nothing helpful is active, digs the active carrier that unlocks the most new neighbors.
+  const g=startGrid.map(r=>r.slice());
+  const C=cols.map(col=>col.slice());
+  function active(c,r){
+    if(c<0||c>=COLS||r<0)return false;
+    const col=C[c];if(!col||r>=col.length)return false;
+    const slot=col[r];if(!slot||slot.wall||slot.type==='garage')return false;
+    if(r===0)return true;
+    if(col[r-1]===null)return true;
+    if(r+1<col.length&&col[r+1]===null)return true;
+    if(c>0){const lc=C[c-1];if(lc&&r<lc.length&&lc[r]===null)return true;}
+    if(c+1<COLS){const rc=C[c+1];if(rc&&r<rc.length&&rc[r]===null)return true;}
+    return false;
+  }
+  function listActive(){
+    const a=[];
+    for(let c=0;c<COLS;c++)for(let r=0;r<C[c].length;r++)if(active(c,r))a.push([c,r]);
+    return a;
+  }
+  function applyColor(color,proj){
+    let td=proj;
+    while(td>0){
+      const exp=getExposedPixelsOfColor(g,color);
+      if(!exp.length)break;
+      exp.sort((a,b)=>b.y-a.y);
+      const take=Math.min(td,exp.length);
+      for(let i=0;i<take;i++)g[exp[i].y][exp[i].x]=-1;
+      td-=take;
+      if(gravityOn)applyGravityTo(g);
+    }
+  }
+  let safeguard=500;
+  while(anyLeft(g)&&safeguard-->0){
+    const act=listActive();
+    if(!act.length)return false;
+    const avail=getAvailableColors(g);
+    let best=-1,bestGain=-1;
+    for(let i=0;i<act.length;i++){
+      const [c,r]=act[i];
+      const color=C[c][r].color;
+      if(!avail.has(color))continue;
+      const gain=getExposedPixelsOfColor(g,color).length;
+      if(gain>bestGain){bestGain=gain;best=i;}
+    }
+    if(best<0){
+      // žádný aktivní nosič nepomůže → kopeme, vyber ten jehož odstranění odhalí nejvíc (neboli má nejvíc nenull slotů jako souseda)
+      let bi=0,bd=-1;
+      for(let i=0;i<act.length;i++){
+        const [c,r]=act[i];
+        let d=0;
+        const n=[[c,r+1],[c-1,r],[c+1,r]];
+        for(const [nc,nr] of n){
+          if(nc<0||nc>=COLS||nr<0)continue;
+          const nc2=C[nc];if(!nc2||nr>=nc2.length)continue;
+          const s=nc2[nr];if(s&&!s.wall&&s.type!=='garage')d++;
+        }
+        if(d>bd){bd=d;bi=i;}
+      }
+      best=bi;
+    }
+    const [bc,br]=act[best];
+    const slot=C[bc][br];
+    applyColor(slot.color,slot.projectiles);
+    C[bc][br]=null;
+  }
+  return !anyLeft(g);
+}
+function isLevelSolvable(startGrid,carrierQueue){
+  const g=startGrid.map(r=>r.slice());
+  const remaining={};
+  const queue=carrierQueue.slice();
+  let safeguard=10000;
+  while(anyLeft(g)&&safeguard-->0){
+    if(!queue.length){
+      let any=false;
+      for(const c in remaining){
+        if(remaining[c]>0){
+          const exp=getExposedPixelsOfColor(g,Number(c));
+          if(exp.length){
+            const take=Math.min(remaining[c],exp.length);
+            exp.sort((a,b)=>b.y-a.y);
+            for(let i=0;i<take;i++)g[exp[i].y][exp[i].x]=-1;
+            remaining[c]-=take;
+            if(gravityOn)applyGravityTo(g);
+            any=true;
+          }
+        }
+      }
+      if(!any)return false;
+      continue;
+    }
+    const slot=queue.shift();
+    const color=slot.color;
+    remaining[color]=(remaining[color]||0)+slot.projectiles;
+    const avail=getAvailableColors(g);
+    for(const c of avail){
+      if((remaining[c]||0)<=0)continue;
+      let td=remaining[c];
+      while(td>0){
+        const exp=getExposedPixelsOfColor(g,c);
+        if(!exp.length)break;
+        exp.sort((a,b)=>b.y-a.y);
+        const take=Math.min(td,exp.length);
+        for(let i=0;i<take;i++)g[exp[i].y][exp[i].x]=-1;
+        td-=take;
+      }
+      remaining[c]=td>0?td:0;
+      if(gravityOn)applyGravityTo(g);
+    }
+  }
+  return !anyLeft(g);
+}
+// ── Level Playtester — Phase 1 ───────────────────────────────────────────────
+function _ptActive(C,c,r){
+  if(c<0||c>=COLS||r<0)return false;
+  const col=C[c];if(!col||r>=col.length)return false;
+  const slot=col[r];if(!slot||slot.wall||slot.type==='garage')return false;
+  if(r===0)return true;
+  if(col[r-1]===null)return true;
+  if(r+1<col.length&&col[r+1]===null)return true;
+  if(c>0){const lc=C[c-1];if(lc&&r<lc.length&&lc[r]===null)return true;}
+  if(c+1<COLS){const rc=C[c+1];if(rc&&r<rc.length&&rc[r]===null)return true;}
+  return false;
+}
+function _ptListActive(C){
+  const a=[];
+  for(let c=0;c<COLS;c++){const col=C[c];if(!col)continue;for(let r=0;r<col.length;r++)if(_ptActive(C,c,r))a.push([c,r]);}
+  return a;
+}
+// Spočítá počet zbylých pixelů v sim gridu (žádné -1 buňky).
+function _ptCountPixels(g){
+  let n=0;
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++)if(g[y][x]!==-1)n++;
+  return n;
+}
+// Odhad peak loadu na pásu během simulace (počet BALÓNKŮ, ne projektilů!).
+// Každý klik = UPC=4 balónky na pás. Residual = balónky, co nenajdou cíl =
+// 4 × (1 − gain/proj). Když gain >= proj, všechny 4 vystřelí (drain). Lookback 4
+// kliky (belt rotuje cca 4 ball pozice / klik cyklus). Peak nad 12 = funnel risk,
+// nad 14 = belt overflow. Konzervativní heuristika; reálná hra má lepší drain timing.
+function _ptEstimateBeltPeak(history){
+  let peak=0;
+  for(let i=0;i<history.length;i++){
+    let load=UPC; // aktuální klik právě přidal UPC balónků na pás
+    for(let j=Math.max(0,i-3);j<i;j++){
+      const h=history[j];
+      const wasteFrac=h.proj>0?Math.max(0,h.proj-h.gain)/h.proj:1;
+      load+=Math.round(UPC*wasteFrac); // residual balónky z předchozích kliků
+    }
+    if(load>peak)peak=load;
+  }
+  return peak;
+}
+// Block-free exposure check for simulation — ignores currentBlocks (live state),
+// so mystery-block-covered pixels are treated as reachable in the sim grid.
+// Block-aware helper: vrátí Set buněk uvnitř ŽIVÉHO bloku (HP > 0). Tester to používá
+// jako bariéru pro flood-fill + jako filtr pro accessibility pixelů a bloků.
+function _ptBlockedCells(blocks){
+  const blocked=new Set();
+  if(!blocks||!blocks.length)return blocked;
+  for(const b of blocks){
+    if(b.hp<=0)continue;
+    const m=b._mask;
+    if(!m)continue;
+    for(let dy=0;dy<b.h;dy++){
+      const row=m[dy];if(!row)continue;
+      for(let dx=0;dx<b.w;dx++){
+        if(!row[dx])continue;
+        const x=b.x+dx,y=b.y+dy;
+        if(x<0||x>=GW||y<0||y>=GH)continue;
+        blocked.add(y*GW+x);
+      }
+    }
+  }
+  return blocked;
+}
+// Block-aware varianta getOpenEmptyCells: flood-fill skrz pixely co jsou -1, ale
+// buňky uvnitř živého bloku NEJSOU "open" (blok je bariéra, i když pixely pod
+// ním jsou už -1 z clearSolidBlockFootprints).
+function _ptGetOpenEmptyCells(g,blocks){
+  const blocked=_ptBlockedCells(blocks);
+  const open=new Set();
+  const stack=[];
+  const push=(x,y)=>{
+    const k=y*GW+x;
+    if(open.has(k))return;
+    if(g[y][x]!==-1)return;
+    if(blocked.has(k))return;
+    open.add(k);stack.push([x,y]);
+  };
+  for(let x=0;x<GW;x++)push(x,GH-1);
+  while(stack.length){
+    const [x,y]=stack.pop();
+    if(x>0)push(x-1,y);
+    if(x<GW-1)push(x+1,y);
+    if(y>0)push(x,y-1);
+    if(y<GH-1)push(x,y+1);
+  }
+  return open;
+}
+// Block accessible iff alespoň jedna jeho cell má neighbor v open zóně.
+// Mystery blok přijímá libovolnou barvu, solid jen matching color.
+function _ptAccessibleBlocks(blocks,g,color){
+  if(!blocks||!blocks.length)return [];
+  const open=_ptGetOpenEmptyCells(g,blocks);
+  const out=[];
+  for(const b of blocks){
+    if(b.hp<=0)continue;
+    if(b.kind!=='mystery'&&b.color!==color)continue;
+    const m=b._mask;if(!m)continue;
+    let touches=false;
+    for(let dy=0;dy<b.h&&!touches;dy++){
+      const row=m[dy];if(!row)continue;
+      for(let dx=0;dx<b.w&&!touches;dx++){
+        if(!row[dx])continue;
+        const x=b.x+dx,y=b.y+dy;
+        const neigh=[[x,y-1],[x,y+1],[x-1,y],[x+1,y]];
+        for(const [nx,ny] of neigh){
+          if(nx<0||nx>=GW||ny<0||ny>=GH)continue;
+          if(m[ny-b.y]&&m[ny-b.y][nx-b.x])continue; // soused uvnitř bloku
+          if(open.has(ny*GW+nx)){touches=true;break;}
+        }
+      }
+    }
+    if(touches)out.push(b);
+  }
+  return out;
+}
+// Cannon-aware exposure — varianta A (flood-fill from bottom edge).
+// Pixel exposed iff má alespoň 1 ortogonálního souseda v open zóně.
+// Open zóna = flood-fill empty cells (-1) z celého bottom edge, bloky bariéry.
+// Drain: bottom-first batch (`exp.sort((a,b) => b.y - a.y)`), žádné jittery
+// ani per-projectile. To je původní model, který se osvědčil před experimenty
+// s LoS / bouncing / nearest-from-cannon.
+
+// Vrátí Set buněk uvnitř živých bloků (HP > 0). Slouží jako bariéra pro flood-fill.
+function _ptBlockedCells(blocks){
+  const blocked=new Set();
+  if(!blocks||!blocks.length)return blocked;
+  for(const b of blocks){
+    if(b.hp<=0)continue;
+    const m=b._mask;if(!m)continue;
+    for(let dy=0;dy<b.h;dy++){
+      const row=m[dy];if(!row)continue;
+      for(let dx=0;dx<b.w;dx++){
+        if(!row[dx])continue;
+        const x=b.x+dx,y=b.y+dy;
+        if(x<0||x>=GW||y<0||y>=GH)continue;
+        blocked.add(y*GW+x);
+      }
+    }
+  }
+  return blocked;
+}
+
+// Flood-fill empty cells (-1) od bottom edge. Bloky jsou bariéra (i když jsou
+// pixely pod nimi -1, blok je obstacle).
+function _ptGetOpenEmptyCells(g,blocks){
+  const blocked=_ptBlockedCells(blocks);
+  const open=new Set();
+  const stack=[];
+  const push=(x,y)=>{
+    if(x<0||x>=GW||y<0||y>=GH)return;
+    const k=y*GW+x;
+    if(open.has(k))return;
+    if(g[y][x]!==-1)return;
+    if(blocked.has(k))return;
+    open.add(k);stack.push([x,y]);
+  };
+  for(let x=0;x<GW;x++)push(x,GH-1);
+  while(stack.length){
+    const [x,y]=stack.pop();
+    if(x>0)push(x-1,y);
+    if(x<GW-1)push(x+1,y);
+    if(y>0)push(x,y-1);
+    if(y<GH-1)push(x,y+1);
+  }
+  return open;
+}
+
+// Pixel exposed iff má alespoň 1 ortogonálního souseda v open zóně.
+function _ptGetExposed(g,color,blocks){
+  const open=_ptGetOpenEmptyCells(g,blocks);
+  const out=[];
+  for(let y=0;y<GH;y++){
+    for(let x=0;x<GW;x++){
+      if(g[y][x]!==color)continue;
+      let exp=false;
+      if(y>0&&open.has((y-1)*GW+x))exp=true;
+      else if(y<GH-1&&open.has((y+1)*GW+x))exp=true;
+      else if(x>0&&open.has(y*GW+(x-1)))exp=true;
+      else if(x<GW-1&&open.has(y*GW+(x+1)))exp=true;
+      if(exp)out.push({x,y});
+    }
+  }
+  return out;
+}
+// Block-aware check: jsou ještě cíle k zničení? Pixely v gridu NEBO živý blok.
+// Tester předtím používal jen `anyLeft(g)` který blocky ignoruje → solver myslel
+// že hra je hotová i když bloky zůstaly stát.
+function _ptAnyTargetLeft(g,blocks){
+  if(blocks&&blocks.length){
+    for(const b of blocks)if(b.hp>0)return true;
+  }
+  return anyLeft(g);
+}
+// Sum HP of live blocks (= "remaining block damage" pro tolerance/solved check).
+function _ptBlockHpSum(blocks){
+  if(!blocks||!blocks.length)return 0;
+  let s=0;
+  for(const b of blocks)if(b.hp>0)s+=b.hp;
+  return s;
+}
+// Spočítá zbývající "živé" sloty v sim columns: pixel/rocket carriery + queue
+// items v garážích. Když vrátí 0, znamená to, že tester (hráč) vyčerpal všechny
+// dostupné nosiče. V tom případě považujeme run za výhru i když pixely zbývají
+// (= problém s dopočty layoutu, ne hráče).
+function _ptCountRemainingSlots(C){
+  let n=0;
+  for(const col of C){
+    for(const slot of col){
+      if(!slot||slot.wall)continue;
+      if(slot.type==='garage'){n+=(slot.queue||[]).length;}
+      else n++;
+    }
+  }
+  return n;
+}
+// Deep-clone bloků (HP mutuje per simulace — clone na začátku každého runu).
+// `_mask` je readonly 2D bool array → sdílí reference (žádný side effect).
+function _ptDeepCloneBlocks(blocks){
+  if(!blocks||!blocks.length)return [];
+  return blocks.map(b=>({
+    kind:b.kind, shape:b.shape, x:b.x, y:b.y, w:b.w, h:b.h,
+    color:b.color, hp:b.hp, maxHp:b.maxHp, _mask:b._mask
+  }));
+}
+// Deep-clone columns pro tester sim — kritické pro garáže (queue.shift mutuje pole).
+// Carriery jsou imutable v simulaci (slot → null po pop), takže ty stačí shallow.
+function _ptDeepCloneCols(cols){
+  return cols.map(col=>col.map(slot=>{
+    if(slot&&slot.type==='garage'){
+      return {
+        type:'garage',
+        directions:slot.directions?slot.directions.slice():['N'],
+        queue:(slot.queue||[]).map(q=>({color:q.color,projectiles:q.projectiles})),
+        destroyable:!!slot.destroyable,
+      };
+    }
+    return slot;
+  }));
+}
+
+// Dynamic garage update — port real-game updateGarages() na simulační columns.
+// Pro každou garáž: najdi null souseda v povolených směrech, vydej queue.shift()
+// do něj jako carrier slot. Když queue empty + free neighbor → garáž → null.
+// Vrací pole dispense events: [{from:{c,r}, to:{c,r}, color, projectiles}].
+function _ptUpdateGarages(C){
+  const dispenses=[];
+  for(let c=0;c<C.length;c++){
+    for(let r=0;r<C[c].length;r++){
+      const slot=C[c][r];
+      if(!slot||slot.type!=='garage')continue;
+      const dirs=slot.directions||['N'];
+      let freeNeighbor=null;
+      for(const d of dirs){
+        const [dc,dr]=GAR_DIR_VEC[d]||[0,0];
+        const nc=c+dc,nr=r+dr;
+        if(nc<0||nc>=C.length||nr<0)continue;
+        const ncol=C[nc];
+        if(!ncol||nr>=ncol.length)continue;
+        if(ncol[nr]===null){freeNeighbor=[nc,nr];break;}
+      }
+      if(!freeNeighbor)continue;
+      if(slot.queue&&slot.queue.length){
+        const next=slot.queue.shift();
+        const [nc,nr]=freeNeighbor;
+        C[nc][nr]={color:next.color,projectiles:next.projectiles||UPC*PPU};
+        dispenses.push({from:{c,r},to:{c:nc,r:nr},color:next.color,projectiles:next.projectiles||UPC*PPU});
+      } else {
+        C[c][r]=null;
+        dispenses.push({from:{c,r},to:null,color:null,projectiles:0,emptied:true});
+      }
+    }
+  }
+  return dispenses;
+}
+// Vrací {cleared, wasted} — kolik pixelů barvy bylo vyčištěno (chain) a kolik
+// projektilů zbylo nevyužitých (= waste). Důležité pro beam scoring: penalizujeme
+// stavy, kde solver pálil carriery dřív, než byly všechny pixely barvy vystavené.
+// Batch drain — bottom-first, žádné jittery ani per-projectile. Původní
+// model varianty A: re-eval exposed v každé drain round, vezmi nejvíc
+// `take = min(td, exp.length)` pixelů z bottom-up sort, opakuj.
+function _ptApplyColor(g,color,proj,blocks){
+  let td=proj;
+  const cleared=[]; // {x,y} pixely zničené — pro replay diff
+  const blockHits=[]; // {kind, color, x, y, hpBefore, hpAfter, destroyed}
+  const blockHitMap=new Map(); // blockRef → {block, hpBefore, hits:0}
+  while(td>0){
+    // 1) Bloky matching color (sort by smallest HP = quickly remove barriers)
+    const accBlocks=_ptAccessibleBlocks(blocks,g,color);
+    if(accBlocks.length){
+      accBlocks.sort((a,b)=>a.hp-b.hp);
+      const b=accBlocks[0];
+      const take=Math.min(td,b.hp);
+      if(!blockHitMap.has(b))blockHitMap.set(b,{block:b,hpBefore:b.hp,hits:0});
+      const rec=blockHitMap.get(b);
+      b.hp-=take;
+      rec.hits+=take;
+      td-=take;
+      continue;
+    }
+    // 2) Pixely — bottom-first s "bite ahead" efektem. Pixel z upper rows
+    //    dostává s určitou pravděpodobností NEGATIVNÍ bonus (= jeho sort key
+    //    klesne pod default bottom row → ničí se dřív).
+    //
+    // Adaptivní intenzita: pokud je current bottom řada ÚZKÁ (málo pixelů),
+    // projektily se víc rozlejou do řad nad — cannon spread + missed targets.
+    // Široká řada → mírnější bite (většina projektilů najde cíl ve své řadě).
+    const exp=_ptGetExposed(g,color,blocks);
+    if(!exp.length)break; // wasted: td zbylých projektilů → belt residue
+    // Detekce úzké spodní řady
+    let maxY=0;
+    for(const p of exp)if(p.y>maxY)maxY=p.y;
+    let bottomCount=0;
+    for(const p of exp)if(p.y===maxY)bottomCount++;
+    // narrow: 0 (≥10 pixelů v bottom = široko) → 1 (≤2 pixely = úzko)
+    const narrow=Math.max(0,Math.min(1,(10-bottomCount)/8));
+    // Cumulative thresholds — base (wide) + narrow boost.
+    //   wide:   62% default, 21% bite-1, 8% bite-2, 5% bite-3, 4% bite-4
+    //   narrow: 40% default, 7% bite-1, 20% bite-2, 19% bite-3, 14% bite-4
+    const t4=0.04+narrow*0.10;
+    const t3=t4 +0.05+narrow*0.12;
+    const t2=t3 +0.08+narrow*0.12;
+    const t1=t2 +0.21+narrow*0.06;
+    // Burst column — místo kde cannon začíná pálit a padne tam o 1-2 projektily víc
+    // (focal point). Random sloupec z exp pool, pixely v něm nad bottom row dostanou
+    // extra -1.5 bonus → bite zachází hlouběji v této column.
+    const burstX=exp[Math.floor(Math.random()*exp.length)].x;
+    exp.forEach(p=>{
+      let k=-p.y;
+      const r=Math.random();
+      if(r<t4)k-=4;
+      else if(r<t3)k-=3;
+      else if(r<t2)k-=2;
+      else if(r<t1)k-=1;
+      // Burst boost: pixely v burst column NAD bottom row dostanou extra promo
+      if(p.x===burstX&&p.y<maxY)k-=1.5;
+      p._k=k+Math.random()*0.001;
+    });
+    exp.sort((a,b)=>a._k-b._k);
+    const take=Math.min(td,exp.length);
+    for(let i=0;i<take;i++){
+      g[exp[i].y][exp[i].x]=-1;
+      cleared.push({x:exp[i].x,y:exp[i].y});
+    }
+    td-=take;
+    if(gravityOn)applyGravityTo(g);
+  }
+  // Flush block hits jako history events (jeden záznam per blok)
+  for(const rec of blockHitMap.values()){
+    const b=rec.block;
+    blockHits.push({
+      kind:b.kind, color:b.color, x:b.x, y:b.y, w:b.w, h:b.h,
+      hpBefore:rec.hpBefore, hpAfter:b.hp, destroyed:b.hp<=0
+    });
+  }
+  return {cleared:proj-td, wasted:td, clearedPixels:cleared, blockHits};
+}
+// Belt-queue simulace jednoho kliku: přidá UPC balónků na pás (rozdělené projektily),
+// pak drain — pálí balónky, jejichž barva má vystavené pixely. Stuck balls (color
+// nemá exposed pixely) zůstávají na pásu a čekají na další click cycle.
+// Vrací { gain, beltLoad } — gain = pixely vyčištěné v tomto kroku, beltLoad = velikost
+// fronty po drainu. Tohle nahrazuje původní _ptApplyColor v simulaci, protože reálná
+// hra balónky NEZTRÁCÍ — cyklují, dokud nenajdou cíl nebo dokud nedojde k belt overflow.
+function _ptSimulateClick(g, beltQueue, color, proj, blocks){
+  // Funnel rejection check: v reálné hře by tento klik nešel, kdyby pending > 12.
+  // Modelujeme to flagem (klikneme i tak, ale poznamenáme si, že by hra řekla NE).
+  const funnelRejected=beltQueue.length>=PENDING_DISPENSE_THRESHOLD;
+  // 1) Distribute proj into UPC balónků (jako reálný distributeProjectiles).
+  const base=Math.floor(proj/UPC);
+  const rem=proj%UPC;
+  for(let i=0;i<UPC;i++) beltQueue.push({color,ammo:base+(i<rem?1:0)});
+  // 2) Drain loop — opakovaně palí balónky, dokud někdo může vystřelit.
+  const before=_ptCountPixels(g);
+  let totalWasted=0;
+  const allCleared=[]; // pro replay: všechny pixely zničené v rámci tohoto kliku (across drain rounds)
+  const allBlockHits=[]; // pro replay: bloky hitnuté v rámci tohoto kliku
+  let progress=true;
+  while(progress){
+    progress=false;
+    for(let i=0;i<beltQueue.length;i++){
+      const b=beltQueue[i];
+      if(!b||b.ammo<=0){beltQueue.splice(i,1);i--;continue;}
+      // Balónek může vystřelit pokud existují accessible pixely jeho barvy NEBO accessible bloky
+      const exp=_ptGetExposed(g,b.color,blocks);
+      const accBlocks=_ptAccessibleBlocks(blocks,g,b.color);
+      if(!exp.length&&!accBlocks.length)continue;
+      const r=_ptApplyColor(g,b.color,b.ammo,blocks);
+      totalWasted+=r.wasted;
+      if(r.clearedPixels&&r.clearedPixels.length){
+        for(const px of r.clearedPixels) allCleared.push({x:px.x,y:px.y,color:b.color});
+      }
+      if(r.blockHits&&r.blockHits.length){
+        for(const bh of r.blockHits) allBlockHits.push(bh);
+      }
+      beltQueue.splice(i,1);
+      i--;
+      progress=true;
+    }
+  }
+  return {gain: before - _ptCountPixels(g), beltLoad: beltQueue.length, waste: totalWasted, funnelRejected, clearedPixels: allCleared, blockHits: allBlockHits};
+}
+// Greedy s vyběrem podle strategie:
+//   'max-gain' — vyber carrier s nejvíc vystavenými pixely (max immediate progress)
+//   'full-use' — preferuj carriery, kde gain >= projectiles (žádné plýtvání); fallback na max-gain
+// Pro tight levely (balance ≈ 0) je 'full-use' zásadně přesnější — naivní greedy
+// pálí carrier, jakmile je aktivní, a plýtvá projektily na nedostatečně vystavené barvy.
+// Greedy s vyběrem podle strategie. Heuristika potential = exposed_pixels − queued_ammo
+// (kolik nových pixelů by carrier vyčistil, když odečteme balónky stejné barvy už čekající
+// na pásu). Tohle reflektuje belt-queue model: cyklující balónky později uklidí část
+// budoucího exposed.
+function ptRunGreedy(grid,cols,strategy,opts){
+  strategy=strategy||'max-gain';
+  opts=opts||{};
+  const wantTrace=!!opts.trace;
+  const g=grid.map(r=>r.slice());
+  const C=_ptDeepCloneCols(cols);
+  const blocks=_ptDeepCloneBlocks(_ptInitBlocks);
+  const initialDispenses=_ptUpdateGarages(C); // garáže s free neighbours vydají carrier hned
+  const beltQueue=[];
+  let beltOverflow=false;
+  let clicks=0,totalChoices=0,choiceSteps=0,totalWaste=0,funnelRejectedCount=0;
+  const colorFirstSeen={};
+  const history=[];
+  const trace=wantTrace?[]:null;
+  let sf=500;
+  while(_ptAnyTargetLeft(g,blocks)&&sf-->0){
+    const act=_ptListActive(C);
+    if(!act.length)break;
+    // Spočítej queued ammo per barva — kolik balónků čeká na cíl té barvy.
+    const queuedAmmo={};
+    for(const b of beltQueue) queuedAmmo[b.color]=(queuedAmmo[b.color]||0)+b.ammo;
+    const stats=act.map(([c,r])=>{
+      const slot=C[c][r];
+      const proj=slot.projectiles||0;
+      const accBlocks=_ptAccessibleBlocks(blocks,g,slot.color);
+      const blockHp=accBlocks.reduce((s,b)=>s+b.hp,0);
+      const exposed=_ptGetExposed(g,slot.color,blocks).length+blockHp; // capacity = pixely + accessible block HP
+      const queued=queuedAmmo[slot.color]||0;
+      const potential=Math.max(0,exposed-queued);
+      return{exposed,queued,potential,proj,fullUse:potential>0&&potential>=proj};
+    });
+    const beneficialCount=stats.filter(s=>s.potential>0).length;
+    if(beneficialCount>=2){totalChoices+=beneficialCount;choiceSteps++;}
+    let bestIdx=-1,bestVal=0;
+    if(strategy==='full-use'){
+      for(let i=0;i<stats.length;i++){
+        if(!stats[i].fullUse)continue;
+        if(stats[i].potential>bestVal){bestVal=stats[i].potential;bestIdx=i;}
+      }
+    }
+    if(bestIdx<0){
+      for(let i=0;i<stats.length;i++){
+        if(stats[i].potential>bestVal){bestVal=stats[i].potential;bestIdx=i;}
+      }
+    }
+    if(bestIdx<0){
+      // Dig: vyber carrier s nejvíc non-wall sousedy (otevře honeycomb cestu).
+      let bi=0,bd=-1;
+      for(let i=0;i<act.length;i++){
+        const [c,r]=act[i];let d=0;
+        for(const [nc,nr] of [[c,r+1],[c-1,r],[c+1,r]]){
+          if(nc<0||nc>=COLS||nr<0)continue;
+          const nc2=C[nc];if(!nc2||nr>=nc2.length)continue;
+          const s=nc2[nr];if(s&&!s.wall&&s.type!=='garage')d++;
+        }
+        if(d>bd){bd=d;bi=i;}
+      }
+      bestIdx=bi;
+    }
+    const [bc,br]=act[bestIdx];
+    const slot=C[bc][br];
+    const pickedProj=slot.projectiles||0;
+    if(colorFirstSeen[slot.color]===undefined)colorFirstSeen[slot.color]=clicks;
+    // Reálná simulace: balónky na pás + drain.
+    const sim=_ptSimulateClick(g,beltQueue,slot.color,pickedProj,blocks);
+    if(sim.beltLoad>BELT_CAP)beltOverflow=true;
+    if(sim.funnelRejected)funnelRejectedCount++;
+    totalWaste+=sim.waste||0;
+    C[bc][br]=null;
+    // Po pop kliku zkontroluj jestli některá garáž může dispensovat (free neighbor)
+    const dispenses=_ptUpdateGarages(C);
+    history.push({step:clicks,c:bc,r:br,color:slot.color,gain:sim.gain,proj:pickedProj,beltLoad:sim.beltLoad,funnelRejected:sim.funnelRejected,clearedPixels:sim.clearedPixels||[],blockHits:sim.blockHits||[],dispenses});
+    if(trace)trace.push({step:clicks,activeCount:act.length,activeCells:act.map(([c,r])=>({c,r})),beneficial:beneficialCount,pickedGain:sim.gain,pickedProj,beltLoad:sim.beltLoad,remainingPx:_ptCountPixels(g)});
+    clicks++;
+    // Belt overflow = game over v reálné hře. Stop simulation.
+    if(beltOverflow)break;
+  }
+  // Final drain — po posledním kliku zkus ještě jednou všechno vystřelit.
+  let progress=true,drainSf=20;
+  while(progress&&drainSf-->0){
+    progress=false;
+    for(let i=0;i<beltQueue.length;i++){
+      const b=beltQueue[i];
+      if(!b||b.ammo<=0){beltQueue.splice(i,1);i--;continue;}
+      const exp=_ptGetExposed(g,b.color,blocks);
+      const accBlocks=_ptAccessibleBlocks(blocks,g,b.color);
+      if(!exp.length&&!accBlocks.length)continue;
+      const r=_ptApplyColor(g,b.color,b.ammo,blocks);
+      totalWaste+=r.wasted;
+      beltQueue.splice(i,1);i--;progress=true;
+    }
+  }
+  let bottleneckColor=-1,bottleneckStep=-1;
+  for(const [c,s] of Object.entries(colorFirstSeen)){if(s>bottleneckStep){bottleneckStep=s;bottleneckColor=Number(c);}}
+  const peakBeltLoad=history.reduce((m,h)=>Math.max(m,h.beltLoad||0),0);
+  // Solved (strict) = grid empty AND no live blocks AND queue empty AND no belt overflow.
+  // Solved (effective) = strict OR pixely zbylé ≤ tolerance + bloky destroyed
+  //                      OR všechny nosiče byly vyčerpány bez overflow
+  //                      (= layout dopočet není 100%, ale hráč udělal vše co mohl).
+  const remainPxFinal=_ptCountPixels(g);
+  const blockHpFinal=_ptBlockHpSum(blocks);
+  const strictSolved=remainPxFinal===0&&blockHpFinal===0&&beltQueue.length===0&&!beltOverflow;
+  const carriersExhausted=_ptCountRemainingSlots(C)===0;
+  const solved=strictSolved
+            ||(remainPxFinal<=SOLVED_TOLERANCE_PX&&blockHpFinal===0&&!beltOverflow)
+            ||(carriersExhausted&&!beltOverflow);
+  return{solved,strictSolved,carriersExhausted,remainPx:remainPxFinal,remainBlockHp:blockHpFinal,clicks,decisionRichness:choiceSteps>0?Math.round(totalChoices/choiceSteps*10)/10:0,bottleneckColor,colorFirstSeen,history,trace,initialDispenses,peakBeltLoad,beltOverflow,stuckBalls:beltQueue.length,waste:totalWaste,funnelRejectedCount,remainingGrid:remainPxFinal>0?g.map(r=>r.slice()):null};
+}
+function ptRunRandom(grid,cols,n,opts){
+  opts=opts||{};
+  const collectTraces=!!opts.collectTraces;
+  let successes=0,totalClicks=0,closeCalls=0;
+  const allTraces=collectTraces?[]:null;
+  for(let i=0;i<n;i++){
+    const g=grid.map(r=>r.slice());
+    const C=_ptDeepCloneCols(cols);
+    const blocks=_ptDeepCloneBlocks(_ptInitBlocks);
+    _ptUpdateGarages(C); // initial dispense
+    const beltQueue=[];
+    let beltOverflow=false;
+    let clicks=0,sf=500;
+    const history=[];
+    const trace=collectTraces?[]:null;
+    while(_ptAnyTargetLeft(g,blocks)&&sf-->0){
+      const act=_ptListActive(C);
+      if(!act.length)break;
+      const queuedAmmo={};
+      for(const b of beltQueue) queuedAmmo[b.color]=(queuedAmmo[b.color]||0)+b.ammo;
+      const fullUse=[],beneficial=[];
+      let beneficialCount=0;
+      for(let j=0;j<act.length;j++){
+        const [c,r]=act[j];
+        const slot=C[c][r];
+        const accBlocks=_ptAccessibleBlocks(blocks,g,slot.color);
+        const blockHp=accBlocks.reduce((s,b)=>s+b.hp,0);
+        const exposed=_ptGetExposed(g,slot.color,blocks).length+blockHp;
+        const queued=queuedAmmo[slot.color]||0;
+        const potential=Math.max(0,exposed-queued);
+        if(potential>0){
+          beneficial.push(act[j]);beneficialCount++;
+          if(potential>=(slot.projectiles||0))fullUse.push(act[j]);
+        }
+      }
+      const pool=fullUse.length>0?fullUse:(beneficial.length>0?beneficial:act);
+      const[bc,br]=pool[Math.floor(Math.random()*pool.length)];
+      const slot=C[bc][br];
+      const pickedProj=slot.projectiles||0;
+      const sim=_ptSimulateClick(g,beltQueue,slot.color,pickedProj,blocks);
+      if(sim.beltLoad>BELT_CAP)beltOverflow=true;
+      C[bc][br]=null;
+      const dispenses=_ptUpdateGarages(C);
+      history.push({step:clicks,c:bc,r:br,color:slot.color,gain:sim.gain,proj:pickedProj,beltLoad:sim.beltLoad,funnelRejected:sim.funnelRejected,clearedPixels:sim.clearedPixels||[],blockHits:sim.blockHits||[],dispenses});
+      if(trace)trace.push({step:clicks,activeCount:act.length,activeCells:act.map(([c,r])=>({c,r})),beneficial:beneficialCount,pickedGain:sim.gain,pickedProj,beltLoad:sim.beltLoad,remainingPx:_ptCountPixels(g)});
+      clicks++;
+      // Belt overflow = game over. Stop simulation (real game by se zaseklo, balónky se hromadily).
+      if(beltOverflow)break;
+    }
+    // Final drain
+    let progress=true,drainSf=20;
+    while(progress&&drainSf-->0){
+      progress=false;
+      for(let k=0;k<beltQueue.length;k++){
+        const b=beltQueue[k];if(!b||b.ammo<=0){beltQueue.splice(k,1);k--;continue;}
+        const exp=_ptGetExposed(g,b.color,blocks);
+        const accBlocks=_ptAccessibleBlocks(blocks,g,b.color);
+        if(!exp.length&&!accBlocks.length)continue;
+        _ptApplyColor(g,b.color,b.ammo,blocks);beltQueue.splice(k,1);k--;progress=true;
+      }
+    }
+    // Random success: tolerance s bloky destroyed, OR carriers exhausted bez overflow.
+    const remPx=_ptCountPixels(g);
+    const blockHp=_ptBlockHpSum(blocks);
+    const carriersExhausted=_ptCountRemainingSlots(C)===0;
+    if(carriersExhausted&&!beltOverflow){successes++;totalClicks+=clicks;if(allTraces)allTraces.push(trace);continue;}
+    if(remPx<=SOLVED_TOLERANCE_PX&&blockHp===0&&!beltOverflow){successes++;totalClicks+=clicks;}
+    // Close-call: pixely zbylé v rozšířené zóně (do 2× tolerance) + bloky destroyed
+    else if(remPx<=SOLVED_TOLERANCE_PX*2.5&&blockHp===0&&!beltOverflow){closeCalls++;}
+    if(allTraces)allTraces.push(trace);
+  }
+  // Spočítat envelope (p10, p50, p90) z kompozitního skóre per krok.
+  // Composite (Phase 3): málo voleb + belt risk (waste už není relevantní).
+  let envelope=null;
+  if(allTraces&&allTraces.length){
+    const composite=t=>(1-t.beneficial/Math.max(1,t.activeCount))*30+Math.max(0,(t.beltLoad||0)-8)*8+((t.beltLoad||0)>BELT_CAP?60:0);
+    const maxLen=Math.max(...allTraces.map(t=>t.length));
+    const p10=[],p50=[],p90=[];
+    for(let s=0;s<maxLen;s++){
+      const vals=[];
+      for(const t of allTraces)if(t[s])vals.push(composite(t[s]));
+      if(!vals.length)continue;
+      vals.sort((a,b)=>a-b);
+      const pick=q=>vals[Math.min(vals.length-1,Math.floor(q*vals.length))];
+      p10.push({step:s,score:pick(0.10)});
+      p50.push({step:s,score:pick(0.50)});
+      p90.push({step:s,score:pick(0.90)});
+    }
+    envelope={p10,p50,p90};
+  }
+  return{successRate:successes/n,avgClicks:successes>0?Math.round(totalClicks/successes):0,envelope,successes,closeCalls,total:n};
+}
+// Beam search s belt-queue modelem. Vylepšení Phase 3 (Iterace B):
+//   - beamWidth 8 → 16 (víc paralelních scénářů)
+//   - timeBudget 2 s → 5 s (víc času na dlouhé levely 60+ kliků)
+//   - depth 60 → 100 (podpora delších levelů)
+//   - waste tracking ve state + součást score (klíčové pro tight balance)
+//   - expansion pruning: rozšiřujeme jen beneficial carriery (gain>0), když existují.
+//     Když ne, rozšíříme jen 1 nejlepší dig kandidát. Snižuje branching factor 15→3-5.
+// ── Far-sighted beam helpers (Fáze 2.5) ────────────────────────────────────
+// Tyto funkce se volají jen když `opts.farSighted=true`. Default beam beze změny.
+
+// Vrátí Set<"c,r"> slotů, jejichž vyčištění by uvolnilo dispens stalled garáže.
+// Garáž je „stalled" pokud má neprázdnou queue, ale všichni dispens-směroví sousedi
+// jsou obsazeni (carrier/garage). Klik na takového souseda → garáž může dispensovat.
+function _ptGarageWaitingForSlot(C){
+  const out=new Set();
+  for(let c=0;c<C.length;c++){
+    const col=C[c];if(!col)continue;
+    for(let r=0;r<col.length;r++){
+      const slot=col[r];
+      if(!slot||slot.type!=='garage')continue;
+      if(!slot.queue||!slot.queue.length)continue;
+      const dirs=slot.directions||['N'];
+      for(const d of dirs){
+        const v=GAR_DIR_VEC[d]||[0,0];
+        const nc=c+v[0],nr=r+v[1];
+        if(nc<0||nc>=C.length||nr<0)continue;
+        const ncol=C[nc];if(!ncol||nr>=ncol.length)continue;
+        const ns=ncol[nr];
+        if(ns&&!ns.wall&&ns.type!=='garage')out.add(nc+','+nr);
+      }
+    }
+  }
+  return out;
+}
+
+// Kolik open-zone cells přibyde, kdyby byl tenhle blok zničen?
+// Reflood s block.hp=0, pak vrátí HP zpět. Approximate proxy pro „kolik pixelů
+// se odhalí" — open zóna roste o cells uvnitř footprintu bloku + sousedy.
+function _ptExposedDeltaIfBroken(g,blocks,block){
+  if(!block||block.hp<=0)return 0;
+  const before=_ptGetOpenEmptyCells(g,blocks).size;
+  const saved=block.hp;
+  block.hp=0;
+  const after=_ptGetOpenEmptyCells(g,blocks).size;
+  block.hp=saved;
+  return Math.max(0,after-before);
+}
+
+// Future potential: za každý živý blok spočítej delta open zóny po jeho zničení,
+// váženou exponential decay-em podle „kolik kliků by stálo blok rozbít".
+// UPC*PPU = max projektilů per click → 1-shot blok ≈ 1 klik, větší block-HP víc.
+function _ptFuturePotential(g,blocks){
+  if(!blocks||!blocks.length)return 0;
+  let p=0;
+  for(const b of blocks){
+    if(b.hp<=0)continue;
+    const delta=_ptExposedDeltaIfBroken(g,blocks,b);
+    if(delta<=0)continue;
+    const clicksToBreak=Math.max(1,Math.ceil(b.hp/(UPC*PPU)));
+    p+=delta*Math.pow(0.7,clicksToBreak);
+  }
+  return p;
+}
+
+function ptRunBeamSearch(grid,cols,opts){
+  opts=opts||{};
+  // Defaults Phase 3 (Iterace B):
+  //   beam 8, budget 8s, depth 80.
+  // Pozn.: V postMessage kontextu (skutečné editorové použití) je V8 ~5× pomalejší
+  // než v devtools eval (kvůli inline cache divergenci). Budget musí být velkorysý,
+  // aby v reálné cestě beam stihl většinu levelů.
+  // Far-sighted (Fáze 2.5): když true, beam vidí investiční tahy (bariéry, garáže)
+  // a hodnotí cascade efekty přes _ptFuturePotential. Vyšší branching → bump beam.
+  const farSighted=opts.farSighted===true;
+  const beamWidth=opts.beamWidth||(farSighted?12:8);
+  const timeBudget=opts.timeBudgetMs||8000;
+  const maxDepth=opts.maxDepth||80;
+  const wantTrace=!!opts.trace;
+  // ignoreBeltOverflow (Tester math-test): když true, beam pokračuje v simulaci i když
+  // pás přeteče. Pro otázku „je level matematicky řešitelný (s nekonečným pásem)?"
+  // Default false — reálná hra cap 14.
+  const ignoreBeltOverflow=opts.ignoreBeltOverflow===true;
+  const t0=(typeof performance!=='undefined'?performance:Date).now();
+  const initC=_ptDeepCloneCols(cols);
+  const initBlocks=_ptDeepCloneBlocks(_ptInitBlocks);
+  const initialDispenses=_ptUpdateGarages(initC);
+  const init={
+    g:grid.map(r=>r.slice()),
+    C:initC,
+    blocks:initBlocks,
+    beltQueue:[],
+    beltOverflow:false,
+    clicks:0,
+    waste:0,
+    funnelRejectedCount:0,
+    blocksKilled:0,
+    history:[],trace:wantTrace?[]:null,
+    colorFirstSeen:{},
+  };
+  let beam=[init];
+  let bestSolved=null;
+  for(let depth=0;depth<maxDepth;depth++){
+    if(((typeof performance!=='undefined'?performance:Date).now()-t0)>timeBudget)break;
+    if(!beam.length)break;
+    const next=[];
+    for(const s of beam){
+      // Solved check: ignoreBeltOverflow=true znamená že math test povoluje pokračovat
+      // i když pás přetekl, protože nás zajímá jen jestli pixely lze v teorii vyčistit.
+      if(!_ptAnyTargetLeft(s.g,s.blocks)&&s.beltQueue.length===0&&(ignoreBeltOverflow||!s.beltOverflow)){
+        if(!bestSolved||s.clicks<bestSolved.clicks||(s.clicks===bestSolved.clicks&&s.waste<bestSolved.waste))bestSolved=s;
+        continue;
+      }
+      if(s.beltOverflow&&!ignoreBeltOverflow)continue; // overflow stop only in real-cap mode
+      const act=_ptListActive(s.C);
+      if(!act.length)continue;
+      const queuedAmmo={};
+      for(const b of s.beltQueue) queuedAmmo[b.color]=(queuedAmmo[b.color]||0)+b.ammo;
+      // Far-sighted expansion potřebuje vědět, kdo je investiční. Helper „garage waiting"
+      // se počítá 1× per state (ne per stat), proto tady nahoře.
+      const garageWaiting=farSighted?_ptGarageWaitingForSlot(s.C):null;
+      const stats=act.map(([c,r])=>{
+        const slot=s.C[c][r];
+        const accBlocks=_ptAccessibleBlocks(s.blocks,s.g,slot.color);
+        const blockHp=accBlocks.reduce((sum,b)=>sum+b.hp,0);
+        const exposed=_ptGetExposed(s.g,slot.color,s.blocks).length+blockHp;
+        const st={exposed,queued:queuedAmmo[slot.color]||0,proj:slot.projectiles||0};
+        if(farSighted){
+          // Investiční flagy:
+          //   breaksBarrier — barva carrieru = barva přístupného bloku → klik ho oslabí
+          //   unblocksGarage — slot blokuje dispens stalled garáže
+          st.breaksBarrier=accBlocks.length>0;
+          st.unblocksGarage=garageWaiting.has(c+','+r);
+        }
+        return st;
+      });
+      const beneficialCount=stats.filter(x=>Math.max(0,x.exposed-x.queued)>0).length;
+      // Expansion pruning — jen beneficial carriery + 1 dig fallback.
+      // Tohle dramaticky snižuje branching factor (typicky 15 → 3-5 children per state).
+      const expandIdxs=[];
+      for(let i=0;i<stats.length;i++){
+        const benefit=Math.max(0,stats[i].exposed-stats[i].queued);
+        if(benefit>0){expandIdxs.push(i);continue;}
+        if(farSighted&&(stats[i].breaksBarrier||stats[i].unblocksGarage)){
+          // Investiční tah: nemá okamžitý gain, ale rozbije bariéru / uvolní garáž.
+          expandIdxs.push(i);
+        }
+      }
+      if(farSighted&&expandIdxs.length>6){
+        // Cap branching factor — vyber top 6 dle benefit + investiční bonus.
+        // Bez capu by se beam tree exponenciálně zhroutil (15 carriers × 12 widths × 80 depth).
+        const score=i=>{
+          const x=stats[i];
+          const ben=Math.max(0,x.exposed-x.queued);
+          return ben+(x.breaksBarrier?2:0)+(x.unblocksGarage?2:0);
+        };
+        expandIdxs.sort((a,b)=>score(b)-score(a));
+        expandIdxs.length=6;
+      }
+      if(expandIdxs.length===0){
+        // Dig fallback: vyber jeden nejlepší dig kandidát (nejvíc non-wall sousedů).
+        let bi=0,bd=-1;
+        for(let i=0;i<act.length;i++){
+          const [c,r]=act[i];let d=0;
+          for(const [nc,nr] of [[c,r+1],[c-1,r],[c+1,r]]){
+            if(nc<0||nc>=COLS||nr<0)continue;
+            const nc2=s.C[nc];if(!nc2||nr>=nc2.length)continue;
+            const sl=nc2[nr];if(sl&&!sl.wall&&sl.type!=='garage')d++;
+          }
+          if(d>bd){bd=d;bi=i;}
+        }
+        expandIdxs.push(bi);
+      }
+      for(const i of expandIdxs){
+        const [c,r]=act[i];
+        const slot=s.C[c][r];
+        const child={
+          g:s.g.map(row=>row.slice()),
+          C:_ptDeepCloneCols(s.C), // deep clone — garáže mají mutable queue
+          blocks:_ptDeepCloneBlocks(s.blocks), // deep clone — bloky mají mutable HP
+          beltQueue:s.beltQueue.map(b=>({color:b.color,ammo:b.ammo})),
+          beltOverflow:s.beltOverflow,
+          clicks:s.clicks+1,
+          waste:s.waste,
+          funnelRejectedCount:s.funnelRejectedCount,
+          blocksKilled:s.blocksKilled||0,
+          history:s.history.slice(),
+          trace:wantTrace?s.trace.slice():null,
+          colorFirstSeen:Object.assign({},s.colorFirstSeen),
+        };
+        if(child.colorFirstSeen[slot.color]===undefined)child.colorFirstSeen[slot.color]=s.clicks;
+        const sim=_ptSimulateClick(child.g,child.beltQueue,slot.color,slot.projectiles||0,child.blocks);
+        if(sim.beltLoad>BELT_CAP)child.beltOverflow=true;
+        if(sim.funnelRejected)child.funnelRejectedCount++;
+        child.waste+=sim.waste||0;
+        // Reward za zničení bloku — sečteme `destroyed:true` z blockHits.
+        if(sim.blockHits&&sim.blockHits.length){
+          for(const bh of sim.blockHits)if(bh.destroyed)child.blocksKilled++;
+        }
+        child.C[c][r]=null;
+        const dispenses=_ptUpdateGarages(child.C);
+        child.history.push({step:s.clicks,c:c,r:r,color:slot.color,gain:sim.gain,proj:slot.projectiles||0,beltLoad:sim.beltLoad,funnelRejected:sim.funnelRejected,clearedPixels:sim.clearedPixels||[],blockHits:sim.blockHits||[],dispenses});
+        if(wantTrace)child.trace.push({step:s.clicks,activeCount:act.length,beneficial:beneficialCount,pickedGain:sim.gain,pickedProj:slot.projectiles||0,beltLoad:sim.beltLoad,remainingPx:_ptCountPixels(child.g)});
+        next.push(child);
+      }
+    }
+    if(!next.length)break;
+    if(farSighted){
+      // Far-sighted scoring: oceňuje block destrukci a future cascade potential.
+      // remPx*1.0 (vs 0.5) přebije clicks*1 — investiční klik teď není striktně horší.
+      // blockHp*0.8: HP bariér jako first-class cíl (jejich existence stojí pixely).
+      // blocksKilled*-4: explicit reward za rozbití bariéry (1 zničený blok ≈ 5 HP value).
+      // futurePotential*-0.4: cascade — stavy s velkou „latentní" odkrytelnou plochou jsou lepší.
+      // Cache futurePotential per state (jednou, ne per child) — ušetří flood-fill calls.
+      for(const c of next){
+        if(c._futurePotential===undefined)c._futurePotential=_ptFuturePotential(c.g,c.blocks);
+        if(c._remPx===undefined)c._remPx=_ptCountPixels(c.g);
+        if(c._blockHp===undefined)c._blockHp=_ptBlockHpSum(c.blocks);
+      }
+      next.sort((a,b)=>{
+        const sa=(a.beltOverflow?1e9:0)+(a.funnelRejectedCount||0)*8+a.waste*5+a.beltQueue.length*3+a.clicks
+                +a._remPx*1.0+a._blockHp*0.8-(a.blocksKilled||0)*4-a._futurePotential*0.4;
+        const sb=(b.beltOverflow?1e9:0)+(b.funnelRejectedCount||0)*8+b.waste*5+b.beltQueue.length*3+b.clicks
+                +b._remPx*1.0+b._blockHp*0.8-(b.blocksKilled||0)*4-b._futurePotential*0.4;
+        return sa-sb;
+      });
+    } else {
+      next.sort((a,b)=>{
+        // Skóre: overflow tvrdě, pak funnel rejected (= klik, který by reálná hra neumožnila),
+        // pak waste, queue, clicks, remaining. Funnel*8 = beam preferuje funnel-friendly cesty.
+        const aRem=_ptCountPixels(a.g);
+        const bRem=_ptCountPixels(b.g);
+        const sa=(a.beltOverflow?1e9:0)+(a.funnelRejectedCount||0)*8+a.waste*5+a.beltQueue.length*3+a.clicks+aRem*0.5;
+        const sb=(b.beltOverflow?1e9:0)+(b.funnelRejectedCount||0)*8+b.waste*5+b.beltQueue.length*3+b.clicks+bRem*0.5;
+        return sa-sb;
+      });
+    }
+    beam=next.slice(0,beamWidth);
+    if(bestSolved&&beam.every(s=>s.clicks>=bestSolved.clicks))break;
+  }
+  const result=bestSolved||beam[0]||init;
+  const elapsed=((typeof performance!=='undefined'?performance:Date).now()-t0);
+  let progress=true,drainSf=20;
+  while(progress&&drainSf-->0){
+    progress=false;
+    for(let k=0;k<result.beltQueue.length;k++){
+      const b=result.beltQueue[k];if(!b||b.ammo<=0){result.beltQueue.splice(k,1);k--;continue;}
+      const exp=_ptGetExposed(result.g,b.color,result.blocks);
+      const accBlocks=_ptAccessibleBlocks(result.blocks,result.g,b.color);
+      if(!exp.length&&!accBlocks.length)continue;
+      const r=_ptApplyColor(result.g,b.color,b.ammo,result.blocks);
+      result.waste=(result.waste||0)+r.wasted;
+      result.beltQueue.splice(k,1);k--;progress=true;
+    }
+  }
+  const peakBeltLoad=result.history.reduce((m,h)=>Math.max(m,h.beltLoad||0),0);
+  const remainPxFinal=_ptCountPixels(result.g);
+  const blockHpFinal=_ptBlockHpSum(result.blocks);
+  const strictSolved=remainPxFinal===0&&blockHpFinal===0&&result.beltQueue.length===0&&!result.beltOverflow;
+  const carriersExhausted=_ptCountRemainingSlots(result.C)===0;
+  const solved=strictSolved
+            ||(remainPxFinal<=SOLVED_TOLERANCE_PX&&blockHpFinal===0&&!result.beltOverflow)
+            ||(carriersExhausted&&!result.beltOverflow);
+  let bottleneckColor=-1,bottleneckStep=-1;
+  for(const [c,s] of Object.entries(result.colorFirstSeen||{})){
+    if(s>bottleneckStep){bottleneckStep=s;bottleneckColor=Number(c);}
+  }
+  return{
+    solved,
+    strictSolved,
+    carriersExhausted,
+    remainPx:remainPxFinal,
+    clicks:result.clicks,
+    waste:result.waste||0,
+    funnelRejectedCount:result.funnelRejectedCount||0,
+    history:result.history,
+    trace:result.trace,
+    initialDispenses,
+    decisionRichness:0,
+    bottleneckColor,
+    colorFirstSeen:result.colorFirstSeen||{},
+    peakBeltLoad,
+    beltOverflow:result.beltOverflow,
+    stuckBalls:result.beltQueue.length,
+    remainingGrid:remainPxFinal>0?result.g.map(r=>r.slice()):null,
+    hitTimeBudget:elapsed>=timeBudget,
+  };
+}
+// ── Mutation Designer (Fáze 2) ────────────────────────────────────────────────
+
+function _ptDeepCloneColumns(cols){
+  return cols.map(col=>col.map(s=>{
+    if(s===null||s===undefined)return s;
+    const c={...s};
+    if(Array.isArray(s.queue))c.queue=s.queue.map(q=>({...q}));
+    return c;
+  }));
+}
+
+// Vrátí seznam carrier/rocket/garage buněk (ne null a ne wall) z columns.
+function _ptListCells(cols){
+  const cells=[];
+  for(let col=0;col<cols.length;col++){
+    for(let row=0;row<cols[col].length;row++){
+      const s=cols[col][row];
+      if(s&&!s.wall)cells.push({col,row});
+    }
+  }
+  return cells;
+}
+
+// Vrátí seznam wall buněk z columns.
+function _ptListWalls(cols){
+  const walls=[];
+  for(let col=0;col<cols.length;col++){
+    for(let row=0;row<cols[col].length;row++){
+      const s=cols[col][row];
+      if(s&&s.wall)walls.push({col,row});
+    }
+  }
+  return walls;
+}
+
+// Bezpečnostní check pro INSERT_WALL: neexistuje buňka níže ve stejném sloupci.
+function _ptInsertWallSafe(cols,col,row){
+  for(let r=row+1;r<cols[col].length;r++){
+    const s=cols[col][r];
+    if(s&&!s.wall)return false;
+  }
+  return true;
+}
+
+// Vrátí popis mutace česky.
+function _ptMutationDesc(mut){
+  const pos=p=>`(sl.${p.col},ř.${p.row})`;
+  switch(mut.type){
+    case'SWAP_CELLS':  return `Přesun nosiče ${pos(mut.a)} ↔ ${pos(mut.b)}`;
+    case'SWAP_COLORS': return `Výměna barev ${pos(mut.a)} ↔ ${pos(mut.b)}`;
+    case'INSERT_WALL': return `Přidána zeď na ${pos(mut.a)}`;
+    case'REMOVE_WALL': return `Odstraněna zeď na ${pos(mut.a)}`;
+    case'TOGGLE_HIDDEN':return `Přepnut skrytý flag ${pos(mut.a)}`;
+    default: return mut.type;
+  }
+}
+
+// Aplikuje mutaci na deep clone columns, vrátí nové columns nebo null (neplatná mutace).
+function _ptApplyMutation(cols,mut){
+  const C=_ptDeepCloneColumns(cols);
+  switch(mut.type){
+    case'SWAP_CELLS':{
+      const tmp=C[mut.a.col][mut.a.row];
+      C[mut.a.col][mut.a.row]=C[mut.b.col][mut.b.row];
+      C[mut.b.col][mut.b.row]=tmp;
+      break;
+    }
+    case'SWAP_COLORS':{
+      const sA=C[mut.a.col][mut.a.row];
+      const sB=C[mut.b.col][mut.b.row];
+      if(!sA||!sB||sA.wall||sB.wall)return null;
+      const cA=sA.color;
+      sA.color=sB.color;
+      sB.color=cA;
+      break;
+    }
+    case'INSERT_WALL':{
+      if(!_ptInsertWallSafe(cols,mut.a.col,mut.a.row))return null;
+      C[mut.a.col][mut.a.row]={wall:true};
+      break;
+    }
+    case'REMOVE_WALL':{
+      C[mut.a.col][mut.a.row]=null;
+      break;
+    }
+    case'TOGGLE_HIDDEN':{
+      const s=C[mut.a.col][mut.a.row];
+      if(!s||s.wall)return null;
+      C[mut.a.col][mut.a.row]={...s,hidden:!s.hidden};
+      break;
+    }
+    default: return null;
+  }
+  return C;
+}
+
+// TAG_DIRECTION: pro každý tag, jak by se měly změnit dimenze křivky v pin range.
+// choice = beneficial/active — NIŽŠÍ = méně zjevných tahů = TĚŽŠÍ pro hráče.
+// pressure = beltLoad/CAP — VYŠŠÍ = pás je plnější = TĚŽŠÍ.
+const _PT_TAG_DIRECTION={
+  'harder':            {choice:-1,pressure:+1},  // méně zjevných voleb + vyšší tlak
+  'easier':            {choice:+1,pressure:-1},  // více zjevných voleb + nižší tlak
+  'more decisions':    {choice:+1},              // více beneficiálních carrierů
+  'less decisions':    {choice:-1},              // méně beneficiálních carrierů
+  'less belt pressure':{pressure:-1},            // snížit belt load
+};
+
+// Průměrná hodnota dimenze v rozsahu kroků [s0, s1].
+function _ptAvgInRange(trace,dim,s0,s1){
+  let sum=0,count=0;
+  for(const pt of trace){
+    if(pt.step<s0||pt.step>s1)continue;
+    let val=0;
+    if(dim==='choice')val=pt.activeCount>0?pt.beneficial/pt.activeCount:0;
+    else if(dim==='pressure')val=pt.beltLoad/14;
+    else if(dim==='progress')val=pt.remainingPx>0?pt.pickedGain/pt.remainingPx:0;
+    sum+=val;count++;
+  }
+  return count>0?sum/count:0;
+}
+
+// Score mutace: vážená suma zlepšení v pin range podle tag direction.
+// Vrací {score, dimDeltas} kde dimDeltas popisuje skutečné změny per dimenzi.
+function _ptScoreMutation(baseTrace,newTrace,pin){
+  const dir=_PT_TAG_DIRECTION[pin.tag]||{'choice':-1,'pressure':+1};
+  let score=0;
+  const dimDeltas={};
+  for(const[dim,sign] of Object.entries(dir)){
+    const baseVal=_ptAvgInRange(baseTrace,dim,pin.stepStart,pin.stepEnd);
+    const nextVal=_ptAvgInRange(newTrace,dim,pin.stepStart,pin.stepEnd);
+    const delta=nextVal-baseVal;
+    dimDeltas[dim]={base:baseVal,next:nextVal,delta,wanted:sign>0?'+':'-',got:delta>0.005?'+':(delta<-0.005?'-':'=')};
+    score+=sign*delta;
+  }
+  return{score,dimDeltas};
+}
+
+// Unikátní klíč mutace pro deduplikaci.
+function _ptMutKey(mut){
+  if(!mut)return'null';
+  const a=`${mut.a?mut.a.col+','+mut.a.row:''}`;
+  const b=mut.b?`${mut.b.col},${mut.b.row}`:'';
+  return`${mut.type}|${a}|${b}`;
+}
+
+// Fokus region: sjednocení activeCells kroků [s0..s1] + ortogonální sousedi.
+function _ptBuildFocusRegion(trace,s0,s1,numCols){
+  const set=new Set();
+  const key=(c,r)=>`${c},${r}`;
+  for(const pt of trace){
+    if(pt.step<s0||pt.step>s1)continue;
+    if(!pt.activeCells)continue;
+    for(const{c,r} of pt.activeCells){
+      set.add(key(c,r));
+      // ortogonální sousedi (col±1, row±1) pro rozšíření search space
+      for(const[dc,dr] of[[-1,0],[1,0],[0,-1],[0,1]]){
+        const nc=c+dc,nr=r+dr;
+        if(nc>=0&&nc<numCols&&nr>=0)set.add(key(nc,nr));
+      }
+    }
+  }
+  return [...set].map(k=>{const[c,r]=k.split(',').map(Number);return{col:c,row:r};});
+}
+
+// Výběr náhodné mutace, s preferencí pro focus region.
+// Vrátí seznam null cells (tunelů) — pro INSERT_WALL v non-destructive režimu.
+function _ptListNullCells(cols){
+  const out=[];
+  for(let col=0;col<cols.length;col++){
+    const c=cols[col];if(!c)continue;
+    for(let row=0;row<c.length;row++){
+      if(c[row]===null)out.push({col,row});
+    }
+  }
+  return out;
+}
+
+// Vrátí všechny non-null cells (carriery + zdi + garáže + rakety) — pro SWAP_CELLS,
+// aby SA mohla přesouvat i zdi mezi pozicemi (ne jen carriery).
+function _ptListNonNullCells(cols){
+  const out=[];
+  for(let col=0;col<cols.length;col++){
+    const c=cols[col];if(!c)continue;
+    for(let row=0;row<c.length;row++){
+      if(c[row]!==null&&c[row]!==undefined)out.push({col,row});
+    }
+  }
+  return out;
+}
+
+// opts.nonDestructive: pokud true (default false pro Phase 2 zpětná kompatibilita),
+//   INSERT_WALL pouze na null cells (ne na carriery), REMOVE_WALL beze změny.
+//   Tím se zabrání trvalé ztrátě carrierů při iterativním SA — bez non-destructive modu
+//   sekvence INSERT_WALL na carrier + pozdější REMOVE_WALL by carrier nahradil tunelem.
+function _ptPickRandomMutation(cols,focusRegion,opts){
+  opts=opts||{};
+  const nonDestructive=!!opts.nonDestructive;
+  const allCells=_ptListCells(cols);
+  const allWalls=_ptListWalls(cols);
+  const allNulls=nonDestructive?_ptListNullCells(cols):null;
+  if(allCells.length<2)return null;
+
+  // Váhy typů mutací — v non-destructive modu posuneme váhu od INSERT_WALL pryč
+  // (INSERT_WALL on null cells je vzácnější, protože většina layoutu jsou carriery).
+  // TOGGLE_HIDDEN má v non-destructive (=SA) váhu 0 — solver totiž vidí pravou barvu
+  // bez ohledu na hidden flag, takže TOGGLE_HIDDEN je noop pro fitness (delta=0).
+  // SA pak `accept = delta<0 || random<exp(-0/T) = random<1` → **vždy accept**, takže
+  // za pár iterací by každý carrier byl hidden. V Phase 2 Suggest má smysl (jednorázová
+  // mutace měnící hru pro hráče), tam hodnotu necháme.
+  const types=['SWAP_CELLS','SWAP_COLORS','TOGGLE_HIDDEN','REMOVE_WALL','INSERT_WALL'];
+  const weights=nonDestructive?[65,30,0,3,2]:[40,30,15,10,5];
+  const totalW=weights.reduce((a,b)=>a+b,0);
+  let rnd=Math.random()*totalW;
+  let type=types[types.length-1];
+  for(let i=0;i<types.length;i++){rnd-=weights[i];if(rnd<=0){type=types[i];break;}}
+
+  // Výběr z focus region pokud dostupné (70 % šance), jinak globální.
+  // Pool BEZ zdí používá většina mutací (SWAP_COLORS, TOGGLE_HIDDEN), protože tyhle
+  // operace se zdmi nemají smysl (zeď nemá color/hidden flag).
+  const useFocus=focusRegion&&focusRegion.length>=2&&Math.random()<0.7;
+  const pool=useFocus
+    ?focusRegion.filter(({col,row})=>{const s=cols[col]&&cols[col][row];return s&&!s.wall;})
+    :allCells;
+  if(pool.length<1)return null;
+
+  const pick=arr=>arr[Math.floor(Math.random()*arr.length)];
+
+  switch(type){
+    case'SWAP_CELLS':{
+      // SWAP_CELLS pool ZAHRNUJE i zdi — SA může přesouvat zdi mezi pozicemi pro
+      // skutečný layout reshuffle. Validita (žádné unreachable carriery) se kontroluje
+      // ve fitness penalizaci přes _ptCheckLayoutValid.
+      const swapPool=useFocus
+        ?focusRegion.filter(({col,row})=>{const s=cols[col]&&cols[col][row];return s!==null&&s!==undefined;})
+        :_ptListNonNullCells(cols);
+      if(swapPool.length<2)return null;
+      const a=pick(swapPool);
+      let b;
+      do{b=pick(swapPool);}while(b.col===a.col&&b.row===a.row);
+      return{type,a,b};
+    }
+    case'SWAP_COLORS':{
+      if(pool.length<2)return null;
+      const a=pick(pool);
+      let b;
+      do{b=pick(pool);}while(b.col===a.col&&b.row===a.row);
+      return{type,a,b};
+    }
+    case'TOGGLE_HIDDEN':{
+      // Hra renderuje `?` pouze na **inactive** carrier (game.js isCarrierActive:4586).
+      // Active = row===0 OR má null souseda (tunel) ortogonálně. Pokud je active,
+      // renderuje se jako normální color carrier (i s hidden:true) protože hráč ho
+      // vidí. TOGGLE_HIDDEN tedy musíme cílit na inactive cells, jinak je `?` flag
+      // visual noop a v editoru/preview vznikne nekonzistence (editor ukazuje `?`,
+      // hra rendruje barvu).
+      const numCols=cols.length;
+      const isInactive=(c,r)=>{
+        if(r===0)return false;
+        if(cols[c]&&cols[c][r-1]===null)return false;
+        if(cols[c]&&r+1<cols[c].length&&cols[c][r+1]===null)return false;
+        if(c>0&&cols[c-1]&&r<cols[c-1].length&&cols[c-1][r]===null)return false;
+        if(c+1<numCols&&cols[c+1]&&r<cols[c+1].length&&cols[c+1][r]===null)return false;
+        return true;
+      };
+      const effective=pool.filter(({col,row})=>isInactive(col,row));
+      if(!effective.length)return null;
+      const a=pick(effective);
+      return{type,a};
+    }
+    case'REMOVE_WALL':{
+      if(!allWalls.length)return null;
+      return{type,a:pick(allWalls)};
+    }
+    case'INSERT_WALL':{
+      // Non-destructive: jen na null cells (zachová carriery). Default: cell pool, ale check safety.
+      const candidates=nonDestructive
+        ?(allNulls||[])
+        :allCells.filter(({col,row})=>_ptInsertWallSafe(cols,col,row));
+      if(!candidates.length)return null;
+      return{type,a:pick(candidates)};
+    }
+    default: return null;
+  }
+}
+
+// Kompaktní mini-curves data pro SVG v editoru (jen choice + pressure per step).
+function _ptBuildMiniCurves(trace){
+  if(!trace||!trace.length)return[];
+  return trace.map(pt=>({
+    step:pt.step,
+    choice:pt.activeCount>0?pt.beneficial/pt.activeCount:0,
+    pressure:pt.beltLoad/14,
+    progress:pt.remainingPx>0?pt.pickedGain/(pt.remainingPx+pt.pickedGain):0,
+  }));
+}
+
+// Hlavní funkce: navrhne top 3 mutace pro daný pin.
+// Spustí jeden simulační run pro mutaci — buď greedy (rychlé) nebo far-sighted beam (přesné).
+// Beam s konzervativním budgetem aby 50 evaluací netrvalo déle než ~30 s celkem.
+function _ptEvalMutation(grid,cols,evalMode){
+  if(evalMode==='beam'){
+    return ptRunBeamSearch(grid,cols,{
+      trace:true,
+      farSighted:true,
+      beamWidth:6,
+      timeBudgetMs:600,  // 50 × 0.6s ≈ 30s worst case (typicky míň, beam končí dřív)
+      maxDepth:50,
+    });
+  }
+  return ptRunGreedy(grid,cols,'max-gain',{trace:true});
+}
+
+// Async verze pro beam mode — yielduje na event loop mezi mutacemi, aby UI nezamrzlo.
+// progressCb(current, total) volaný každých ~5 mutací.
+async function ptSuggestMutationsAsync(pin,opts,progressCb){
+  if(!_ptInitGrid||!_ptInitColumns)return[];
+  opts=opts||{};
+  const evalMode=opts.evalMode==='beam'?'beam':'greedy';
+  const numCols=_ptInitColumns.length;
+  // Baseline run vždycky stejnou metodou jako evaluace (aby diff měl smysl)
+  const base=_ptEvalMutation(_ptInitGrid,_ptInitColumns,evalMode);
+  if(!base.trace||!base.trace.length)return[];
+
+  const focusRegion=_ptBuildFocusRegion(base.trace,pin.stepStart||0,pin.stepEnd||base.trace.length,numCols);
+  const candidates=[];
+  const N=50;
+
+  for(let i=0;i<N;i++){
+    const mut=_ptPickRandomMutation(_ptInitColumns,focusRegion);
+    if(mut){
+      const newCols=_ptApplyMutation(_ptInitColumns,mut);
+      if(newCols){
+        const r=_ptEvalMutation(_ptInitGrid,newCols,evalMode);
+        if(r.trace&&r.trace.length){
+          const{score,dimDeltas}=_ptScoreMutation(base.trace,r.trace,pin);
+          candidates.push({mut,score,dimDeltas,trace:r.trace,clicks:r.clicks,solved:r.solved});
+        }
+      }
+    }
+    // Yield k event loop každých 5 mutací (jen v beam mode kde každá iterace je drahá).
+    // Greedy je dost rychlý že yielding není potřeba (250ms total) a stojí jen čas.
+    if(evalMode==='beam'&&(i+1)%5===0){
+      if(progressCb)progressCb(i+1,N);
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+  if(progressCb)progressCb(N,N);
+
+  candidates.sort((a,b)=>b.score-a.score);
+  const seen=new Set();
+  const deduped=[];
+  for(const c of candidates){
+    const k=_ptMutKey(c.mut);
+    if(seen.has(k))continue;
+    seen.add(k);
+    deduped.push(c);
+    if(deduped.length>=3)break;
+  }
+  const baseCurves=_ptBuildMiniCurves(base.trace);
+  return deduped.map(c=>({
+    mutation:c.mut,
+    score:Math.round(c.score*1000)/1000,
+    dimDeltas:c.dimDeltas,
+    desc:_ptMutationDesc(c.mut),
+    deltaClicks:c.clicks-base.clicks,
+    solved:c.solved,
+    baseCurves,
+    newCurves:_ptBuildMiniCurves(c.trace),
+    evalMode,
+  }));
+}
+
+// Sync wrapper pro zpětnou kompatibilitu (pokud by někdo volal přímo).
+function ptSuggestMutations(pin){
+  if(!_ptInitGrid||!_ptInitColumns)return[];
+  const numCols=_ptInitColumns.length;
+  const base=ptRunGreedy(_ptInitGrid,_ptInitColumns,'max-gain',{trace:true});
+  if(!base.trace||!base.trace.length)return[];
+
+  const focusRegion=_ptBuildFocusRegion(base.trace,pin.stepStart||0,pin.stepEnd||base.trace.length,numCols);
+  const candidates=[];
+
+  for(let i=0;i<50;i++){
+    const mut=_ptPickRandomMutation(_ptInitColumns,focusRegion);
+    if(!mut)continue;
+    const newCols=_ptApplyMutation(_ptInitColumns,mut);
+    if(!newCols)continue;
+    const r=ptRunGreedy(_ptInitGrid,newCols,'max-gain',{trace:true});
+    if(!r.trace||!r.trace.length)continue;
+    const{score,dimDeltas}=_ptScoreMutation(base.trace,r.trace,pin);
+    candidates.push({mut,score,dimDeltas,trace:r.trace,clicks:r.clicks,solved:r.solved});
+  }
+
+  candidates.sort((a,b)=>b.score-a.score);
+  const seen=new Set();
+  const deduped=[];
+  for(const c of candidates){
+    const k=_ptMutKey(c.mut);
+    if(seen.has(k))continue;
+    seen.add(k);
+    deduped.push(c);
+    if(deduped.length>=3)break;
+  }
+  const baseCurves=_ptBuildMiniCurves(base.trace);
+  return deduped.map(c=>({
+    mutation:c.mut,
+    score:Math.round(c.score*1000)/1000,
+    dimDeltas:c.dimDeltas,
+    desc:_ptMutationDesc(c.mut),
+    deltaClicks:c.clicks-base.clicks,
+    solved:c.solved,
+    baseCurves,
+    newCurves:_ptBuildMiniCurves(c.trace),
+  }));
+}
+
+// ── Auto-tune (Phase 3a) ──────────────────────────────────────────────────
+// Simulated annealing přes mutation pool — designer vybere template (target curve shape)
+// a SA přerovná carrier layout aby aktuální křivka odpovídala targetu.
+
+// Šest preset shapes — každý template = funkce (s, ms) → {choice, pressure, progress} v 0..1.
+const AUTOTUNE_TEMPLATES={
+  FLAT:{label:'FLAT — konstantní obtížnost',fn:(s,ms)=>({choice:0.5,pressure:0.5,progress:0.5})},
+  STAIRCASE:{label:'STAIRCASE — postupný nárůst',fn:(s,ms)=>{
+    const t=s/Math.max(1,ms);
+    const stage=Math.floor(t*3)/2; // 0, 0.5, 1
+    return{choice:stage,pressure:stage*0.7,progress:0.6};
+  }},
+  WARMUP_CLIMAX_COOLDOWN:{label:'WARMUP-CLIMAX-COOLDOWN ╱─╲',fn:(s,ms)=>{
+    const t=s/Math.max(1,ms);
+    const peak=1-Math.abs(t-0.6)*2.5;
+    return{choice:Math.max(0.2,peak),pressure:Math.max(0.3,peak*0.8),progress:0.5};
+  }},
+  EARLY_HOOK:{label:'EARLY HOOK — strmý začátek + plateau',fn:(s,ms)=>{
+    const t=s/Math.max(1,ms);
+    const early=t<0.25?t*4:1;
+    return{choice:0.7,pressure:early*0.8,progress:0.4+early*0.4};
+  }},
+  ENDGAME_PUZZLE:{label:'ENDGAME PUZZLE — easy → spike na konci',fn:(s,ms)=>{
+    const t=s/Math.max(1,ms);
+    const spike=t>0.7?(t-0.7)/0.3:0;
+    return{choice:0.3+spike*0.6,pressure:0.2+spike*0.7,progress:0.7-spike*0.3};
+  }},
+  DOUBLE_PEAK:{label:'DOUBLE PEAK ╱╲╱╲',fn:(s,ms)=>{
+    const t=s/Math.max(1,ms);
+    const peak1=Math.exp(-Math.pow((t-0.3)*4,2));
+    const peak2=Math.exp(-Math.pow((t-0.75)*4,2));
+    const v=Math.max(peak1,peak2);
+    return{choice:0.3+v*0.6,pressure:0.3+v*0.5,progress:0.5};
+  }},
+};
+
+// Rozbalí template na pole [{step, choice, pressure, progress}] pro daný maxStep.
+function _ptExpandTemplate(templateKey,maxStep){
+  const tpl=AUTOTUNE_TEMPLATES[templateKey];
+  if(!tpl)return null;
+  const out=[];
+  const ms=Math.max(1,maxStep|0);
+  for(let s=0;s<=ms;s++){
+    const v=tpl.fn(s,ms);
+    out.push({step:s,choice:v.choice,pressure:v.pressure,progress:v.progress});
+  }
+  return out;
+}
+
+// Mapuje applyTarget na váhy dimenzí ve fitness funkci.
+function _ptResolveWeights(applyTarget){
+  switch(applyTarget){
+    case'choice':   return{choice:1,pressure:0,progress:0};
+    case'pressure': return{choice:0,pressure:1,progress:0};
+    case'progress': return{choice:0,pressure:0,progress:1};
+    case'all':
+    default:        return{choice:0.4,pressure:0.4,progress:0.2};
+  }
+}
+
+// Vážená L2 distance mezi trace a target curve. Trace musí být z greedy/beam, target z _ptExpandTemplate.
+function _ptComputeFitness(trace,targetCurve,weights){
+  if(!trace||!trace.length||!targetCurve||!targetCurve.length)return 1e9;
+  // Trace má {activeCount, beneficial, beltLoad, pickedGain, remainingPx}
+  // Target má {choice, pressure, progress}
+  // Zarovnávat budeme podle indexu (oba mají maxStep délku, target generován z trace.length-1).
+  const N=Math.min(trace.length,targetCurve.length);
+  let sumChoice=0,sumPressure=0,sumProgress=0;
+  for(let i=0;i<N;i++){
+    const t=trace[i],g=targetCurve[i];
+    const choice=t.activeCount>0?t.beneficial/t.activeCount:0;
+    const pressure=t.beltLoad/14;
+    const progress=t.remainingPx>0?t.pickedGain/(t.remainingPx+t.pickedGain):0;
+    sumChoice  +=Math.pow(choice  -g.choice  ,2);
+    sumPressure+=Math.pow(pressure-g.pressure,2);
+    sumProgress+=Math.pow(progress-g.progress,2);
+  }
+  // L2 per dimenzi (sqrt sumy čtverců) × váha
+  return weights.choice  *Math.sqrt(sumChoice)
+        +weights.pressure*Math.sqrt(sumPressure)
+        +weights.progress*Math.sqrt(sumProgress);
+}
+
+// Reachability check — BFS z prvního řádku skrz non-wall cells. Layout valid pokud
+// všechny carrier/garage/rocket sloty jsou dosažitelné. Používá se ve fitness penalty.
+function _ptCheckLayoutValid(cols){
+  if(!cols||!cols.length)return true;
+  const numCols=cols.length;
+  const numRows=Math.max(...cols.map(c=>c?c.length:0));
+  const visited=new Set();
+  const key=(c,r)=>c*1000+r;
+  const queue=[];
+  // Start: top row (r=0) všechny non-wall sloty
+  for(let c=0;c<numCols;c++){
+    const slot=cols[c]&&cols[c][0];
+    if(slot===undefined)continue;
+    if(slot&&slot.wall)continue;
+    visited.add(key(c,0));
+    queue.push([c,0]);
+  }
+  while(queue.length){
+    const[c,r]=queue.shift();
+    for(const[dc,dr] of[[1,0],[-1,0],[0,1],[0,-1]]){
+      const nc=c+dc,nr=r+dr;
+      if(nc<0||nc>=numCols||nr<0)continue;
+      const ncol=cols[nc];if(!ncol||nr>=ncol.length)continue;
+      const slot=ncol[nr];
+      if(slot&&slot.wall)continue; // wall blokuje
+      const k=key(nc,nr);
+      if(visited.has(k))continue;
+      visited.add(k);
+      queue.push([nc,nr]);
+    }
+  }
+  // Validace: každý non-wall slot (carrier/garage/rocket/null tunel) musí být visited.
+  // Konkrétně nás zajímají slots s type carrier/garage/rocket — tunely (null) jsou triviálně OK.
+  for(let c=0;c<numCols;c++){
+    const col=cols[c];if(!col)continue;
+    for(let r=0;r<col.length;r++){
+      const slot=col[r];
+      if(!slot)continue; // null tunel
+      if(slot.wall)continue; // wall doesn't need to be reachable
+      if(slot.type==='carrier'||slot.type==='garage'||slot.type==='rocket'||typeof slot.color==='number'){
+        if(!visited.has(key(c,r)))return false;
+      }
+    }
+  }
+  return true;
+}
+
+// ── Prozřetelný SA — access-step aware mutation strategy ──────────────────
+// Rich complexity model: pro každou barvu spočítáme accessCost přes 5 dimenzí
+// (PHYSICAL_DEPTH, CLICK_DISTANCE, MYSTERY, GARAGE_QUEUE_POSITION, GARAGE_REACHABILITY).
+// SA pak váhuje mutace tak, aby pro „harder"/STAIRCASE/atd. zvyšovalo accessCost
+// kritických barev (early-needed dle baseline trace), pro „easier"/FLAT opačně.
+// Side-by-side s existujícím ptAutoTuneAsync — toggle v UI rozhoduje.
+
+// Konstanty pro vážení dimenzí v _ptColorComplexity. Lze ladit empiricky.
+const _PT_ACCESS_WEIGHTS = {
+  physicalDepth: 1.0,      // za každý row hloubky carrieru
+  clickDistance: 1.5,      // za každý klik nutný pro aktivaci (BFS)
+  mystery: 0.8,            // bonus za hidden=true (jen na inactive — game's render rule)
+  garageQueuePos: 1.2,     // za queue index v garáži (queue[3] = 3 dispense events away)
+  garageRow: 1.0,          // garage's own row depth
+};
+
+// Click distance pro carrier: kolik kliků nutno pro aktivaci.
+// Aproximace: BFS z (row 0 nebo tunelového souseda) přes non-wall cells. Vrátí počet hran
+// nejkratší cesty ke (col, row). Pokud nedosažitelný, vrátí Infinity.
+function _ptClickDistanceTo(cols, col, row) {
+  if (row === 0) return 0;
+  const numCols = cols.length;
+  const visited = new Set();
+  const key = (c, r) => c*1000+r;
+  const queue = [];
+  // Start: top row + cells adjacent to null tunnels (active carriers)
+  for (let c = 0; c < numCols; c++) {
+    if (cols[c] && cols[c][0] !== undefined) {
+      visited.add(key(c, 0));
+      queue.push({c, r: 0, d: 0});
+    }
+  }
+  // Také cells ortho-adjacent k null tunelům jsou „active" startovní
+  for (let c = 0; c < numCols; c++) {
+    const colArr = cols[c]; if (!colArr) continue;
+    for (let r = 0; r < colArr.length; r++) {
+      if (colArr[r] !== null) continue;
+      // tunel — sousedi jsou „active" → distance 0 z hlediska reachability (BFS frontier)
+      for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const nc = c+dc, nr = r+dr;
+        if (nc<0||nc>=numCols||nr<0) continue;
+        const ncol = cols[nc]; if (!ncol||nr>=ncol.length) continue;
+        const k = key(nc, nr);
+        if (!visited.has(k)) {
+          visited.add(k);
+          queue.push({c: nc, r: nr, d: 0});
+        }
+      }
+    }
+  }
+  // BFS přes non-wall cells, hrany = ortho neighbors
+  while (queue.length) {
+    const {c, r, d} = queue.shift();
+    if (c === col && r === row) return d;
+    for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const nc = c+dc, nr = r+dr;
+      if (nc<0||nc>=numCols||nr<0) continue;
+      const ncol = cols[nc]; if (!ncol||nr>=ncol.length) continue;
+      const slot = ncol[nr];
+      if (slot && slot.wall) continue;
+      const k = key(nc, nr);
+      if (visited.has(k)) continue;
+      visited.add(k);
+      queue.push({c: nc, r: nr, d: d+1});
+    }
+  }
+  return Infinity;
+}
+
+// Mirror game's isCarrierActive: true pokud cell má null souseda nebo je v row 0.
+function _ptIsActive(cols, col, row) {
+  if (row === 0) return true;
+  const numCols = cols.length;
+  const check = (c, r) => {
+    if (c < 0 || c >= numCols || r < 0) return false;
+    const ncol = cols[c]; if (!ncol || r >= ncol.length) return false;
+    return ncol[r] === null;
+  };
+  return check(col, row-1) || check(col, row+1) || check(col-1, row) || check(col+1, row);
+}
+
+// Spočítá accessCost barvy v layoutu — sumuje přes všechny instance (carriers + garage queues).
+function _ptColorComplexity(cols, color) {
+  let total = 0;
+  let count = 0;
+  const w = _PT_ACCESS_WEIGHTS;
+  for (let c = 0; c < cols.length; c++) {
+    const colArr = cols[c]; if (!colArr) continue;
+    for (let r = 0; r < colArr.length; r++) {
+      const slot = colArr[r];
+      if (!slot || slot.wall) continue;
+      // Carrier or rocket s odpovídající barvou
+      if ((slot.type === 'carrier' || slot.type === 'rocket' || typeof slot.color === 'number')
+          && slot.type !== 'garage' && slot.color === color) {
+        const dist = _ptClickDistanceTo(cols, c, r);
+        const safeDist = isFinite(dist) ? dist : 50; // unreachable = penalize jako 50
+        const mysteryBonus = (slot.hidden && !_ptIsActive(cols, c, r)) ? w.mystery : 0;
+        total += w.physicalDepth * r + w.clickDistance * safeDist + mysteryBonus;
+        count++;
+      }
+      // Garage s barvou v queue
+      if (slot.type === 'garage' && Array.isArray(slot.queue)) {
+        for (let q = 0; q < slot.queue.length; q++) {
+          if (slot.queue[q] && slot.queue[q].color === color) {
+            const dist = _ptClickDistanceTo(cols, c, r);
+            const safeDist = isFinite(dist) ? dist : 50;
+            total += w.garageRow * r + w.garageQueuePos * q + w.clickDistance * safeDist * 0.5;
+            count++;
+          }
+        }
+      }
+    }
+  }
+  return count > 0 ? total / count : 0; // průměr per instance — fair across distributions
+}
+
+// Detekuje critical colors z baseline trace. Critical = (early access) AND (hodně pixelů potřeba).
+// Vrátí array [{color, criticality}] sorted desc — top 3-5 jsou „nejdůležitější pro hru".
+function _ptCriticalColors(trace, colorFirstSeen, totalSteps) {
+  if (!trace || !trace.length) return [];
+  // Pixel demand per color z trace.pickedGain agregace
+  const pixelDemand = {};
+  for (const pt of trace) {
+    if (typeof pt.pickedGain === 'number' && pt.pickedColor !== undefined) {
+      pixelDemand[pt.pickedColor] = (pixelDemand[pt.pickedColor] || 0) + pt.pickedGain;
+    }
+  }
+  // Score per color: kombinace early-access + pixel demand
+  const scores = [];
+  const seenEntries = colorFirstSeen ? Object.entries(colorFirstSeen) : [];
+  for (const [colStr, firstStep] of seenEntries) {
+    const color = Number(colStr);
+    const accessUrgency = 1 - (firstStep / Math.max(1, totalSteps)); // 1 = první krok, 0 = poslední
+    const demand = pixelDemand[color] || 0;
+    const normDemand = demand / Math.max(1, Object.values(pixelDemand).reduce((a,b)=>Math.max(a,b),1));
+    const criticality = accessUrgency * 0.6 + normDemand * 0.4;
+    scores.push({ color, criticality, firstStep, demand });
+  }
+  scores.sort((a, b) => b.criticality - a.criticality);
+  return scores.slice(0, 5); // top 5
+}
+
+// Mismatch term: chceme aby critical colors měly vysokou complexity v hard templates,
+// nízkou v easy. Vrátí scalar penalty, vyšší = horší layout.
+// targetDirection: +1 = chceme deeper (harder), -1 = chceme shallower (easier), 0 = neutrální
+function _ptAccessStepMismatch(cols, criticalColors, targetDirection) {
+  if (!criticalColors.length || targetDirection === 0) return 0;
+  let totalMismatch = 0;
+  for (const cc of criticalColors) {
+    const complexity = _ptColorComplexity(cols, cc.color);
+    // Pro positive direction (harder): chceme high complexity, mismatch = max(0, expected - actual)
+    // Pro negative direction (easier): chceme low complexity, mismatch = max(0, actual - expected)
+    // Expected hodnota je heuristická (středu kolem 5 — odpovídá ~5 click distance / depth).
+    const expected = 5;
+    const weighted = cc.criticality * (targetDirection > 0
+      ? Math.max(0, expected - complexity)   // chceme víc, máme málo → mismatch
+      : Math.max(0, complexity - expected)); // chceme míň, máme moc → mismatch
+    totalMismatch += weighted;
+  }
+  return totalMismatch;
+}
+
+// Mapuje template → access targetDirection (+1 hard, -1 easy, 0 neutral).
+function _ptTemplateAccessDirection(templateKey) {
+  switch (templateKey) {
+    case 'FLAT':                    return 0;
+    case 'EARLY_HOOK':              return -1; // easy first → critical colors should be early
+    case 'STAIRCASE':               return +1; // harder over time → critical deep
+    case 'WARMUP_CLIMAX_COOLDOWN':  return +1;
+    case 'ENDGAME_PUZZLE':          return +1;
+    case 'DOUBLE_PEAK':             return +1;
+    default:                        return 0;
+  }
+}
+
+// Rozšířená fitness: L2 curve match + access-step mismatch term.
+function _ptComputeFitnessDeep(trace, targetCurve, weights, criticalColors, layout, targetDirection) {
+  const baseL2 = _ptComputeFitness(trace, targetCurve, weights);
+  const mismatch = _ptAccessStepMismatch(layout, criticalColors, targetDirection);
+  return baseL2 + mismatch * 0.3; // 0.3 = váha access term (laditelná)
+}
+
+// Mutation picker s biasem: preferuje mutace, které posouvají critical barvy správným směrem.
+// Padá zpět na _ptPickRandomMutation pokud bias nenajde dobrou mutaci do K pokusů.
+function _ptPickRandomMutationDeep(cols, focusRegion, opts, criticalColors, targetDirection) {
+  // Pro 70 % pokusů bias toward critical-color movement, 30 % random (exploration).
+  if (Math.random() > 0.7 || !criticalColors.length || targetDirection === 0) {
+    return _ptPickRandomMutation(cols, focusRegion, opts);
+  }
+  // Najdi mutaci která mění complexity critical color v target direction.
+  // Strategie: SWAP_CELLS pair (criticalCarrier ↔ deep/shallow target cell).
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const cc = criticalColors[Math.floor(Math.random() * criticalColors.length)];
+    const color = cc.color;
+    // Najdi 1 instance té barvy
+    const instances = [];
+    for (let c = 0; c < cols.length; c++) {
+      const colArr = cols[c]; if (!colArr) continue;
+      for (let r = 0; r < colArr.length; r++) {
+        const slot = colArr[r];
+        if (slot && !slot.wall && slot.color === color && slot.type !== 'garage') {
+          instances.push({col: c, row: r});
+        }
+      }
+    }
+    if (!instances.length) continue;
+    const a = instances[Math.floor(Math.random() * instances.length)];
+    // Cíl: pokud +1 (harder), chceme target cell s vyšším row. Pokud -1, nižším.
+    const allCells = _ptListNonNullCells(cols);
+    const candidates = allCells.filter(({col, row}) => {
+      if (col === a.col && row === a.row) return false;
+      return targetDirection > 0 ? row > a.row : row < a.row;
+    });
+    if (!candidates.length) continue;
+    const b = candidates[Math.floor(Math.random() * candidates.length)];
+    return { type: 'SWAP_CELLS', a, b };
+  }
+  // Fallback
+  return _ptPickRandomMutation(cols, focusRegion, opts);
+}
+
+// Hlavní async SA loop. Volaná z postMessage handleru. abortSignal = {aborted: bool, abort()}.
+async function ptAutoTuneAsync(opts,progressCb,abortSignal){
+  if(!_ptInitGrid||!_ptInitColumns)return null;
+  opts=opts||{};
+  const evalMode=opts.evalMode==='beam'?'beam':'greedy';
+  const timeBudgetMs=Math.max(5000,opts.timeBudgetMs||30000);
+  const templateKey=opts.template||'FLAT';
+  const applyTarget=opts.applyTarget||'all';
+  const weights=_ptResolveWeights(applyTarget);
+  // Complexity-tab-aware faktor pro solvabilityPen (easy=full penalty, hard=ignoruje).
+  const solvFactor = ({easy:1.0, medium:0.3, hard:0.0})[opts.complexity] ?? 1.0;
+  // Anti-cooling guard: target difficulty z UI (0–100). Proxy je škálované 0–100
+  // (matches analyze diffScore), takže targetProxy = targetDiff přímo.
+  const totalPxInit = _ptCountPixels(_ptInitGrid);
+  const targetProxy = (typeof opts.targetDiff === 'number') ? opts.targetDiff : 50;
+
+  // Baseline run
+  const base=_ptEvalMutation(_ptInitGrid,_ptInitColumns,evalMode);
+  if(!base.trace||!base.trace.length)return null;
+  const maxStep=base.trace.length-1;
+  const targetCurve=_ptExpandTemplate(templateKey,maxStep);
+  if(!targetCurve)return null;
+  const baselineDiff = _ptDiffProxy(base, totalPxInit);
+  let bestDiff = baselineDiff;
+
+  let T=1.0;
+  const coolingRate=0.997;
+  let current=_ptInitColumns;
+  let currentScore=_ptComputeFitness(base.trace,targetCurve,weights);
+  let best=current;
+  let bestScore=currentScore;
+  let bestTrace=base.trace;
+  const acceptedMutations=[];
+  let iter=0,accepted=0;
+  const t0=performance.now();
+
+  // Mini curves konstrukce — pomáhá UI overlay-i během SA běhu.
+  const baselineCurves=_ptBuildMiniCurves(base.trace);
+  // Mini curves z target shape (pro SVG overlay v editoru).
+  const targetCurvesMini=targetCurve.map(p=>({step:p.step,choice:p.choice,pressure:p.pressure,progress:p.progress}));
+
+  // Snapshot helper — kompaktní columns pro UI mini grid (sdílí formát s tester initColumns).
+  const snapshotColumns=(C)=>C.map(col=>col.map(s=>{
+    if(s===null||s===undefined)return null;
+    if(s.wall)return{wall:true};
+    if(s.type==='garage')return{type:'garage',queueLen:(s.queue||[]).length};
+    if(s.type==='rocket')return{type:'rocket',color:s.color};
+    return{color:s.color,projectiles:s.projectiles||0,hidden:!!s.hidden};
+  }));
+  const baselineColumns=snapshotColumns(_ptInitColumns);
+  let bestColumns=baselineColumns;
+  // bestImproved=true na startu — první progressCb pošle baseline snapshot, aby UI canvas
+  // nezůstal černý. Pak se resetuje na false a updatuje jen při skutečném improvement.
+  let bestImproved=true;
+
+  while(true){
+    if(abortSignal&&abortSignal.aborted)break;
+    if((performance.now()-t0)>=timeBudgetMs)break;
+    // SA běží v non-destructive modu — INSERT_WALL pouze na tunely, aby SA neničila
+    // carriery skrz INSERT_WALL→pozdější REMOVE_WALL→null sekvenci (carrier permanent loss bug).
+    const mut=_ptPickRandomMutation(current,[],{nonDestructive:true});
+    if(!mut){iter++;continue;}
+    const candidate=_ptApplyMutation(current,mut);
+    if(!candidate){iter++;continue;}
+    let validityPenalty=0;
+    if(!_ptCheckLayoutValid(candidate))validityPenalty=1000;
+    const r=_ptEvalMutation(_ptInitGrid,candidate,evalMode);
+    if(!r.trace||!r.trace.length){iter++;continue;}
+    // Tester fitness term: penalizace za broken layouts (overflow, stuck balls, unsolved).
+    // Tlačí SA směrem k playable — i pokud curve match je pekny, broken kandidát je zamítnut.
+    const solvabilityPen=_ptSolvabilityPenalty(r,totalPxInit,solvFactor);
+    // Difficulty penalty — kvadratická a SYMETRICKÁ: tlačí stejně silně nahoru i dolů.
+    // Pokud diff > target, SA snižuje (zjednodušuje level). Pokud < target, zvyšuje.
+    // Kalibrace: gap=12 → 1.44, gap=20 → 4.0, gap=33 → 10.9 (oproti L2 0.5–3).
+    const candidateDiff=_ptDiffProxy(r,totalPxInit);
+    const diffGap=Math.abs(targetProxy-candidateDiff);
+    const diffPenalty=diffGap*diffGap*0.01;
+    const candidateScore=_ptComputeFitness(r.trace,targetCurve,weights)+validityPenalty+solvabilityPen+diffPenalty;
+    const delta=candidateScore-currentScore;
+    const accept=delta<0||Math.random()<Math.exp(-delta/T);
+    if(accept){
+      current=candidate;
+      currentScore=candidateScore;
+      acceptedMutations.push(mut);
+      accepted++;
+      if(candidateScore<bestScore){
+        best=candidate;
+        bestScore=candidateScore;
+        bestTrace=r.trace;
+        bestColumns=snapshotColumns(best);
+        bestDiff=candidateDiff;
+        bestImproved=true;
+      }
+    }
+    // Cooling gate: chladíme jen když jsme blízko target (gap ≤ 10). Mimo tento pás
+    // SA drží T=1.0 a explorát mutace (oba směry — zjednodušení i ztížení).
+    if(Math.abs(bestDiff-targetProxy)<=10)T*=coolingRate;
+    iter++;
+    if(iter%5===0){
+      if(progressCb)progressCb({
+        iter,accepted,
+        elapsed:performance.now()-t0,
+        budget:timeBudgetMs,
+        bestScore:Math.round(bestScore*1000)/1000,
+        bestCurves:_ptBuildMiniCurves(bestTrace),
+        targetCurves:targetCurvesMini,
+        baselineCurves,
+        // Posíláme bestColumns jen když se změnilo (jinak by každý progress payload měl
+        // zbytečných ~5 KB JSON pro nezměněný snapshot).
+        bestColumns:bestImproved?bestColumns:null,
+        T:Math.round(T*1000)/1000,
+        // Diff proxy diagnostika pro UI (anti-cooling gate stav)
+        bestDiff:Math.round(bestDiff*10)/10,
+        baselineDiff:Math.round(baselineDiff*10)/10,
+        targetProxy:Math.round(targetProxy*10)/10,
+        hot:Math.abs(bestDiff-targetProxy)>10,
+      });
+      bestImproved=false;
+      await new Promise(rs=>setTimeout(rs,0));
+    }
+  }
+
+  // Tester post-SA pass: ověří že best layout je skutečně dohratelný + pod tlakem.
+  const tester = ptVerifyPlayability(_ptInitGrid, best, {
+    mathBudget: 8000, realBudget: 8000, randomN: 50, stuckThreshold: 5,
+  });
+
+  return{
+    baseline:{curves:baselineCurves,trace:base.trace},
+    best:{
+      columns:best,
+      curves:_ptBuildMiniCurves(bestTrace),
+      trace:bestTrace,
+      score:Math.round(bestScore*1000)/1000,
+      mutations:acceptedMutations,
+    },
+    targetCurves:targetCurvesMini,
+    template:templateKey,
+    applyTarget,
+    iter,
+    accepted,
+    aborted:!!(abortSignal&&abortSignal.aborted),
+    valid:_ptCheckLayoutValid(best),
+    tester, // 🆕 verdict + reason + diagnostics
+  };
+}
+
+// Prozřetelný SA — analogie far-sighted beam, ale pro auto-tune. Stejná struktura
+// jako ptAutoTuneAsync, ale rozšiřuje fitness o accessStepMismatch term + používá
+// `_ptPickRandomMutationDeep` který biasuje směrem na critical colors podle template.
+async function ptAutoTuneDeepAsync(opts, progressCb, abortSignal) {
+  if (!_ptInitGrid || !_ptInitColumns) return null;
+  opts = opts || {};
+  const evalMode = opts.evalMode === 'beam' ? 'beam' : 'greedy';
+  const timeBudgetMs = Math.max(5000, opts.timeBudgetMs || 30000);
+  const templateKey = opts.template || 'FLAT';
+  const applyTarget = opts.applyTarget || 'all';
+  const weights = _ptResolveWeights(applyTarget);
+  const targetDirection = _ptTemplateAccessDirection(templateKey);
+  // Complexity-tab-aware faktor pro solvabilityPen (easy=full penalty, hard=ignoruje).
+  const solvFactor = ({easy:1.0, medium:0.3, hard:0.0})[opts.complexity] ?? 1.0;
+  // Anti-cooling guard: target difficulty z UI (0–100), proxy 0–100 (1:1).
+  const totalPxInit = _ptCountPixels(_ptInitGrid);
+  const targetProxy = (typeof opts.targetDiff === 'number') ? opts.targetDiff : 50;
+
+  // Baseline run
+  const base = _ptEvalMutation(_ptInitGrid, _ptInitColumns, evalMode);
+  if (!base.trace || !base.trace.length) return null;
+  const maxStep = base.trace.length - 1;
+  const targetCurve = _ptExpandTemplate(templateKey, maxStep);
+  if (!targetCurve) return null;
+  const baselineDiff = _ptDiffProxy(base, totalPxInit);
+  let bestDiff = baselineDiff;
+
+  // Detekuj critical colors z baseline
+  const criticalColors = _ptCriticalColors(base.trace, base.colorFirstSeen, maxStep);
+
+  let T = 1.0;
+  const coolingRate = 0.997;
+  let current = _ptInitColumns;
+  let currentScore = _ptComputeFitnessDeep(base.trace, targetCurve, weights, criticalColors, current, targetDirection);
+  let best = current;
+  let bestScore = currentScore;
+  let bestTrace = base.trace;
+  const acceptedMutations = [];
+  let iter = 0, accepted = 0;
+  const t0 = performance.now();
+
+  const baselineCurves = _ptBuildMiniCurves(base.trace);
+  const targetCurvesMini = targetCurve.map(p => ({step: p.step, choice: p.choice, pressure: p.pressure, progress: p.progress}));
+
+  const snapshotColumns = (C) => C.map(col => col.map(s => {
+    if (s === null || s === undefined) return null;
+    if (s.wall) return {wall: true};
+    if (s.type === 'garage') return {type: 'garage', queueLen: (s.queue||[]).length};
+    if (s.type === 'rocket') return {type: 'rocket', color: s.color};
+    return {color: s.color, projectiles: s.projectiles||0, hidden: !!s.hidden};
+  }));
+  const baselineColumns = snapshotColumns(_ptInitColumns);
+  let bestColumns = baselineColumns;
+  // bestImproved=true na startu — první progressCb pošle baseline snapshot, aby UI canvas
+  // nezůstal černý. Pak se resetuje na false a updatuje jen při skutečném improvement.
+  let bestImproved = true;
+
+  while (true) {
+    if (abortSignal && abortSignal.aborted) break;
+    if ((performance.now() - t0) >= timeBudgetMs) break;
+    // Deep mutation picker — biasuje výběr podle critical colors a target direction.
+    const mut = _ptPickRandomMutationDeep(current, [], {nonDestructive: true}, criticalColors, targetDirection);
+    if (!mut) { iter++; continue; }
+    const candidate = _ptApplyMutation(current, mut);
+    if (!candidate) { iter++; continue; }
+    let validityPenalty = 0;
+    if (!_ptCheckLayoutValid(candidate)) validityPenalty = 1000;
+    const r = _ptEvalMutation(_ptInitGrid, candidate, evalMode);
+    if (!r.trace || !r.trace.length) { iter++; continue; }
+    // Tester fitness term: stejné jako v ptAutoTuneAsync — penalizace broken layoutů.
+    const solvabilityPen = _ptSolvabilityPenalty(r, totalPxInit, solvFactor);
+    // Difficulty penalty — kvadratická a symetrická (viz ptAutoTuneAsync pro odůvodnění).
+    const candidateDiff = _ptDiffProxy(r, totalPxInit);
+    const diffGap = Math.abs(targetProxy - candidateDiff);
+    const diffPenalty = diffGap * diffGap * 0.01;
+    const candidateScore = _ptComputeFitnessDeep(r.trace, targetCurve, weights, criticalColors, candidate, targetDirection) + validityPenalty + solvabilityPen + diffPenalty;
+    const delta = candidateScore - currentScore;
+    const accept = delta < 0 || Math.random() < Math.exp(-delta / T);
+    if (accept) {
+      current = candidate;
+      currentScore = candidateScore;
+      acceptedMutations.push(mut);
+      accepted++;
+      if (candidateScore < bestScore) {
+        best = candidate;
+        bestScore = candidateScore;
+        bestTrace = r.trace;
+        bestColumns = snapshotColumns(best);
+        bestDiff = candidateDiff;
+        bestImproved = true;
+      }
+    }
+    // Cooling gate: chladíme jen blízko target (gap ≤ 10), symetricky.
+    if (Math.abs(bestDiff - targetProxy) <= 10) T *= coolingRate;
+    iter++;
+    if (iter % 5 === 0) {
+      if (progressCb) progressCb({
+        iter, accepted,
+        elapsed: performance.now() - t0,
+        budget: timeBudgetMs,
+        bestScore: Math.round(bestScore * 1000) / 1000,
+        bestCurves: _ptBuildMiniCurves(bestTrace),
+        targetCurves: targetCurvesMini,
+        baselineCurves,
+        bestColumns: bestImproved ? bestColumns : null,
+        T: Math.round(T * 1000) / 1000,
+        // Diff proxy diagnostika pro UI (anti-cooling gate stav)
+        bestDiff: Math.round(bestDiff*10)/10,
+        baselineDiff: Math.round(baselineDiff*10)/10,
+        targetProxy: Math.round(targetProxy*10)/10,
+        hot: Math.abs(bestDiff - targetProxy) > 10,
+        // Diagnostics: top critical colors pro UI
+        criticalColors: criticalColors.map(cc => ({color: cc.color, criticality: Math.round(cc.criticality*100)/100, firstStep: cc.firstStep})),
+      });
+      bestImproved = false;
+      await new Promise(rs => setTimeout(rs, 0));
+    }
+  }
+
+  // Tester post-SA pass: stejné jako v ptAutoTuneAsync.
+  const tester = ptVerifyPlayability(_ptInitGrid, best, {
+    mathBudget: 8000, realBudget: 8000, randomN: 50, stuckThreshold: 5,
+  });
+
+  return {
+    baseline: {curves: baselineCurves, trace: base.trace},
+    best: {
+      columns: best,
+      curves: _ptBuildMiniCurves(bestTrace),
+      trace: bestTrace,
+      score: Math.round(bestScore * 1000) / 1000,
+      mutations: acceptedMutations,
+    },
+    targetCurves: targetCurvesMini,
+    template: templateKey,
+    applyTarget,
+    iter,
+    accepted,
+    aborted: !!(abortSignal && abortSignal.aborted),
+    valid: _ptCheckLayoutValid(best),
+    // Deep-specific diagnostics
+    criticalColors: criticalColors.map(cc => ({color: cc.color, criticality: Math.round(cc.criticality*100)/100, firstStep: cc.firstStep})),
+    targetDirection,
+    algorithm: 'deep', // marker pro UI/result rendering
+    tester, // 🆕 verdict + reason + diagnostics
+  };
+}
+
+// ── Tester — ověřuje že level je dohratelný i pod tlakem ───────────────────
+// Spustí 4 testy + vrátí verdikt:
+//   math: lze pixely vyčistit s ∞ pásem? (basic mathematical solvability)
+//   real: lze vyčistit s pásem cap 14? (game physics)
+//   stuck: kolik zombie balónků na konci?
+//   pressure: zvládne i Greedy + Random hráč? (chyba-tolerance)
+//
+// Verdict tree:
+//   !math.solved             → 'broken-math'   (žádná posloupnost nefunguje)
+//   real.beltOverflow        → 'broken-overflow' (math OK ale pás přeteče)
+//   real.stuckBalls > 5      → 'broken-zombies'  (zombie balónky tlačí pás k overflow)
+//   !real.solved             → 'broken-physical' (math OK ale solver to nestihl)
+//   !greedy.solved           → 'tight-expert'    (jen optimální Beam projde)
+//   random.successRate < 5%  → 'tight-fragile'   (žádná tolerance pro chybu)
+//   else                     → 'robust'          (plně dohratelný i suboptimálně)
+function ptVerifyPlayability(grid, cols, opts) {
+  opts = opts || {};
+  // Budgety match Analyze (8 s) — méně false positives z budget timeoutu.
+  // 1. Math test — beam s nekonečným pásem (ignoreBeltOverflow=true)
+  const math = ptRunBeamSearch(grid, cols, {
+    farSighted: true,
+    timeBudgetMs: opts.mathBudget || 8000,
+    maxDepth: 100,
+    ignoreBeltOverflow: true,
+  });
+  // Relaxováno: stačí carriersExhausted (všechny carriery spotřebované) — pokud carriery
+  // dojdou s ∞ pásem, level matematicky končí. Zbývající pixely/blockHp nejsou důvod
+  // označit jako broken-math (mohou být fill-up reziduum, ne fundamental nemožnost).
+  const mathSolvable = math.carriersExhausted;
+  const mathHitBudget = !!math.hitTimeBudget;
+
+  // 2. Real test — beam s reálnou cap 14
+  const real = ptRunBeamSearch(grid, cols, {
+    farSighted: true,
+    timeBudgetMs: opts.realBudget || 8000,
+    maxDepth: 100,
+  });
+  const realHitBudget = !!real.hitTimeBudget;
+
+  // 3. Pressure tests — Greedy a Random
+  const greedy = ptRunGreedy(grid, cols, 'full-use', {});
+  const random = ptRunRandom(grid, cols, opts.randomN || 50, {});
+
+  // Stuck balls threshold: > 5 znamená že pás je zaplněn zombíky
+  const stuckTooMany = real.stuckBalls > (opts.stuckThreshold || 5);
+
+  let verdict, reason;
+  if (!mathSolvable && !mathHitBudget) {
+    // Math test selhal a ne kvůli budgetu — skutečně nedohratelné
+    verdict = 'broken-math';
+    reason = 'Matematicky nedohratelný — beam s ∞ pásem nedokázal spotřebovat všechny carriery (zbývají v gridu)';
+  } else if (real.beltOverflow) {
+    verdict = 'broken-overflow';
+    reason = 'Pás přeteče — pixely lze v teorii vyčistit, ale fyzicky nezvládneš (peak belt ' + real.peakBeltLoad + '/14)';
+  } else if (stuckTooMany) {
+    verdict = 'broken-zombies';
+    reason = 'Příliš mnoho zombie balónků (' + real.stuckBalls + ') — pás se zaplní zbytečnou barvou bez cíle';
+  } else if (!real.solved && !realHitBudget) {
+    // Real test selhal a ne kvůli budgetu — skutečně broken
+    verdict = 'broken-physical';
+    reason = 'Solver nedořešil — zbylo ' + real.remainPx + ' px (timing-sensitive nebo blocked)';
+  } else if (!real.solved && realHitBudget) {
+    // Beam timed out — ne broken, jen tight (kvalita verdiktu omezená budgetem)
+    verdict = 'tight-budget';
+    reason = 'Beam vypršel time budget (' + Math.round((opts.realBudget || 8000)/1000) + 's). Možná dohratelné s víc časem nebo po Apply (clRepair opens walls + makeColumns normalizuje). Definitivní verdict v Analyze sekci po Apply.';
+  } else if (!greedy.solved) {
+    verdict = 'tight-expert';
+    reason = 'Beam dořeší, ale Greedy selhává — vyžaduje optimální cestu (level je expert-only)';
+  } else if (random.successRate < 0.05) {
+    verdict = 'tight-fragile';
+    reason = 'Žádná tolerance pro chybu — Random hráč 0/50 dořešil, level vyžaduje precizní plán';
+  } else {
+    verdict = 'robust';
+    reason = 'Plně dohratelný i pod tlakem (Beam ✓, Greedy ✓, Random ' + Math.round(random.successRate * 100) + '%)';
+  }
+
+  // Score 0-1
+  const score = (
+    (mathSolvable ? 0.3 : 0)
+    + (!real.beltOverflow ? 0.2 : 0)
+    + (real.stuckBalls === 0 ? 0.1 : real.stuckBalls < 3 ? 0.05 : 0)
+    + (real.solved ? 0.15 : 0)
+    + (greedy.solved ? 0.1 : 0)
+    + (random.successRate >= 0.05 ? 0.15 : random.successRate * 3) // partial credit
+  );
+
+  return {
+    verdict,
+    reason,
+    score: Math.round(score * 100) / 100,
+    diagnostics: {
+      mathSolvable,
+      mathRemainPx: math.remainPx,
+      realSolved: real.solved,
+      realPeakBeltLoad: real.peakBeltLoad,
+      realBeltOverflow: real.beltOverflow,
+      realStuckBalls: real.stuckBalls,
+      realFunnelRejected: real.funnelRejectedCount || 0,
+      realRemainPx: real.remainPx,
+      greedySolved: greedy.solved,
+      randomSuccessRate: Math.round(random.successRate * 100),
+    },
+  };
+}
+
+// Diff proxy z trace — cheap odhad difficulty pro SA anti-cooling guard.
+// Pokrývá VŠECHNY 6 faktorů z ptAnalyzeCurrentLevel (max 100), ale risk + solverNeed
+// jsou aproximovány z jediné greedy trace (bez random×50 a 3-solver ensemblu, který by
+// byl příliš drahý pro SA loop). Pro SA porovnání baseline vs. target stačí.
+function _ptDiffProxy(r, totalPx) {
+  if (!r) return 0;
+  // Native faktory (z greedy trace přímo)
+  const lengthF = Math.min(1, (r.clicks || 0) / 40);
+  const complexityF = Math.min(1, (r.decisionRichness || 0) / 5);
+  const beltF = Math.min(1, (r.peakBeltLoad || 0) / 14);
+  const solverF = r.solved ? 0 : Math.min(1, 0.3 + ((r.remainPx || 0) / Math.max(1, totalPx)) * 0.7);
+  // Aproximace solverNeed (3-solver ensemble): pokud greedy nezvládl, tlak je vysoký.
+  let solverNeedF = 0;
+  if (!r.solved) solverNeedF = 1;
+  else if (r.beltOverflow) solverNeedF = 0.5;
+  // Aproximace risk (random×50 fail rate): proxy přes belt headroom + stuck balls.
+  // Když greedy projde s belt blízko cap, random hra má vysokou šanci přetečení.
+  let riskF = 0;
+  if (!r.solved) riskF = 0.6;
+  else {
+    const beltRiskF = Math.max(0, ((r.peakBeltLoad || 0) - 8) / 6);  // 0 @ belt≤8, 1 @ belt 14
+    const stuckRiskF = Math.min(1, (r.stuckBalls || 0) / 5);
+    riskF = Math.max(beltRiskF, stuckRiskF);
+  }
+  return 20*lengthF + 15*complexityF + 15*beltF + 10*solverF + 25*solverNeedF + 15*riskF;
+}
+
+// Solvability penalty pro fitness — používá _ptComputeFitness a _ptComputeFitnessDeep.
+// Vrací nezáporný scalar — 0 = perfectly playable, vyšší = horší layout.
+function _ptSolvabilityPenalty(r, totalPx, factor) {
+  // Penalty weights snížené 20× (29.4.2026) — původní 1000/500/50/30 dominovaly fitness
+  // (L2 distance je typicky 0.5–3) a tlačily SA k Easy layoutům i pro Hardcore template.
+  // Tight belt + zombíci + funnel friction jsou ALE pro Hardcore template ZÁMĚR DESIGNU.
+  // Soft signal stačí — SA si všimne broken, ale nesutíkne automaticky pryč. BFS validity
+  // (1000) zůstává jako jediná hard constraint (struktura, ne difficulty).
+  // factor: complexity-tab-aware multiplikátor (easy=1.0, medium=0.3, hard=0.0).
+  // Hard tab → solvability se ignoruje, SA volně exploruje hardcore layouty.
+  if (factor === 0) return 0;
+  const f = (factor === undefined) ? 1 : factor;
+  let p = 0;
+  if (r.beltOverflow) p += 50;                                                    // bylo 1000
+  if (!r.solved) p += 25 * Math.min(1, (r.remainPx || 0) / Math.max(1, totalPx)); // bylo 500
+  if (r.stuckBalls > 0) p += 5 * r.stuckBalls;                                    // bylo 50
+  if (r.funnelRejectedCount > 0) p += 3 * r.funnelRejectedCount;                  // bylo 30
+  return p * f;
+}
+
+function ptAnalyzeCurrentLevel(analyzeOpts){
+  if(!_ptInitGrid||!_ptInitColumns)return null;
+  // farSighted (Fáze 2.5) — opt-in z editoru. Nový expansion + scoring v beamu.
+  const farSighted=!!(analyzeOpts&&analyzeOpts.farSighted);
+  // 3-strategy ensemble: max-gain greedy, full-use greedy, beam search.
+  // Pro tight levely (balance≈0) je beam výrazně lepší. Vezmeme best výsledek.
+  const gA=ptRunGreedy(_ptInitGrid,_ptInitColumns,'max-gain',{trace:true});
+  const gB=ptRunGreedy(_ptInitGrid,_ptInitColumns,'full-use',{trace:true});
+  // Progressive beam: nejdřív rychlý (8/8s/80). Pokud nedořešil A žádná greedy taky ne,
+  // eskalujeme na thorough (16/12s/100). Worst-case 20s celkem na beam.
+  let gC=ptRunBeamSearch(_ptInitGrid,_ptInitColumns,{trace:true,farSighted});
+  if(!gC.solved&&!gA.solved&&!gB.solved){
+    const thorough=ptRunBeamSearch(_ptInitGrid,_ptInitColumns,{trace:true,beamWidth:16,timeBudgetMs:12000,maxDepth:100,farSighted});
+    if(thorough.solved||(thorough.remainingGrid&&_ptCountPixels(thorough.remainingGrid)<_ptCountPixels(gC.remainingGrid||[])))gC=thorough;
+  }
+  const cands=[{name:'max-gain',r:gA},{name:'full-use',r:gB},{name:'beam',r:gC}];
+  // Priorita: solved > méně zbylých pixelů (= dál se dostal) > méně kliků > méně waste.
+  // Pro neúspěšné runs je počet kliků ZAVÁDĚJÍCÍ (málo kliků = solver to vzdal brzy),
+  // proto v selhání primárně řadíme podle remainingPx.
+  const remPx=r=>r.remainingGrid?_ptCountPixels(r.remainingGrid):0;
+  cands.sort((a,b)=>{
+    if(a.r.solved!==b.r.solved)return a.r.solved?-1:1;
+    if(!a.r.solved){
+      const ar=remPx(a.r),br=remPx(b.r);
+      if(ar!==br)return ar-br;
+    }
+    if(a.r.clicks!==b.r.clicks)return a.r.clicks-b.r.clicks;
+    return (a.r.waste||0)-(b.r.waste||0);
+  });
+  const best=cands[0];
+  const rnd=ptRunRandom(_ptInitGrid,_ptInitColumns,50,{collectTraces:true});
+  // peakBeltLoad bereme z BEST runu (reálný belt-queue model, ne odhad).
+  // Belt overflow flag taky z best runu.
+  const peakBeltLoad=best.r.peakBeltLoad||0;
+  const anyOverflow=cands.some(c=>c.r.beltOverflow);
+  const stuckBalls=best.r.stuckBalls||0;
+  let garageSl=0,totalSl=0;
+  for(const col of _ptInitColumns)for(const slot of col){
+    if(!slot||slot.wall)continue;
+    totalSl++;
+    if(slot.type==='garage')garageSl++;
+  }
+  const garageUtil=totalSl>0?Math.round(garageSl/totalSl*100):0;
+  // Použij snapshot pxCounts ze startLevel — currentBlocks mohou mít zmutované HP
+  // pokud user už hrál level. Snapshot drží PŮVODNÍ stav.
+  const pxNeed=_ptInitPxCounts?Array.from(_ptInitPxCounts):countPixelsAndBlocks(_ptInitGrid);
+  const projHave=new Array(COLORS.length).fill(0);
+  for(const col of _ptInitColumns)for(const slot of col){
+    if(!slot||slot.wall)continue;
+    if(slot.type==='garage'){
+      for(const gc of(slot.queue||[]))if(typeof gc.color==='number')projHave[gc.color]+=(gc.projectiles||UPC*PPU);
+    }else if(slot.type!=='rocket'&&typeof slot.color==='number'){
+      projHave[slot.color]+=(slot.projectiles||UPC*PPU);
+    }
+  }
+  // Spočítej "vyčištěno per barva" = pxBefore − pxAfter ze simulace.
+  // pxBefore = countPixels(_ptInitGrid) (jen pixely, bez blokových HP).
+  // pxAfter = countPixels(remainingGrid) — když solver dořešil, je to 0.
+  const pxBefore=countPixels(_ptInitGrid);
+  const pxAfter=best.r.remainingGrid?countPixels(best.r.remainingGrid):new Array(COLORS.length).fill(0);
+  const colorDetails={};
+  for(let c=0;c<COLORS.length;c++){
+    if(!pxNeed[c]&&!projHave[c])continue;
+    const stuckPx=pxAfter[c]||0;
+    const cleared=(pxBefore[c]||0)-stuckPx;
+    colorDetails[c]={
+      need:pxNeed[c]||0,
+      have:projHave[c]||0,
+      balance:(projHave[c]||0)-(pxNeed[c]||0),
+      accessStep:best.r.colorFirstSeen[c]!==undefined?best.r.colorFirstSeen[c]:null,
+      cleared,
+      stuckPx,
+    };
+  }
+  // ─── Difficulty score (Phase 3, rev 2) — 6 faktorů, váha 0-100.
+  // Klíčové změny vs prev:
+  //   - Risk weight 30→15 (random fail rate ne nutně reflektuje real human play)
+  //   - NEW: solverNeed (0-25) — kolik solverů selhalo. Pro level kde max-gain solve je
+  //     intuitivní, kde jen beam solve vyžaduje plán.
+  //   - Length 25→20, complexity 20→15 (více prostoru pro nuancované signály)
+  const solversSolved=cands.filter(c=>c.r.solved).length; // 0..3
+  const totalPx=pxNeed.reduce((a,b)=>a+(b||0),0);
+  const remainPx=best.r.remainingGrid?_ptCountPixels(best.r.remainingGrid):0;
+  // Length factor — pro nedořešené levely projektujeme skutečnou délku (kolik kliků
+  // by bylo potřeba k vyčištění zbývajících pixelů), aby score nepenalizoval „krátké"
+  // levely jen proto, že solver to v polovině vzdal kvůli belt overflow.
+  let projectedClicks=best.r.clicks||0;
+  if(!best.r.solved&&remainPx>0){
+    const doneClicks=best.r.clicks||0;
+    const doneGain=Math.max(0,totalPx-remainPx);
+    // Průměrný gain per click v already-played části. Fallback 25 px/click pokud
+    // solver vzdal moc brzo (doneGain malý nebo 0).
+    const avgGain=(doneClicks>0&&doneGain>0)?doneGain/doneClicks:25;
+    const projectedRemainingClicks=remainPx/Math.max(10,avgGain);
+    projectedClicks=Math.round(doneClicks+projectedRemainingClicks);
+  }
+  const lengthFactor=Math.min(1,projectedClicks/40);
+  // Risk: random fail rate. Když ALESPOŇ JEDEN solver dořeší, halvíme — plán existuje,
+  // jen random ho nenašel. Když nikdo nedořeší, plný risk.
+  let riskFactor=Math.min(1,Math.max(0,1-rnd.successRate));
+  if(solversSolved>=1)riskFactor*=0.5;
+  const complexityFactor=Math.min(1,(best.r.decisionRichness||0)/5);
+  const beltFactor=Math.min(1,(peakBeltLoad||0)/BELT_CAP);
+  const solverFactor=best.r.solved?0:Math.min(1,0.3+(remainPx/Math.max(1,totalPx))*0.7);
+  // solverNeedFactor: 0 (3/3 solve), 1 (žádný). Když beam time-budget A nikdo nesolve,
+  // halvíme — možná řešitelný, jen pomalá CPU/V8 quirk. Don't over-penalize.
+  let solverNeedFactor=(3-solversSolved)/3;
+  if(gC.hitTimeBudget&&solversSolved===0)solverNeedFactor*=0.5;
+  const diffBreakdown={
+    length:Math.round(20*lengthFactor),
+    risk:Math.round(15*riskFactor),
+    complexity:Math.round(15*complexityFactor),
+    belt:Math.round(15*beltFactor),
+    solverNeed:Math.round(25*solverNeedFactor),
+    solver:Math.round(10*solverFactor),
+  };
+  const diffScore=diffBreakdown.length+diffBreakdown.risk+diffBreakdown.complexity+diffBreakdown.belt+diffBreakdown.solverNeed+diffBreakdown.solver;
+
+  // ── Tester verdict — derivovaný z již spočítaných solver výsledků (no extra runs).
+  // Toto je AUTORITATIVNÍ verdikt na aktuální game state (post-Apply, post-makeColumns).
+  // Auto-tune má svůj pre-Apply Tester pro fitness, ale visible truth je tady.
+  const totalPxAll = pxNeed.reduce((a,b)=>a+(b||0),0);
+  const anySolved = cands.some(c => c.r.solved);
+  const allSolved = cands.every(c => c.r.solved);
+  const remainPxAnalyze = best.r.remainingGrid ? _ptCountPixels(best.r.remainingGrid) : 0;
+  const stuckTooManyAnalyze = (best.r.stuckBalls || 0) > 5;
+  // Overflow pro Tester verdict — konzistentní s peakBeltLoad (best.r), ne any-strategy.
+  // Peak je z best.r.peakBeltLoad, takže overflow = peak > cap. Pokud jiný (ne-best)
+  // solver měl overflow, není relevantní pro „dohratelnost" (best ho zvládl).
+  const overflowAnalyze = peakBeltLoad > BELT_CAP;
+  let testerVerdict, testerReason;
+  if (!anySolved && remainPxAnalyze > totalPxAll * 0.5) {
+    testerVerdict = 'broken-math';
+    testerReason = 'Žádný ze 3 solverů nedořešil — zbylo ' + remainPxAnalyze + ' px (extrémně tight nebo unsolvable)';
+  } else if (overflowAnalyze) {
+    testerVerdict = 'broken-overflow';
+    testerReason = 'Pás přeteče (peak ' + peakBeltLoad + '/' + BELT_CAP + ') — game-over scénář v reálné hře';
+  } else if (stuckTooManyAnalyze) {
+    testerVerdict = 'broken-zombies';
+    testerReason = 'Příliš mnoho zombie balónků (' + best.r.stuckBalls + ') — pás se zaplní zbytečnou barvou';
+  } else if (!best.r.solved) {
+    testerVerdict = 'broken-physical';
+    testerReason = 'Best solver nedořešil — zbylo ' + (best.r.remainPx||remainPxAnalyze) + ' px';
+  } else if (rnd.successRate < 0.05 && !allSolved) {
+    // Greedy heuristiky selhaly A Random málo úspěšný = skutečně expert-only level
+    testerVerdict = 'tight-expert';
+    testerReason = 'Jen ' + solversSolved + '/3 algoritmů projde a Random ' + (rnd.successes||0) + '/50 — vyžaduje precizní optimální cestu (level je expert-only)';
+  } else if (rnd.successRate < 0.05) {
+    // Všichni algoritmy solved, ale Random selhává = fragile (precizní timing)
+    testerVerdict = 'tight-fragile';
+    testerReason = 'Algoritmy projdou, ale Random ' + (rnd.successes||0) + '/50 (' + Math.round(rnd.successRate*100) + '%) — žádná tolerance pro chybu';
+  } else if (!allSolved && rnd.successRate < 0.3) {
+    // Greedy heuristiky selhávají, Random střední úspěšnost = level je non-trivial ale ne expert
+    testerVerdict = 'tight-fragile';
+    testerReason = 'Jen ' + solversSolved + '/3 algoritmů projde, Random ' + Math.round(rnd.successRate*100) + '% — non-trivial level (tolerance jen střední)';
+  } else {
+    // Best solver projde A Random ≥ 30 % = pressure-tolerant level
+    // (greedy ensemble nemusí všichni projít — greedy je hloupě deterministická,
+    //  ale Random úspěšnost je lepší signál real-human-play tolerance)
+    testerVerdict = 'robust';
+    const algoCount = solversSolved + '/3 algoritmů';
+    testerReason = 'Plně dohratelný (' + algoCount + ' ✓, Random ' + Math.round(rnd.successRate*100) + '% — pressure-tolerant)';
+  }
+  const testerScore = (
+    (anySolved ? 0.3 : 0)
+    + (!overflowAnalyze ? 0.2 : 0)
+    + ((best.r.stuckBalls||0) === 0 ? 0.1 : (best.r.stuckBalls||0) < 3 ? 0.05 : 0)
+    + (best.r.solved ? 0.15 : 0)
+    + (allSolved ? 0.1 : 0)
+    + (rnd.successRate >= 0.05 ? 0.15 : rnd.successRate * 3)
+  );
+  const tester = {
+    verdict: testerVerdict,
+    reason: testerReason,
+    score: Math.round(testerScore * 100) / 100,
+    diagnostics: {
+      solversSolved,
+      solversTotal: 3,
+      bestSolved: !!best.r.solved,
+      peakBeltLoad: peakBeltLoad || 0,
+      beltOverflow: overflowAnalyze,
+      stuckBalls: best.r.stuckBalls || 0,
+      remainPx: remainPxAnalyze,
+      randomSuccessRate: Math.round(rnd.successRate * 100),
+    },
+  };
+
+  // Inputs pro UI breakdown panel — surová data, aby UI mohlo vysvětlit "proč N bodů".
+  const diffInputs={
+    clicks:best.r.clicks||0,
+    projectedClicks, // pro nedořešené levely = clicks + projekce remaining; jinak = clicks
+    deadEndPct:Math.round((1-rnd.successRate)*100),
+    decisionRichness:best.r.decisionRichness||0,
+    peakBeltLoad:peakBeltLoad||0,
+    BELT_CAP,
+    solved:!!best.r.solved,
+    remainingPx:remainPx,
+    totalPx,
+    solversSolved,
+    solversTotal:3,
+    solverResults:cands.map(c=>({name:c.name,solved:!!c.r.solved})),
+  };
+  return{
+    solved:best.r.solved,
+    strictSolved:!!best.r.strictSolved,
+    toleranceUsed:!!best.r.solved&&!best.r.strictSolved,
+    remainPx:best.r.remainPx||0,
+    SOLVED_TOLERANCE_PX,
+    minClicks:best.r.clicks,
+    solverUsed:best.name,
+    hitTimeBudget:!!gC.hitTimeBudget,
+    deadEndRate:Math.round((1-rnd.successRate)*100),
+    randomSuccesses:rnd.successes||0,
+    randomCloseCalls:rnd.closeCalls||0,
+    randomTotal:rnd.total||50,
+    heuristikSolved:[gA,gB].filter(g=>g.solved).length,
+    heuristikTotal:2,
+    beamSolved:!!gC.solved,
+    decisionRichness:best.r.decisionRichness,
+    bottleneckColor:best.r.bottleneckColor,
+    garageUtil,
+    diffScore,
+    diffBreakdown,
+    diffInputs,
+    colorDetails,
+    traces:{maxGain:gA.trace,fullUse:gB.trace,beam:gC.trace},
+    histories:{maxGain:gA.history,fullUse:gB.history,beam:gC.history},
+    initialDispenses:{maxGain:gA.initialDispenses||[],fullUse:gB.initialDispenses||[],beam:gC.initialDispenses||[]},
+    initGrid:_ptInitGrid?_ptInitGrid.map(r=>r.slice()):null, // pro replay reconstrukci pixel gridu
+    initBlocks:_ptInitBlocks?_ptInitBlocks.map(b=>({
+      kind:b.kind,shape:b.shape,x:b.x,y:b.y,w:b.w,h:b.h,color:b.color,hp:b.hp,maxHp:b.maxHp
+      // _mask se nepřenáší — editor si ho pře-spočítá z shape/w/h/rot pokud potřeba
+    })):null,
+    initColumns:_ptInitColumns?_ptInitColumns.map(col=>col.map(s=>{
+      // Compact snapshot pro mini carrier grid renderer v editoru.
+      if(s===null)return null;
+      if(s.wall)return {wall:true};
+      if(s.type==='garage')return {type:'garage',queueLen:(s.queue||[]).length};
+      if(s.type==='rocket')return {type:'rocket',color:s.color};
+      return {color:s.color,projectiles:s.projectiles||0,hidden:!!s.hidden};
+    })):null,
+    GW,IMG_GH,COLS, // dimenze pro mini-grid renderer v editoru
+    randomEnvelope:rnd.envelope,
+    remainingGrid:best.r.solved?null:best.r.remainingGrid,
+    peakBeltLoad,
+    beltDeadlockRisk:peakBeltLoad>12,
+    beltOverflow:anyOverflow||peakBeltLoad>BELT_CAP,
+    stuckBalls,
+    funnelRejectedCount:best.r.funnelRejectedCount||0,
+    funnelFrictionPct:best.r.clicks?Math.round((best.r.funnelRejectedCount||0)/best.r.clicks*100):0,
+    PENDING_DISPENSE_THRESHOLD,
+    BELT_CAP,
+    tester, // 🆕 playability verdict derivovaný z 3-solver ensemble + Random×50
+  };
+}
+// ────────────────────────────────────────────────────────────────────────────
+function distributeProjectiles(total){
+  const base=Math.floor(total/UPC);
+  const extra=total%UPC;
+  const balls=[];
+  for(let i=0;i<UPC;i++)balls.push(base+(i<extra?1:0));
+  return balls;
+}
+function splitIntoCarriers(color,total){
+  const full=UPC*PPU;
+  const out=[];
+  const fullCount=Math.floor(total/full);
+  const remainder=total%full;
+  for(let i=0;i<fullCount;i++)out.push({color,projectiles:full});
+  if(remainder>0){
+    if(remainder<3&&out.length>0)out[out.length-1].projectiles+=remainder;
+    else out.push({color,projectiles:remainder});
+  }
+  return out;
+}
+function generateCarrierQueue(pxCounts){
+  const q=[];
+  for(let c=0;c<pxCounts.length;c++){
+    if(!pxCounts[c])continue;
+    for(const slot of splitIntoCarriers(c,pxCounts[c]))q.push(slot);
+  }
+  return q;
+}
+// ═══════════════════════════════════════════════════════════════════════════
+// CARRIER LAYOUTS (manuální designer grid) — Okruh XL
+//   level.carrierLayouts = [
+//     { name, difficulty: 'easy'|'medium'|'hard', grid: [[tile,...],...] }
+//   ]
+//   tile = null | {type:'carrier',color:0..8} | {type:'wall'}
+//        | {type:'garage', queue:[{color},...]} | {type:'rocket', color:0..8}
+// Layout přebírá KONTROLU nad topologií gridu včetně garage/rocket — když je
+// layout použit, startLevel PŘESKOČÍ vlastní garage + rocket injekci.
+// ═══════════════════════════════════════════════════════════════════════════
+function pickLayoutVariant(levelDef,diff){
+  const all=levelDef&&Array.isArray(levelDef.carrierLayouts)?levelDef.carrierLayouts:null;
+  if(!all||!all.length)return null;
+  const candidates=all.filter(v=>v&&v.difficulty===diff&&Array.isArray(v.grid)&&v.grid.length);
+  if(!candidates.length)return null;
+  // URL ?variant=NAME force-loaduje konkrétní variantu (pro editor preview, aby
+  // designer viděl právě tu variantu, kterou má vybranou — místo náhody mezi všemi).
+  if(typeof _forcedVariantName==='string'&&_forcedVariantName){
+    const forced=candidates.find(v=>v.name===_forcedVariantName);
+    if(forced)return forced;
+  }
+  return candidates[Math.floor(Math.random()*candidates.length)];
+}
+function buildColsFromLayout(layout,pxCounts){
+  // Přizpůsob COLS počtu sloupců layoutu (liché: 1/3/5/7). Default = 7.
+  COLS=(layout&&typeof layout.cols==='number'&&layout.cols>=1)?layout.cols:7;
+  // 1) Zjistíme kolik carrier slotů layout má PER barvu.
+  //    Počítáme JAK hlavní carrier tiles, TAK carriers v garážní queue — obojí
+  //    reprezentuje "slot", který během hry vystřelí projektily. Dřív se queue
+  //    ignorovala a level končil se zbytkem v garáži (bug pre-v29).
+  const layoutColorDemand=new Array(COLORS.length).fill(0);
+  const rows=layout.grid.length;
+  for(let r=0;r<rows;r++){
+    const row=layout.grid[r]||[];
+    for(let c=0;c<COLS;c++){
+      const t=row[c];
+      if(!t)continue;
+      if(t.type==='carrier'&&typeof t.color==='number'){
+        layoutColorDemand[t.color]++;
+      } else if(t.type==='garage'&&Array.isArray(t.queue)){
+        for(const gc of t.queue){
+          if(gc&&typeof gc.color==='number')layoutColorDemand[gc.color]++;
+        }
+      }
+    }
+  }
+  // 2) Postavíme per-color fronty projektilů — rozdělíme pxCounts[c] na tolik chunků
+  //    kolik layout nabízí slotů barvy c. Když layout nemá žádný slot dané barvy
+  //    a barva má pxCounts[c]>0, je to chyba levelu — warning a fallback na 1 chunk.
+  const colorChunks={};
+  for(let c=0;c<COLORS.length;c++){
+    const total=pxCounts[c]||0;
+    if(!total)continue;
+    const slots=layoutColorDemand[c];
+    if(!slots){
+      const reason='barva '+c+' má '+total+' px, ale layout nemá žádný carrier slot té barvy';
+      console.warn('[layout] '+reason+' — padne na auto-gen fallback');
+      try{
+        if(window.parent&&window.parent!==window){
+          window.parent.postMessage({
+            type:'balloonbelt:layout-fallback',
+            levelKey:currentLevel,
+            difficulty:difficulty,
+            layoutName:(layout&&layout.name)||null,
+            reason:reason,
+          },'*');
+        }
+      }catch(e){}
+      return null; // celé přepne na auto-gen
+    }
+    // Distribuce projektilů: cíl = TARGET (UPC*PPU=40) per carrier. Pokud máme
+    // dost projektilů (total ≥ (slots-1)*TARGET), držíme TARGET pro všechny
+    // carriery kromě posledního a do něj dáme zbytek. To zachovává konzistentní
+    // 40 per carrier vč. toho že máme 1 outlier.
+    // Pokud projektilů je málo (heavily underprovisioned), rovnoměrný split.
+    const TARGET=UPC*PPU; // 40
+    const chunks=[];
+    if(slots===1){
+      chunks.push(total);
+    } else if(total>=(slots-1)*TARGET){
+      // Drž TARGET pro slots-1 carrier, zbytek do posledního
+      for(let i=0;i<slots-1;i++)chunks.push(TARGET);
+      chunks.push(total-(slots-1)*TARGET);
+    } else {
+      // Underprovisioned: rovnoměrný split (každý dostane <TARGET)
+      const base=Math.floor(total/slots);
+      const rem=total%slots;
+      for(let i=0;i<slots;i++)chunks.push(base+(i<rem?1:0));
+    }
+    colorChunks[c]=chunks;
+  }
+  // 3) Stavba columns z layoutu — row-major průchod, pop chunk per carrier slot.
+  const cols=[];for(let c=0;c<COLS;c++)cols.push([]);
+  const hr=difficulty==='easy'?0:difficulty==='hard'?0.8:0.45;
+  for(let r=0;r<rows;r++){
+    const row=layout.grid[r]||[];
+    for(let c=0;c<COLS;c++){
+      const t=row[c];
+      if(!t){cols[c].push(null);continue;}
+      if(t.type==='wall'||t.wall){cols[c].push({wall:true});continue;}
+      if(t.type==='rocket'){
+        cols[c].push({type:'rocket',color:(t.color|0)});
+        continue;
+      }
+      if(t.type==='garage'){
+        // Directions spočítáme až v postprocessu (potřebujeme vědět sousedy).
+        // Každý queue item dostane svou porci projektilů z colorChunks — stejné pravidlo
+        // jako hlavní carrier slot. Při prázdných chunkech (designer dal barvu, kterou
+        // level nepotřebuje) fallback na UPC*PPU, aby garáž aspoň něco dispensla.
+        const queue=Array.isArray(t.queue)?t.queue.map(x=>{
+          const col=(x&&typeof x.color==='number')?x.color:(x|0);
+          const chunks=colorChunks[col];
+          const proj=(chunks&&chunks.length)?chunks.shift():UPC*PPU;
+          return {color:col,projectiles:proj};
+        }):[];
+        cols[c].push({type:'garage',directions:['N'],queue,_pendingDirs:true,destroyable:!!t.destroyable});
+        continue;
+      }
+      if(t.type==='carrier'){
+        const col=t.color|0;
+        const chunks=colorChunks[col];
+        if(chunks&&chunks.length){
+          const proj=chunks.shift();
+          // Explicitní editor override: t.hidden === true/false vyhraje nad random.
+          // Když editor nic nenastavil (undefined), fallback na difficulty-based random.
+          const hidden=(t.hidden===true)?true:(t.hidden===false)?false:(r>0&&Math.random()<hr);
+          cols[c].push({color:col,hidden,projectiles:proj});
+        } else {
+          // Designer dal slot barvy, která v tomto levelu nic nepotřebuje → wall.
+          cols[c].push({wall:true});
+        }
+        continue;
+      }
+      // Neznámý tile → null (safe default).
+      cols[c].push(null);
+    }
+  }
+  // 4) Kontrola: všechny chunky spotřebovány? Když ne, layout má málo slotů dané barvy
+  //    (editor by to měl chytit, tady jen warn a pokračuj).
+  for(const c in colorChunks){
+    if(colorChunks[c].length){
+      console.warn('[layout] barva '+c+' má ještě '+colorChunks[c].length+' nespotřebovaných chunků — layout poddimenzovaný');
+    }
+  }
+  // 5) Post-process: garáž directions. Single/multi výběr ze validních sousedů.
+  for(let c=0;c<COLS;c++){
+    for(let r=0;r<cols[c].length;r++){
+      const s=cols[c][r];
+      if(!s||s.type!=='garage'||!s._pendingDirs)continue;
+      delete s._pendingDirs;
+      if(garageMode==='off'){
+        // Garage v layoutu, ale mode off → převeď na wall (nebude dispensovat, chová se pasivně).
+        cols[c][r]={wall:true};
+        continue;
+      }
+      const validDirs=[];
+      for(const d of Object.keys(GAR_DIR_VEC)){
+        const [dc,dr]=GAR_DIR_VEC[d];
+        const nc=c+dc,nr=r+dr;
+        if(nc<0||nc>=COLS||nr<0)continue;
+        const ncol=cols[nc];
+        if(!ncol||nr>=ncol.length)continue;
+        const n=ncol[nr];
+        if(n&&(n.wall||n.type==='garage'))continue;
+        validDirs.push(d);
+      }
+      if(!validDirs.length){
+        // Žádný validní směr — garáž nemůže dispensovat. Nech jako garage (queue visí), aby bylo vidět.
+        s.directions=[];
+      } else if(garageMode==='single'){
+        s.directions=[validDirs[Math.floor(Math.random()*validDirs.length)]];
+      } else {
+        const want=2+Math.floor(Math.random()*3);
+        const shuffled=validDirs.slice().sort(()=>Math.random()-0.5);
+        s.directions=shuffled.slice(0,Math.min(want,shuffled.length));
+      }
+    }
+  }
+  return cols;
+}
+
+function makeColumns(pxCounts){
+  columnsFromLayout=false;
+  // 1) Preferuj manuální layout (když existuje pro aktuální obtížnost).
+  const levelDef=getLevelDef(currentLevel);
+  const layout=pickLayoutVariant(levelDef,difficulty);
+  if(layout){
+    const built=buildColsFromLayout(layout,pxCounts);
+    if(built){
+      columnsFromLayout=true;
+      console.log('[layout] using carrier layout "'+(layout.name||'?')+'" ('+layout.difficulty+') for level '+currentLevel);
+      try{
+        if(window.parent&&window.parent!==window){
+          window.parent.postMessage({
+            type:'balloonbelt:layout-applied',
+            levelKey:currentLevel,
+            difficulty:difficulty,
+            layoutName:layout.name||null,
+          },'*');
+        }
+      }catch(e){}
+      return built;
+    }
+    // buildColsFromLayout vrátil null → spadne na auto-gen pod námi.
+    COLS=7; // reset na defaultní šířku
+    console.warn('[layout] layout build failed, falling back to auto-gen');
+  }
+  // 2) Auto-gen (původní cesta).
+  const depth=colorDepth(grid);
+  const avail=getAvailableColors(grid);
+  let q=generateCarrierQueue(pxCounts);
+  const originalQ=q.slice();
+  let attempts=0;
+  let ok=false;
+  let bestQ=q.slice();
+  while(attempts<20){
+    attempts++;
+    q=originalQ.slice();
+    if(difficulty==='easy'){
+      q.sort((a,b)=>{
+        const av=avail.has(a.color)?0:1,bv=avail.has(b.color)?0:1;
+        return av!==bv?av-bv:depth[a.color]-depth[b.color];
+      });
+      for(let i=q.length-1;i>0;i--){
+        const j=Math.max(0,Math.min(q.length-1,i+Math.floor((Math.random()-0.5)*3)));
+        [q[i],q[j]]=[q[j],q[i]];
+      }
+    } else if(difficulty==='hard'){
+      // Honeycomb Hard: progression layer určuje hloubku. Obraz se čistí bottom-up, carriers
+      // kopeme top-down → chronologie se shoduje:
+      //   layer 0 (dostupné v obraze od začátku = potřeba hned) → TOP rows, viditelné
+      //   layer 1+ (postupně potřeba později) → DEEP rows, skryté pod `?`
+      // Hráč při kopání narazí na `?` a musí hádat, která chodba skrývá právě potřebnou barvu
+      // pro aktuální progresi — může se splést (odkryje layer 2 barvu když potřeba layer 1).
+      const layers=progressionLayers(grid);
+      // Sort ASC podle layeru → low-layer první = top rows.
+      q.sort((a,b)=>{
+        const la=layers[a.color]??99, lb=layers[b.color]??99;
+        if(la!==lb)return la-lb;
+        return Math.random()-0.5;
+      });
+      // Round-robin po barvách v RÁMCI stejného layer bucketu → stejné barvy se nelepí do klastru,
+      // hráč má v každém sloupci šanci na různé barvy stejné vrstvy.
+      const buckets={};
+      for(const s of q){const l=layers[s.color]??99;(buckets[l]=buckets[l]||[]).push(s);}
+      const sortedLayers=Object.keys(buckets).map(Number).sort((a,b)=>a-b);
+      const reordered=[];
+      for(const l of sortedLayers)reordered.push(...distributeForVariety(buckets[l]));
+      q=reordered;
+    } else {
+      for(let i=q.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[q[i],q[j]]=[q[j],q[i]];}
+    }
+    const candidate=buildColsFromQueue(q);
+    if(isHoneycombSolvable(grid,candidate)){return candidate;}
+    bestQ=q.slice();
+  }
+  // Žádný safety-net fallback — počet nosičů odpovídá přesně pxCounts.
+  // Pokud by žádný z 20 pokusů nebyl solvable, vrátíme poslední kandidát
+  // (solvability check je greedy → může být konzervativní).
+  return buildColsFromQueue(bestQ);
+}
+const MAX_ROWS=7;
+function distributeForVariety(q){
+  // Round-robin podle barev → vedle sebe (v row-major fillu) nebudou stejné barvy.
+  // Rozbíjí monolitní klastry nejhojnější barvy (typicky pozadí) v top row.
+  const byColor={};
+  for(const s of q){(byColor[s.color]=byColor[s.color]||[]).push(s);}
+  const keys=Object.keys(byColor).sort((a,b)=>byColor[b].length-byColor[a].length);
+  const out=[];
+  while(out.length<q.length){
+    let progressed=false;
+    for(const k of keys){
+      if(byColor[k].length){out.push(byColor[k].shift());progressed=true;if(out.length===q.length)break;}
+    }
+    if(!progressed)break;
+  }
+  return out;
+}
+function bfsAllReachable(rows,wallSet){
+  // Každá non-wall buňka musí být dosažitelná ortogonálně z top row (r=0).
+  // Zdi v runtime nikdy nezmizí, takže statická dosažitelnost = garance že
+  // každý nosič půjde odkopat.
+  const visited=new Set();
+  const queue=[];
+  for(let c=0;c<COLS;c++){
+    const key=c; // r=0
+    if(!wallSet.has(key)){visited.add(key);queue.push([c,0]);}
+  }
+  if(!visited.size)return false;
+  while(queue.length){
+    const [c,r]=queue.shift();
+    const n=[[c,r-1],[c,r+1],[c-1,r],[c+1,r]];
+    for(const [nc,nr] of n){
+      if(nc<0||nc>=COLS||nr<0||nr>=rows)continue;
+      const key=nr*COLS+nc;
+      if(visited.has(key)||wallSet.has(key))continue;
+      visited.add(key);
+      queue.push([nc,nr]);
+    }
+  }
+  for(let r=0;r<rows;r++)for(let c=0;c<COLS;c++){
+    const key=r*COLS+c;
+    if(!wallSet.has(key)&&!visited.has(key))return false;
+  }
+  return true;
+}
+function validateColumnsReachable(cols){
+  // BFS na finálním stavu columns (po případné garáž-injekci). Každý reálný nosič
+  // (ne wall, ne garáž) musí být dosažitelný z top row přes non-blocker cesty.
+  // Blocker = out-of-bounds, {wall:true}, {type:'garage'}. null = hole (connector).
+  const N=COLS;
+  const isBlocker=(c,r)=>{
+    if(c<0||c>=N||r<0)return true;
+    const col=cols[c];
+    if(!col||r>=col.length)return true;
+    const s=col[r];
+    if(s===null)return false;
+    return !!s.wall||s.type==='garage';
+  };
+  const visited=new Set();
+  const queue=[];
+  for(let c=0;c<N;c++){
+    if(cols[c].length&&!isBlocker(c,0)){visited.add(c);queue.push([c,0]);}
+  }
+  while(queue.length){
+    const [c,r]=queue.shift();
+    for(const [dc,dr] of [[0,-1],[0,1],[-1,0],[1,0]]){
+      const nc=c+dc,nr=r+dr;
+      if(isBlocker(nc,nr))continue;
+      const k=nr*N+nc;
+      if(visited.has(k))continue;
+      visited.add(k);queue.push([nc,nr]);
+    }
+  }
+  for(let c=0;c<N;c++){
+    for(let r=0;r<cols[c].length;r++){
+      const s=cols[c][r];
+      if(!s||s.wall||s.type==='garage')continue;
+      if(!visited.has(r*N+c))return false;
+    }
+  }
+  return true;
+}
+function placeWallsWithStrategy(rows,wallsNeeded,sortFn){
+  // Greedy placement s BFS-kontrolou connectivity na každém kroku.
+  // Fallback bottom-up zajistí, že doplníme požadovaný počet zdí (pokud to topologie dovolí).
+  const candidates=[];
+  for(let r=0;r<rows;r++)for(let c=0;c<COLS;c++)candidates.push({c,r});
+  sortFn(candidates);
+  const wallSet=new Set();
+  let placed=0;
+  for(const {c,r} of candidates){
+    if(placed>=wallsNeeded)break;
+    const key=r*COLS+c;
+    wallSet.add(key);
+    if(!bfsAllReachable(rows,wallSet)){wallSet.delete(key);continue;}
+    placed++;
+  }
+  if(placed<wallsNeeded){
+    for(let r=rows-1;r>=0&&placed<wallsNeeded;r--){
+      for(let c=COLS-1;c>=0&&placed<wallsNeeded;c--){
+        const key=r*COLS+c;
+        if(wallSet.has(key))continue;
+        wallSet.add(key);
+        if(!bfsAllReachable(rows,wallSet)){wallSet.delete(key);continue;}
+        placed++;
+      }
+    }
+  }
+  return wallSet;
+}
+function countBranchPoints(rows,wallSet){
+  // Rozcestí = buňka s ≥3 non-wall sousedy. Víc rozcestí = víc rozhodovacích bodů pro hráče.
+  let junctions=0;
+  for(let r=0;r<rows;r++)for(let c=0;c<COLS;c++){
+    if(wallSet.has(r*COLS+c))continue;
+    let open=0;
+    for(const [dc,dr] of [[0,-1],[0,1],[-1,0],[1,0]]){
+      const nc=c+dc,nr=r+dr;
+      if(nc<0||nc>=COLS||nr<0||nr>=rows)continue;
+      if(!wallSet.has(nr*COLS+nc))open++;
+    }
+    if(open>=3)junctions++;
+  }
+  return junctions;
+}
+function buildColsFromQueue(q){
+  // Grid velikost = ceil(q.length/COLS) řádků (cap MAX_ROWS). Zbytek slotů
+  // doplníme zdmi `{wall:true}` s BFS kontrolou dosažitelnosti — každý nosič
+  // musí mít non-wall cestu na top row, jinak by byl "trapped".
+  const hr=difficulty==='easy'?0:difficulty==='hard'?0.8:0.45;
+  const maxSlots=COLS*MAX_ROWS;
+  const qUsed=q.length>maxSlots?q.slice(0,maxSlots):q;
+  // Velikost gridu (rows) jde za obtížností, ne za počtem nosičů:
+  //   easy   → přesně tolik řádků kolik nosičů vyžaduje (minimum zdí, rovná cesta)
+  //   medium → o 1 řádek víc (trocha zdí = variace)
+  //   hard   → o 3 řádky víc (maze s víc rozcestími)
+  const baseRows=Math.max(1,Math.ceil(qUsed.length/COLS));
+  const extra=difficulty==='hard'?3:difficulty==='medium'?1:0;
+  const rows=Math.min(MAX_ROWS,baseRows+extra);
+  const totalSlots=rows*COLS;
+  const wallsNeeded=Math.max(0,totalSlots-qUsed.length);
+  let wallSet;
+  if(difficulty==='easy'){
+    // Easy: zdi na spodek (padding).
+    wallSet=placeWallsWithStrategy(rows,wallsNeeded,(a)=>a.sort((x,y)=>(y.r-x.r)||(Math.random()-0.5)));
+  } else if(difficulty==='hard'){
+    // Hard: multi-candidate scoring — generuj K random layoutů, vyber ten s nejvíc rozcestími.
+    // Dává hráči víc rozhodovacích bodů, kterou chodbou kopat za needed barvou.
+    let best=null, bestScore=-1;
+    for(let trial=0;trial<12;trial++){
+      const ws=placeWallsWithStrategy(rows,wallsNeeded,(a)=>a.sort(()=>Math.random()-0.5));
+      if(ws.size<wallsNeeded)continue;
+      const score=countBranchPoints(rows,ws);
+      if(score>bestScore){bestScore=score;best=ws;}
+    }
+    wallSet=best||placeWallsWithStrategy(rows,wallsNeeded,(a)=>a.sort(()=>Math.random()-0.5));
+  } else {
+    wallSet=placeWallsWithStrategy(rows,wallsNeeded,(a)=>a.sort(()=>Math.random()-0.5));
+  }
+  // Pokud by pořád zbývaly "díry" (nemělo by nastat), extra nosiči je truncate.
+  const effectiveCarriers=totalSlots-wallSet.size;
+  // Hard už má layered+rozptýlené ordering z makeColumns → nepřemíchávat, jinak by se ztratilo progression-based hloubkové umístění needed barev.
+  const carrierQ=qUsed;
+  const finalQ=carrierQ.length>effectiveCarriers?carrierQ.slice(0,effectiveCarriers):carrierQ;
+  const cols=[];for(let c=0;c<COLS;c++)cols.push([]);
+  let qi=0;
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<COLS;c++){
+      const key=r*COLS+c;
+      if(wallSet.has(key)){
+        cols[c].push({wall:true});
+      } else if(qi<finalQ.length){
+        const hidden=r>0&&Math.random()<hr;
+        const src=finalQ[qi++];
+        cols[c].push({color:src.color,hidden,projectiles:src.projectiles});
+      } else {
+        cols[c].push({wall:true});
+      }
+    }
+  }
+  return cols;
+}
+function shadeHex(hex,amt){
+  // amt v (-1..1): záporná ztmaví, kladná zesvětlí
+  const h=hex.replace('#','');
+  const r=parseInt(h.substr(0,2),16),g=parseInt(h.substr(2,2),16),b=parseInt(h.substr(4,2),16);
+  const f=c=>Math.max(0,Math.min(255,Math.round(c+(amt<0?c*amt:(255-c)*amt))));
+  return 'rgb('+f(r)+','+f(g)+','+f(b)+')';
+}
+const _shadeCache={};
+function shadeCached(hex,amt){
+  const k=hex+'|'+amt;
+  return _shadeCache[k]||(_shadeCache[k]=shadeHex(hex,amt));
+}
+// Sprite každé barvy = 10x10 bead s lesklým highlightem vlevo nahoře a stínem vpravo dole.
+// Mezi buňkami zůstává 2px mezera (průhledný rámeček), takže prosvítá tmavé pozadí = mřížka.
+const _beadSpriteCache={};
+function getBeadSprite(color){
+  if(_beadSpriteCache[color])return _beadSpriteCache[color];
+  const cv=document.createElement('canvas');
+  cv.width=SCALE;cv.height=SCALE;
+  const c=cv.getContext('2d');
+  const s=SCALE-0.2, r=1;           // téměř bez mezery – separace hlavně tmavým gradientem
+  c.beginPath();
+  c.moveTo(r,0);
+  c.lineTo(s-r,0);
+  c.quadraticCurveTo(s,0,s,r);
+  c.lineTo(s,s-r);
+  c.quadraticCurveTo(s,s,s-r,s);
+  c.lineTo(r,s);
+  c.quadraticCurveTo(0,s,0,s-r);
+  c.lineTo(0,r);
+  c.quadraticCurveTo(0,0,r,0);
+  c.closePath();
+  c.fillStyle=color;c.fill();
+  c.globalCompositeOperation='source-atop';
+  const lg=c.createLinearGradient(0,0,s,s);
+  lg.addColorStop(0,'rgba(255,255,255,0.14)');
+  lg.addColorStop(0.55,'rgba(255,255,255,0)');
+  lg.addColorStop(1,'rgba(0,0,0,0.35)');
+  c.fillStyle=lg;c.fillRect(0,0,SCALE,SCALE);
+  const rg=c.createRadialGradient(2.2,2.2,0.2,2.2,2.2,2.8);
+  rg.addColorStop(0,'rgba(255,255,255,0.38)');
+  rg.addColorStop(0.55,'rgba(255,255,255,0.08)');
+  rg.addColorStop(1,'rgba(255,255,255,0)');
+  c.fillStyle=rg;c.fillRect(0,0,SCALE,SCALE);
+  c.globalCompositeOperation='source-over';
+  _beadSpriteCache[color]=cv;
+  return cv;
+}
+// Lazy init Three.js scény. Volá se při prvním drawGrid v 3D módu.
+// Defensivní check: window.render3d může být undefined, pokud ESM modul
+// ještě nedoběhl (race condition při velmi rychlém boot). V tom případě
+// vracíme false a kreslíme dál ve 2D pipeline; další frame to znovu zkusí.
+let _r3dInited=false;
+function _ensureR3D(){
+  if(_r3dInited) return true;
+  if(!window.render3d || typeof window.render3d.init!=='function') return false;
+  // v74.79 unified: TOP region jde přes orchestrátor (jeden sdílený WebGL kontext).
+  if(!window.render3dUnified || typeof window.render3dUnified.ensure!=='function') return false;
+  const ok=window.render3dUnified.ensure({GW, GH, IMG_GH});
+  if(!ok) return false;
+  window.render3d.setVisible(true);
+  // Zviditelnit i block overlay canvas (HP text + mystery "?" pro 3D bloky).
+  const overlay=document.getElementById('block-overlay-canvas');
+  if(overlay) overlay.style.display='block';
+  _r3dInited=true;
+  window._applyThemeFrameColors(_THEMES.find(t => document.body.classList.contains('theme-' + t)) || 'pink');
+  // v74.70: aplikuj default MED tier hned po init renderer-u (shadows off, retina full)
+  if(window.render3d.setQualityTier) window.render3d.setQualityTier(_perfTier);
+  return true;
+}
+
+// Lazy init Three.js scény pro bottom area (belt + pending + carriers).
+// Volá se po prvním drawCarriers() — DOM musí být plně layoutovaný.
+let _r3dBottomInited=false;
+function _ensureR3DBottom(){
+  if(_r3dBottomInited) return true;
+  if(RENDERER_MODE!=='3d') return false;
+  if(!window.render3dBottom||typeof window.render3dBottom.init!=='function') return false;
+  // v74.79 unified: BOTTOM region jde přes orchestrátor (sdílený WebGL kontext + scéna).
+  if(!window.render3dUnified||typeof window.render3dUnified.ensureBottom!=='function') return false;
+  const ok=window.render3dUnified.ensureBottom();
+  if(!ok) return false;
+  _r3dBottomInited=true;
+  window._applyThemeFrameColors(_THEMES.find(t => document.body.classList.contains('theme-' + t)) || 'pink');
+  // v74.70: aplikuj default MED tier i na bottom renderer
+  if(window.render3dBottom.setQualityTier) window.render3dBottom.setQualityTier(_perfTier);
+  return true;
+}
+
+// 3D-mode HP text overlay — kreslí HP čísla a mystery „?" na block-overlay-canvas
+// (z-index nad three-canvas), aby byly viditelné nad 3D walls. Volá se z drawBlocks
+// po render3d.updateBlocks. Stejná typografie jako 2D pipeline.
+//
+// Tilt korekce: 3D scéna je naklopená -19.2° kolem X osy s pivotem ve středu
+// image area. Bloky mají vrchol v Z = BLOCK_DEPTH/2 (cca 16 px) → projekce na
+// 2D plátno posune jejich vizuální střed o sin(tilt) × halfDepth (~5.3 px UP).
+// Také relativní Y od pivotu se zkrátí o cos(tilt) (~5.5 % squish). Aplikujeme
+// transformaci, aby HP text seděl na vrchol 3D bloku.
+const _BLK_TILT = 19.2 * Math.PI / 180;
+const _BLK_TILT_COS = Math.cos(_BLK_TILT);
+const _BLK_TILT_SIN = Math.sin(_BLK_TILT);
+const _BLK_HALF_DEPTH = 14; // BLOCK_DEPTH/2 v render3d.js — pro střed bloku
+const _BLK_FULL_DEPTH = 29; // BLOCK_DEPTH — pro top face (outline)
+// Tilt correction helper: vrací posunutou canvas-Y pro daný flat Y a Z výšku.
+// Y-flip (canvas top=0) + tilt rotace -19.2° kolem X osy s pivotem na imgCenter.
+function _tiltY(y_flat, z_world){
+  const imgHalf = IMG_GH * SCALE / 2;
+  return imgHalf * (1 - _BLK_TILT_COS) + y_flat * _BLK_TILT_COS - z_world * _BLK_TILT_SIN;
+}
+function _drawBlockHpOverlay(){
+  const cv=document.getElementById('block-overlay-canvas');
+  if(!cv) return;
+  // Retina-crisp rendering: match interní pixely k devicePixelRatio.
+  // Bez tohohle se canvas 360×310 scaluje 2× na Retina → rozmazaná
+  // antialiasing kolem stroku → teal/yellow ghost pixely.
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const W=360, H=310;
+  if (cv.width !== W*dpr || cv.height !== H*dpr) {
+    cv.width = W*dpr;
+    cv.height = H*dpr;
+    cv.style.width = W+'px';
+    cv.style.height = H+'px';
+  }
+  const ctx=cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // resetuj a scale na CSS-pixely
+  ctx.clearRect(0,0,W,H);
+
+  // v74.55: 2D outline odebrán — 3D outline mesh per block (updateBlockOutlines v render3d.js)
+
+  // ── HP TEXT + MYSTERY ──────────────────────────────────────────────────
+  for(const b of currentBlocks){
+    if(b.hp<=0) continue;
+    const isMystery=b.kind==='mystery';
+    const cx=(b.x+b.w/2)*SCALE;
+    const cy_flat=(b.y+b.h/2)*SCALE;
+    // Tilt korekce: cy_tilted = imgHalf*(1-cos) + cy_flat*cos - halfDepth*sin
+    const cy = _tiltY(cy_flat, _BLK_HALF_DEPTH);
+    const fontPx=17;
+    ctx.save();
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.lineWidth=Math.max(3,fontPx/6);  // o trochu silnější pro clean rim
+    ctx.lineJoin='round';                 // round joins = žádné spike artefakty
+    ctx.lineCap='round';
+    ctx.strokeStyle='#000000';            // solid černá, žádná alpha → žádný blend artefakt
+    // v74.55: Bangers comic font + depth shadow (extruded "3D" look)
+    // Draw text několikrát s Y offsetem v plné černé → vznikne tlustá černá spodní stěna,
+    // pak finální vrstva nahoře s outline + light fill.
+    function _drawDepthText(text, cx, cy, font, fillColor){
+      ctx.font = font;
+      // Depth layers — black solid, offset 1, 2, 3, 4 px down
+      ctx.fillStyle = '#000000';
+      for(let dy = 4; dy >= 1; dy--){
+        ctx.fillText(text, cx, cy + dy);
+      }
+      // Outline (top layer)
+      ctx.strokeText(text, cx, cy);
+      // Fill (top layer)
+      ctx.fillStyle = fillColor;
+      ctx.fillText(text, cx, cy);
+    }
+    if(isMystery){
+      _drawDepthText('?', cx, cy + 10, 'normal 25px Impact, "Arial Black", Bangers, sans-serif', '#ffe07a');
+    } else {
+      _drawDepthText(String(b.hp), cx, cy + 10, 'normal 22px Impact, "Arial Black", Bangers, sans-serif', '#ffffff');
+    }
+    ctx.restore();
+    // Mystery: malé HP číslo v pravém horním rohu (přes překrytí ? uvnitř)
+    if(isMystery){
+      const hpX=(b.x+b.w)*SCALE-3;
+      const hpY_flat=b.y*SCALE+3;
+      const hpY = _tiltY(hpY_flat, _BLK_HALF_DEPTH);
+      ctx.save();
+      ctx.textAlign='right';
+      ctx.textBaseline='top';
+      ctx.font='normal 9px Impact, "Arial Black", Bangers, sans-serif';
+      ctx.lineWidth=2.5;
+      ctx.lineJoin='round';
+      ctx.lineCap='round';
+      ctx.strokeStyle='#000000';
+      ctx.strokeText(String(b.hp),hpX,hpY);
+      ctx.fillStyle='#ffffff';
+      ctx.fillText(String(b.hp),hpX,hpY);
+      ctx.restore();
+    }
+  }
+}
+
+function drawGrid(){
+  const cv=document.getElementById('pixel-canvas');
+  const ctx=cv.getContext('2d');
+  const W=GW*SCALE, H=GH*SCALE;
+  ctx.clearRect(0,0,W,H);
+
+  // 3D pipeline (Fáze 1): pixely renderuje Three.js, bloky pořád 2D.
+  // Three-canvas překryje pixel-canvas (alpha), takže 2D bloky pod ním zůstávají
+  // viditelné. Per-frame render() volá beltLoop, drawGrid jen pushne update data.
+  if(RENDERER_MODE==='3d' && _ensureR3D()){
+    window.render3d.updateGrid(grid, COLORS);
+    drawBlocks(ctx);
+    return;
+  }
+
+  // 2D pipeline (default): vržené stíny + bead sprity + bloky.
+  for(let y=0;y<GH-1;y++)for(let x=0;x<GW;x++){
+    if(grid[y][x]!==-1&&grid[y+1][x]===-1){
+      const px=x*SCALE, py=(y+1)*SCALE;
+      ctx.fillStyle='rgba(0,0,0,0.4)';
+      ctx.fillRect(px+1,py,SCALE-1,3);
+      ctx.fillStyle='rgba(0,0,0,0.2)';
+      ctx.fillRect(px+1,py+3,SCALE-1,2);
+    }
+  }
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    const c=grid[y][x];
+    if(c===-1)continue;
+    ctx.drawImage(getBeadSprite(COLORS[c]), x*SCALE, y*SCALE);
+  }
+  drawBlocks(ctx);
+}
+
+// Bloky se kreslí nad pixely – jsou "nad" obrazem, hráč je musí zničit
+// než se dostane k pixelům pod nimi. HP progress = opacity/saturace.
+function drawBlocks(ctx){
+  // 3D pipeline: bloky jako InstancedMesh cubes přes render3d. HP text + mystery
+  // "?" se kreslí na block-overlay-canvas (z-index 3, nad three-canvas) přes
+  // _drawBlockHpOverlay() — stejná typografie jako 2D, jen na jiné vrstvě.
+  if(RENDERER_MODE==='3d' && window.render3d && window.render3d.isReady && window.render3d.isReady()){
+    window.render3d.updateBlocks(currentBlocks, COLORS);
+    if(window.render3d.updateBlockOutlines) window.render3d.updateBlockOutlines(currentBlocks);
+    _drawBlockHpOverlay();
+    return;
+  }
+
+  // 2D pipeline (default):
+  // Vržené stíny bloků (pod spodní hranu bloku, jen kde dole není ani pixel
+  // ani jiný blok) — aby byly bloky „nad povrchem" jako pixely.
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    for(let ly=0;ly<b.h;ly++)for(let lx=0;lx<b.w;lx++){
+      if(!b._mask[ly][lx])continue;
+      // jen spodní okraj tvaru
+      if(ly+1<b.h && b._mask[ly+1][lx]) continue;
+      const gx=b.x+lx, gy=b.y+ly+1;
+      if(gy>=GH) continue;
+      // co je v buňce pod? pixel nebo blok → stín neřešíme (stacking)
+      const hasPix=(gx>=0&&gx<GW)?(grid[gy][gx]!==-1):false;
+      if(hasPix) continue;
+      const blkBelow=findBlockAtPixel(gx,gy);
+      if(blkBelow && blkBelow.hp>0) continue;
+      const px=gx*SCALE, py=gy*SCALE;
+      ctx.fillStyle='rgba(0,0,0,0.4)';
+      ctx.fillRect(px+1,py,SCALE-1,3);
+      ctx.fillStyle='rgba(0,0,0,0.2)';
+      ctx.fillRect(px+1,py+3,SCALE-1,2);
+    }
+  }
+  for(const b of currentBlocks){
+    if(b.hp<=0)continue;
+    const isMystery=b.kind==='mystery';
+    const fill=isMystery?'#555a62':(COLORS[b.color]||'#888');
+    // Solid barva bez vzoru — jeden fill na celý tvar.
+    ctx.fillStyle=fill;
+    for(let ly=0;ly<b.h;ly++)for(let lx=0;lx<b.w;lx++){
+      if(!b._mask[ly][lx])continue;
+      const px=(b.x+lx)*SCALE, py=(b.y+ly)*SCALE;
+      ctx.fillRect(px,py,SCALE,SCALE);
+    }
+    // HP číslo centrované uvnitř bloku. Mystery má navíc "?" nad HP číslem.
+    // Jednotná velikost čísla napříč bloky (úzké bloky měly dřív mrňavá čísla).
+    const cx=(b.x+b.w/2)*SCALE, cy=(b.y+b.h/2)*SCALE;
+    const fontPx=17;
+    ctx.save();
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.lineWidth=Math.max(2,fontPx/7);
+    ctx.strokeStyle='rgba(0,0,0,0.95)';
+    if(isMystery){
+      // Velký "?" přes celý blok (dominantní) + malý HP nad ním
+      const qFont=28;
+      ctx.font='bold '+qFont+'px system-ui, -apple-system, sans-serif';
+      ctx.strokeText('?',cx,cy);
+      ctx.fillStyle='#ffe07a';
+      ctx.fillText('?',cx,cy);
+    } else {
+      ctx.font='bold '+fontPx+'px system-ui, -apple-system, sans-serif';
+      ctx.strokeText(String(b.hp),cx,cy);
+      ctx.fillStyle='#ffffff';
+      ctx.fillText(String(b.hp),cx,cy);
+    }
+    ctx.restore();
+    // Mystery: malé HP číslo v pravém horním rohu (přes překrytí ? uvnitř).
+    // 2D pipeline → flat coords, žádná tilt correction.
+    if(isMystery){
+      const hpX=(b.x+b.w)*SCALE-3, hpY=b.y*SCALE+3;
+      ctx.save();
+      ctx.textAlign='right';
+      ctx.textBaseline='top';
+      ctx.font='bold 10px system-ui, -apple-system, sans-serif';
+      ctx.lineWidth=2;
+      ctx.strokeStyle='rgba(0,0,0,0.95)';
+      ctx.strokeText(String(b.hp),hpX,hpY);
+      ctx.fillStyle='#ffffff';
+      ctx.fillText(String(b.hp),hpX,hpY);
+      ctx.restore();
+    }
+  }
+}
+
+function drawBelt(){
+  const svg=document.getElementById('belt-svg');
+  svg.innerHTML='';
+  const W=360,H=64;
+  const rollerR=28;
+  const trackY1=18,trackY2=46;
+  const lx=rollerR,rx=W-rollerR;
+  const ns='http://www.w3.org/2000/svg';
+  const mk=(tag,attrs)=>{const e=document.createElementNS(ns,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;};
+
+  // Clip path – koule za válci zmizí
+  const defs=mk('defs',{});
+  const clip=mk('clipPath',{id:'bc'});
+  clip.appendChild(mk('rect',{x:lx+1,y:trackY1-2,width:rx-lx-2,height:trackY2-trackY1+4}));
+  defs.appendChild(clip);
+  svg.appendChild(defs);
+
+  // Pásy – s otvorem na LAUNCH_X
+  const holeW=20;
+  const hx1=LAUNCH_X-holeW/2, hx2=LAUNCH_X+holeW/2;
+  svg.appendChild(mk('line',{x1:lx,y1:trackY1,x2:hx1,y2:trackY1,stroke:'#888','stroke-width':4,'stroke-linecap':'round'}));
+  svg.appendChild(mk('line',{x1:hx2,y1:trackY1,x2:rx,y2:trackY1,stroke:'#888','stroke-width':4,'stroke-linecap':'round'}));
+  svg.appendChild(mk('line',{x1:lx,y1:trackY2,x2:hx1,y2:trackY2,stroke:'#888','stroke-width':4,'stroke-linecap':'round'}));
+  svg.appendChild(mk('line',{x1:hx2,y1:trackY2,x2:rx,y2:trackY2,stroke:'#888','stroke-width':4,'stroke-linecap':'round'}));
+  // Animované šipky
+  const arrowY=(trackY1+trackY2)/2;
+  const arrowPeriod=30;
+  const arrowOff=beltAnim%arrowPeriod;
+  const arrowGrp=mk('g',{'clip-path':'url(#bc)'});
+  for(let ax=lx+(arrowOff%arrowPeriod);ax<rx+arrowPeriod;ax+=arrowPeriod){
+    arrowGrp.appendChild(mk('polyline',{points:`${ax},${arrowY-5} ${ax+10},${arrowY} ${ax},${arrowY+5}`,fill:'none',stroke:'#666','stroke-width':2,'stroke-linecap':'round','stroke-linejoin':'round'}));
+  }
+  svg.appendChild(arrowGrp);
+
+  // Válce navrch
+  [lx,rx].forEach(cx=>{
+    svg.appendChild(mk('ellipse',{cx,cy:H/2,rx:8,ry:rollerR-2,fill:'#666',stroke:'#444','stroke-width':2}));
+    svg.appendChild(mk('ellipse',{cx,cy:H/2,rx:4,ry:12,fill:'#888',stroke:'#555','stroke-width':1}));
+    svg.appendChild(mk('circle',{cx,cy:H/2,r:4,fill:'#aaa'}));
+  });
+
+  // Animované koule
+  const ballR=14;
+  const startX=lx+ballR+8;
+  const endX=rx-ballR-8;
+  const trackW=endX-startX;
+  const spacing=trackW/(BELT_CAP-1);
+  const totalLen=BELT_CAP*spacing;
+  const ballY=(trackY1+trackY2)/2;
+  const offset=beltAnim%totalLen;
+
+  const ballGrp=mk('g',{'clip-path':'url(#bc)'});
+  for(let i=0;i<BELT_CAP;i++){
+    const bx=startX+(i*spacing+offset)%totalLen;
+    const b=belt[i];
+    if(b){
+      const color=COLORS[b.ci];
+      if(b.rocket){
+        // Raketová koule – tmavé jádro s barevným prstencem a ikonou rakety
+        ballGrp.appendChild(mk('circle',{cx:bx,cy:ballY,r:ballR,fill:'#1a1f2e',stroke:color,'stroke-width':3}));
+        ballGrp.appendChild(mk('circle',{cx:bx,cy:ballY,r:ballR-4,fill:'none',stroke:color,'stroke-width':1,opacity:0.5}));
+        const txt=mk('text',{x:bx,y:ballY+5,'text-anchor':'middle','font-size':14,fill:'#fff'});
+        txt.textContent='🚀';
+        ballGrp.appendChild(txt);
+      } else {
+        ballGrp.appendChild(mk('circle',{cx:bx,cy:ballY,r:ballR,fill:color,stroke:'rgba(0,0,0,0.25)','stroke-width':1}));
+        ballGrp.appendChild(mk('circle',{cx:bx-4,cy:ballY-4,r:4,fill:'rgba(255,255,255,0.35)'}));
+      }
+    } else {
+      ballGrp.appendChild(mk('circle',{cx:bx,cy:ballY,r:ballR,fill:'none',stroke:'#3a3a3a','stroke-width':1.5,'stroke-dasharray':'4,3'}));
+    }
+  }
+  svg.appendChild(ballGrp);
+
+  document.getElementById('belt-count').textContent=beltCount();
+}
+function cntCarriers(){
+  let n=0;
+  for(let c=0;c<COLS;c++)for(const s of columns[c])if(s!==null&&!s.wall)n++;
+  return n;
+}
+function isCarrierActive(c,r){
+  // Honeycomb pravidlo: aktivní je nosič, který má alespoň jednoho volného ortogonálního
+  // souseda. "Volný" = null (dug-out hole) nebo horní okraj gridu (r===0).
+  // Wall sentinel `{wall:true}` značí padding — představuje "zeď" a NENÍ volný.
+  if(c<0||c>=COLS||r<0)return false;
+  const col=columns[c];
+  if(!col||r>=col.length)return false;
+  const slot=col[r];
+  if(!slot||slot.wall)return false;
+  if(r===0)return true;
+  if(col[r-1]===null)return true;
+  if(r+1<col.length&&col[r+1]===null)return true;
+  if(c>0){const lc=columns[c-1];if(lc&&r<lc.length&&lc[r]===null)return true;}
+  if(c+1<COLS){const rc=columns[c+1];if(rc&&r<rc.length&&rc[r]===null)return true;}
+  return false;
+}
+// Adaptivní velikost carriers — RESPONZIVNÍ podle aktuální výšky viewportu.
+// Cíl: na velkém displeji (Pixel 8, iPhone 14) zachovat full 54 px carriers
+// i pro 7 řad. Na malém (iPhone SE 817 css) inteligentně zmenšit aby se vešlo.
+//
+// Algoritmus:
+//   1) Změř reálnou pozici #carriers-wrap (top) a available = vh - top - safe
+//   2) Pokud target 54 px se vejde pro numRows → použij target
+//   3) Jinak shrink: solve size × (rows + (rows-1)×0.10) = usable
+//   4) Gap ≈ 10 % carrier size, ball ≈ (carrier-5)/2 (cbox inner)
+const CARR_TARGET_SIZE = 54;
+const CARR_TARGET_GAP  = 4;      // v72.70: 6 → 4 (uspora 12 px na 7 řadách → 7. řada fits at TARGET)
+const CARR_MIN_SIZE    = 38;
+const CARR_WRAP_PAD    = 26;     // #carriers-wrap padding (4 top + 22 bottom)
+// Memoize last-computed inputs aby drawCarriers() na každý klik nepřepočítával
+// layout znovu (v71.21 fix — 3× flicker při kliku, protože onCarrierClick
+// triggeruje drawCarriers/drawBelt/drawPending kaskádu). Resize a level change
+// inputs změní → cache invalidate → plný recompute.
+const _lastAdaptive = { numRows: -1, vhR: -1 };
+function _setAdaptiveCarrierSize(columnsArr){
+  // v73.141: viewport-based frame, bottom-anchored grid s cavity cap.
+  //
+  // Princip:
+  //   1) blueLineY = naturalGridTop (= kde by grid byl bez shift) = horní limit gridu
+  //   2) viewportGridBottomMax = viewportH - safeBottom - frame lip (= dolní limit gridu)
+  //   3) cellSize: největší co fit do (viewportGridBottomMax - blueLineY), capped TARGET 54
+  //   4) grid je BOTTOM-ANCHORED: grid_bottom = viewportGridBottomMax
+  //      ALE s cap MAX_CAVITY_ABOVE — pokud by mezera nad gridem byla > 100 px,
+  //      grid_top se zastaví u (blueLineY + 100). Frame pak nesah k viewport hraně,
+  //      pod ním zůstane BG (gradient + sparkles).
+  //   5) shift = grid_top - naturalGridTop (margin-top na #carriers-wrap)
+  //
+  // Důsledky:
+  //   - 5-7 řad: cellSize ~ TARGET (nebo shrink na úzkém viewportu). Grid fills frame.
+  //   - 3-4 řady na velkém displeji: cellSize = TARGET 54, grid sedí dole, max 100 px
+  //     cavity nad ním. Frame nesah úplně k spodní hraně.
+  //   - 3-4 řady na malém: grid bottom-anchored přímo k viewport bottom.
+  const numRows = Math.max(0, ...columnsArr.map(c => c ? c.length : 0));
+  if (numRows === 0) return;
+  // visualViewport.height respektuje iOS Safari URL bar.
+  const viewportH = (window.visualViewport && window.visualViewport.height) || window.innerHeight || 817;
+  const vhR = Math.round(viewportH);
+  if (_lastAdaptive.numRows === numRows && _lastAdaptive.vhR === vhR) return;
+  _lastAdaptive.numRows = numRows;
+  _lastAdaptive.vhR = vhR;
+  const carrWrap = document.getElementById('carriers-wrap');
+  if (!carrWrap) return;
+  const _cs = getComputedStyle(document.documentElement);
+  const _insetBottom = parseFloat(_cs.getPropertyValue('--bb-safe-bottom')) || 0;
+  // v73.167: safeBottom base 20 → 7 (= o 2/3 menší). Po v73.166 root cause
+  // fix se algo dobře hlídá, žádný velký buffer není potřeba.
+  const safeBottom = 7 + _insetBottom;
+
+  // Step 1: měření naturalGridTop (= blue line). Subtrahuje currentShift, aby se
+  // přečetla pozice "bez shift" (jinak by recompute s carrWrap.top měřeným
+  // se starým shiftem dělal oscilaci — viz v72.45 historie).
+  const currentShift = parseFloat(_cs.getPropertyValue('--carriers-wrap-shift')) || 0;
+  const wrapTopNow = carrWrap.getBoundingClientRect().top;
+  const naturalWrapTop = wrapTopNow - currentShift;
+
+  // v73.166: --carriers-pad-top je SET DYNAMICKY v render3d_bottom._setCarriersPadTop:
+  // 18 px když cellSize ≥ 50 (= TARGET breathing room), 4 px když shrunk (< 50).
+  // Algoritmus musí toto předpovědět, jinak shift counts s 14 px chybou:
+  // - 4-row level (TARGET cellSize): real pad = 18, algo zde počítal 4 → real
+  //   grid_top je 14 px níž → real game.bottom 14 px níž → overflow vh → scrollbar.
+  // - 5+ row level shrunk (pad = 4): consistent.
+  // Tím byly nekonzistence mezi 4-row a 5-row reportované userem.
+
+  // Step 2: dolní limit gridu (= max grid_bottom Y).
+  const FRAME_LIP_BELOW = 11;  // 5 buffer + 6 lip (grid_bottom → frame_outer_bottom)
+  // Conservative estimate: assume pad = 18 (worst case = less room). Pokud
+  // actual pad bude 4, máme víc room → cellSize stejně fit, jen víc empty BG.
+  const ESTIMATED_PAD_TOP = 18;
+  const estimatedBlueLineY = naturalWrapTop + ESTIMATED_PAD_TOP;
+  const viewportGridBottomMax = Math.max(estimatedBlueLineY + 60, viewportH - safeBottom - FRAME_LIP_BELOW);
+
+  // Step 3: max gridHeight (grid_top = estimated blue, grid_bottom = viewportGridBottomMax).
+  const maxGridHeight = viewportGridBottomMax - estimatedBlueLineY;
+
+  // Step 4: cellSize — co se vejde, capped TARGET 54. Pod MIN 38 jen pokud
+  // MIN by overflowlo (= forced shrink). Gap ~ ratio 0.10.
+  const denom = numRows + (numRows - 1) * 0.10;
+  const idealCellSize = maxGridHeight / denom;
+  let carrierSize = Math.min(CARR_TARGET_SIZE, Math.floor(idealCellSize));
+  if (carrierSize < CARR_MIN_SIZE) {
+    const minGap = Math.max(3, Math.round(CARR_MIN_SIZE * 0.10));
+    const minGrid = numRows * CARR_MIN_SIZE + (numRows - 1) * minGap;
+    if (minGrid <= maxGridHeight) carrierSize = CARR_MIN_SIZE;
+    // else: keep computed smaller — fit má prioritu nad MIN_SIZE
+  }
+  let rowGap = Math.max(3, Math.round(carrierSize * 0.10));
+  let gridHeight = numRows * carrierSize + (numRows - 1) * rowGap;
+  // v73.142: safety loop — rowGap = round(cell × 0.1) může overshoot
+  // při floor(ideal) cellSize → gridHeight > maxGridHeight by způsobil overflow.
+  // Reduce cellSize o 1 dokud fits. Typicky 0-2 iterace.
+  while (gridHeight > maxGridHeight && carrierSize > 1) {
+    carrierSize -= 1;
+    rowGap = Math.max(3, Math.round(carrierSize * 0.10));
+    gridHeight = numRows * carrierSize + (numRows - 1) * rowGap;
+  }
+
+  // Step 4.5: PREDICT actual pad based on final cellSize (= matches
+  // _setCarriersPadTop logic in render3d_bottom.js).
+  const actualPadTop = (carrierSize >= 50) ? 18 : 4;
+  const blueLineY = naturalWrapTop + actualPadTop;
+
+  // Step 5: placement — bottom-anchored s cavity cap. Použije ACTUAL blueLineY.
+  const MAX_CAVITY_ABOVE = 100;
+  const gridTopBottomAnchored = viewportGridBottomMax - gridHeight;
+  const gridTopCavityCapped  = blueLineY + MAX_CAVITY_ABOVE;
+  let gridTopFinal = Math.min(gridTopBottomAnchored, gridTopCavityCapped);
+  gridTopFinal = Math.max(gridTopFinal, blueLineY);  // never above blue
+
+  // Step 6: shift = grid_top - natural (= margin-top na carriers-wrap).
+  const wrapShift = Math.max(0, Math.round(gridTopFinal - blueLineY));
+
+  // Cbox inner space: padding 2×2 + gap 1 = 5 px → cell = (carrier-5)/2
+  const ballSize = Math.max(14, Math.floor((carrierSize - 5) / 2));
+
+  const r = document.documentElement.style;
+  r.setProperty('--carrier-size',  carrierSize + 'px');
+  r.setProperty('--ball-size',     ballSize + 'px');
+  r.setProperty('--row-gap',       rowGap + 'px');
+  r.setProperty('--game-top-extra', '0px');
+  r.setProperty('--carriers-wrap-shift', wrapShift + 'px');
+}
+// Recompute on resize (rotation, desktop window resize).
+// MUSÍ trigger i 3D mesh update — updateCarriers() čte cbox.getBoundingClientRect()
+// pro velikost mesh, ale spouští se jen z drawCarriers(). Bez explicitního volání
+// při resize 2D divs zmenší (CSS var → re-flow) ale 3D meshes zůstanou v původní
+// velikosti → překrývají se s DOM.
+function _recomputeCarrierLayout(){
+  if (typeof columns === 'undefined' || !columns) return;
+  _setAdaptiveCarrierSize(columns);
+  if (typeof RENDERER_MODE !== 'undefined' && RENDERER_MODE === '3d' &&
+      window.render3dBottom && window.render3dBottom.isReady && window.render3dBottom.isReady()) {
+    // v73.144: revert v73.143. render3dBottom.resize() rozbil scénu — canvas
+    // změnil pixel rozměry, pivot/contentGroup recentered podle nové W/H, ale
+    // existující meshe zůstaly s pozicemi pro starou W/H → frame skoro neviditelný.
+    // Pro now necháváme canvas H s init buffer +400 (bezpečný i pro resize-up).
+    window.render3dBottom.updateCarriers(columns, COLORS);
+    if (window.render3dBottom.updateWalls) window.render3dBottom.updateWalls(columns);
+  }
+  _updateBoostZoneHeight(); // v74.66: responsive height pro boost zones
+}
+
+// v74.66: změř pozici #carriers-grid uvnitř #bottom-deck a nastav CSS var
+// --boost-zone-h tak, aby boost zóny končily TĚSNĚ nad gridem (neoverflawly
+// na vrchní řadu carriers). Bezpečný buffer -4px.
+function _updateBoostZoneHeight(){
+  const deck = document.getElementById('bottom-deck');
+  const grid = document.getElementById('carriers-grid');
+  if (!deck || !grid) return;
+  requestAnimationFrame(() => {
+    const deckRect = deck.getBoundingClientRect();
+    const gridRect = grid.getBoundingClientRect();
+    const h = Math.max(40, gridRect.top - deckRect.top - 4);
+    deck.style.setProperty('--boost-zone-h', h + 'px');
+  });
+}
+window.addEventListener('resize', _recomputeCarrierLayout);
+// iOS Safari URL bar dynamicky mění visualViewport (window.innerHeight zůstává
+// stejné). Bez tohoto listeneru bychom po skrytí/zobrazení URL baru měli
+// zastaralý carrier sizing → spodní řada by se uřezala pod home indicator.
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', _recomputeCarrierLayout);
+}
+function drawCarriers(){
+  _setAdaptiveCarrierSize(columns);
+  const el=document.getElementById('carriers-grid');
+  // v72.82: event delegation pro denial shake — jednou attach na grid parent.
+  // Per-element listeners selhávaly na iOS Safari (inner cbox transparent).
+  if(!el._denialDelegated){
+    el.addEventListener('click', _handleDenialDelegated);
+    el.addEventListener('touchstart', _handleDenialDelegated, {passive: true});
+    el._denialDelegated = true;
+  }
+  el.innerHTML='';
+  for(let c=0;c<COLS;c++){
+    const col=document.createElement('div');
+    col.className='carrier-col';
+    for(let r=0;r<columns[c].length;r++){
+      const slot=columns[c][r];
+      const isWall=!!(slot&&slot.wall===true);
+      const isNullEmpty=slot===null;
+      const empty=isNullEmpty||isWall;
+      const active=!empty&&isCarrierActive(c,r);
+      const hidden=!empty&&!active&&slot.hidden===true;
+      const isGarage=!empty&&slot&&slot.type==='garage';
+      const garageLocked=isGarage&&!active;
+      const div=document.createElement('div');
+      // Rozlišíme wall vs null — wall dostane svůj „blok" vzhled (top-down zeď),
+      // null zůstane čistě prázdné (hráč vidí jen tmavý slot).
+      const emptyClass=isWall?'empty wall':'empty';
+      div.className='carrier '+(empty?emptyClass:isGarage?('garage'+(garageLocked?' locked':'')):active?'active':hidden?'hiddenq':'inactive');
+      if(empty){
+        div.innerHTML=isWall?'<div class="wall-block"></div>':'';
+      } else if(hidden){
+        div.innerHTML='<div class="cbox-hid">?</div>';
+      } else if(isGarage){
+        const nextColor=slot.queue.length?COLORS[slot.queue[0].color]:'#2a2a2a';
+        const count=slot.queue.length;
+        const dirs=slot.directions||['N'];
+        const arrMap={N:'gar-arr gar-arr-n',S:'gar-arr gar-arr-s',W:'gar-arr gar-arr-w',E:'gar-arr gar-arr-e'};
+        const arrGlyph={N:'\u25B2',S:'\u25BC',W:'\u25C0',E:'\u25B6'};
+        let arrHTML='';
+        for(const d of dirs)arrHTML+='<span class="'+arrMap[d]+'">'+arrGlyph[d]+'</span>';
+        const destroyBadge=slot.destroyable&&active?'<span style="position:absolute;top:1px;right:2px;font-size:8px;opacity:0.85">💥</span>':'';
+        div.innerHTML='<div class="cbox" style="position:relative;background:'+nextColor+';display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:1.5px solid rgba(0,0,0,0.45)'+(slot.destroyable&&active?';outline:2px solid rgba(255,80,0,0.7);outline-offset:-2px':'')+'">'
+          +destroyBadge
+          +arrHTML
+          +'<span style="font-size:16px;line-height:1">🏠</span>'
+          +'<span style="font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,0.8)">'+count+'</span>'
+          +'</div>';
+      } else if(slot.type==='rocket'){
+        const dc=COLORS[slot.color];
+        div.innerHTML='<div class="cbox" style="background:linear-gradient(160deg,#3a3f5a,#111824);border:1.5px solid '+dc+';box-shadow:0 0 6px '+dc+'55 inset;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#fff;font-size:20px;line-height:1">🚀'
+          +'<span style="width:10px;height:10px;border-radius:50%;background:'+dc+';box-shadow:0 0 5px '+dc+'"></span>'
+          +'</div>';
+      } else {
+        const bg=COLORS[slot.color];
+        const commonStyle='border-radius:50%;min-width:0;min-height:0;aspect-ratio:1;width:100%;max-width:18px;justify-self:center;align-self:center;';
+        const activeBall='<div style="'+commonStyle
+          +'background:radial-gradient(circle at 36% 32%, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0) 52%), '+bg+';'
+          +'box-shadow:inset 0 -2px 4px rgba(0,0,0,0.3), 0 0 0 1.5px rgba(0,0,0,0.28);"></div>';
+        const dudBall='<div style="'+commonStyle
+          +'background:transparent;'
+          +'box-shadow:inset 0 0 0 1.5px rgba(255,255,255,0.25);opacity:0.4;"></div>';
+        const dist=distributeProjectiles(slot.projectiles||UPC*PPU);
+        let ballsHTML='';
+        for(const p of dist)ballsHTML+=(p>0?activeBall:dudBall);
+        const isCleanup=(slot.projectiles||UPC*PPU)<UPC*PPU;
+        const borderStyle=isCleanup?'border:2px dashed rgba(255,255,255,0.55)':'border:1.5px solid rgba(0,0,0,0.45)';
+        div.innerHTML='<div class="cbox" style="background:'+bg+';'+borderStyle+'">'+ballsHTML+'</div>';
+      }
+      const isDestroyable=isGarage&&active&&slot.destroyable;
+      if((active&&!isGarage)||isDestroyable){div.dataset.col=c;div.dataset.row=r;div.addEventListener('click',onCarrierClick);}
+      // v72.82: denial shake přes event delegation na #carriers-grid (níž). Per-element
+       // listeners byly nespolehlivé na iOS Safari pro "neviditelné" elementy (cbox/cbox-hid
+       // mají v 3D transparent background). Zde jen dataset pro delegated handler.
+      else if(!empty && !isGarage && (hidden || !active)){
+        div.dataset.col=c;div.dataset.row=r;
+      }
+      col.appendChild(div);
+    }
+    el.appendChild(col);
+  }
+  document.getElementById('carriers-left').textContent=cntCarriers();
+  // 3D: update sphere instances pro carrier balls (DOM je čerstvý → správné pozice)
+  if(RENDERER_MODE==='3d'){
+    _ensureR3DBottom();
+    if(window.render3dBottom&&window.render3dBottom.isReady&&window.render3dBottom.isReady()){
+      window.render3dBottom.updateCarriers(columns,COLORS);
+      if(window.render3dBottom.updateWalls) window.render3dBottom.updateWalls(columns);  // v72.16
+    }
+  }
+}
+function findColorCentroid(ci){
+  // Najdi největší souvislý shluk a vrať jeho těžiště – vyhneme se tak
+  // problému, že průměr dvou oddělených oblastí padne mezi ně.
+  const seen=[];
+  for(let y=0;y<IMG_GH;y++)seen.push(new Array(GW).fill(false));
+  let best=null;
+  for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+    if(seen[y][x]||grid[y][x]!==ci)continue;
+    const stack=[[x,y]];seen[y][x]=true;
+    let sx=0,sy=0,n=0;
+    while(stack.length){
+      const [cx,cy]=stack.pop();
+      sx+=cx;sy+=cy;n++;
+      for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+        const nx=cx+dx,ny=cy+dy;
+        if(nx<0||nx>=GW||ny<0||ny>=IMG_GH)continue;
+        if(seen[ny][nx]||grid[ny][nx]!==ci)continue;
+        seen[ny][nx]=true;stack.push([nx,ny]);
+      }
+    }
+    if(!best||n>best.n)best={gx:Math.round(sx/n),gy:Math.round(sy/n),n};
+  }
+  return best;
+}
+function findNearestPixelOfColor(ci,gx,gy){
+  let best=null,bestD=Infinity;
+  for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+    if(grid[y][x]!==ci)continue;
+    const d=(x-gx)*(x-gx)+(y-gy)*(y-gy);
+    if(d<bestD){bestD=d;best={gx:x,gy:y};}
+  }
+  return best;
+}
+function launchRocket(ci){
+  const target=findColorCentroid(ci);
+  if(!target)return false;
+  particles.push({
+    phase:'rocket', ci, color:COLORS[ci],
+    x:cannonX, y:CANNON_Y-6,
+    tx:target.gx*SCALE+SCALE/2, ty:target.gy*SCALE+SCALE/2,
+    speed:300, totalT:0, trailT:0,
+    popR:0, popX:0, popY:0
+  });
+  return true;
+}
+// v72.78: klik na inactive / mystery carrier — trigger denial shake (žádná herní akce).
+function onDenialCarrierClick(e){
+  const c=+e.currentTarget.dataset.col, r=+e.currentTarget.dataset.row;
+  if(RENDERER_MODE==='3d' && window.render3dBottom && window.render3dBottom.triggerCarrierDenial){
+    window.render3dBottom.triggerCarrierDenial(c, r);
+  }
+  _playDenial();
+}
+
+// v72.82: delegated handler na #carriers-grid pro denial shake. Najde .carrier ancestor
+// klikem, ignoruje active/garage (ti mají vlastní listener), trigger denial pro inactive/hiddenq.
+function _handleDenialDelegated(e){
+  const carrier = e.target.closest('.carrier');
+  if(!carrier) return;
+  if(carrier.classList.contains('active')) return;   // active = vlastní onCarrierClick
+  if(carrier.classList.contains('garage')) return;   // garage = vlastní handler
+  if(carrier.classList.contains('empty')) return;    // empty = nic
+  const col = carrier.dataset.col, row = carrier.dataset.row;
+  if(col === undefined || row === undefined) return;
+  if(RENDERER_MODE==='3d' && window.render3dBottom && window.render3dBottom.triggerCarrierDenial){
+    window.render3dBottom.triggerCarrierDenial(+col, +row);
+  }
+  _playDenial();
+}
+
+function onCarrierClick(e){
+  const c=+e.currentTarget.dataset.col,r=+e.currentTarget.dataset.row;
+  if(!running)return;
+  if(Date.now()<_levelStartLockUntil)return; // v74.62: input lock dokud nedoběhne intro animace
+  const slot=columns[c][r];
+  if(!slot)return;
+  // Hard limit: v trychtýři max 4 nosiče (16 koulí). Klik se neodbaví a zobrazí se varování.
+  if(pending.length>PENDING_DISPENSE_THRESHOLD){
+    showFunnelWarning();
+    return;
+  }
+  _playBeltLand(); // jemný click feedback při zmáčknutí nosiče
+  if(slot.type==='rocket'){
+    let _rxSpawn,_rxSpawnY;
+    const _rxCbox=e.currentTarget.querySelector('.cbox');
+    const _rxRef=document.getElementById(FUN.w===420?'bottom-deck':'pending-canvas')||document.getElementById('pending-canvas');
+    if(_rxCbox&&_rxRef){
+      const cR=_rxCbox.getBoundingClientRect(),pR=_rxRef.getBoundingClientRect();
+      _rxSpawn=(cR.left+cR.width/2-pR.left)*(FUN.w/pR.width);
+      if(RENDERER_MODE==='3d'&&window.render3dBottom&&window.render3dBottom.canvasYtoFunY){
+        const canvas3d=document.getElementById('bottom3d-canvas');
+        if(canvas3d){const cv=canvas3d.getBoundingClientRect();_rxSpawnY=window.render3dBottom.canvasYtoFunY(cR.top+cR.height/2-cv.top);}
+      }
+    }
+    addToPending({ci:slot.color,ppu:20,rocket:true},_rxSpawn,_rxSpawnY);
+    addToPending({ci:slot.color,ppu:20,rocket:true},_rxSpawn,_rxSpawnY);
+    columns[c][r]=null;
+    noMatchPasses=0;
+    drawCarriers();drawBelt();drawPending();
+    setStatus('🚀 Rakety v trychtýři!');
+    return;
+  }
+  if(slot.type==='garage'&&slot.destroyable){
+    // Zničitelná garáž: hráč ji odpálí → zmizí okamžitě, queue propadne.
+    // (Otevře cestu k nosičům pod ní, aniž by čekal na postupné dispensování.)
+    columns[c][r]=null;
+    noMatchPasses=0;
+    drawCarriers();drawBelt();drawPending();
+    setStatus('💥 Garáž zničena!');
+    return;
+  }
+  const projectiles=slot.projectiles||UPC*PPU;
+  // Počet pending balls = počet vizuálně plných míčků v carrieru (1..4 podle projectiles).
+  // Carrier zobrazuje _countFilled balls (PPU=10 → každý visible ball ~10 projectilů).
+  // distributeProjectiles vždy dělí na UPC=4 části, ale my chceme N balls = filledCount,
+  // aby vizuálně sedělo "co je v carrieru, to padá ven".
+  const filledCount=projectiles<=0?0:(projectiles>=UPC*PPU?UPC:Math.ceil(projectiles/PPU));
+  const _ppuBase=filledCount>0?Math.floor(projectiles/filledCount):0;
+  const _ppuExtra=filledCount>0?projectiles%filledCount:0;
+  const balls=[];
+  for(let _i=0;_i<filledCount;_i++)balls.push({ci:slot.color,ppu:_ppuBase+(_i<_ppuExtra?1:0)});
+  // Spawn x/y v FUN coords podle pozice clicked carrieru
+  // V 3D mode FUN.w=420 → reference je bottom-deck (420 px wide).
+  // V 2D mode FUN.w=360 → reference je pending-canvas (360 px wide).
+  let spawnX,spawnY,cboxRect,xScale;
+  const cbox=e.currentTarget.querySelector('.cbox');
+  const refEl=document.getElementById(FUN.w===420?'bottom-deck':'pending-canvas')||document.getElementById('pending-canvas');
+  if(cbox&&refEl){
+    cboxRect=cbox.getBoundingClientRect();
+    const pR=refEl.getBoundingClientRect();
+    xScale=FUN.w/pR.width;
+    spawnX=(cboxRect.left+cboxRect.width/2-pR.left)*xScale;
+    // V 3D módu: spawnY = canvas Y carrieru → FUN.y, takže koule začnou na pozici clicked carrieru
+    if(RENDERER_MODE==='3d'&&window.render3dBottom&&window.render3dBottom.canvasYtoFunY){
+      const canvas3d=document.getElementById('bottom3d-canvas');
+      if(canvas3d){
+        const cv=canvas3d.getBoundingClientRect();
+        spawnY=window.render3dBottom.canvasYtoFunY(cboxRect.top+cboxRect.height/2-cv.top);
+        // Clamp spawnY tak, aby balls měli aspoň ball.r + offset rezervu od floor.
+        // Margin 8 px → balls spawnuji blíž k carrier oblasti (cca uvnitř / na jejím horním okraji).
+        if(FUN.wideY!==undefined) spawnY=Math.min(spawnY,FUN.wideY-8);
+      }
+    }
+  }
+  // Per-ball offsety: 4 balls v 2×2 grid kopírují pozice koulí v carrier (TL, TR, BL, BR)
+  // Order matchuje render3d_bottom updateCarriers carrier ball loop.
+  const _ballOff=[[-0.21,-0.21],[0.21,-0.21],[-0.21,0.21],[0.21,0.21]];
+  // Trigger 3D carrier-fire animaci (lift+tilt slotu) — VČETNĚ koulí naparentovaných
+  // ke slotu. Koule cestují se slotem prvních ~150 ms, pak rychle zmizí (fade).
+  if(RENDERER_MODE==='3d'&&window.render3dBottom&&window.render3dBottom.triggerCarrierFire&&cbox){
+    const canvas3d=document.getElementById('bottom3d-canvas');
+    if(canvas3d){
+      // v73.201: X přes bottom-deck (world origin), Y přes canvas (no Y extending)
+      const cR=cbox.getBoundingClientRect();
+      const cv=canvas3d.getBoundingClientRect();
+      const bd=document.getElementById('bottom-deck')?.getBoundingClientRect()||cv;
+      window.render3dBottom.triggerCarrierFire(c,r,COLORS[slot.color],balls.length,
+        cR.left+cR.width/2-bd.left,cR.top+cR.height/2-cv.top,cR.width,cR.height);
+      if(window.render3dBottom.triggerCarrierRipple){
+        window.render3dBottom.triggerCarrierRipple(c,r,COLORS[slot.color],
+          cR.left+cR.width/2-bd.left,cR.top+cR.height/2-cv.top,cR.width,cR.height);
+      }
+    }
+  }
+  // Spawn každou kouli na 2×2 pozici v carrieru (TL, TR, BL, BR) — jako by ty samé míčky
+  // padly z carrieru. Carrier balls v render3d_bottom mizí ve stejný frame (slot=null).
+  for(let i=0;i<balls.length;i++){
+    let bsX=spawnX,bsY=spawnY;
+    if(cboxRect&&spawnX!==undefined&&spawnY!==undefined){
+      const off=_ballOff[i%4];
+      bsX=spawnX+off[0]*cboxRect.width*xScale;
+      bsY=spawnY+off[1]*cboxRect.height;
+    }
+    addToPending(balls[i],bsX,bsY);
+  }
+  columns[c][r]=null;
+  noMatchPasses=0;
+  // 3D: drawCarriers HNED, ale queue refill (updateGarages) odložit o 200 ms,
+  // aby uživatel viděl prázdný slot DŘÍVE než se objeví nový. 2D mode dělá
+  // refill okamžitě (nezáleží na timing).
+  drawCarriers();drawBelt();drawPending();
+  if(RENDERER_MODE==='3d'){
+    setTimeout(()=>{updateGarages();drawCarriers();},80);
+  } else {
+    updateGarages();drawCarriers();
+  }
+  setStatus(balls.length+' balónků v trychtýři');
+}
+let _funnelWarnTimers = [];
+let _funnelWarnPhase = 'idle'; // 'writing' | 'erasing' | 'idle'
+function showFunnelWarning(){
+  if(_funnelWarnPhase === 'writing') return; // už hraje → no-op
+  _funnelWarnPhase = 'writing';
+  if(window.render3dBottom && window.render3dBottom.triggerFunnelWarning){
+    window.render3dBottom.triggerFunnelWarning();
+  }
+}
+function hideFunnelWarning(){
+  if(_funnelWarnPhase !== 'writing') return;
+  _funnelWarnPhase = 'erasing';
+  if(window.render3dBottom && window.render3dBottom.hideFunnelWarning){
+    window.render3dBottom.hideFunnelWarning();
+  }
+  // Po dohrání erase (cca 0.7s) reset phase na idle
+  setTimeout(() => { _funnelWarnPhase = 'idle'; }, 750);
+  _maybeShowBoostTip(); // v74.68: tutorial tip (1× per device)
+}
+
+// v74.68: boost tutorial tip — zobrazí se 1× per device po prvním funnel warning.
+// Persistence v localStorage ('bb-tip-boost-shown'). Auto-dismiss po 6s OR po use boost.
+let _boostTipShown = false;
+try { _boostTipShown = localStorage.getItem('bb-tip-boost-shown') === '1'; } catch(e){}
+let _boostTipDismissTimer = null;
+function _maybeShowBoostTip(){
+  if(_boostTipShown) return;
+  // v74.72: skip pokud běží auto-speedup (carriers vyklízeny) — boost stejně
+  // nemá efekt (auto-2× přebíjí), hráč si nemá co zkusit.
+  if(_carriersClearedAt !== null) return;
+  const tip = document.getElementById('boost-tip');
+  if(!tip) return;
+  _boostTipShown = true;
+  try { localStorage.setItem('bb-tip-boost-shown', '1'); } catch(e){}
+  // Krátká pauza ať funnel warning erase dokončí
+  setTimeout(() => {
+    // v74.72: re-check — během 600ms mohlo dojít k vyklízení carriers
+    if(_carriersClearedAt !== null) return;
+    tip.hidden = false;
+    tip.classList.remove('fade-out');
+    // Auto-dismiss po 6s
+    _boostTipDismissTimer = setTimeout(() => _dismissBoostTip(), 6000);
+  }, 600);
+}
+function _dismissBoostTip(){
+  const tip = document.getElementById('boost-tip');
+  if(!tip || tip.hidden) return;
+  if(_boostTipDismissTimer){ clearTimeout(_boostTipDismissTimer); _boostTipDismissTimer = null; }
+  tip.classList.add('fade-out');
+  setTimeout(() => { tip.hidden = true; tip.classList.remove('fade-out'); }, 400);
+}
+// v74.69: dev API — jen resetuje shown flag, tip se znova objeví AŽ při příštím
+// funnel warning ("MAX 4 CARRIERS AT ONCE!"). Imituje first-time-player flow.
+window._bbResetBoostTip = function(){
+  try { localStorage.removeItem('bb-tip-boost-shown'); } catch(e){}
+  _boostTipShown = false;
+  // Skryj případně zobrazený tip (z předchozího triggeru ve stejné session)
+  _dismissBoostTip();
+};
+let _funnelClearStart = null;
+function updateFunnelWarning(dt){
+  if(_funnelWarnPhase !== 'writing'){
+    _funnelClearStart = null;
+    return;
+  }
+  const isClear = (typeof pending !== 'undefined' && pending.length <= PENDING_DISPENSE_THRESHOLD);
+  if(isClear){
+    // První moment kdy se trychtýř uvolnil → start 2s grace timer
+    if(_funnelClearStart === null) _funnelClearStart = performance.now();
+    else if(performance.now() - _funnelClearStart >= 2000) hideFunnelWarning();
+  } else {
+    // Trychtýř se znovu zaplnil → reset grace timer
+    _funnelClearStart = null;
+  }
+}
+function updateGarages(){
+  // Garáž jako "zamčený blok": odemkne se až má ≥1 null souseda v povolených směrech
+  // (slot.directions). Pak vydá další nosič z queue do prvního volného povoleného
+  // souseda. Když je queue prázdná, celá garáž zmizí (pozice → null).
+  for(let c=0;c<COLS;c++){
+    for(let r=0;r<columns[c].length;r++){
+      const slot=columns[c][r];
+      if(!slot||slot.type!=='garage')continue;
+      const dirs=slot.directions||['N'];
+      let freeNeighbor=null;
+      for(const d of dirs){
+        const [dc,dr]=GAR_DIR_VEC[d];
+        const nc=c+dc,nr=r+dr;
+        if(nc<0||nc>=COLS||nr<0)continue;
+        const ncol=columns[nc];
+        if(!ncol||nr>=ncol.length)continue;
+        // Jen "hole" (null) — wall sentinel NENÍ volný slot.
+        if(ncol[nr]===null){freeNeighbor=[nc,nr];break;}
+      }
+      if(!freeNeighbor)continue;
+      if(slot.queue.length){
+        const next=slot.queue.shift();
+        const [nc,nr]=freeNeighbor;
+        // Projectiles byly přiděleny už v buildColsFromLayout (porce z pxCounts).
+        // Fallback UPC*PPU pro případ, že garáž vznikla jinou cestou (auto-gen).
+        columns[nc][nr]={color:next.color,projectiles:next.projectiles||UPC*PPU};
+      } else {
+        columns[c][r]=null;
+      }
+    }
+  }
+}
+// === Trychtýř – fyzika koulí ve frontě. Široký konec dole u nosičů,
+// úzký nahoře u pásu. „Gravitace" míří vzhůru k pásu – koule stoupají
+// skrz trychtýř a vstupují otvorem na pás.
+const FUN={w:360,h:90,narrowY:14,wideY:82,narrowL:150,narrowR:210,wideL:10,wideR:350,r:12};
+// V 3D módu rozšíříme fyzikální trychtýř tak, aby:
+// 1) Y i X v rendering byly 1:1 škálované (jinak collider 24 px = ~115 px Y mezera)
+// 2) collider stěny kopírovaly bottom-deck shape (top-narrow → slope → vertical),
+//    ne V trojúhelník.
+// Pending-canvas (360×90) zůstává — drawPending v 3D je hidden, clipping nevadí.
+//
+// v71.22: parametrický refactor — všechny rozměry funnelu z FUNNEL_3D konstant
+// (single source of truth). FUN physics coords + CSS clip-path vars se obě
+// odvodí odsud. Změna jedné hodnoty propaguje do CSS i fyziky automaticky.
+const FUNNEL_3D = {
+  deckW:             420,  // = #bottom-deck CSS width (full canvas width)
+  fullH:             360,  // FUN.h: y od beltu po dno carriers
+  narrowY:           40,   // v73.109: 28→40, shift collider down — match visual arch start
+  slopeEndY:         100,  // v73.109: 58→100, delší slope — match visual arch end (height 60)
+  visualNarrowHalf:  40,   // (legacy clip-path, už nepoužíváno — 3D frame definuje vizuál)
+  physicsNarrowHalf: 32,   // v73.112: 38→32, match new visual skulina (FRAME_SKULINA_HALF=32)
+  physicsArenaPad:    6,   // v73.106: FUN.wide: pad od kraje canvasu — match FRAME_ARENA_PAD
+  physicsExtraDepth: 180,  // v73.177: dno collideru až k bottom hraně bottom-part (pokryje carrier oblast i pro 5+ řad)
+  cornerR:           18,   // CSS clip-path: poloměr rounded corners
+};
+if (RENDERER_MODE === '3d') {
+  const _F = FUNNEL_3D;
+  FUN.w = _F.deckW;
+  FUN.h = _F.fullH;
+  FUN.narrowY = _F.narrowY;
+  FUN.wideY = _F.fullH - _F.narrowY + (_F.physicsExtraDepth||0);  // collider dno hlouběji než visual frame
+  FUN.narrowL = (_F.deckW / 2) - _F.physicsNarrowHalf;
+  FUN.narrowR = (_F.deckW / 2) + _F.physicsNarrowHalf;
+  // v73.106: wide bounds match visual frame arena (FRAME_ARENA_PAD)
+  FUN.wideL = _F.physicsArenaPad;
+  FUN.wideR = _F.deckW - _F.physicsArenaPad;
+  FUN.slopeEndY = _F.slopeEndY;
+  // Sync CSS vars — clip-path v game.css je čte přes calc()
+  const _rs = document.documentElement.style;
+  _rs.setProperty('--funnel-deck-w',       _F.deckW + 'px');
+  _rs.setProperty('--funnel-slope-h',      _F.slopeEndY + 'px');
+  _rs.setProperty('--funnel-narrow-half',  _F.visualNarrowHalf + 'px');
+  _rs.setProperty('--funnel-corner-r',     _F.cornerR + 'px');
+}
+window.FUN=FUN;  // export pro render3d_bottom (modul nemá přístup ke globalu z classic skriptu)
+function addToPending(ball,spawnX,spawnY){
+  ball.r=FUN.r;
+  if(spawnX!==undefined){
+    // Spawn z konkrétního carrieru — kolem jeho středu, malý jitter, clamp do trychtýře
+    const j=(Math.random()-0.5)*10;
+    ball.x=Math.max(FUN.wideL+ball.r+1,Math.min(FUN.wideR-ball.r-1,spawnX+j));
+  } else {
+    ball.x=FUN.wideL+24+Math.random()*(FUN.wideR-FUN.wideL-48);
+  }
+  if(spawnY!==undefined){
+    // Spawn Y na výšce clicked carrieru (3D mode), s malým jitter, clamp do platného range
+    const j=(Math.random()-0.5)*4;
+    ball.y=Math.max(FUN.narrowY+ball.r+4,Math.min(FUN.wideY-ball.r-2,spawnY+j));
+  } else {
+    ball.y=FUN.wideY-6-Math.random()*8;
+  }
+  ball.vx=(Math.random()-0.5)*40;
+  ball.vy=-20;
+  // Desynchronizace waggle – každá koule má unikátní práh i fázi
+  ball.stuckT=-Math.random()*0.35;
+  ball.waggleThresh=0.18+Math.random()*0.35;
+  pending.push(ball);
+}
+function collideFunnelSeg(b,x1,y1,x2,y2,n1x,n1y,n2x,n2y){
+  const sx=x2-x1, sy=y2-y1;
+  const seg2=sx*sx+sy*sy;
+  let t=((b.x-x1)*sx+(b.y-y1)*sy)/seg2;
+  t=Math.max(0,Math.min(1,t));
+  const cx=x1+t*sx, cy=y1+t*sy;
+  const dx=b.x-cx, dy=b.y-cy;
+  const d=Math.hypot(dx,dy);
+  if(d<b.r&&d>0.001){
+    let nx,ny;
+    // v73.126: smoothed normal interpolace mezi vertex normálami sousedních segmentů.
+    // Eliminuje step-change normály na segment-segment hraně (inflection point bezieru).
+    // Fallback: ball-to-contact direction (legacy chování pro straight segmenty).
+    if(n1x!==undefined){
+      nx=n1x+(n2x-n1x)*t;
+      ny=n1y+(n2y-n1y)*t;
+      const L=Math.hypot(nx,ny);
+      if(L>0.001){nx/=L;ny/=L;}
+      else{nx=dx/d;ny=dy/d;}
+    } else {
+      nx=dx/d; ny=dy/d;
+    }
+    const ov=b.r-d;
+    b.x+=nx*ov; b.y+=ny*ov;
+    const vn=b.vx*nx+b.vy*ny;
+    if(vn<0){
+      // v73.125: sliding kontakt — e=0 odebere jen normal komponentu, tangenciální zůstane
+      const e=0.0;
+      b.vx-=(1+e)*vn*nx;
+      b.vy-=(1+e)*vn*ny;
+      b.bounceT0=performance.now(); b.bounceAmp=Math.min(1,Math.abs(vn)/180);
+    }
+  }
+}
+// Vrátí X souřadnici arch hranice na dané Y přímou interpolací ze segmentů.
+// Přesnější než lineární interpolace narrowL→wideL (arch je bezier, ne přímka).
+function _archXAtY(segs,y){
+  for(let i=0;i<segs.length-1;i++){
+    const y1=segs[i].y,y2=segs[i+1].y;
+    if(y>=Math.min(y1,y2)&&y<=Math.max(y1,y2)){
+      const t=(y2===y1)?0:(y-y1)/(y2-y1);
+      return segs[i].x+t*(segs[i+1].x-segs[i].x);
+    }
+  }
+  // Mimo segment range — vrať x nejbližšího endpoint (fix asymetrického fallbacku v73.186)
+  const first=segs[0],last=segs[segs.length-1];
+  return Math.abs(y-first.y)<Math.abs(y-last.y)?first.x:last.x;
+}
+// v74.74: nudge VYPNUT — po findBeltLoadSlot fix (empty slot preference) by neměl být
+// potřeba. Pokud se balls zase zaseknou v reálné hře, můžeme zapnout zpět nebo
+// předělat na něco méně aggresivního.
+const _NUDGE_ENABLED = false;
+function nudgeStuckNearOpening(dt){
+  if(!_NUDGE_ENABLED) return;
+  // Periodicky (každých ~0.45s) najdi kouli nejblíže otvoru a pokud má malou rychlost,
+  // dej jí cílený impulz vzhůru s mírnou korekcí ke středu otvoru. Napodobuje
+  // „lehké cvrnknutí" — vypadá přirozeně, neexploduje fronta.
+  nudgeTimer+=dt;
+  if(nudgeTimer<0.45)return;
+  if(pending.length===0){nudgeTimer=0;return;}
+  const openCX=(FUN.narrowL+FUN.narrowR)/2;
+  let best=null, bestY=Infinity;
+  for(const b of pending){
+    if(b.x===undefined)continue;
+    // Musí být v oblasti blízko otvoru (horní část trychtýře) a relativně klidná
+    if(b.y>FUN.narrowY+50)continue;
+    const speed2=b.vx*b.vx+b.vy*b.vy;
+    if(speed2>1800)continue; // už se hýbe — nech
+    if(b.y<bestY){bestY=b.y;best=b;}
+  }
+  if(best){
+    const dx=openCX-best.x;
+    // Upward impulz + lehká boční korekce k otvoru. Random jitter pro organicky pocit.
+    best.vy-=180+Math.random()*120;
+    best.vx+=Math.sign(dx||1)*(40+Math.random()*40)+(Math.random()-0.5)*30;
+    best.stuckT=-0.1;
+    nudgeTimer=0;
+  } else {
+    // Nikdo není zaseknutý — čekej další cyklus, ale resetuj časovač jen částečně
+    nudgeTimer=0.3;
+  }
+}
+// v73.291: spatial grid bucketing pro pending ball-ball collision.
+// O(n²) → O(n) průměrně. Cell size = 2× ball radius, ball může kolidovat jen
+// s ball v same/adjacent cells. Map klíč = cx*10000 + cy (integer hash).
+const _PENDING_CELL = 24; // typický ball radius ~10–12 px, takže 2×R ≈ 24
+const _pendingGrid = new Map(); // reuse across calls, clear per substep
+function updatePending(dt){
+  updateFunnelWarning(dt);
+  nudgeStuckNearOpening(dt);
+  if(pending.length===0)return;
+  const steps=4, h=Math.min(dt,0.05)/steps;
+  for(let s=0;s<steps;s++){
+    // v73.293 fix: recompute N each substep — pending.splice() níže může pole zkrátit
+    const N = pending.length;
+    if (N === 0) break;
+    for(const b of pending){
+      b.vy-=700*h;            // gravitace směrem k pásu (nahoru)
+      b.vx*=0.995;
+      b.x+=b.vx*h; b.y+=b.vy*h;
+    }
+    // Ball-ball collision přes spatial grid (broad-phase).
+    // Pro N < 12 ball je O(n²) rychlejší kvůli Map overhead → fallback.
+    if (N < 12) {
+      for(let i=0;i<N;i++)for(let j=i+1;j<N;j++){
+        const a=pending[i], b=pending[j];
+        const dx=b.x-a.x, dy=b.y-a.y;
+        const d=Math.hypot(dx,dy), min=a.r+b.r;
+        if(d<min&&d>0.001){
+          const nx=dx/d, ny=dy/d, ov=(min-d)/2;
+          a.x-=nx*ov; a.y-=ny*ov;
+          b.x+=nx*ov; b.y+=ny*ov;
+          const rvx=b.vx-a.vx, rvy=b.vy-a.vy;
+          const vn=rvx*nx+rvy*ny;
+          if(vn<0){
+            const e=0.25, imp=(1+e)*vn/2;
+            a.vx+=imp*nx; a.vy+=imp*ny;
+            b.vx-=imp*nx; b.vy-=imp*ny;
+            const amp=Math.min(1,Math.abs(vn)/180);
+            a.bounceT0=b.bounceT0=performance.now();a.bounceAmp=b.bounceAmp=amp;
+          }
+        }
+      }
+    } else {
+      // Bin balls do gridu
+      _pendingGrid.clear();
+      for(let i=0;i<N;i++){
+        const b=pending[i];
+        const cx=Math.floor(b.x/_PENDING_CELL);
+        const cy=Math.floor(b.y/_PENDING_CELL);
+        const key=cx*10000+cy;
+        let bucket=_pendingGrid.get(key);
+        if(!bucket){ bucket=[]; _pendingGrid.set(key, bucket); }
+        bucket.push(i);
+      }
+      // Pro každý ball check kolize s ball v 3×3 sousedních cells (každý pár 1×)
+      for(let i=0;i<N;i++){
+        const a=pending[i];
+        const cx=Math.floor(a.x/_PENDING_CELL);
+        const cy=Math.floor(a.y/_PENDING_CELL);
+        for(let dx=-1;dx<=1;dx++){
+          for(let dy=-1;dy<=1;dy++){
+            const bucket=_pendingGrid.get((cx+dx)*10000+(cy+dy));
+            if(!bucket) continue;
+            for(let k=0;k<bucket.length;k++){
+              const j=bucket[k];
+              if(j<=i) continue; // each pair 1×
+              const b=pending[j];
+              const ddx=b.x-a.x, ddy=b.y-a.y;
+              const d=Math.hypot(ddx,ddy), min=a.r+b.r;
+              if(d<min&&d>0.001){
+                const nx=ddx/d, ny=ddy/d, ov=(min-d)/2;
+                a.x-=nx*ov; a.y-=ny*ov;
+                b.x+=nx*ov; b.y+=ny*ov;
+                const rvx=b.vx-a.vx, rvy=b.vy-a.vy;
+                const vn=rvx*nx+rvy*ny;
+                if(vn<0){
+                  const e=0.25, imp=(1+e)*vn/2;
+                  a.vx+=imp*nx; a.vy+=imp*ny;
+                  b.vx-=imp*nx; b.vy-=imp*ny;
+                  const amp=Math.min(1,Math.abs(vn)/180);
+                  a.bounceT0=b.bounceT0=performance.now();a.bounceAmp=b.bounceAmp=amp;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    // Stěny — 3D má bottom-deck shape (narrow top → slope → vertical),
+    // 2D klasické V (široko dole, úzko nahoře).
+    const gate=beltIsFull();
+    const has3DShape=FUN.slopeEndY!==undefined;
+    for(const b of pending){
+      if(has3DShape){
+        // v73.110: BEZIER ARCH collider — iterace přes sampled arch segments z
+        // render3d_bottom.js. Pokud archSegments nedostupné, fallback na linear slope.
+        if(FUN.archSegmentsLeft && FUN.archSegmentsRight){
+          // Left arch curve — v73.126: passing smoothed vertex normály
+          for(let i=0;i<FUN.archSegmentsLeft.length-1;i++){
+            const p1=FUN.archSegmentsLeft[i], p2=FUN.archSegmentsLeft[i+1];
+            collideFunnelSeg(b,p1.x,p1.y,p2.x,p2.y,p1.nx,p1.ny,p2.nx,p2.ny);
+          }
+          // Right arch curve — v73.126: passing smoothed vertex normály
+          for(let i=0;i<FUN.archSegmentsRight.length-1;i++){
+            const p1=FUN.archSegmentsRight[i], p2=FUN.archSegmentsRight[i+1];
+            collideFunnelSeg(b,p1.x,p1.y,p2.x,p2.y,p1.nx,p1.ny,p2.nx,p2.ny);
+          }
+        } else {
+          // Fallback: linear slope
+          collideFunnelSeg(b,FUN.narrowL,FUN.narrowY,FUN.wideL,FUN.slopeEndY);
+          collideFunnelSeg(b,FUN.narrowR,FUN.narrowY,FUN.wideR,FUN.slopeEndY);
+        }
+        // Vertical arena walls (po skončení slope/arch dolů k arena bottom)
+        collideFunnelSeg(b,FUN.wideL,FUN.slopeEndY,FUN.wideL,FUN.wideY);
+        collideFunnelSeg(b,FUN.wideR,FUN.slopeEndY,FUN.wideR,FUN.wideY);
+      } else {
+        // Klasické V (2D)
+        collideFunnelSeg(b,FUN.wideL,FUN.wideY,FUN.narrowL,FUN.narrowY);
+        collideFunnelSeg(b,FUN.wideR,FUN.wideY,FUN.narrowR,FUN.narrowY);
+      }
+      // Strop mimo otvor – uzavře trychtýř nahoře po stranách otvoru
+      collideFunnelSeg(b,0,FUN.narrowY,FUN.narrowL,FUN.narrowY);
+      collideFunnelSeg(b,FUN.narrowR,FUN.narrowY,FUN.w,FUN.narrowY);
+      // Krk sanity clamp — kuličky nad narrowY (v krku) musí zůstat uvnitř narrow otvoru
+      if(b.y<FUN.narrowY){
+        if(b.x<FUN.narrowL+b.r){b.x=FUN.narrowL+b.r;if(b.vx<0)b.vx=-b.vx*0.3;}
+        if(b.x>FUN.narrowR-b.r){b.x=FUN.narrowR-b.r;if(b.vx>0)b.vx=-b.vx*0.3;}
+      }
+      // Dno u nosičů – koule nesmí propadnout dolů
+      if(b.y+b.r>FUN.wideY){
+        b.y=FUN.wideY-b.r;
+        if(b.vy>0) b.vy*=-0.3;
+      }
+      // Boční tvrdé zastavení na hranách arch oblasti — nikdy nepřes wideL/wideR
+      if(b.x<FUN.wideL+b.r){b.x=FUN.wideL+b.r;if(b.vx<0)b.vx*=-0.3;}
+      if(b.x>FUN.wideR-b.r){b.x=FUN.wideR-b.r;if(b.vx>0)b.vx*=-0.3;}
+      // Sanity clamp do tvaru — 3D používá slope+vertical, 2D V
+      if(b.y>=FUN.narrowY&&b.y<=FUN.wideY){
+        let lx,rx;
+        if(has3DShape){
+          if(b.y<=FUN.slopeEndY){
+            // Bezier arch — flowy fyzika, ale potřebujeme jiný anti-escape (work in progress)
+            if(FUN.archSegmentsLeft&&FUN.archSegmentsRight){
+              lx=_archXAtY(FUN.archSegmentsLeft,b.y);
+              rx=_archXAtY(FUN.archSegmentsRight,b.y);
+            } else {
+              const t=(b.y-FUN.narrowY)/(FUN.slopeEndY-FUN.narrowY);
+              lx=FUN.narrowL+t*(FUN.wideL-FUN.narrowL);
+              rx=FUN.narrowR+t*(FUN.wideR-FUN.narrowR);
+            }
+          } else {
+            // Pod slope: vertikální stěny
+            lx=FUN.wideL; rx=FUN.wideR;
+          }
+        } else {
+          const t=(FUN.wideY-b.y)/(FUN.wideY-FUN.narrowY);
+          lx=FUN.wideL+t*(FUN.narrowL-FUN.wideL);
+          rx=FUN.wideR+t*(FUN.narrowR-FUN.wideR);
+        }
+        if(b.x<lx+b.r){b.x=lx+b.r;if(b.vx<0)b.vx=-b.vx*0.3;}
+        if(b.x>rx-b.r){b.x=rx-b.r;if(b.vx>0)b.vx=-b.vx*0.3;}
+      }
+      // Anti-stuck waggle – per-ball práh a náhodný trigger, aby se koule nesynchronizovaly
+      const speed2=b.vx*b.vx+b.vy*b.vy;
+      if(speed2<400&&b.y<FUN.narrowY+34){
+        b.stuckT=(b.stuckT||0)+h;
+        const thr=b.waggleThresh||0.25;
+        if(b.stuckT>thr&&Math.random()<0.35){
+          const side=Math.random()<0.5?-1:1;
+          b.vx+=side*(140+Math.random()*180);
+          b.vy-=50+Math.random()*100;
+          b.stuckT=-Math.random()*0.25;
+          b.waggleThresh=0.18+Math.random()*0.35;
+        }
+      } else {
+        b.stuckT=0;
+      }
+    }
+    // v73.191: Per-x gate — kulička se zastaví pod otvorem pokud slot pásu nad ní
+    // (na její x pozici) je obsazený. Sparse belt → každá x pozice má vlastní gate
+    // dle slotu nad ní. Globální gate (celý belt full) je teď redundant ale zachováno
+    // jako pojistka přes findBeltLoadSlot který vrátí obsazený slot.
+    for(const b of pending){
+      const slotIdx=findBeltLoadSlot(b.x,beltAnim);
+      if(belt[slotIdx]!==null){
+        const gateY=FUN.narrowY+b.r+14;
+        if(b.y<gateY && b.x>FUN.narrowL-b.r && b.x<FUN.narrowR+b.r){
+          b.y=gateY;
+          if(b.vy<0) b.vy*=-0.25;
+        }
+      }
+    }
+    // Výstupní pohltání – koule prošla úzkým otvorem nahoru
+    for(let i=pending.length-1;i>=0;i--){
+      const b=pending[i];
+      if(b.y+b.r<FUN.narrowY-4){
+        // v74.74: preferEmpty=true — najde nejbližší PRÁZDNÝ slot v toleranci 1.5× spacing.
+        // Předtím vrátil closest regardless of state → kdyby byl closest full, ball padl zpět
+        // i když byl vedle prázdný slot. Teď chytne empty pokud je v rozumné vzdálenosti.
+        const slotIdx=findBeltLoadSlot(b.x,beltAnim,true);
+        if(belt[slotIdx]===null){
+          pending.splice(i,1);
+          delete b.x; delete b.y; delete b.vx; delete b.vy; delete b.r;
+          belt[slotIdx]=b;
+          noMatchPasses=0;
+          drawBelt();
+        } else {
+          b.y=FUN.narrowY+b.r; b.vy=60;
+        }
+      }
+    }
+  }
+}
+function drainPending(){
+  // Fyzika trychtýře řídí odtok – tady už nic netáhne.
+  // Ponecháno pro zpětnou kompatibilitu callerů.
+  return pending.length>0;
+}
+let pendingCtx=null;
+function drawPending(){
+  const canvas=document.getElementById('pending-canvas');
+  if(!canvas)return;
+  if(!pendingCtx)pendingCtx=canvas.getContext('2d');
+  const ctx=pendingCtx;
+  ctx.clearRect(0,0,FUN.w,FUN.h);
+  // Stěny trychtýře – v 3D módu match s theme BG color (--bg-3d-top), aby
+  // diagonály splývaly s prostředím. Ve 2D módu zůstává původní šedá.
+  let funnelStroke='rgba(180,190,210,0.6)';
+  if(RENDERER_MODE==='3d'){
+    try {
+      const v=getComputedStyle(document.body).getPropertyValue('--bg-3d-top').trim();
+      if(v) funnelStroke=v;
+    } catch(_e){}
+  }
+  ctx.strokeStyle=funnelStroke;
+  ctx.lineWidth=2;
+  ctx.lineCap='round';
+  ctx.beginPath();
+  ctx.moveTo(FUN.wideL,FUN.wideY); ctx.lineTo(FUN.narrowL,FUN.narrowY);
+  ctx.moveTo(FUN.wideR,FUN.wideY); ctx.lineTo(FUN.narrowR,FUN.narrowY);
+  ctx.stroke();
+  // Gate – zobraz čárou nahoře když je pás plný
+  if(beltIsFull()){
+    ctx.strokeStyle='rgba(255,120,120,0.75)';
+    ctx.beginPath();
+    ctx.moveTo(FUN.narrowL,FUN.narrowY); ctx.lineTo(FUN.narrowR,FUN.narrowY);
+    ctx.stroke();
+  }
+  // Koule
+  for(const b of pending){
+    if(b.x===undefined)continue;
+    const g=ctx.createRadialGradient(b.x-b.r*0.3,b.y-b.r*0.3,1,b.x,b.y,b.r);
+    g.addColorStop(0,'rgba(255,255,255,0.7)');
+    g.addColorStop(0.4,COLORS[b.ci]);
+    g.addColorStop(1,COLORS[b.ci]);
+    ctx.fillStyle=g;
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,0.35)';
+    ctx.lineWidth=0.8;
+    ctx.stroke();
+  }
+}
+function checkLaunchPoint(prevAnim, curAnim){
+  if(!running||beltIsEmpty())return;
+  const prevOff=prevAnim%BELT_TOTAL;
+  const curOff=curAnim%BELT_TOTAL;
+  for(let i=BELT_CAP-1;i>=0;i--){
+    if(!belt[i])continue;  // sparse: skip prázdné sloty
+    const prevTrack=(i*BELT_SPACING+prevOff)%BELT_TOTAL;
+    const curTrack=(i*BELT_SPACING+curOff)%BELT_TOTAL;
+    // Kulička prošla otvorem zleva doprava (bez wrap, wrap nemíří přes LAUNCH_TRACK)
+    if(!(prevTrack<LAUNCH_TRACK&&curTrack>=LAUNCH_TRACK))continue;
+
+    const ball=belt[i];
+    const color=ball.ci;
+    if(ball.ppu<=0){
+      window.render3dBottom?.triggerHoleSuck?.(COLORS[color]);
+      _playSuckMelody();
+      belt[i]=null;
+      drainPending();
+      drawBelt();drawPending();
+      continue;
+    }
+    // Ball má co zasáhnout, pokud zbývají pixely ORdanou barvou, nebo živý blok té barvy.
+    const pxNow=countPixels(grid);
+    const hasBlockTarget=currentBlocks.some(b=>b.hp>0&&b.color===color);
+    if((pxNow[color]||0)===0&&!hasBlockTarget){
+      window.render3dBottom?.triggerHoleSuck?.(COLORS[color]);
+      _playSuckMelody();
+      belt[i]=null;
+      drainPending();
+      drawBelt();drawPending();
+      continue;
+    }
+    // Raketová koule – odpal přímo, bez kontroly dosahu / kolizí
+    if(ball.rocket){
+      window.render3dBottom?.triggerHoleSuck?.(COLORS[color]);
+      _playSuckMelody();
+      belt[i]=null;
+      drainPending();
+      drawBelt();drawPending();
+      launchRocket(color);
+      noMatchPasses=0;
+      stuckPassCount=0;
+      setStatus('🚀 Raketa letí!');
+      continue;
+    }
+    const avail=getAvailableColors(grid);
+    // Blok té barvy je taky validní cíl (nezapočítává se do getAvailableColors, ta
+    // čte jen odkryté pixely). Bez téhle větve by koule na pásu projela dál, i když
+    // je vedle ní živý blok shodné barvy → cannon nikdy nedostane item té barvy.
+    const hasLiveBlockOfColor=currentBlocks.some(b=>b.hp>0&&(b.kind==='mystery'||b.color===color));
+    // Cannon má co střílet, jen když pickCannonShot najde čistou LoS. Jinak
+    // ball krouží na pásu a čeká, až se prostor otevře — žádné předčasné
+    // konzumování bez záruky výstřelu.
+    const cannonHasShot=!!pickCannonShot(color,cannonX,CANNON_Y);
+    if((!avail.has(color)&&!hasLiveBlockOfColor)||!cannonHasShot){
+      // Špatná barva – projede dál
+      noMatchPasses++;
+      // Okamžitá kontrola: pokud žádná barva na pásu nesedí → nemusíme čekat na kolečko
+      const beltColors=new Set();
+      for(let k=0;k<BELT_CAP;k++)if(belt[k])beltColors.add(belt[k].ci);
+      const anyMatch=[...beltColors].some(c=>avail.has(c));
+      if(!anyMatch||noMatchPasses>=BELT_CAP){
+        noMatchPasses=0;
+        if(beltIsFull()){endGame(false);return;}
+        if(anyLeft(grid)){
+          if(!checkAndWarnAmmoDeficit()) setStatus('Žádná shoda – přidej jinou barvu');
+        }
+      }
+      continue;
+    }
+
+    // Exposed pixely + HP živých bloků té barvy (1 HP = 1 projektil). Bez bloků
+    // v tomhle součtu by ball projela přes launch point bez firingu, když cílové
+    // pixely jsou celé pod blokem — cannon pak nemá co spotřebovat.
+    const blockHpOfColor=currentBlocks
+      .filter(b=>b.hp>0&&(b.kind==='mystery'||b.color===color))
+      .reduce((s,b)=>s+b.hp,0);
+    const exposedCount=getReachableCountOfColor(grid,color)+blockHpOfColor;
+    const alreadyFlying=particles.filter(p=>p.phase==='fly'&&p.ci===color).length;
+    const inQueue=gunQueue.filter(q=>q.ci===color).length;
+    const totalActive=alreadyFlying+inQueue;
+    // Volné cíle = exposed minus už letící + zafrontěné projektily. Když je 0,
+    // ball by jen plýtvala — necháme ji projet pásem (cyklus). Vrátí se, až
+    // inflight uvolní místo, nebo padne do existující "no match" / pxNow===0
+    // větve výš. Tím se 4 koule × ppu=10 vs 6 free px konzumují jako:
+    // 1. koule (need=6) → atomic spotřeba 10 proj (6 trefí, 4 vyplivnuté ven),
+    // 2.–4. koule (need=0) → cyklí dál pásem až do cleanup.
+    const need=Math.max(0,exposedCount-totalActive);
+    if(need===0) continue;
+
+    stuckPassCount=0;
+
+    // Spotřebuj celou kouli atomicky → vystřel všech ball.ppu projektilů.
+    // Některé možná nenajdou LoS hned — dispatch je odpálí na blocked úhel
+    // (nejbližší target), particle fyzika je odrazí a hledá cestu. Když barva
+    // v průběhu ztratí veškerý target, queue item se popne bez výstřelu (visible loss).
+    noMatchPasses=0;
+    loops=0;
+    window.render3dBottom?.triggerHoleSuck?.(COLORS[color]);
+      _playSuckMelody();
+    belt[i]=null;
+    drainPending();
+    drawBelt();drawPending();
+    const count=ball.ppu;
+    for(let j=0;j<count;j++){
+      gunQueue.push({ci:color,color:COLORS[color]});
+    }
+    score+=10;
+    document.getElementById('score').textContent=score;
+    gamee.updateScore(score,playTime,'balloon-belt-v74.80');
+    setStatus('Zásah!');
+
+    if(beltIsEmpty()&&anyLeft(grid)){
+      setTimeout(()=>{
+        if(!running||!anyLeft(grid))return;
+        checkAndWarnAmmoDeficit();
+      },1800);
+    }
+  }
+}
+function destroyPixels(colors,cm){
+  for(const color of colors){
+    const prev=remainingUnits[color]||0;
+    let td=(cm[color]*PPU)+prev;
+    while(td>0){
+      const exp=getExposedPixelsOfColor(grid,color);
+      if(!exp.length)break;
+      exp.sort((a,b)=>b.y-a.y);
+      exp.slice(0,td).forEach(p=>{grid[p.y][p.x]=-1;});
+      td-=Math.min(exp.length,td);
+    }
+    remainingUnits[color]=td>0?td:0;
+  }
+}
+function computeAmmoDeficit(){
+  const pxCounts=countPixelsAndBlocks(grid);
+  const deficits=new Array(COLORS.length).fill(0);
+  for(let c=0;c<COLORS.length;c++){
+    if(!pxCounts[c])continue;
+    let proj=0;
+    for(let col=0;col<COLS;col++)for(const s of columns[col]){
+      if(!s)continue;
+      if(s.type==='garage'){for(const gc of s.queue)if(gc.color===c)proj+=(gc.projectiles||UPC*PPU);}
+      else if(s.color===c)proj+=(s.projectiles||UPC*PPU);
+    }
+    for(const b of belt)if(b&&b.ci===c)proj+=b.ppu;
+    for(const b of pending)if(b.ci===c)proj+=b.ppu;
+    proj+=particles.filter(p=>p.phase==='fly'&&p.ci===c).length;
+    proj+=gunQueue.filter(q=>q.ci===c).length;
+    const d=pxCounts[c]-proj;
+    if(d>0)deficits[c]=d;
+  }
+  return deficits;
+}
+// Detailní audit — rozpis projektilů per barva a per umístění (carrier/garage/belt/pending/gun/fly).
+// Slouží k ladění, kde se projektily „ztrácejí" mezi startem a deficit varováním.
+function computeAmmoAudit(){
+  const pxCounts=countPixelsAndBlocks(grid);
+  const rows=[];
+  let totalNeed=0, totalHave=0;
+  for(let c=0;c<COLORS.length;c++){
+    const need=pxCounts[c]|0;
+    let car=0, gar=0, blt=0, pnd=0, gq=0, fly=0;
+    for(let col=0;col<COLS;col++)for(const s of columns[col]){
+      if(!s)continue;
+      if(s.type==='garage'){
+        for(const gc of (s.queue||[])) if(gc.color===c) gar+=(gc.projectiles||UPC*PPU);
+      } else if(!s.wall && s.type!=='rocket' && s.color===c){
+        car+=(s.projectiles||UPC*PPU);
+      }
+    }
+    for(const b of belt)   if(b&&b.ci===c) blt+=b.ppu;
+    for(const b of pending)if(b.ci===c) pnd+=b.ppu;
+    gq = gunQueue.filter(q=>q.ci===c).length;
+    fly= particles.filter(p=>p.phase==='fly'&&p.ci===c).length;
+    const have=car+gar+blt+pnd+gq+fly;
+    if(need||have) rows.push({c,need,have,car,gar,blt,pnd,gq,fly,diff:need-have});
+    totalNeed+=need; totalHave+=have;
+  }
+  return {rows,totalNeed,totalHave};
+}
+// Tah 8: dogenerovávání nosičů za běhu bylo odstraněno. Místo toho periodicky
+// počítáme deficit a hráči se zobrazí varování, pokud garáž+kolona+belt+queue
+// nestačí na zbývající pixely/bloky. Start levelu MUSÍ mít dostatek — jinak
+// je levelový design chybný.
+function checkAndWarnAmmoDeficit(){
+  if(!running) return false;
+  const audit=computeAmmoAudit();
+  renderAmmoAudit(audit);
+  const short=audit.rows.filter(r=>r.diff>0);
+  if(!short.length){
+    // FIX: clear stale „⚠ Nedostatek" text. Auditní check běží každou 1s
+    // (window._ammoAuditTimer), ale dříve setStatus() voláno JEN při deficitu.
+    // Při startu levelu race condition zobrazila warning, který zůstal i když
+    // se audit už srovnal. Teď ho aktivně mažeme když deficit zmizí.
+    const stat=document.getElementById('status');
+    if(stat && stat.textContent && stat.textContent.indexOf('Nedostatek')!==-1){
+      setStatus('Klikni na aktivní nosič');
+    }
+    return false;
+  }
+  const parts=short.map(r=>'#'+r.c+' '+r.have+'/'+r.need);
+  setStatus('⚠ Nedostatek ('+parts.join(', ')+') · celkem '+audit.totalHave+'/'+audit.totalNeed);
+  console.warn('[BB] ammo audit', audit);
+  return true;
+}
+function renderAmmoAudit(audit){
+  const el=document.getElementById('ammo-audit');
+  if(!el) return;
+  if(!audit || !audit.rows.length){el.textContent='';el.hidden=true;return;}
+  el.hidden=false;
+  el.innerHTML='';
+  const head=document.createElement('div');
+  head.className='aa-total';
+  head.textContent='celkem '+audit.totalHave+' / '+audit.totalNeed+' proj.';
+  if(audit.totalHave<audit.totalNeed) head.classList.add('aa-bad');
+  el.appendChild(head);
+  for(const r of audit.rows){
+    const chip=document.createElement('span');
+    chip.className='aa-chip';
+    if(r.diff>0) chip.classList.add('aa-bad');
+    const sw=document.createElement('span');
+    sw.className='aa-sw';
+    sw.style.background=COLORS[r.c]||'#888';
+    chip.appendChild(sw);
+    const lbl=document.createElement('span');
+    lbl.textContent=r.have+'/'+r.need;
+    chip.appendChild(lbl);
+    chip.title='barva '+r.c+': need '+r.need+' · have '+r.have+
+      ' (carrier '+r.car+', garáž '+r.gar+', belt '+r.blt+', funnel '+r.pnd+', gun '+r.gq+', fly '+r.fly+')';
+    el.appendChild(chip);
+  }
+}
+function setStatus(m){document.getElementById('status').textContent=m;}
+function endGame(win){
+  running=false;
+  if(playTimer){clearInterval(playTimer);playTimer=null;}
+  gamee.updateScore(score,playTime,'balloon-belt-v74.80');
+  gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
+  if(win){
+    spawnConfetti();
+    setTimeout(spawnConfetti,280);
+    setTimeout(spawnConfetti,560);
+  }
+  setTimeout(()=>{
+    document.getElementById('overlay-title').textContent=win?'Vyhráno!':'Game Over';
+    document.getElementById('overlay-msg').textContent=(win?'Obraz zničen.':'Belt zablokován.')+' Skóre: '+score;
+    document.getElementById('overlay').classList.add('show');
+  },win?1400:0);
+}
+function startLevel(){
+  gameStarted=true;
+  // v73.287: nový level = jiná struktura carriers → invalidate per-slot cache
+  if (window.render3dBottom?.invalidateSlotCache) window.render3dBottom.invalidateSlotCache();
+  // Sync segment picker s aktuálním `difficulty` — saveState/defaultComplexity
+  // mohly difficulty změnit mimo UI event. Bez toho by highlight ukazoval
+  // předchozí complexity.
+  document.querySelectorAll('[data-diff]').forEach(b=>{
+    if(b.dataset.diff===difficulty)b.classList.add('active'); else b.classList.remove('active');
+  });
+  if(playTimer)clearInterval(playTimer);
+  playTime=0;
+  playTimer=setInterval(function(){if(!paused&&running)playTime++;},1000);
+  gamee.gameStart();
+  if(!beltLoopStarted){beltLoopStarted=true;lastBeltTime=null;requestAnimationFrame(beltLoop);}
+  grid=makeGrid();belt=new Array(BELT_CAP).fill(null);pending=[];nudgeTimer=0;funnelWarnTimer=0;score=0;loops=0;running=true;noMatchPasses=0;stuckPassCount=0;
+  // v74.73: release particle objekty zpět do poolu před clear (zachová pool capacity)
+  for(const s of shards) _releaseShard2D(s);
+  for(const p of smokePuffs) _releaseSmokePuff(p);
+  particles=[];shards=[];confetti=[];gunQueue=[];gunFireTimer=0;cannonX=LAUNCH_X;cannonAngle=-Math.PI/2;cannonLock=null;cannonSidePref=0;cannonSideShots=0;smokePuffs=[];smokePuffsQueue=[];
+  _carriersClearedAt=null; // v74.62: reset speed-up rampy na začátku levelu
+  _remainingPxCache=null;  // v74.62: reset pixel cache (přepočítá se v beltLoop)
+  if(typeof window!=='undefined') window._lastPxCountTime=0; // v74.79: force recount hned 1. tickem
+  _userHoldActive=false; _userHoldCurrent=1.0; document.body.classList.remove('user-boost-active'); // v74.64
+  // v74.62: lock délky podle intro animace levelu (mapping výše).
+  _levelStartLockUntil=Date.now()+(_LEVEL_INTRO_DURATIONS[currentLevel]||_LEVEL_START_LOCK_DEFAULT_MS);
+  _resetMusicState(); // nový level = hudba zase od foundation kick
+  _caCountdown=3+Math.floor(Math.random()*3); // v73.236 CA interval reset
+  // v72.68: reset 3D carrier transition caches — jinak by se carriery nového levelu
+  // detekovaly jako "inactive → active" z předchozího levelu (falešné pop animace).
+  if(window.render3dBottom&&window.render3dBottom.clearCarrierState)window.render3dBottom.clearCarrierState();
+  // Hydrate bloky z definice levelu PŘED makeColumns, aby generátor nosičů
+  // započítal HP bloků do potřebných barev (přes countPixelsAndBlocks).
+  const levelDef=getLevelDef(currentLevel);
+  // Per-level speciality z definice levelu (editor tyto flagy spravuje).
+  // Dříve byly globální toggly v UI hry — ty jsou v28 pryč, zdroj pravdy je levelDef.
+  gravityOn=!!levelDef.gravity;
+  rocketsOn=!!levelDef.rocketTargets;
+  garageMode=levelDef.garage==='multi'?'multi':levelDef.garage?'single':'off';
+  if(levelDef.theme && window.setTheme) window.setTheme(levelDef.theme);
+  currentBlocks=hydrateBlocks(levelDef.blocks);
+  // Solid blok je neprůhledný — pod ním nemají být žádné pixely, jinak by
+  // generátor vyrobil nosiče, které se stanou nepoužitelnými (pixely se
+  // po zničení bloku stejně smažou). Pod mystery blok pixely ponecháváme
+  // (po zničení se odhalí).
+  for(const b of currentBlocks){
+    if(b.kind!=='solid')continue;
+    for(let ly=0;ly<b.h;ly++)for(let lx=0;lx<b.w;lx++){
+      if(!b._mask[ly][lx])continue;
+      const gx=b.x+lx, gy=b.y+ly;
+      if(gy>=0&&gy<GH&&gx>=0&&gx<GW)grid[gy][gx]=-1;
+    }
+  }
+  const _pxCountsForLevel=countPixelsAndBlocks(grid);
+  columns=makeColumns(_pxCountsForLevel);
+  // Když columns postavil layout, rakety + garáž už v gridu jsou → skip injekci.
+  // Jinak pokračuje původní injekce do auto-generovaného gridu.
+  const skipInjects=columnsFromLayout;
+  // Injekce raketových nosičů – per level předdefinované 2 pozice
+  const rockets=(!skipInjects&&rocketsOn)?levelDef.rocketTargets:null;
+  if(rockets){
+    const slots=[{col:2,row:1},{col:5,row:1}];
+    for(let i=0;i<rockets.length&&i<slots.length;i++){
+      const s=slots[i];
+      while(columns[s.col].length<s.row)columns[s.col].push(null);
+      columns[s.col].splice(s.row,0,{type:'rocket',color:rockets[i]});
+    }
+  }
+  // Injekce garáže – drží nosiče a auto-vydává je přes nastavené směry.
+  // ROOT CAUSE fix (v21): předtím `splice` nosičů dělal jagged sloupce → vznikly
+  // izolované ostrůvky. Teď nahrazujeme nosiče zdmi (rectangular zůstane) a po
+  // injekci validujeme connectivity; pokud selže, regenerujeme makeColumns.
+  if(!skipInjects&&garageMode!=='off'&&levelDef.garage){
+    const {col:gcol,carriers:gcarriers}=levelDef.garage;
+    let injected=false;
+    for(let attempt=0;attempt<10&&!injected;attempt++){
+      if(attempt>0)columns=makeColumns(countPixelsAndBlocks(grid));
+      const backup=columns.map(c=>c.map(s=>s?{...s}:s));
+      // 1) Nahraď N nosičů odpovídající barvy zdmi (zachová rectangular → connectivity base).
+      let allReplaced=true;
+      for(const gc of gcarriers){
+        let replaced=false;
+        for(let c=COLS-1;c>=0&&!replaced;c--){
+          for(let r=columns[c].length-1;r>=0&&!replaced;r--){
+            const s=columns[c][r];
+            if(s&&!s.type&&!s.wall&&s.color===gc.color){
+              columns[c][r]={wall:true};
+              replaced=true;
+            }
+          }
+        }
+        if(!replaced){allReplaced=false;break;}
+      }
+      if(!allReplaced){columns=backup;continue;}
+      // 2) Garáž se přidá jako nový řádek na konec target sloupce (jagged +1 dole,
+      //    pouze v jednom sloupci — neobjeví se "díra" mezi sloupci).
+      if(columns[gcol].length>=MAX_ROWS){columns=backup;continue;}
+      const targetRow=columns[gcol].length;
+      // 3) Spočítej dostupné směry pro garáž (non-wall, non-garage sousedi v gridu).
+      const validDirs=[];
+      for(const d of Object.keys(GAR_DIR_VEC)){
+        const [dc,dr]=GAR_DIR_VEC[d];
+        const nc=gcol+dc,nr=targetRow+dr;
+        if(nc<0||nc>=COLS||nr<0)continue;
+        const ncol=columns[nc];
+        if(!ncol||nr>=ncol.length)continue;
+        const n=ncol[nr];
+        if(n&&(n.wall||n.type==='garage'))continue;
+        validDirs.push(d);
+      }
+      if(!validDirs.length){columns=backup;continue;}
+      let chosenDirs;
+      if(garageMode==='single'){
+        chosenDirs=[validDirs[Math.floor(Math.random()*validDirs.length)]];
+      } else {
+        const want=2+Math.floor(Math.random()*3);
+        const shuffled=validDirs.slice().sort(()=>Math.random()-0.5);
+        chosenDirs=shuffled.slice(0,Math.min(want,shuffled.length));
+      }
+      const queue=gcarriers.map(c=>({color:c.color}));
+      columns[gcol].push({type:'garage',directions:chosenDirs,queue});
+      // 4) Finální BFS — každý reálný nosič musí být dosažitelný z top row.
+      if(!validateColumnsReachable(columns)){columns=backup;continue;}
+      injected=true;
+    }
+    // Pokud 10× selhalo, garáž tiše vypadne (grid zůstane bez ní — lepší než unsolvable).
+  }
+  // Playtester snapshot — uložíme čerstvý stav hned po finalizaci columns.
+  // Důležité: SNAPSHOTUJEME pxCounts taky, protože currentBlocks.hp se mění
+  // během hraní (hráč ničí bloky → HP klesne). Bez snapshotu by playtester
+  // viděl REDUKOVANÉ pxNeed po té, co user level zkoušel hrát.
+  _ptInitGrid=grid.map(r=>r.slice());
+  _ptInitPxCounts=Array.from(_pxCountsForLevel);
+  _ptInitColumns=columns.map(c=>c.map(s=>{
+    if(!s)return s;
+    const copy={...s};
+    if(Array.isArray(s.queue))copy.queue=s.queue.map(q=>({...q}));
+    return copy;
+  }));
+  // Snapshot bloků (HP/maxHP, kind, x/y/w/h, _mask) — tester potřebuje pro accuracy
+  // (bloky jsou bariéry pro flood-fill + absorbují HP projektilů matching barvy).
+  _ptInitBlocks=currentBlocks.map(b=>({
+    kind:b.kind, shape:b.shape, x:b.x, y:b.y, w:b.w, h:b.h,
+    color:b.color, hp:b.hp, maxHp:b.maxHp, _mask:b._mask
+  }));
+  // Editor hook: columns už jsou po injekcích (rakety/garáž) finální → pošleme
+  // nadřazenému oknu stats s pxCounts (need) + projCounts (have per barva),
+  // aby editor mohl zobrazit game-truth need-vs-have a chyby, když layout
+  // nevyrobil dost projektilů.
+  try{
+    if(window.parent&&window.parent!==window){
+      const projCounts=new Array(COLORS.length).fill(0);
+      for(let col=0;col<COLS;col++)for(const s of columns[col]){
+        if(!s)continue;
+        if(s.type==='garage'){
+          for(const gc of (s.queue||[])){
+            if(typeof gc.color==='number') projCounts[gc.color]+=(gc.projectiles||UPC*PPU);
+          }
+        } else if(!s.wall && s.type!=='rocket' && typeof s.color==='number'){
+          projCounts[s.color]+=(s.projectiles||UPC*PPU);
+        }
+      }
+      window.parent.postMessage({
+        type:'balloonbelt:level-stats',
+        levelKey:currentLevel,
+        difficulty:difficulty,
+        pxCounts:Array.from(_pxCountsForLevel),
+        projCounts:projCounts,
+      },'*');
+    }
+  }catch(e){/* same-origin check failed, ignore */}
+  // Tah 8: initial ammo-deficit check – musí proběhnout SYNCHRONNĚ dřív,
+  // než intro sekvence swapne `grid` na scaffolded verzi (jinak check vidí
+  // jen částečně sestavený obraz a reportuje falešný deficit).
+  ammoCheckTimer=0;
+  checkAndWarnAmmoDeficit();
+  // I když deficit není, ukaž audit panel s totals (need/have) hned od začátku.
+  renderAmmoAudit(computeAmmoAudit());
+  document.getElementById('score').textContent=0;
+  document.getElementById('overlay').classList.remove('show');
+  introSeq++;
+  if(currentLevel==='smiley'){
+    // Stop-motion sestavení neutrálního smajlíka → úsměv → mrknutí → úsměv
+    const finalGrid=grid;
+    const mySeq=introSeq;
+    const BG=3;
+    const neutralGrid=makeGridSmiley('neutral');for(let i=0;i<4;i++)neutralGrid.push(new Array(GW).fill(-1));
+    grid=new Array(IMG_GH);
+    for(let y=0;y<IMG_GH;y++)grid[y]=new Array(GW).fill(BG);
+    for(let i=0;i<4;i++)grid.push(new Array(GW).fill(-1));
+    const cxf=17.5, cyf=12.5;
+    const cells=[];
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+      const c=neutralGrid[y][x];
+      if(c===-1||c===BG)continue;
+      cells.push({x,y,c,d:Math.hypot(x-cxf,y-cyf)});
+    }
+    cells.sort((a,b)=>a.d-b.d);
+    const batch=8, interval=50;
+    let idx=0;
+    const step=()=>{
+      if(mySeq!==introSeq) return;
+      for(let k=0;k<batch&&idx<cells.length;k++,idx++){
+        const p=cells[idx];
+        grid[p.y][p.x]=p.c;
+      }
+      drawGrid();
+      if(idx<cells.length) setTimeout(step,interval);
+      else {
+        const at=(ms,fn)=>setTimeout(()=>{if(mySeq===introSeq)fn();},ms);
+        const swap=v=>{
+          if(v==='final'){grid=finalGrid;} else {grid=makeGridSmiley(v);for(let i=0;i<4;i++)grid.push(new Array(GW).fill(-1));}
+          drawGrid();
+        };
+        at(350,()=>swap('final'));    // úsměv
+        at(900,()=>swap('wink'));     // mrknutí
+        at(1250,()=>swap('final'));   // konec
+      }
+    };
+    setTimeout(step,120);
+  } else if(currentLevel==='moon'){
+    // Stop-motion build: měsíc roste zevnitř ven, mezitím naskakují hvězdy a jiskry
+    const finalGrid=grid;
+    const mySeq=introSeq;
+    grid=makeGridMoon('empty');for(let i=0;i<4;i++)grid.push(new Array(GW).fill(-1));
+    const BG=6;
+    const moonCells=[], sparkCells=[];
+    const cxm=18.5, cym=13.5;
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+      const c=finalGrid[y][x];
+      if(c===-1||c===BG)continue;
+      if(c===2||c===7) moonCells.push({x,y,c,d:Math.hypot(x-cxm,y-cym)});
+      else sparkCells.push({x,y,c});
+    }
+    moonCells.sort((a,b)=>a.d-b.d);
+    for(let i=sparkCells.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[sparkCells[i],sparkCells[j]]=[sparkCells[j],sparkCells[i]];}
+    const sequence=[...moonCells, ...sparkCells];
+    const batch=7, interval=55;
+    let idx=0;
+    const step=()=>{
+      if(mySeq!==introSeq) return;
+      for(let k=0;k<batch&&idx<sequence.length;k++,idx++){
+        const p=sequence[idx];
+        grid[p.y][p.x]=p.c;
+      }
+      drawGrid();
+      if(idx<sequence.length) setTimeout(step,interval);
+      else {
+        grid=finalGrid;drawGrid();
+        // Závěrečné zatřpytění – dvě vlny twinkle pak návrat
+        const at=(ms,fn)=>setTimeout(()=>{if(mySeq===introSeq)fn();},ms);
+        const swap=v=>{
+          if(v==='final'){grid=finalGrid;} else {grid=makeGridMoon(v);for(let i=0;i<4;i++)grid.push(new Array(GW).fill(-1));}
+          drawGrid();
+        };
+        at(180,()=>swap('twinkle-a'));
+        at(380,()=>swap('final'));
+        at(540,()=>swap('twinkle-b'));
+        at(740,()=>swap('twinkle-a'));
+        at(900,()=>swap('final'));
+      }
+    };
+    setTimeout(step,120);
+  } else if(currentLevel==='starwars'){
+    // Stop-motion sestavení C-3PO zevnitř ven, pak smích „Ha ha ha"
+    const finalGrid=grid;
+    const mySeq=introSeq;
+    const BG=7;
+    grid=new Array(IMG_GH);
+    for(let y=0;y<IMG_GH;y++)grid[y]=new Array(GW).fill(BG);
+    for(let i=0;i<4;i++)grid.push(new Array(GW).fill(-1));
+    const cxf=17.5, cyf=12;
+    const cells=[];
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+      const c=finalGrid[y][x];
+      if(c===-1||c===BG)continue;
+      cells.push({x,y,c,d:Math.hypot(x-cxf,y-cyf)});
+    }
+    cells.sort((a,b)=>a.d-b.d);
+    const batch=9, interval=45;
+    let idx=0;
+    const step=()=>{
+      if(mySeq!==introSeq) return;
+      for(let k=0;k<batch&&idx<cells.length;k++,idx++){
+        const p=cells[idx];
+        grid[p.y][p.x]=p.c;
+      }
+      drawGrid();
+      if(idx<cells.length) setTimeout(step,interval);
+      else {
+        const at=(ms,fn)=>setTimeout(()=>{if(mySeq===introSeq)fn();},ms);
+        const swap=v=>{
+          if(v==='final'){grid=finalGrid;} else {grid=makeGridC3PO(v);for(let i=0;i<4;i++)grid.push(new Array(GW).fill(-1));}
+          drawGrid();
+        };
+        // Ha ha ha – třikrát otevřít a zavřít pusu
+        at(250,()=>swap('ha-open'));
+        at(450,()=>swap('final'));
+        at(650,()=>swap('ha-open'));
+        at(850,()=>swap('final'));
+        at(1050,()=>swap('ha-open'));
+        at(1300,()=>swap('final'));
+      }
+    };
+    setTimeout(step,120);
+  } else if(currentLevel==='frog'){
+    // 1) Stop-motion modrého ovalu od středu ven
+    // 2) Žabka se vynoří ze středu vody (yOff klesá z ~8)
+    const finalGrid=grid;
+    const mySeq=introSeq;
+    const empty=[];
+    for(let y=0;y<IMG_GH;y++)empty.push(new Array(GW).fill(8));
+    for(let i=0;i<4;i++)empty.push(new Array(GW).fill(-1));
+    grid=empty;drawGrid();
+    // Posbírej vodní buňky z cílové vodní mřížky, seřaď podle vzdálenosti od středu
+    const waterGrid=makeGridFrog('water-only');
+    const wcx=18, wcy=21;
+    const waterCells=[];
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+      const c=waterGrid[y][x];
+      if(c===2||c===3)waterCells.push({x,y,c,d:Math.hypot(x-wcx,y-wcy)});
+    }
+    waterCells.sort((a,b)=>a.d-b.d);
+    const waterBase=[];
+    for(let y=0;y<IMG_GH;y++)waterBase.push(new Array(GW).fill(8));
+    for(let i=0;i<4;i++)waterBase.push(new Array(GW).fill(-1));
+    let widx=0;
+    const waterBatch=8, waterInt=55;
+    const waterStep=()=>{
+      if(mySeq!==introSeq) return;
+      for(let k=0;k<waterBatch&&widx<waterCells.length;k++,widx++){
+        const p=waterCells[widx];
+        waterBase[p.y][p.x]=p.c;
+      }
+      grid=waterBase.map(r=>r.slice());
+      drawGrid();
+      if(widx<waterCells.length) setTimeout(waterStep,waterInt);
+      else setTimeout(riseStep,280);
+    };
+    const offsets=[8,7,6,5,4,3,2,1,0];
+    let i=0;
+    const riseStep=()=>{
+      if(mySeq!==introSeq) return;
+      const yOff=offsets[i];
+      const ng=makeGridFrog('final',yOff);
+      for(let k=0;k<4;k++)ng.push(new Array(GW).fill(-1));
+      grid=ng;drawGrid();
+      i++;
+      if(i<offsets.length) setTimeout(riseStep,170);
+      else { grid=finalGrid; drawGrid(); }
+    };
+    setTimeout(waterStep,220);
+  } else if(currentLevel==='mondrian'){
+    // Intro: černé linky se nakreslí nejdřív, pak se vybarví bloky
+    const finalGrid=grid;
+    const mySeq=introSeq;
+    const blankG=[];
+    for(let y=0;y<GH;y++)blankG.push(new Array(GW).fill(-1));
+    grid=blankG;drawGrid();
+    const lines=[],colors=[];
+    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++){
+      const c=finalGrid[y][x];
+      if(c===7)lines.push({x,y,c});
+      else if(c>=0)colors.push({x,y,c});
+    }
+    let li=0;
+    const lineStep=()=>{
+      if(mySeq!==introSeq)return;
+      const batch=12;
+      for(let k=0;k<batch&&li<lines.length;k++,li++)grid[lines[li].y][lines[li].x]=lines[li].c;
+      drawGrid();
+      if(li<lines.length)setTimeout(lineStep,30);
+      else setTimeout(colorStep,180);
+    };
+    let ci2=0;
+    const colorStep=()=>{
+      if(mySeq!==introSeq)return;
+      const batch=10;
+      for(let k=0;k<batch&&ci2<colors.length;k++,ci2++)grid[colors[ci2].y][colors[ci2].x]=colors[ci2].c;
+      drawGrid();
+      if(ci2<colors.length)setTimeout(colorStep,35);
+    };
+    setTimeout(lineStep,150);
+  }
+  updateGarages();
+  drawGrid();drawBelt();drawPending();drawCarriers();
+  setStatus('Klikni na aktivní nosič');
+  _updateBoostZoneHeight(); // v74.66: responsive boost zone height (po level setup)
+}
+// ── UI: Difficulty badge ────────────────────────────────────────────────────
+// Badge byl odstraněn (UI cleanup v28) — funkce zůstává jen jako no-op pro
+// případné volání ze staršího kódu; celý výpočet imageDifficulty se dělá
+// v editoru přes clComputeLevelStatus.
+function updateDifficultyBadge(){}
+// ── Event listeners ─────────────────────────────────────────────────────────
+function setupDOM(){
+  // Shift+P toggle pro [BB-FPS] console logy. Default OFF (nezahlcuje konzoli).
+  // Stav persistuje v localStorage. Zobrazí toast po toggle.
+  if(!window._profKeyWired){
+    window._profKeyWired=true;
+    window.addEventListener('keydown', (e)=>{
+      if(e.shiftKey && (e.key==='P' || e.key==='p')){
+        _profLogEnabled = !_profLogEnabled;
+        try { localStorage.setItem('bb-prof-log', _profLogEnabled ? '1' : '0'); } catch(err){}
+        console.info('[BB-FPS] profiler logging ' + (_profLogEnabled ? 'ON' : 'OFF'));
+        const fpsEl = document.getElementById('bb-fps');
+        if(fpsEl){
+          const oldTitle = fpsEl.title;
+          fpsEl.title = 'profiler logs ' + (_profLogEnabled ? 'ON' : 'OFF');
+          setTimeout(()=>{ if(fpsEl) fpsEl.title = oldTitle; }, 1500);
+        }
+      }
+    });
+  }
+  let levelIdx=LEVELS.findIndex(l=>l.key===currentLevel);
+  if(levelIdx<0)levelIdx=0;
+  function syncDiffButtons(){
+    document.querySelectorAll('[data-diff]').forEach(b=>{
+      if(b.dataset.diff===difficulty)b.classList.add('active'); else b.classList.remove('active');
+    });
+  }
+  function stepLevel(dir){
+    levelIdx=(levelIdx+dir+LEVELS.length)%LEVELS.length;
+    currentLevel=LEVELS[levelIdx].key;
+    document.getElementById('level-label').textContent=LEVELS[levelIdx].label;
+    // Při přepnutí levelu aplikuj designer pin (defaultComplexity). Hráčova
+    // explicitní volba v segment pickeru platí jen do dalšího přepnutí levelu —
+    // tím se pin designera spolehlivě propaguje. AI override půjde přes totéž.
+    difficulty=resolveDefaultDifficulty(currentLevel);
+    syncDiffButtons();
+    startLevel();
+  }
+  document.getElementById('level-label').textContent=LEVELS[levelIdx].label;
+  document.getElementById('restart-btn').addEventListener('click',startLevel);
+  const nextEndBtn=document.getElementById('next-btn');
+  if(nextEndBtn) nextEndBtn.addEventListener('click',()=>{
+    document.getElementById('overlay').classList.remove('show');
+    stepLevel(1);
+  });
+  document.getElementById('level-prev').addEventListener('click',()=>stepLevel(-1));
+  document.getElementById('level-next').addEventListener('click',()=>stepLevel(1));
+  // Difficulty segment: sync highlight s aktuálním state a přepínání.
+  syncDiffButtons();
+  document.querySelectorAll('[data-diff]').forEach(b=>{
+    b.addEventListener('click',()=>{
+      document.querySelectorAll('[data-diff]').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');difficulty=b.dataset.diff;startLevel();
+    });
+  });
+}
+
+// ── Animation loop ───────────────────────────────────────────────────────────
+function beltLoop(ts){
+  if(window._bbStats) window._bbStats.begin();
+  // Profiler frame gap — vzdálenost mezi rAF callbacky. ~16.7 = 60fps; > 30 = throttle.
+  const _loopStart=performance.now();
+  if(_profLastTs){
+    const gap=ts-_profLastTs;
+    _profAccum.gap+=gap;
+    if(gap>_profAccum.gapMax) _profAccum.gapMax=gap;
+  }
+  _profLastTs=ts;
+  // Invalidate per-frame cache (pickCannonShot / hasAnyTargetForColor) —
+  // dispatch loop volá tyto funkce pro každý queue item, ale grid se mezi
+  // items nemění, takže se to dá memoizovat per (color, cannonX|0).
+  _invalidateFrameCache();
+  // Vypočítej dt pro animace mimo paused blok — render3d animace musí běžet
+  // i když je hra paused (game over screen). Clamp na 0.05 s pro tab-switch.
+  const _animDt = (lastBeltTime!==null) ? Math.min(0.05, (ts-lastBeltTime)/1000) : 1/60;
+  if(lastBeltTime!==null&&!paused){
+    const dt=(ts-lastBeltTime)/1000;
+    // v74.62: detekce vyklízených carriers — nastav timestamp pro speed-up rampu
+    if(_carriersClearedAt===null && running && cntCarriers()===0) _carriersClearedAt=performance.now();
+    // v74.64: tick user hold fade (vstup pro _speedMul())
+    _updateUserHold(dt);
+    // v74.79: refresh remaining pixel cache pro slowdown ramp — throttle na 2 Hz.
+    // Předtím per-frame (67k ops/s, v74.76 vypnuté). Teď každých 500ms = 2200 ops/s
+    // = ~30× méně než originál, ~zdarma. Slowdown ramp vizuálně plynulý díky lerp.
+    if(!window._lastPxCountTime) window._lastPxCountTime = 0;
+    const _nowPx = performance.now();
+    if(_nowPx - window._lastPxCountTime > 500){
+      let _rp=0; for(let _y=0;_y<GH;_y++)for(let _x=0;_x<GW;_x++)if(grid[_y][_x]>=0)_rp++; _remainingPxCache=_rp;
+      window._lastPxCountTime = _nowPx;
+    }
+    const _sm=_speedMul();
+    const dtAdj=dt*_sm;
+    const prevAnim=beltAnim;
+    beltAnim+=dtAdj*57.5;  // v74.62: +15% (50 → 57.5), ×speedMul po vyklízení carriers
+    // Tah 8: periodický ammo-deficit check (každé ~4 s), ukáže warning
+    // pokud garáž+belt+queue nestačí na zbývající pixely a bloky.
+    // Audit panel renderujeme častěji (1 s), aby hráč průběžně viděl
+    // celkový stav projektilů i když zrovna není deficit.
+    // v74.79: ammo audit recalc VYPNUTO. Předtím:
+    //   - ammoDeficit check 4s (varování že nemáš dost ammo na zbývající pixely)
+    //   - audit panel display 1s (debug chips v ⚙ overlay)
+    //   - drift detector 6Hz (leak detection)
+    // Všechno volá computeAmmoAudit = O(8 colors × 1116 cells + 50 slots + belt + pending)
+    // = ~10k ops × 6Hz = ~60k ops/s zbytečně pro production. Toggle pro dev re-enable.
+    const _ENABLE_AMMO_AUDIT = false;
+    if(_ENABLE_AMMO_AUDIT){
+    ammoCheckTimer+=dt;
+    if(ammoCheckTimer>=4){
+      ammoCheckTimer=0;
+      if(running&&anyLeft(grid)) checkAndWarnAmmoDeficit();
+    } else if(running){
+      if(!window._ammoAuditTimer) window._ammoAuditTimer=0;
+      window._ammoAuditTimer+=dt;
+      if(window._ammoAuditTimer>=1){
+        window._ammoAuditTimer=0;
+        renderAmmoAudit(computeAmmoAudit());
+      }
+    }
+    // v73.290: Drift detector throttled na ~6 Hz (každých 10 framů) místo
+    // every-frame. computeAmmoAudit je drahá O(colors × carriers × slots) operace
+    // — every frame to bylo ~30k+ ops/s zbytečně. Diagnostic leak check 6× / s
+    // je víc než dost (leak by se projevil v rámci 100-200ms).
+    if(running){
+      window._driftFrameCount = (window._driftFrameCount || 0) + 1;
+      if(window._driftFrameCount >= 10){
+        window._driftFrameCount = 0;
+        const _ta0=performance.now();
+        const cur=computeAmmoAudit();
+        _profAccum.ammoAudit+=performance.now()-_ta0;
+        const prev=window._driftPrev;
+        if(prev){
+          const dHave=cur.totalHave-prev.totalHave;
+          const dNeed=cur.totalNeed-prev.totalNeed;
+          // Tolerujeme NEED rozkmit z mystery Math.ceil (per-color ±1).
+          if(dHave<dNeed-0){
+            const flyN=particles.filter(p=>p.phase==='fly').length;
+            const popN=particles.filter(p=>p.phase==='pop').length;
+            console.warn('[BB-LEAK]',{dHave,dNeed,have:cur.totalHave,need:cur.totalNeed,gunQ:gunQueue.length,fly:flyN,pop:popN,belt:beltCount(),pending:pending.length,prev:{have:prev.totalHave,need:prev.totalNeed}});
+          }
+        }
+        window._driftPrev={totalHave:cur.totalHave,totalNeed:cur.totalNeed};
+      }
+    }
+    } // end if(_ENABLE_AMMO_AUDIT)
+    checkLaunchPoint(prevAnim,beltAnim);
+
+    const _td0=performance.now();
+    if(gunQueue.length>0){
+      // Cannon logika (immediate dispatch):
+      //  1. Drop barvy co už nemají cíl (shift) — vyčistit queue na začátku.
+      //  2. Najdi první barvu v queue co má střelu s LoS (pickCannonShot).
+      //  3. Když žádná LoS → force-fire první barvu co má JAKÝKOLIV target.
+      //  4. Pokud nic v queue nemá target → nic nestřílí (queue už byla vyčištěná).
+      // Vybraná barva se přesune na začátek queue (aby šly po sobě).
+      // Drop items, jejichž barva už nemá VŮBEC žádný target — ani sealed,
+      // ani blok, ani mystery. Spawn prázdný „dud" pop u hlavně, aby hráč
+      // viděl, že projektil byl ztracen (visible loss).
+      for(let i=gunQueue.length-1;i>=0;i--){
+        if(!hasAnyTargetForColor(gunQueue[i].ci)){
+          const lost=gunQueue.splice(i,1)[0];
+          const muzX=cannonX+Math.cos(cannonAngle)*14;
+          const muzY=CANNON_Y+Math.sin(cannonAngle)*14;
+          spawnPopShards(muzX,muzY,lost.color);
+        }
+      }
+      if(gunQueue.length===0){ gunFireTimer=0; }
+    }
+    if(gunQueue.length>0){
+      let item=gunQueue[0];
+      // cannonLock drží vybraný cíl mezi framy, aby cannon nejiffroval
+      // mezi podobnými cíly. LoS se revaliduje — pokud se mezi framy zavře
+      // (novým pixelem nebo blokem), lock se zahodí a pickCannonShot
+      // se zavolá čerstvě.
+      if(cannonLock){
+        if(cannonLock.ci!==item.ci) cannonLock=null;
+        else if(cannonLock.kind==='block'){
+          if(!cannonLock.blockRef||cannonLock.blockRef.hp<=0) cannonLock=null;
+        }
+        else if(!grid[cannonLock.gy]||grid[cannonLock.gy][cannonLock.gx]!==item.ci) cannonLock=null;
+        // LoS revalidace — pokud cesta od hlavně k cíli už není čistá, zahoď.
+        if(cannonLock){
+          const muzX=cannonLock.idealX+Math.cos(cannonLock.angle)*14;
+          const muzY=CANNON_Y+Math.sin(cannonLock.angle)*14;
+          const tblk=cannonLock.kind==='block'?cannonLock.blockRef:null;
+          if(!simulateShotReaches(muzX,muzY,cannonLock.angle,item.ci,240,tblk)){
+            cannonLock=null;
+          }
+        }
+      }
+      let shot=cannonLock;
+      let chosenIdx=0;
+      if(!shot){
+        // 1. Zkus čistou LoS (simulate) pro front, pak alternativy v queue.
+        let picked=pickCannonShot(item.ci,cannonX,CANNON_Y);
+        if(!picked){
+          for(let i=1;i<gunQueue.length;i++){
+            const alt=pickCannonShot(gunQueue[i].ci,cannonX,CANNON_Y);
+            if(alt){ picked=alt; chosenIdx=i; item=gunQueue[i]; break; }
+          }
+        }
+        // 2. Žádná čistá LoS → blocked-angle force-fire na první queue barvu
+        // co má JAKÝKOLIV target. Particle pak fyzikálně bounce-uje a hledá.
+        if(!picked){
+          for(let i=0;i<gunQueue.length;i++){
+            if(hasAnyTargetForColor(gunQueue[i].ci)){
+              const f=pickCannonShotForceBlocked(gunQueue[i].ci,cannonX,CANNON_Y);
+              if(f){ picked=f; chosenIdx=i; item=gunQueue[i]; break; }
+            }
+          }
+        }
+        if(!picked) cannonIdleT+=dt; else { cannonIdleT=0; }
+        if(picked){
+          // Posuň vybraný item na začátek queue, aby následné výstřely šly stejné barvy.
+          if(chosenIdx>0){
+            const [p]=gunQueue.splice(chosenIdx,1);
+            gunQueue.unshift(p);
+          }
+          // Debug: když je target za blokem, logujeme — hlídáme tunneling bug.
+          {
+            const tgx=Math.floor(picked.tx/SCALE), tgy=Math.floor(picked.ty/SCALE);
+            const blocksBetween=[];
+            for(const b of currentBlocks){
+              if(b.hp<=0)continue;
+              const bcx=(b.x+b.w/2)*SCALE, bcy=(b.y+b.h/2)*SCALE;
+              const fromC=Math.hypot(bcx-cannonX,bcy-CANNON_Y);
+              const fromT=Math.hypot(bcx-picked.tx,bcy-picked.ty);
+              const ct=Math.hypot(picked.tx-cannonX,picked.ty-CANNON_Y);
+              if(fromC<ct && fromT<ct && b.color!==item.ci && b.kind!=='mystery'){
+                blocksBetween.push({col:b.color,hp:b.hp,x:b.x,y:b.y});
+              }
+            }
+            if(blocksBetween.length) console.warn('[BB-AIM] target behind wrong-color block', {ci:item.ci, tgx, tgy, type:picked.type, kind:picked.kind, blocksBetween});
+          }
+          cannonLock={ci:item.ci,gx:Math.floor(picked.tx/SCALE),gy:Math.floor(picked.ty/SCALE),
+                      idealX:picked.idealX,angle:picked.angle,type:picked.type,
+                      kind:picked.kind||'pixel',blockRef:picked.blockRef||null};
+          shot=cannonLock;
+        } else {
+          gunFireTimer=0;
+        }
+      }
+      if(shot){
+        const ddx=shot.idealX-cannonX;
+        const step=CANNON_SPEED*dtAdj;  // v74.62: cannon move zrychlí s speedMul (jinak by nestíhal fire rate)
+        if(Math.abs(ddx)<=step) cannonX=shot.idealX;
+        else cannonX+=Math.sign(ddx)*step;
+        cannonAngle=shot.angle;
+        // Pizzicato při novém cíli kanónu (1× per shot target, ne během pohybu)
+        // Step jen na delší pohyby (>100 px) — krátké korekce ignoruj
+        const _moveDist = Math.abs(shot.idealX - cannonX);
+        if(_moveDist > 100 && shot.idealX !== _lastPizzTargetX){
+          _lastPizzTargetX = shot.idealX;
+          _playStep();
+        }
+        if(Math.abs(shot.idealX-cannonX)<=CANNON_ARRIVE_EPS){
+          gunFireTimer+=dtAdj;  // v74.62: speedMul ovlivní fire rate
+          if(gunFireTimer>=GUN_FIRE_INTERVAL){
+            // Rhythm fire: snap NA BEAT jen na začátku nové fire sekvence
+            // (po pauze >400ms). Continuous fire běží normálně bez rhythm gate.
+            let _canFire = true;
+            if(_rhythmFire && _musicEnabled && _kickStarted){
+              const now = Date.now();
+              const idle = now - _lastFireTime;
+              if(idle > 400){ // po pauze → čekáme na další tick
+                const phase = (now - _lastMusicTick) % 375;
+                if(phase > 100) _canFire = false;
+              }
+            }
+            if(_canFire){
+            _lastFireTime = Date.now();
+            gunFireTimer=0;
+            cannonIdleT=0;
+            gunQueue.shift();
+            cannonLock=null;
+            cannonSideShots++;
+            const a=cannonAngle+(Math.random()-0.5)*0.06;
+            const muzzleX=cannonX+Math.cos(cannonAngle)*14;
+            const muzzleY=CANNON_Y+Math.sin(cannonAngle)*14;
+            console.log('[BB-DEBUG] cannon FIRE', {ci:item.ci, targetKind:shot.kind, tBlockColor: shot.blockRef?shot.blockRef.color:null, tBlockHP: shot.blockRef?shot.blockRef.hp:null, type:shot.type});
+            particles.push({
+              x:muzzleX,y:muzzleY,
+              vx:Math.cos(a)*PSPEED,vy:Math.sin(a)*PSPEED,
+              ci:item.ci,color:item.color,
+              phase:'fly',stuckT:0,bounceStreak:0,totalT:0,
+              popR:0,popX:0,popY:0,onPop:()=>{}
+            });
+            window.render3d?.triggerMuzzleFlash?.(item.color, _musicEnabled && _onKickBeat);
+            scheduleSmokePuffs();
+            _playShoot();
+            } // close if(_canFire)
+          }
+        } else {
+          gunFireTimer=0;
+        }
+      }
+    } else {
+      const diff=(-Math.PI/2)-cannonAngle;
+      cannonAngle+=diff*Math.min(1,dt*4);
+      gunFireTimer=0;
+      cannonSidePref=0;cannonSideShots=0;
+    }
+    _profAccum.dispatch+=performance.now()-_td0;
+
+    const _tu0=performance.now();
+    updateParticles(dtAdj);  // v74.62: projektily zrychlí s speedMul
+    const _tu1=performance.now();
+    updatePending(dtAdj);    // v74.62: pending balls zrychlí s speedMul
+    const _tu2=performance.now();
+    _profAccum.updateParticles+=_tu1-_tu0;
+    _profAccum.updatePending+=_tu2-_tu1;
+  }
+  lastBeltTime=ts;
+  // v73.286: rozdělení 2D drawing skip — drawBelt+drawPending skipnutelné na overlay,
+  // ale drawParticles MUSÍ běžet pokud existují konfety/particles/shardy (po endGame
+  // pořád dohrávají animaci). Skipne jen když opravdu nic není ke kreslení.
+  // v73.289: 2D belt SVG + pending canvas jsou v 3D módu visibility:hidden →
+  // skipuj drawBelt + drawPending úplně. Render3d_bottom kreslí 3D ekvivalenty.
+  const _t0=performance.now();
+  let _t1=_t0, _t2=_t0, _t3=_t0;
+  const _drawActive = gameStarted && running && !paused;
+  if((_drawActive || _lastRenderActive) && RENDERER_MODE !== '3d'){
+    drawBelt(); _t1=performance.now();
+    drawPending(); _t3=performance.now();
+  }
+  // drawParticles: vždy pokud existují živé particles/confetti/shards (i po endGame)
+  const _hasFx = (typeof particles!=='undefined' && particles.length>0)
+              || (typeof confetti!=='undefined' && confetti.length>0)
+              || (typeof shards!=='undefined' && shards.length>0);
+  if(_drawActive || _lastRenderActive || _hasFx){
+    drawParticles(); _t2=performance.now();
+  }
+  // v73.280: skip 3D render při overlay/pause state (krok 2/5 thermal opt).
+  // v73.294: pokud běží 3D particles z poslední destrukce (shards/ghosts/dust/wave),
+  // pokračuj v renderování dokud nedohrají — i po endGame stejně jako 2D confetti.
+  // v73.298: + belt nebo pending balls = render musí pokračovat (po endGame balls
+  // pořád putují na pás / cestují v nálevce dokud nejsou sebrány).
+  const _renderActive = gameStarted && running && !paused;
+  const _has3DFx = RENDERER_MODE==='3d' && window.render3d && window.render3d.hasActiveAnimations && window.render3d.hasActiveAnimations();
+  const _hasBottomMovement = (typeof pending!=='undefined' && pending.length>0)
+                          || (typeof belt!=='undefined' && belt.some(b => b !== null));
+  const _shouldRender = _renderActive || _lastRenderActive || _has3DFx || _hasBottomMovement;
+  _lastRenderActive = _renderActive;
+  if(_shouldRender){
+    if(RENDERER_MODE==='3d' && window.render3d && window.render3d.isReady && window.render3d.isReady()){
+      if(window.render3d.updateAnimations) window.render3d.updateAnimations(_animDt);
+      window.render3d.render();   // unified: jen bookkeeping (muzzle flash, dirty), draw na konci
+    }
+    // v74.78: bottom canvas běží na ~45fps (skip every 4th frame z 60fps source).
+    // _BOTTOM_SKIP_EVERY: 0 = full 60fps, 2 = 30fps, 3 = ~40fps, 4 = ~45fps.
+    // Fyzika v game.js běží dál 60fps (4 substeps), jen vizuální mesh update půlrychlostí.
+    window._bbBottomFrame = (window._bbBottomFrame || 0) + 1;
+    const _BOTTOM_SKIP_EVERY = 4;
+    const _bbSkipBottom = _BOTTOM_SKIP_EVERY > 0 && (window._bbBottomFrame % _BOTTOM_SKIP_EVERY) === 0;
+    if(!_bbSkipBottom
+       && RENDERER_MODE==='3d' && window.render3dBottom && window.render3dBottom.isReady && window.render3dBottom.isReady()){
+      window.render3dBottom.updatePending(pending,COLORS);
+      window.render3dBottom.updateBelt(belt,beltAnim,COLORS);
+      // v73.295: zpět na 60Hz — throttle z v73.292 dělal carrier anim trhanou
+      if(window.render3dBottom._hasActiveCarrierAnim&&window.render3dBottom._hasActiveCarrierAnim()){
+        window.render3dBottom.updateCarriers(columns,COLORS);
+      }
+      window.render3dBottom.render();   // unified: jen anim updaty + dirty, draw níž
+    }
+    // v74.79 unified: JEDEN render pass pro sloučenou scénu (top + bottom) na konci,
+    // po všech data/anim updatech obou regionů → aktuální snímek bez 1-frame lagu.
+    if(RENDERER_MODE==='3d' && window.render3dUnified && window.render3dUnified.isReady && window.render3dUnified.isReady()){
+      window.render3dUnified.render();
+    }
+  }
+  _profAccum.drawBelt+=_t1-_t0;
+  _profAccum.drawParticles+=_t2-_t1;
+  _profAccum.drawPending+=_t3-_t2;
+  _profAccum.totalLoop+=performance.now()-_loopStart;
+  _profAccum.frames++;
+  _updateFpsCounter(ts);
+  if(window._bbStats) window._bbStats.end();
+  requestAnimationFrame(beltLoop);
+}
+
+// FPS overlay v pravém dolním rohu image-area. Šedá ≥ 55, žlutá 30-54, červená
+// < 30. Counter se vytvoří při prvním volání (lazy), aby nezatěžoval init.
+// Klik na counter = toggle profiler logging do konzole (alternativa k Shift+P,
+// která v DevTools console nefunguje kvůli autocomplete).
+function _updateFpsCounter(ts){
+  _fpsFrames.push(ts);
+  if(_fpsFrames.length>60) _fpsFrames.shift();
+  if(ts-_fpsLastUpdate < 250) return;
+  _fpsLastUpdate=ts;
+  let el=document.getElementById('bb-fps');
+  if(!el){
+    el=document.createElement('div');
+    el.id='bb-fps';
+    el.style.cssText='position:absolute;right:6px;bottom:6px;font:600 10px/1.2 system-ui,sans-serif;'
+      +'padding:2px 6px;border-radius:4px;background:rgba(0,0,0,0.55);'
+      +'letter-spacing:0.04em;text-shadow:0 1px 1px rgba(0,0,0,0.8);z-index:20;'
+      +'cursor:pointer;user-select:none';
+    el.addEventListener('click', ()=>{
+      _profLogEnabled = !_profLogEnabled;
+      try { localStorage.setItem('bb-prof-log', _profLogEnabled ? '1' : '0'); } catch(err){}
+      console.info('[BB-FPS] profiler logging ' + (_profLogEnabled ? 'ON — uvidíš [BB-FPS] logy v konzoli při fps<50' : 'OFF'));
+      // Vizuální feedback: krátký border puls
+      el.style.boxShadow = _profLogEnabled ? '0 0 0 2px #5ec786' : '0 0 0 2px #ff7a7a';
+      setTimeout(()=>{ el.style.boxShadow=''; }, 800);
+    });
+    const host=document.getElementById('image-area');
+    if(host) host.appendChild(el); else return;
+  }
+  if(_fpsFrames.length<2){ el.textContent='— fps'; el.style.color='#888'; return; }
+  const span=_fpsFrames[_fpsFrames.length-1]-_fpsFrames[0];
+  const fps=Math.round((_fpsFrames.length-1)*1000/span);
+  el.textContent=fps+' fps';
+  if(fps>=55) el.style.color='#bdbdbd';        // šedá — OK
+  else if(fps>=30) el.style.color='#f5d800';   // žlutá — pomalejší
+  else el.style.color='#ff7a7a';               // červená — kritické
+  _perfAutoUpdate(fps, ts);                    // v73.255: auto-degrade quality
+
+  // Když fps < 50, log diagnostic snapshot do konzole (max 1× za 2 s).
+  // Vidíme rozpočet ms/frame v jednotlivých sekcích + entity counts. Tím
+  // odhalíme, jestli žere updateParticles (moc fly), drawParticles (render),
+  // nebo něco jiného. Tooltip element ukáže breakdown taky.
+  const frames=_profAccum.frames;
+  const breakdown=frames>0 ? {
+    ammo_audit: +(_profAccum.ammoAudit/frames).toFixed(2),
+    dispatch: +(_profAccum.dispatch/frames).toFixed(2),
+    upd_part: +(_profAccum.updateParticles/frames).toFixed(2),
+    upd_pend: +(_profAccum.updatePending/frames).toFixed(2),
+    drw_belt: +(_profAccum.drawBelt/frames).toFixed(2),
+    drw_part: +(_profAccum.drawParticles/frames).toFixed(2),
+    drw_pend: +(_profAccum.drawPending/frames).toFixed(2),
+    total_loop: +(_profAccum.totalLoop/frames).toFixed(2),
+    avg_gap: +(_profAccum.gap/Math.max(1,frames-1)).toFixed(1),
+    max_gap: +(_profAccum.gapMax).toFixed(0),
+  } : null;
+  const counts={
+    particles: typeof particles!=='undefined' ? particles.length : 0,
+    flying: typeof particles!=='undefined' ? particles.filter(p=>p.phase==='fly').length : 0,
+    pending: typeof pending!=='undefined' ? pending.length : 0,
+    belt: typeof belt!=='undefined' ? beltCount() : 0,
+    blocks: typeof currentBlocks!=='undefined' ? currentBlocks.filter(b=>b.hp>0).length : 0,
+    gunQueue: typeof gunQueue!=='undefined' ? gunQueue.length : 0,
+  };
+  if(breakdown){
+    el.title=fps+' fps · ms/frame: upd_part '+breakdown.upd_part+', upd_pend '+breakdown.upd_pend
+      +', drw_belt '+breakdown.drw_belt+', drw_part '+breakdown.drw_part+', drw_pend '+breakdown.drw_pend
+      +' · counts: particles '+counts.particles+' (fly '+counts.flying+'), pending '+counts.pending
+      +', belt '+counts.belt+', blocks '+counts.blocks+', queue '+counts.gunQueue
+      +' · KLIK pro toggle [BB-FPS] console logů (' + (_profLogEnabled ? 'ON' : 'OFF') + ')';
+  }
+  if(_profLogEnabled && fps<50 && ts-_profLastWarn>2000){
+    _profLastWarn=ts;
+    console.warn('[BB-FPS] '+fps+' fps · ms/frame:', breakdown, '· counts:', counts);
+  }
+  // Reset accumulator pro další 250ms okno.
+  _profAccum.drawBelt=_profAccum.drawParticles=_profAccum.drawPending=0;
+  _profAccum.updateParticles=_profAccum.updatePending=0;
+  _profAccum.ammoAudit=_profAccum.dispatch=0;
+  _profAccum.totalLoop=_profAccum.gap=_profAccum.gapMax=0;
+  _profAccum.frames=0;
+}
+
+// ── Gamee SDK entry point (called by body onload) ────────────────────────────
+function initGame(){
+  // Default level = first in LEVELS (so reordering in the editor actually
+  // changes which level the game opens on). The hardcoded `currentLevel='smiley'`
+  // at the top of this file is just a static init value from before LEVELS
+  // existed; honor the editor's order here.
+  if(LEVELS[0]&&LEVELS[0].key)currentLevel=LEVELS[0].key;
+
+  // Dev override via URL (?level=KEY&diff=easy) — for editor iframe preview.
+  // Applied BEFORE setupDOM so levelIdx is correct; re-applied inside gameInit
+  // callback so it also wins over any saveState data.
+  // Precedence pro difficulty: URL ?diff > saveState > designer pin
+  // (defaultComplexity) > 'easy'. Flag _diffFromUrl si pamatujeme, ať ho
+  // saveState v callbacku nepřeválcuje.
+  let _diffFromUrl=false;
+  let _levelFromUrl=false;
+  try{
+    const url=new URL(location.href);
+    const p=url.searchParams.get('level');
+    if(p&&LEVELS.some(l=>l.key===p)){currentLevel=p;_levelFromUrl=true;}
+    const d=url.searchParams.get('diff');
+    if(d&&['easy','medium','hard','hardcore'].includes(d)){difficulty=d;_diffFromUrl=true;}
+    // ?variant=NAME force-loaduje konkrétní variantu z carrierLayouts (preview z editoru).
+    const v=url.searchParams.get('variant');
+    if(v)_forcedVariantName=v;
+  }catch(e){}
+  // Pokud URL neurčila diff, aplikuj designer pin pro aktuální level. Pokud
+  // saveState má vlastní difficulty, tu aplikujeme níže v gameInit callbacku.
+  if(!_diffFromUrl)difficulty=resolveDefaultDifficulty(currentLevel);
+  setupDOM();
+  initParticleCanvas();
+  _initBgParticles();
+  _initSound();
+  // beltLoop se spustí až ve startLevel (po inicializaci stavu) – jinak by crashnul na undefined belt/grid
+
+  gamee.gameInit('FullScreen',{},['saveState'],function(error,data){
+    if(error!==null)throw error;
+    if(typeof data==='string')data=JSON.parse(data);
+
+    if(data.saveState){
+      try{
+        const saved=typeof data.saveState==='string'?JSON.parse(data.saveState):data.saveState;
+        // Only honor saveState.level if it still exists in LEVELS (editor may
+        // have removed/renamed it). Otherwise fall back to LEVELS[0].
+        // URL ?level= má prioritu — když preview iframe explicitně předá level,
+        // saveState ho nesmí přepsat (jinak by editor preview ukazoval pořád
+        // poslední hraný level místo toho, co je vybraný).
+        let levelChanged=false;
+        if(!_levelFromUrl&&saved.level&&LEVELS.some(l=>l.key===saved.level)&&saved.level!==currentLevel){
+          currentLevel=saved.level;levelChanged=true;
+        }
+        // saveState.difficulty platí jen když URL explicitně nepřebíjí.
+        if(saved.difficulty&&!_diffFromUrl)difficulty=saved.difficulty;
+        // Když saveState změnil level a nemáme URL override ani vlastní diff
+        // v saveState, přepni na designer pin nového levelu.
+        else if(levelChanged&&!_diffFromUrl)difficulty=resolveDefaultDifficulty(currentLevel);
+      }catch(e){console.warn('saveState parse failed',e);}
+    }
+
+    gamee.emitter.addEventListener('start',function(event){
+      startLevel();
+      event.detail.callback();
+    });
+    gamee.emitter.addEventListener('pause',function(event){
+      paused=true;
+      event.detail.callback();
+    });
+    gamee.emitter.addEventListener('resume',function(event){
+      paused=false;
+      lastBeltTime=null;
+      event.detail.callback();
+    });
+    gamee.emitter.addEventListener('mute',function(event){
+      event.detail.callback();
+    });
+    gamee.emitter.addEventListener('unmute',function(event){
+      event.detail.callback();
+    });
+    gamee.emitter.addEventListener('submit',function(event){
+      gamee.updateScore(score,playTime,'balloon-belt-v74.80');
+      event.detail.callback();
+    });
+
+    gamee.gameReady();
+  });
+
+  // Playtester: editor pošle balloonbelt:analyze-level, vrátíme výsledky.
+  window.addEventListener('message',function(ev){
+    const m=ev.data;
+    if(!m||m.type!=='balloonbelt:analyze-level')return;
+    const results=ptAnalyzeCurrentLevel({farSighted:!!m.farSighted});
+    if(results)results.farSighted=!!m.farSighted; // echo zpět pro UI label
+    try{window.parent.postMessage({type:'balloonbelt:analysis-results',results},'*');}catch(e){}
+  });
+
+  // Mutation Designer: editor pošle suggest-mutations s pinem, vrátíme top 3 mutace.
+  // evalMode: 'greedy' (default, ~250ms) | 'beam' (přesnější, ~10-30s, s progress).
+  window.addEventListener('message',function(ev){
+    const m=ev.data;
+    if(!m||m.type!=='balloonbelt:suggest-mutations')return;
+    const evalMode=m.evalMode==='beam'?'beam':'greedy';
+    const progressCb=(current,total)=>{
+      try{window.parent.postMessage({type:'balloonbelt:mutation-progress',current,total,evalMode},'*');}catch(e){}
+    };
+    ptSuggestMutationsAsync(m.pin||{},{evalMode},progressCb).then(suggestions=>{
+      try{window.parent.postMessage({type:'balloonbelt:mutation-suggestions',suggestions,evalMode},'*');}catch(e){}
+    }).catch(err=>{
+      try{window.parent.postMessage({type:'balloonbelt:mutation-suggestions',suggestions:[],error:String(err),evalMode},'*');}catch(e){}
+    });
+  });
+
+  // Auto-tune (Phase 3a): editor pošle auto-tune-start s opts, posíláme progress + result.
+  // auto-tune-stop kdykoli během běhu = abort.
+  let _autoTuneAbort=null;
+  window.addEventListener('message',function(ev){
+    const m=ev.data;
+    if(!m)return;
+    if(m.type==='balloonbelt:auto-tune-start'){
+      if(_autoTuneAbort)_autoTuneAbort.aborted=true; // přerušit předchozí běh pokud nedoběhl
+      _autoTuneAbort={aborted:false};
+      const progressCb=(p)=>{
+        try{window.parent.postMessage(Object.assign({type:'balloonbelt:auto-tune-progress'},p),'*');}catch(e){}
+      };
+      // m.algorithm: 'classic' (default) → ptAutoTuneAsync, 'deep' → ptAutoTuneDeepAsync (Prozřetelný SA)
+      const runner = (m.algorithm === 'deep') ? ptAutoTuneDeepAsync : ptAutoTuneAsync;
+      runner(m.opts||{},progressCb,_autoTuneAbort).then(result=>{
+        try{window.parent.postMessage({type:'balloonbelt:auto-tune-result',result},'*');}catch(e){}
+        _autoTuneAbort=null;
+      }).catch(err=>{
+        try{window.parent.postMessage({type:'balloonbelt:auto-tune-result',result:null,error:String(err)},'*');}catch(e){}
+        _autoTuneAbort=null;
+      });
+      return;
+    }
+    if(m.type==='balloonbelt:auto-tune-stop'){
+      if(_autoTuneAbort)_autoTuneAbort.aborted=true;
+    }
+  });
+}

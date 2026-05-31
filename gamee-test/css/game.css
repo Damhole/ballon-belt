@@ -1,0 +1,1071 @@
+@import url('https://fonts.googleapis.com/css2?family=Bangers&display=swap');
+:root {
+  --font-sans: system-ui, -apple-system, sans-serif;
+  --color-text-primary: #f0f0f0;
+  --color-text-secondary: #aaa;
+  --color-text-tertiary: #777;
+  --color-border-primary: #888;
+  --color-border-secondary: #444;
+  --color-border-tertiary: #333;
+  --color-background-primary: #1a1a1a;
+  --color-background-secondary: #2a2a2a;
+  /* 3D mode atmospheric tokens — DEFAULT (pink theme).
+     Match s reference Blender renderem: bohatší salmon-pink BG +
+     hluboká purple sekce pro carriers.
+     Každé téma definuje 7 tokenů: BG nahoře/dole, image area, carriers,
+     shadow, rim, image outline. Logika contrast: BG light → image dark → carriers darkest. */
+  --bg-3d-top:        #ee9bb1;
+  --bg-3d-bottom:     #d77c98;
+  --frame-3d-bg:      #ee9bb1;
+  --frame-3d-shadow:  rgba(60, 20, 50, 0.35);
+  --frame-3d-rim:     rgba(255, 220, 230, 0.50);
+  --image-3d-bg:      #6a2f4d;
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
+  --carriers-3d-bg:   #6a2f4d;   /* MATCH s image-3d-bg — sjednocená navy/plum plocha */
+  --carriers-3d-rim:  rgba(255, 200, 220, 0.18);
+  --image-canvas-outline: #8a5066;  /* thin ring kolem pixel canvasu */
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   COLOR THEMES — aktivují se přes body.theme-X (z URL param ?theme=X).
+   Vždy 3 úrovně contrast: BG (nejsvětlejší) → image area → carriers (nejtmavší).
+   Default = pink (definované v :root výše).
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* OCEAN — sky blue → deep navy. Klidný, čistý vibe. */
+body.theme-ocean {
+  --bg-3d-top:        #9ed5e8;
+  --bg-3d-bottom:     #75b8d4;
+  --image-3d-bg:      #1f3d5c;
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
+  --carriers-3d-bg:   #122a4a;
+  --carriers-3d-rim:  rgba(180, 220, 240, 0.18);
+  --frame-3d-shadow:  rgba(10, 30, 60, 0.40);
+  --frame-3d-rim:     rgba(220, 240, 255, 0.50);
+  --image-canvas-outline: #3a6070;
+}
+
+/* SUNSET — warm orange/coral → dark wine. Energický, hřejivý. */
+body.theme-sunset {
+  --bg-3d-top:        #ffb88c;
+  --bg-3d-bottom:     #ee8a6e;
+  --image-3d-bg:      #5a2030;
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
+  --carriers-3d-bg:   #3d1322;
+  --carriers-3d-rim:  rgba(255, 200, 180, 0.18);
+  --frame-3d-shadow:  rgba(60, 20, 30, 0.40);
+  --frame-3d-rim:     rgba(255, 230, 210, 0.50);
+  --image-canvas-outline: #7a3820;
+}
+
+/* FOREST — sage/mint → deep forest. Přírodní, klidný. */
+body.theme-forest {
+  --bg-3d-top:        #b8d8a8;
+  --bg-3d-bottom:     #94bf85;
+  --image-3d-bg:      #2a4530;
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
+  --carriers-3d-bg:   #1a3022;
+  --carriers-3d-rim:  rgba(200, 230, 190, 0.18);
+  --frame-3d-shadow:  rgba(20, 40, 25, 0.40);
+  --frame-3d-rim:     rgba(220, 240, 215, 0.50);
+  --image-canvas-outline: #3a5830;
+}
+
+/* LAVENDER — soft purple → indigo. Snový, delikátní. */
+body.theme-lavender {
+  --bg-3d-top:        #c8b8e0;
+  --bg-3d-bottom:     #a896c8;
+  --image-3d-bg:      #2e1f4d;
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
+  --carriers-3d-bg:   #1a0f33;
+  --carriers-3d-rim:  rgba(220, 200, 240, 0.18);
+  --frame-3d-shadow:  rgba(25, 10, 50, 0.40);
+  --frame-3d-rim:     rgba(235, 220, 250, 0.50);
+  --image-canvas-outline: #504090;
+}
+
+/* MONO DARK — světlé pozadí, tmavá scéna. Minimalistický high-contrast.
+   Carriers BG záměrně medium gray (ne pure black) — black/dark nosiče by
+   jinak splývaly s podkladem. Image area zůstává tmavší, ale ne úplně black. */
+body.theme-mono-dark {
+  --bg-3d-top:        #e8e8e8;
+  --bg-3d-bottom:     #c8c8c8;
+  --image-3d-bg:      #222222;
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
+  --carriers-3d-bg:   #242424;
+  --carriers-3d-rim:  rgba(220, 220, 220, 0.20);
+  --frame-3d-shadow:  rgba(0, 0, 0, 0.42);
+  --frame-3d-rim:     rgba(255, 255, 255, 0.55);
+  --image-canvas-outline: #484848;
+}
+
+/* EXPERIMENT — testovací slot pro nové palety. Aktuálně: vintage terracotta
+   + faded blue + deep navy (warm autumn illustration vibe). Můžeme volně
+   iterovat tohle téma podle potřeby. */
+body.theme-experiment {
+  --bg-3d-top:        #dab7a0;   /* dusty peach (méně saturovaný než předtím) */
+  --bg-3d-bottom:     #b8866d;   /* muted terracotta (zachovává warmth, méně oranže) */
+  --image-3d-bg:      #2c3a52;   /* deep dusty navy (faded sky → night) */
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
+  --carriers-3d-bg:   #2c3a52;   /* MATCH s image area — sjednocená navy plocha */
+  --carriers-3d-rim:  rgba(220, 200, 170, 0.22);  /* warm cream rim */
+  --frame-3d-shadow:  rgba(60, 30, 20, 0.40);
+  --frame-3d-rim:     rgba(255, 230, 200, 0.50);
+  --image-canvas-outline: #5c4030;
+}
+
+/* EXPERIMENT2 — synthwave/anime: dusty purple BG + deep plum panel +
+   calm pink/teal accents. Klidnější, méně saturovaná verze. */
+body.theme-experiment2 {
+  --bg-3d-top:        #ad94c2;   /* dusty soft lavender (méně saturace) */
+  --bg-3d-bottom:     #826995;   /* muted purple dole */
+  --image-3d-bg:      #ecdba0;   /* warm cream-yellow, mírně zářivější + olivový nádech */
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
+  --carriers-3d-bg:   #ecdba0;   /* MATCH s image area */
+  --carriers-3d-rim:  rgba(180, 140, 80, 0.30);  /* warm dark rim pro definici */
+  --frame-3d-shadow:  rgba(40, 25, 50, 0.40);
+  --frame-3d-rim:     rgba(225, 200, 220, 0.42);
+  --image-canvas-outline: #706028;
+}
+/* Light yellow panel → dark labels pro čitelnost */
+body.theme-experiment2 #pending-label,
+body.theme-experiment2 #carriers-label {
+  color: rgba(80, 55, 15, 0.70);
+}
+
+/* MYSTERY — temný mystický vibe. Hluboké fialovo-modré tóny, jako noc před
+   bouří. Tajemné, gothic / arcane. */
+body.theme-mystery {
+  --bg-3d-top:        #2a1f4d;
+  --bg-3d-bottom:     #15102e;
+  --image-3d-bg:      #0d0820;
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
+  --carriers-3d-bg:   #150a30;
+  --carriers-3d-rim:  rgba(180, 130, 230, 0.25);
+  --frame-3d-shadow:  rgba(20, 5, 40, 0.55);
+  --frame-3d-rim:     rgba(180, 140, 240, 0.32);
+  --image-canvas-outline: #402878;
+}
+
+/* NEON — cyberpunk dark BG. Outlines černé pro silnou definici hran,
+   ambient glow drží neon vibe ale méně dramaticky.
+   Nejkrásnější s ?style=neon pixely (emissive glow z pixelů samotných). */
+body.theme-neon {
+  --bg-3d-top:        #0c1530;
+  --bg-3d-bottom:     #030610;
+  --image-3d-bg:      #020414;
+  --image-3d-outline: rgba(0, 0, 0, 0.70);
+  --carriers-3d-bg:   #060a1c;
+  --carriers-3d-rim:  rgba(0, 0, 0, 0.55);
+  --frame-3d-shadow:  rgba(0, 0, 0, 0.85);
+  --frame-3d-rim:     rgba(255, 255, 255, 0.10);
+  --image-canvas-outline: #00a0b8;
+}
+/* Neon: panely vnořené, hluboké inset shadows — outline-first design */
+body.theme-neon #image-area {
+  box-shadow:
+    inset 0 10px 20px rgba(0, 0, 0, 0.85),
+    inset 5px 0 12px rgba(0, 0, 0, 0.50),
+    inset 0 -2px 6px rgba(255, 255, 255, 0.04);
+}
+body.theme-neon #pending-wrap {
+  box-shadow:
+    inset 0 8px 16px rgba(0, 0, 0, 0.80),
+    inset 5px 0 12px rgba(0, 0, 0, 0.45),
+    inset -5px 0 12px rgba(0, 0, 0, 0.45);
+}
+body.theme-neon #carriers-wrap {
+  box-shadow:
+    inset 5px 0 12px rgba(0, 0, 0, 0.45),
+    inset -5px 0 12px rgba(0, 0, 0, 0.45),
+    inset 0 -8px 14px rgba(0, 0, 0, 0.70);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+/* v73.138: revert anti-scroll hacků — pull-to-refresh musí fungovat.
+   Místo toho zajistím že herní obsah se vejde do viewportu, takže není
+   co scrollovat. Žádný overflow:hidden, position:fixed, touch-action:none. */
+/* v74.37: html background — pokrývá viewport i pokud body height fail při iOS PWA initial paint.
+   Bez tohohle bývalo bílé okno dole 50-100px do první user interakce. */
+html {
+  background: #111;
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  min-height: 100dvh;
+}
+body {
+  font-family: var(--font-sans);
+  background: #111;
+  color: var(--color-text-primary);
+  /* v73.139: 100dvh místo 100vh — dynamic viewport respektuje iOS URL bar.
+     v74.37: -webkit-fill-available pro iOS PWA standalone (správný viewport před settling).
+     Fallback na 100vh pro old browsers. */
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  min-height: 100dvh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 20px 0 40px;
+}
+
+/* v74.38: PWA standalone mode (iOS Add to Home Screen → fullscreen) report ve
+   100dvh jinak než real viewport → bílý/černý pruh dole. Fix: použij 100lvh
+   (largest viewport height — žádný browser chrome) pro standalone mode. */
+@media (display-mode: standalone) {
+  html, body {
+    min-height: 100lvh;
+    height: 100lvh;
+  }
+}
+/* Browser default body margin (8 px) je chrome — zrušit, nikdy nebude v ostré hře. */
+html,body{margin:0;padding:0}
+/* iOS safe area inset bottom (home indicator) — exportováno jako CSS var
+   pro čtení v _setAdaptiveCarrierSize. iPhone X+ ~34 px, iPhone SE 0. */
+:root{--bb-safe-bottom:env(safe-area-inset-bottom,0px)}
+/* Touch optimization — odstraní 300 ms click delay (legacy double-tap-zoom
+   detection) a polopruhledný tap highlight overlay na mobilech. Pro game
+   bez scroll/zoom potřeby. */
+*{-webkit-tap-highlight-color:transparent}
+#game{touch-action:manipulation}
+/* v74.67: zakázat text selection + long-press context menu + iOS touch callout
+   napříč celou hrou. Hold gestures (boost zone) jinak triggerovaly selection nebo
+   "Look up" popup → rušilo gameplay. */
+#game, #game *, #boost-vignette {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+/* #game padding-top adaptivní (v71.18) — když je v levelu dost místa
+   (carriers se nemusely shrinkovat), JS přidá --game-top-extra pro komfortní
+   odsazení od horní hrany telefonu. Při tight space = 0, layout zůstává
+   natlačený nahoru. */
+#game{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px;padding-top:calc(8px + env(safe-area-inset-top, 0px) + var(--game-top-extra, 0px));padding-bottom:calc(8px + env(safe-area-inset-bottom, 0px));padding-left:calc(8px + env(safe-area-inset-left, 0px));padding-right:calc(8px + env(safe-area-inset-right, 0px));max-width:480px;margin:0 auto;width:100%;position:relative;overflow:hidden}
+#version-badge{position:absolute;top:16px;right:16px;font-size:11px;color:var(--color-text-tertiary);font-family:var(--font-sans);pointer-events:none;display:flex;align-items:baseline;gap:6px}
+#version-badge .game-name{font-weight:600}
+#status{display:none}
+#ammo-audit{width:360px;display:flex;flex-wrap:wrap;gap:4px;justify-content:center;align-items:center;font-size:10px;color:var(--color-text-tertiary);padding:2px 0}
+#ammo-audit .aa-total{width:100%;text-align:center;font-weight:600}
+#ammo-audit .aa-total.aa-bad{color:#ff6b6b}
+#ammo-audit .aa-chip{display:inline-flex;align-items:center;gap:3px;background:rgba(255,255,255,0.06);border-radius:8px;padding:2px 6px}
+#ammo-audit .aa-chip.aa-bad{background:rgba(255,80,80,0.18);color:#ffb0b0}
+#ammo-audit .aa-sw{width:8px;height:8px;border-radius:2px;display:inline-block}
+#image-area{width:360px;height:310px;border:1px solid #555;border-radius:8px;overflow:hidden;background:#353535;position:relative}
+#pixel-canvas{display:block;width:360px;height:310px}
+#belt-wrap{width:360px}
+/* Dev label — vždy skrytý, nikdy se nezobrazí hráči */
+#belt-label{display:none}
+#belt-svg{width:360px;height:64px;display:block}
+.controls{width:360px;display:flex;flex-direction:column;gap:8px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-secondary);border-radius:12px;padding:10px 14px;overflow:hidden}
+/* v73.128: dev UI je teď v #dev-overlay (mimo flex flow), margin-top již nepotřeba */
+
+/* v72.77: V 3D módu controls licuje šířkou s bottom-deck (420px), jinak theme
+   select chevron přesahuje rounded corner. */
+body.renderer-3d .controls{width:var(--funnel-deck-w, 420px)}
+.ctrl-row-top{display:flex;justify-content:space-between;align-items:flex-end;gap:8px}
+.specials-wrap{border-top:0.5px solid var(--color-border-secondary);padding-top:6px}
+.specials-header{display:flex;justify-content:space-between;align-items:center;width:100%;background:none;border:none;cursor:pointer;padding:0;color:inherit}
+.specials-chevron{font-size:13px;color:var(--color-text-tertiary);transition:transform 0.2s;display:inline-block;line-height:1}
+.specials-chevron.open{transform:rotate(90deg)}
+.specials-panel{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;overflow:hidden;max-height:0;transition:max-height 0.25s ease,padding-top 0.25s ease;padding-top:0}
+.specials-panel.open{max-height:100px;padding-top:8px}
+.special-chip{display:flex;flex-direction:column;align-items:center;gap:4px}
+.special-chip-label{font-size:10px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.07em;font-weight:500}
+.special-chip .toggle-btn{width:100%;text-align:center}
+.ctrl-group{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.ctrl-label{font-size:10px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.07em;font-weight:500;padding-left:2px}
+.seg{display:flex;border-radius:7px;overflow:hidden;border:0.5px solid var(--color-border-secondary)}
+.stepper{display:flex;align-items:stretch;border-radius:7px;overflow:hidden;border:0.5px solid var(--color-border-secondary);background:rgba(255,255,255,0.04);min-width:130px}
+.step-arrow{border:none;background:transparent;color:var(--color-text-secondary);cursor:pointer;padding:4px 10px;font-size:14px;line-height:1;transition:background 0.12s,color 0.12s;user-select:none}
+.step-arrow:hover{background:rgba(255,255,255,0.07);color:var(--color-text-primary)}
+.step-arrow:active{background:rgba(255,255,255,0.13)}
+.step-label{flex:1;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--color-text-primary);padding:0 6px;min-width:70px}
+.btn{padding:4px 11px;border:none;border-right:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:12px;color:var(--color-text-secondary);transition:background 0.12s,color 0.12s;white-space:nowrap}
+.btn:last-child{border-right:none}
+.btn:hover{background:rgba(255,255,255,0.07);color:var(--color-text-primary)}
+.btn.active{background:rgba(255,255,255,0.13);color:var(--color-text-primary);font-weight:600}
+.gravity-label{font-size:10px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.07em;font-weight:500}
+/* Theme select (jen 3D mode, hidden v 2D přes [hidden]). Match s ostatními ctrl-group. */
+.theme-select{padding:4px 8px;border-radius:7px;border:0.5px solid var(--color-border-secondary);background:rgba(255,255,255,0.04);color:var(--color-text-primary);font-size:12px;font-family:var(--font-sans);cursor:pointer;min-width:90px}
+.theme-select:hover{background:rgba(255,255,255,0.10)}
+body.renderer-3d .theme-select{background:rgba(255,255,255,0.20);border-color:rgba(255,220,230,0.30);color:#fff;font-weight:600}
+body.renderer-3d.theme-mono-light .theme-select{color:#fff}
+.toggle-btn{padding:4px 12px;border-radius:7px;border:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:12px;color:var(--color-text-secondary);transition:background 0.15s,color 0.15s,border-color 0.15s}
+.toggle-btn:hover{background:rgba(255,255,255,0.07)}
+.toggle-btn.active{background:rgba(100,200,100,0.15);color:#7defa0;border-color:#4a9e62;font-weight:600}
+.diff-summary-row{display:flex;justify-content:space-between;align-items:center;padding-top:4px;border-top:0.5px solid var(--color-border-secondary)}
+.diff-summary-label{font-size:10px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.07em;font-weight:500}
+.diff-badge{font-size:11px;font-weight:600;letter-spacing:0.03em;padding:3px 10px;border-radius:6px;border:0.5px solid transparent;transition:background 0.18s,color 0.18s,border-color 0.18s}
+.diff-badge.diff-relaxing{background:rgba(100,200,100,0.15);color:#7defa0;border-color:#4a9e62}
+.diff-badge.diff-medium{background:rgba(240,200,80,0.15);color:#f5d800;border-color:#9e8a1f}
+.diff-badge.diff-hard{background:rgba(240,140,70,0.18);color:#ffaa5e;border-color:#b06a2a}
+.diff-badge.diff-hardcore{background:rgba(230,70,70,0.2);color:#ff7070;border-color:#a03030}
+#pending-wrap{width:360px;position:relative}
+/* Dev label — vždy skrytý */
+#pending-label{display:none}
+#pending-canvas{display:block;margin:0 auto;background:transparent}
+/* v74.51: funnel warning teď text na floor, typewriter write→pause→erase */
+#funnel-warning{
+  display:none; /* v74.51: nahrazeno 3D meshí v render3d_bottom */
+  position:absolute;
+  top:44px;
+  left:50%;
+  transform:translateX(-50%);
+  color:rgba(255,255,255,0.58);
+  font-family:'Bangers', 'Impact', 'Arial Black', sans-serif;
+  font-size:17px;
+  font-weight:normal;
+  letter-spacing:0.10em;
+  text-transform:uppercase;
+  white-space:nowrap;
+  pointer-events:none;
+  z-index:100;
+  opacity:0;
+  clip-path:inset(0 100% 0 0);
+  background:transparent;
+  box-shadow:none;
+  padding:0;
+  border-radius:0;
+  max-width:none;
+}
+#funnel-warning.writing{
+  opacity:1;
+  /* Smooth easing — žádné steps(), plynulý reveal jako kdyby ruka kreslila */
+  animation:fw-write 0.85s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+#funnel-warning.erasing{
+  opacity:1;
+  animation:fw-erase 0.70s cubic-bezier(0.55, 0.085, 0.68, 0.53) forwards;
+}
+@keyframes fw-write{
+  from{clip-path:inset(0 100% 0 0)}
+  to{clip-path:inset(0 0 0 0)}
+}
+@keyframes fw-erase{
+  from{clip-path:inset(0 0 0 0)}
+  to{clip-path:inset(0 0 0 100%)}
+}
+#carriers-wrap{width:360px;position:relative}
+/* Dev label — vždy skrytý */
+#carriers-label{display:none}
+#carriers-grid{display:flex;gap:4px;justify-content:center;flex-wrap:nowrap}
+.carrier-col{display:flex;flex-direction:column;gap:var(--row-gap, 6px);align-items:center}
+.carrier{user-select:none}
+.carrier.active{cursor:pointer;opacity:1}
+.carrier.active:hover .cbox{transform:scale(1.08)}
+/* v72.81: cursor:pointer i pro inactive/hiddenq — iOS Safari registruje click jen
+   na "interactive" elementech (cursor:pointer heuristika). Rozdíl active/inactive
+   stejně vidět přes opacity (1 vs 0.25). Na mobilu kurzor není viditelný. */
+.carrier.inactive{opacity:0.25;cursor:pointer}
+.carrier.hiddenq{opacity:1;cursor:pointer}
+.carrier.empty{opacity:0;pointer-events:none;width:48px;height:48px;display:block}
+/* Wall (top-down vzhled) — velmi nevýrazný rounded block, jen lehce světlejší
+   než pozadí. Žádné výrazné gradienty / shadow ornamenty, aby splýval v jednolitou
+   plochu "podkladové desky". */
+.carrier.empty.wall{opacity:1;pointer-events:none;width:48px;height:48px;display:flex;align-items:center;justify-content:center;padding:2px;box-sizing:border-box}
+.wall-block{
+  width:100%;
+  height:100%;
+  border-radius:7px;
+  background:#1d1d1d;
+}
+.cbox{width:48px;height:48px;border-radius:10px;padding:4px;display:grid;grid-template-columns:1fr 1fr;gap:2px;box-sizing:border-box;transition:transform 0.12s;box-shadow:inset 0 3px 9px rgba(0,0,0,0.5),inset 0 -1px 3px rgba(255,255,255,0.08),0 2px 5px rgba(0,0,0,0.45)}
+.cball{border-radius:50%;min-width:0;min-height:0}
+.cbox-hid{width:48px;height:48px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:rgba(255,255,255,0.4);box-shadow:inset 0 3px 9px rgba(0,0,0,0.5),0 2px 5px rgba(0,0,0,0.45);background:#282828;border:1.5px solid rgba(255,255,255,0.07);transition:transform 0.12s;box-sizing:border-box}
+.carrier.garage.locked{opacity:0.45;filter:grayscale(0.6) brightness(0.7)}
+.carrier.garage.locked .cbox,.carrier.garage.locked .cbox-hid{box-shadow:inset 0 3px 9px rgba(0,0,0,0.7),0 1px 3px rgba(0,0,0,0.6)}
+.gar-arr{position:absolute;font-size:9px;color:#fff;line-height:1;opacity:0.95;text-shadow:0 1px 2px rgba(0,0,0,0.85);z-index:2;pointer-events:none}
+.gar-arr-n{top:1px;left:50%;transform:translateX(-50%)}
+.gar-arr-s{bottom:1px;left:50%;transform:translateX(-50%)}
+.gar-arr-w{left:1px;top:50%;transform:translateY(-50%)}
+.gar-arr-e{right:1px;top:50%;transform:translateY(-50%)}
+#overlay{display:none;position:absolute;inset:0;background:rgba(0,0,0,0.55);align-items:center;justify-content:center;z-index:10;border-radius:6px}
+#overlay.show{display:flex}
+#overlay-box{background:rgba(20,20,20,0.92);border:0.5px solid rgba(255,255,255,0.12);border-radius:12px;padding:1.5rem 2rem;text-align:center;backdrop-filter:blur(6px)}
+#overlay-box h3{font-size:18px;font-weight:500;margin-bottom:8px}
+#overlay-box p{font-size:13px;color:var(--color-text-secondary);margin-bottom:16px}
+.overlay-actions{display:flex;gap:8px;justify-content:center}
+#restart-btn,#next-btn{padding:8px 20px;border-radius:8px;border:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:14px;color:var(--color-text-primary)}
+#restart-btn:hover,#next-btn:hover{background:var(--color-background-secondary)}
+#score-bar{display:flex;gap:24px;font-size:13px;color:var(--color-text-secondary)}
+#score-bar span b{color:var(--color-text-primary);font-weight:500}
+h1{font-size:16px;font-weight:500;color:var(--color-text-secondary);letter-spacing:0.05em}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   3D MODE ENVIRONMENT POLISH
+   Aktivuje se přes <body class="renderer-3d"> z game.js (RENDERER_MODE='3d').
+   2D režim zůstává úplně nedotčený — tyto styly se nikde nemíchají.
+   ═══════════════════════════════════════════════════════════════════════ */
+body.renderer-3d {
+  background:
+    radial-gradient(ellipse 92% 88% at 50% 50%, transparent 52%, rgba(0,0,0,0.22) 100%),
+    linear-gradient(to bottom, var(--bg-3d-top) 0%, var(--bg-3d-bottom) 100%);
+  color: #fff;
+}
+/* A: film grain — jemná textura přes celý BG */
+body.renderer-3d::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.78' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  opacity: 0.055;
+  pointer-events: none;
+}
+/* B: animated soft glow — pomalu dýchá nahoře */
+body.renderer-3d::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse 100% 50% at 50% 0%, rgba(255,255,255,0.16) 0%, transparent 62%);
+  animation: bgGlow 9s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes bgGlow {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 1.0; }
+}
+/* C: sparkle canvas za hrou */
+#bg-canvas {
+  display: none;
+  position: fixed;
+  top: 0; left: 0;
+  width: 100vw; height: 100vh;
+  pointer-events: none;
+  z-index: 9000; /* v73.265: nad hru, ale pod overlay (overlay z-index ≥ 9999) */
+}
+body.renderer-3d #bg-canvas {
+  display: block;
+}
+body.renderer-3d #status {
+  color: rgba(255, 255, 255, 0.92);
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(60, 20, 50, 0.30);
+}
+body.renderer-3d #version-badge {
+  color: rgba(255, 255, 255, 0.55);
+}
+body.renderer-3d #ammo-audit {
+  color: rgba(255, 255, 255, 0.85);
+}
+body.renderer-3d #ammo-audit .aa-chip {
+  background: rgba(255, 255, 255, 0.30);
+  color: rgba(255, 255, 255, 0.95);
+}
+body.renderer-3d #ammo-audit .aa-total {
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(60, 20, 50, 0.30);
+}
+body.renderer-3d .controls {
+  background: rgba(255, 255, 255, 0.28);
+  border: 1px solid var(--frame-3d-rim);
+  box-shadow:
+    0 4px 14px var(--frame-3d-shadow),
+    inset 0 1px 0 rgba(255, 240, 245, 0.35);
+  backdrop-filter: blur(2px);
+}
+body.renderer-3d .ctrl-label,
+body.renderer-3d .gravity-label,
+body.renderer-3d .diff-summary-label,
+body.renderer-3d .special-chip-label {
+  color: rgba(255, 255, 255, 0.75);
+}
+body.renderer-3d #belt-label,
+body.renderer-3d #pending-label,
+body.renderer-3d #carriers-label {
+  color: rgba(255, 255, 255, 0.75);
+}
+body.renderer-3d .step-label {
+  color: #fff;
+  font-weight: 700;
+}
+body.renderer-3d .stepper {
+  background: rgba(255, 255, 255, 0.20);
+  border-color: rgba(255, 220, 230, 0.30);
+}
+body.renderer-3d .step-arrow,
+body.renderer-3d .btn {
+  color: rgba(255, 255, 255, 0.85);
+  border-right-color: rgba(255, 220, 230, 0.20);
+}
+body.renderer-3d .seg {
+  border-color: rgba(255, 220, 230, 0.30);
+}
+body.renderer-3d .btn:hover {
+  background: rgba(255, 255, 255, 0.30);
+  color: #fff;
+}
+body.renderer-3d .btn.active {
+  background: rgba(255, 255, 255, 0.55);
+  color: #3a1130;
+}
+
+/* IMAGE AREA — vnořené (inset) do BG plochy.
+   - Inset shadows nahoře/vlevo (tmavé) → simuluje depression
+   - Subtle highlight dole/vpravo → odraz světla z hlubin
+   - Žádný outer drop-shadow (nelevituje)
+   - Tmavý outline pro definici hran */
+body.renderer-3d #image-area {
+  border: 2px solid var(--image-3d-outline);
+  border-radius: 18px;
+  background: var(--image-3d-bg);
+  box-shadow:
+    inset 0 8px 16px rgba(0, 0, 0, 0.55),
+    inset 4px 0 10px rgba(0, 0, 0, 0.32),
+    inset 0 -2px 6px rgba(255, 255, 255, 0.04),
+    inset -2px 0 4px rgba(255, 255, 255, 0.03);
+}
+
+/* BELT WRAP — bez kontejneru, splývá přímo s BG (transparent). */
+body.renderer-3d #belt-wrap {
+  background: transparent;
+  border-radius: 0;
+  padding: 8px 4px 4px;
+  box-shadow: none;
+}
+
+/* PENDING + CARRIERS — sjednocené ve tvaru trychtýře (funnel).
+   Wrapper #bottom-deck (vytvořený JSem) obaluje pending+carriers jako jeden
+   shape. v71.22: parametrické — všechny rozměry přes CSS vars (--funnel-*).
+   JS (FUNNEL_3D konstanty v game.js) tyhle vars nastavuje při FUN init,
+   takže CSS clip-path a JS physics FUN coords jsou v sync ze single source.
+
+   Vars (defaulty zde, ale JS je přepisuje):
+     --funnel-deck-w        420px  Šířka deck wrapperu
+     --funnel-slope-h       44px   Vertikální extent diagonálního sbíhání
+     --funnel-narrow-half   90px   Polovina šířky narrow top opening
+     --funnel-corner-r      18px   Poloměr zaoblení rohů
+*/
+body.renderer-3d {
+  --funnel-deck-w: 420px;
+  --funnel-slope-h: 44px;
+  --funnel-narrow-half: 90px;
+  --funnel-corner-r: 18px;
+}
+body.renderer-3d #bottom-deck {
+  /* v73.92: background transparent — floor mesh v 3D scéně (přesný tvar hole)
+     poskytuje dark mauve podklad. CSS background by jinak přesahoval ven přes
+     stencil clipping zónu (canvas alpha mimo band = transparent → body BG). */
+  background: transparent;
+  width: var(--funnel-deck-w);
+  margin-left: auto;
+  margin-right: auto;
+  align-self: center;
+  position: relative; /* v74.64: anchor pro boost-zone absolute positioning */
+}
+/* v74.64: hold-to-boost zones — průhledné touch tagety v rozích nad funnel arch.
+   Hráč drží = 1.5× zrychlení (s fade). Levá + pravá pro praváky/leváky. */
+.boost-zone {
+  position: absolute;
+  top: 0;
+  width: 70px;
+  /* v74.66: height dynamicky podle pozice carriers grid (JS set CSS var
+     na #bottom-deck). Default 110px = bezpečná hodnota pro většinu layoutů
+     než JS změří aktuální. */
+  height: var(--boost-zone-h, 110px);
+  z-index: 5;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  touch-action: none;
+}
+#boost-zone-left  { left:  0; }
+#boost-zone-right { right: 0; }
+
+/* v74.68: tutorial tip pro boost zone — 1× per device po prvním funnel warning.
+   Bubble centrovaný ve funnel area (~kde byl 3D funnel warning text),
+   animovaná ruka u pravé boost zóny. Žije v #bottom-deck (přesunuto JSem). */
+#boost-tip {
+  position: absolute;
+  /* funnel warning 3D mesh sedí v FUN.narrowY + 112 ≈ 126 CSS px od top canvasu;
+     bubble top: 95 px aby vrchol bubliny byl těsně nad tím textem area */
+  top: 95px; left: 0; right: 0;
+  pointer-events: none;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+#boost-tip[hidden] { display: none; }
+.boost-tip-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  background: #fffdf5;
+  color: #1f1428;
+  padding: 9px 16px;
+  border-radius: 14px;
+  border: 2px solid #1f1428;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  box-shadow: 0 3px 0 #1f1428, 0 6px 14px rgba(0,0,0,0.30);
+  margin-top: 8px;
+  transform-origin: center top;
+  /* Jen entrance pop — žádná continuous pulsace. Attention drží ruka + kruh. */
+  animation: boost-tip-pop 0.45s cubic-bezier(.34,1.56,.64,1) both;
+}
+.boost-tip-icon { font-size: 15px; line-height: 1; }
+.boost-tip-text { line-height: 1.1; }
+.boost-tip-hand {
+  position: absolute;
+  /* Hand ukazuje DO pravé boost zone — v rohu mezi belt boxem a carriers grid,
+     v místě kde je vidět jen main BG (mimo funnel arch). Boost zone je
+     right:0 width:70 top:0 height:~110. Center = right:35, top:55 v deck.
+     Relativně k tip (top:95) → top: -40, horizontalně right:35. */
+  top: -90px;
+  right: 35px;
+  font-size: 44px;
+  transform-origin: 50% 80%;
+  filter: drop-shadow(0 3px 4px rgba(0,0,0,0.45));
+  animation: boost-tip-hand-press 2.4s ease-in-out infinite;
+}
+/* Pulsující kruh pod rukou — rozjede se plynule během hold fáze, sbalí se při release.
+   Synchronizováno s hand-press cycle 2.4s. */
+.boost-tip-hand::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: calc(60% - 25px);
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.5);
+  border: 2px solid #fff;
+  pointer-events: none;
+  z-index: -1;
+  transform: scale(0);
+  /* cubic-bezier in-out cubic — S-curve s pomalým startem, rychlejším středem,
+     pomalým dojezdem. Aplikovaný per-segment mezi keyframy. */
+  animation: boost-tip-hand-ripple 2.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+@keyframes boost-tip-hand-ripple {
+  0%, 100% { transform: scale(0);    opacity: 0;    }  /* retracted: schovaný */
+  10%      { transform: scale(0.08); opacity: 0.20; } /* jemné objevení, ne pop */
+  72%      { transform: scale(1.15); opacity: 0.95; } /* peak — full hold pressure */
+  90%      { transform: scale(0);    opacity: 0;    } /* plynulý collapse */
+}
+@keyframes boost-tip-pop {
+  from { opacity: 0; transform: translateY(-14px) scale(0.6); }
+  to   { opacity: 1; transform: translateY(0)    scale(1.0); }
+}
+@keyframes boost-tip-attention {
+  0%, 100% { transform: scale(1.0);  box-shadow: 0 3px 0 #1f1428, 0 6px 14px rgba(0,0,0,0.30); }
+  50%      { transform: scale(1.04); box-shadow: 0 4px 0 #1f1428, 0 9px 20px rgba(0,0,0,0.40); }
+}
+/* Hand "tap and HOLD" — startuje DOLE (retracted), zvedne se NAHORU stisknout,
+   HOLD nahoře (60% cyklu = ~1.4s držení), pak retract zpět dolů. Cyklus 2.4s. */
+@keyframes boost-tip-hand-press {
+  0%, 100% { transform: translateY(13px) scale(1.0); }                   /* retracted dole */
+  12%      { transform: translateY(0)    scale(0.85); }                  /* zvednutá + press */
+  72%      { transform: translateY(0)    scale(0.85); }                  /* HOLD nahoře */
+  85%      { transform: translateY(13px) scale(1.0); }                   /* retract dolů */
+}
+#boost-tip.fade-out .boost-tip-bubble,
+#boost-tip.fade-out .boost-tip-hand {
+  animation: boost-tip-out 0.35s ease-in forwards;
+}
+@keyframes boost-tip-out {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.9); }
+}
+/* v74.65: boost vignette overlay — jeden fixed div, animuje jen opacity (GPU-optim).
+   Žádný filter na body → žádné full-document recomposite per frame. Cheap na mobilu.
+   Vignette = radial gradient s warm tint, soustředěný k okrajům (centr zůstává čistý). */
+#boost-vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  /* v74.66: silnější tint (alpha 0.45 → 0.75) + gradient sahá víc dovnitř
+     (transparent center 30% → 15%) = víc tinted area kolem hry. */
+  background: radial-gradient(ellipse at center, transparent 15%, rgba(255, 215, 145, 0.75) 100%);
+  opacity: 0;
+  z-index: 0;
+  transition: opacity 0.35s ease-out;
+  will-change: opacity;
+}
+body.user-boost-active #boost-vignette {
+  animation: boost-vignette-pulse 0.40s ease-in-out infinite alternate;
+}
+@keyframes boost-vignette-pulse {
+  from { opacity: 0.45; }
+  to   { opacity: 1.0; }
+}
+/* Inner panely transparentní — wrapper drží podklad + shape */
+body.renderer-3d #bottom-deck #pending-wrap,
+body.renderer-3d #bottom-deck #carriers-wrap {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  margin: 0;
+  width: auto;
+}
+body.renderer-3d #bottom-deck #pending-wrap { padding: 6px 30px 4px; }
+/* Carriers padding 10px each side → grid sedí v 420px panelu těsně u zdí */
+/* v73.105: padding adjust — sides 16 (dál od krajů frame), bottom 6 (méně mrtvého
+   místa pod gridem). Top je přes CSS var --carriers-pad-top (JS set podle místa). */
+body.renderer-3d #bottom-deck #carriers-wrap {
+  padding: var(--carriers-pad-top, 4px) 16px 6px;
+  /* v73.120: shift dolů když 4-5 řad nechává prázdné místo na vysokých displejích.
+     JS _setAdaptiveCarrierSize() počítá hodnotu z (usable - neededAtTarget) × 0.6. */
+  margin-top: var(--carriers-wrap-shift, 0px);
+}
+/* Carriers cells — adaptivní velikost přes CSS var (--carrier-size).
+   Default 54px (fallback v var()). JS _setAdaptiveCarrierSize() nastavuje
+   skutečnou hodnotu na document.documentElement.style podle viewport výšky
+   a počtu řad. POZOR: nikdy nedefinovat defaulty na body.renderer-3d level
+   — body class rule by shadowla inline :root override (BUG v71.7→v71.8). */
+body.renderer-3d .cbox,
+body.renderer-3d .cbox-hid,
+body.renderer-3d .carrier.empty,
+body.renderer-3d .carrier.empty.wall {
+  width: var(--carrier-size, 54px);
+  height: var(--carrier-size, 54px);
+}
+body.renderer-3d #carriers-grid { gap: 4px; }
+/* Větší kuličky uvnitř cboxu — JS má hardcoded max-width:18px na balls,
+   přebijeme přes !important. Cílíme jen ball divy (aspect-ratio:1) — rocket
+   dot má fixní 10px width, neovlivní se. */
+body.renderer-3d .cbox > div[style*="aspect-ratio:1"] {
+  max-width: var(--ball-size, 26px) !important;
+}
+/* Cbox má padding 4px + gap 2px → cell = (54-8-2)/2 = 22px. Pro větší balls
+   reduce padding+gap → cell = (54-4-1)/2 = 24.5px. */
+body.renderer-3d .cbox {
+  padding: 2px !important;
+  gap: 1px !important;
+}
+
+/* IMAGE AREA scaled to match bottom-deck width (420px) → vertikálně líce.
+   Three.js canvas resolution se nezmění (360x310 internal), CSS stretch
+   na 420x362 (slight upscale blur acceptable, lépe vypadá co se týká alignmentu). */
+body.renderer-3d #image-area {
+  width: 420px;
+  height: 362px;
+  /* v73.14: outline přes box-shadow na canvas (níž) — image-area border nešel
+     vidět napravo/dole, canvas s !important full size ho překrýval. */
+  border: 0;
+  background: var(--image-3d-bg, #6a2f4d);
+  border-radius: 16px;
+  overflow: visible;
+}
+/* v73.5: rounded corners na canvasech aby matchovaly s 3D frame outerR (14 px ve worldu,
+   stretched na CSS = ~16 px). Bez tohoto canvas má sharp corners přesahuje frame. */
+body.renderer-3d #image-area canvas {
+  border-radius: 16px;
+  /* v73.21: outline = tmavší odstín hlavního růžového bg (--bg-3d-bottom × 0.55).
+     Méně kontrastní než černá, harmonizuje s case barvou. */
+  box-shadow: 0 0 0 1.3px var(--image-canvas-outline); /* v73.269: zjemněno 1.5 → 1.3 */
+}
+/* Všechny canvasy uvnitř image area se scalují na full size (přebije
+   inline width/height přes !important — particle-canvas má inline z game.js). */
+body.renderer-3d #image-area canvas {
+  width: 420px !important;
+  height: 362px !important;
+}
+/* V 3D módu skrýt textové labels (uživatel nechce decoration). */
+body.renderer-3d #belt-label,
+body.renderer-3d #pending-label,
+body.renderer-3d #carriers-label {
+  display: none;
+}
+
+/* Carriers: zachovat jejich vlastní dark inset look (cbox má svoje box-shadow),
+   jen lehce vylepšit recessed slot iluzi přes background panelu výše. */
+
+/* Walls v 3D — 2D .wall-block skryté, 3D mesh ho nahradí (v72.16).
+   visibility:hidden zachová layout aby getBoundingClientRect dal správnou
+   pozici pro 3D wall placement. */
+body.renderer-3d .wall-block {
+  background: rgba(20, 5, 35, 0.55);
+  visibility: hidden;
+}
+
+/* render3d_bottom: 2D elementy skryté za 3D canvasem (z-index:2 canvas je překrývá).
+   visibility:hidden zachová layout pro správné měření výšky při init(). */
+body.renderer-3d #belt-svg,
+body.renderer-3d #pending-canvas {
+  visibility: hidden;
+}
+/* V 3D módu vypnout hover scale .cbox — způsoboval, že 3D rendering
+   se "zasekl" na zvětšeném míčku, protože updateCarriers měřilo
+   getBoundingClientRect z scaled DOMu a neběželo dál když hover skončil. */
+body.renderer-3d .carrier.active:hover .cbox {
+  transform: none;
+}
+/* Carrier ball divy (CSS circles) skryté — 3D spheres je nahrazují */
+body.renderer-3d .cbox > div {
+  visibility: hidden !important;
+}
+/* Cbox background průhledný pro běžné nosiče — 3D rounded-box mesh ho nahrazuje.
+   Garage/rocket si necháváme CSS vzhled (3D je nerendrue). */
+body.renderer-3d .carrier.active .cbox,
+body.renderer-3d .carrier.inactive .cbox {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+/* Mystery (hiddenq) carriers v 3D — 2D ? text + dark bg schované, 3D mesh
+   s animovanou texturou je nahrazuje. Layout zůstává (getBoundingClientRect
+   čte pozici cbox-hid pro 3D mesh placement). v72.46. */
+body.renderer-3d .cbox-hid {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  color: transparent !important;
+}
+/* Drop shadow přímo na 3D canvas — generuje shadow ze silhouette všeho renderovaného
+   v canvasu (carriery, walls, balls). Auto-match s 3D mesh state (scale, position).
+   DISABLED v72.44 — vrátíme se k tomu později, pro teď to ruší vizuální čistotu. */
+/* body.renderer-3d #bottom3d-canvas {
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.45));
+} */
+
+/* Diff badge readability na light BG */
+body.renderer-3d .diff-badge.diff-relaxing { background: rgba(70, 160, 80, 0.20); }
+body.renderer-3d .diff-badge.diff-medium { background: rgba(200, 160, 50, 0.25); }
+body.renderer-3d .diff-badge.diff-hard { background: rgba(220, 110, 50, 0.25); }
+body.renderer-3d .diff-badge.diff-hardcore { background: rgba(230, 70, 70, 0.30); }
+
+/* Game over overlay match style */
+body.renderer-3d #overlay {
+  background: rgba(120, 80, 105, 0.55);
+}
+body.renderer-3d #overlay-box {
+  background: rgba(255, 250, 252, 0.95);
+  color: #3a2330;
+  border-color: rgba(120, 70, 100, 0.20);
+}
+body.renderer-3d #overlay-box h3 { color: #3a2330; }
+body.renderer-3d #overlay-box p { color: rgba(80, 40, 70, 0.75); }
+body.renderer-3d #restart-btn,
+body.renderer-3d #next-btn {
+  background: #3a2330;
+  color: #fff;
+  border: none;
+}
+body.renderer-3d #restart-btn:hover,
+body.renderer-3d #next-btn:hover { background: #5a3050; }
+
+/* ─── Dev overlay (v73.128, dev only, index_local.html) ─────────────────── */
+/*                                                                             */
+/* Architektura: #settings-toggle (⚙ floating button) + #dev-overlay (popover */
+/* nad funnel area). Veškerá dev UI (level/complexity/theme/stats/safe zone)  */
+/* sídlí uvnitř #dev-overlay, JS přesouvá .controls + #ammo-audit dovnitř.    */
+/* Pozice jsou nastavované JS dynamicky (positionFloatingElements).           */
+
+/* ⚙ floating button — pravá strana #game (JS-positioned), malinký a subtle */
+#settings-toggle {
+  position: fixed;
+  /* top + left JS-set podle gameRect, default schované off-screen aby flash */
+  top: -100px; left: -100px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.12s;
+}
+#settings-toggle:hover  { background: rgba(255, 255, 255, 0.25); color: rgba(255, 255, 255, 0.85); }
+#settings-toggle:active { transform: scale(0.92); }
+#settings-toggle.open   { background: rgba(80, 130, 255, 0.45); border-color: rgba(180, 200, 255, 0.6); color: #fff; }
+
+/* Dev overlay — popover nad funnel area */
+#dev-overlay {
+  position: fixed;
+  background: rgba(20, 22, 35, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  padding: 22px 14px 14px;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.55);
+  overflow: auto;
+}
+#dev-overlay[hidden] { display: none; }
+/* v73.208: zprůhlednit overlay během native color pickeru (ne display:none —
+   to by skrylo i input a picker by se nestihl otevřít). Input zůstává v layoutu. */
+#dev-overlay.dbg-picking {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+
+/* Override .controls when inside overlay — transparent, full width */
+#dev-overlay .controls {
+  width: 100% !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  flex-shrink: 0;
+}
+
+/* Override #ammo-audit when inside overlay — separator nad chipy */
+#dev-overlay #ammo-audit {
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 10px 0 0 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
+  flex-shrink: 0;
+}
+
+/* Safe zone pill — top border separator */
+#dev-overlay .dbg-pill {
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
+/* Version badge — vždy viditelný (fixed pos JS-set), top-left funnel area */
+body #version-badge {
+  position: fixed;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.55);
+  font-family: var(--font-sans);
+  pointer-events: none;
+  z-index: 160;
+  letter-spacing: 0.02em;
+}
+
+/* Pill toggles (safe zone, případně další) */
+.dbg-pill {
+  padding: 6px 14px;
+  border-radius: 20px;
+  font: 11px/1 system-ui, -apple-system, sans-serif;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s;
+  border: 1px solid transparent;
+  align-self: flex-start;
+}
+.dbg-pill:hover { color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.14); }
+.dbg-pill.active {
+  color: #fff;
+  background: rgba(80, 130, 255, 0.40);
+  border-color: rgba(100, 150, 255, 0.65);
+}
+
+/* Pill toggles */
+.dbg-pill {
+  padding: 5px 13px;
+  border-radius: 20px;
+  font: 11px/1 system-ui, -apple-system, sans-serif;
+  color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.07);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s;
+  border: 1px solid transparent;
+}
+.dbg-pill:hover { color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.12); }
+.dbg-pill.active {
+  color: #fff;
+  background: rgba(80, 130, 255, 0.35);
+  border-color: rgba(100, 150, 255, 0.6);
+}
+
+/* ── Overlay elementy (position:absolute uvnitř #game) ──────────────────── */
+
+/* Info panel — vlevo nahoře */
+#dbg-info {
+  display: none;
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 9990;
+  margin: 0;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.86);
+  color: #4f4;
+  font: 9px/1.6 monospace;
+  border-radius: 5px;
+  white-space: pre;
+  pointer-events: none;
+  border: 1px solid rgba(80, 255, 80, 0.18);
+}
+body.dbg-active #dbg-info { display: block; }
+
+/* Marker linka — top nastavuje debug.js dynamicky (MIN_H v CSS px) */
+#dbg-marker {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(255, 90, 0, 0.9);
+  z-index: 9988;
+  pointer-events: none;
+}
+#dbg-marker span {
+  position: absolute;
+  right: 6px;
+  top: 4px;
+  font: 9px/1 monospace;
+  color: #fff;
+  background: rgba(255, 90, 0, 0.9);
+  padding: 1px 5px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+body.dbg-active #dbg-marker { display: block; }
+
+/* Safe area — status bar nahoře (height nastavuje debug.js v CSS px) */
+#dbg-safe-top {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 200, 100, 0.12);
+  border-bottom: 1px dashed rgba(0, 200, 100, 0.45);
+  z-index: 9989;
+  pointer-events: none;
+  align-items: center;
+  justify-content: center;
+  font: 8px/1 monospace;
+  color: rgba(0, 200, 100, 0.8);
+}
+body.dbg-active #dbg-safe-top { display: flex; }
+
+/* Overflow zone — červený tint pod 568px */
+#dbg-overflow {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(255, 40, 0, 0.07);
+  border-top: 2px solid rgba(255, 40, 0, 0.30);
+  z-index: 9987;
+  pointer-events: none;
+}
+body.dbg-active #dbg-overflow { display: block; }
+
+/* Section outlines při aktivním Safe zone */
+body.dbg-active .controls      { outline: 1px dashed rgba(200, 200, 200, 0.35); }
+body.dbg-active #image-area    { outline: 2px solid rgba(0,   200, 255, 0.5); }
+body.dbg-active #belt-wrap     { outline: 2px solid rgba(255, 210,   0, 0.5); }
+body.dbg-active #pending-wrap  { outline: 2px solid rgba(0,   255, 120, 0.5); }
+body.dbg-active #carriers-wrap { outline: 2px solid rgba(255, 100, 255, 0.5); }

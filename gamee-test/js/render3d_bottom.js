@@ -1,0 +1,3756 @@
+// render3d_bottom.js — Three.js render layer pro bottom area (belt + pending + carriers)
+// Jeden WebGL canvas pokrývá celou oblast pod image-area: belt-wrap + pending-wrap + carriers-wrap.
+// Canvas je absolutně pozicovaný nad DOM (z-index:2, pointer-events:none) takže DOM carrier divy
+// zůstávají jako transparentní click targets.
+// API vystaveno přes window.render3dBottom = { init, updateCarriers, updatePending, updateBelt, render, isReady, dispose }
+
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// v74.79: version stamp pro watchdog
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v74.80';
+
+// ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
+const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
+const PENDING_CANVAS_H = 50;   // výška #pending-canvas (v71.6: půlka)
+const BELT_CAP        = 14;    // max balls na pásu
+// v74.79: cycle zkrácen — ball max uvnitř right box, nepřeteče (match game.js)
+const BELT_STARTX     = 18;    // posun -32px vůči původním 50, max xCSSrel=353
+const BELT_ENDX       = BELT_STARTX + 24 * (14 - 1); // 330
+const BELT_SPACING    = 24;    // 14×24 = 336 (cycle)
+const BELT_TOTAL      = BELT_CAP * BELT_SPACING;                     // 336
+const BELT_CENTER_CSS_Y = 32;  // (trackY1+trackY2)/2 = (18+46)/2
+
+// Poloměry koulí (3D) — sjednoceno, aby koule v carriers/trychtýři/belt měly stejnou velikost
+// Sphere radii — separate geometries pro každý kontext:
+// - R_CARRIER: balls uvnitř nosiče (2×2 grid). Geometry × slotScale → škáluje
+//   proporčně s velikostí nosiče. v71.23: 12 → 11 (mírně menší v poměru
+//   k nosiči — user intent).
+// - R_PENDING: balls ve funnelu. Scale 1, fixní velikost.
+// - R_BELT: balls na pásu. Scale 1, fixní velikost (= pending → consistent
+//   pohled při přechodu funnel → belt).
+const R_CARRIER = 11;
+const R_PENDING = 12;
+const R_BELT    = 12;
+
+// Carrier slot rounded-box geometry parametry
+const SLOT_SIZE       = 50;   // CSS px — vnitřní velikost krabičky
+const SLOT_RADIUS     = 9;    // zaoblení rohů
+const SLOT_DEPTH      = 14;   // hloubka krabičky (Z)
+const SLOT_BEVEL      = 1.6;  // bevel pro hladké hrany
+
+// Outline (inverted-hull technique) — scale faktor pro outline mesh
+const OUTLINE_SCALE_BALL = 1.13;  // koule outline 13 %
+const OUTLINE_SCALE_SLOT = 1.05;  // v73.51: slot outline 7 % → 5 % (jemnější)
+const WALL_OUTLINE_PX    = 1.6;   // wall outline — pevná tloušťka v CSS px (uniform, ne scale)
+const OUTLINE_COLOR      = 0x000000;  // čistá černá (cartoon look)
+
+// Tilt — stejný úhel jako render3d.js image area pro vizuální konzistenci
+const TILT_DEG = 19.2;
+const TILT_RAD = TILT_DEG * Math.PI / 180;
+
+const MAX_CARRIER_BALLS = 300;
+const MAX_CARRIER_SLOTS = 80;
+const MAX_PENDING       = 30;
+
+// Walls — v72.16. Per-cell 3D box, color matched s --carriers-3d-bg.
+// Depth mírně vyšší než SLOT_DEPTH → walls vyčnívají jako obstacle.
+const WALL_DEPTH         = 18;
+const WALL_BEVEL         = 1.2;   // 3D top→side soft edge (malý, jen pro Toon)
+const WALL_BEVEL_SEGS    = 2;     // segmenty bevelu
+const WALL_CORNER_RADIUS = 4.5;   // poloměr zaoblení rohů polygonu (silhouette)
+const MAX_WALL_INSTANCES = 50;
+
+// ─── Stav scény ──────────────────────────────────────────────────────────────
+const st = {
+  scene:        null,
+  camera:       null,
+  renderer:     null,
+  canvas:       null,
+  W:            360,
+  H:            240,
+  ready:        false,
+  // Y-offset (v CSS px od vrchu canvasu) kde začíná pending a carriers oblast
+  beltCenterY:    40,                   // přepočítá se v init() dynamickým měřením
+  pendingTopCSS:  BELT_SVG_H,          // přepočítá se v init() dynamickým měřením
+  carriersTopCSS: BELT_SVG_H + PENDING_CANVAS_H,  // carriers pod pending
+  beltOffsetX:    0,                    // offset belt-wrap od levé hrany canvasu (canvas může být širší)
+  // Carrier-fire animace — Map<id, {t0, x, y, w, h, hex, n}>
+  carrierAnim:    new Map(),
+  _carrierAnimId: 0,
+  // Inactive→active pop anim: Map<carrierKey "c,r", t0>
+  carrierPopAnim: new Map(),
+  // Cache active state per carrier pro detekci přechodu inactive→active
+  carrierActiveCache: new Map(),
+  // Mystery → active reveal anim: Map<carrierKey, t0>, v72.58
+  mysteryRevealAnim: new Map(),
+  // Cache hidden visual state per carrier pro detekci mystery → reveal přechodu
+  carrierHiddenCache: new Map(),
+  // Per-reveal one-off Mesh + ShaderMaterial s circular discard, v72.62
+  // Map<carrierKey, { mesh, mat, t0, uniforms }>
+  mysteryRevealMeshes: new Map(),
+  // v72.78: denial shake anim (klik na inactive / mystery) — Map<carrierKey, t0>
+  carrierDenialAnim: new Map(),
+  // Tilt struktura: pivot (centerO) → tiltGroup (rotace -TILT_RAD okolo X) → contentGroup (posun zpět)
+  pivot:        null,
+  tiltGroup:    null,
+  contentGroup: null,
+  // InstancedMesh — main pass
+  carrierSlotMesh: null,  // 3D rounded-box krabičky (slot containers)
+  carrierMesh: null,
+  pendingMesh: null,
+  beltMesh:    null,
+  // InstancedMesh — outline pass (inverted hull, BackSide black)
+  carrierSlotOutlineMesh: null,
+  carrierOutlineMesh:     null,
+  pendingOutlineMesh:     null,
+  beltOutlineMesh:        null,
+  // Belt track meshes (regular Mesh + outline)
+  beltPlane:        null,
+  beltPlaneOutline: null,
+  beltRollerL:      null,
+  beltRollerLOutline: null,
+  beltRollerR:      null,
+  beltRollerROutline: null,
+  // Dummy objekt pro matrix výpočty (reuse)
+  _dummy: new THREE.Object3D(),
+  _col3:  new THREE.Color(),
+  _colorCache: {},
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function _hex(hex) {
+  if (!st._colorCache[hex]) st._colorCache[hex] = new THREE.Color(hex);
+  return st._colorCache[hex];
+}
+
+// Vytvoří rounded-box geometrii (extruzi z rounded shape).
+// w/h = vnější rozměr, r = poloměr rohů, depth = hloubka v Z.
+function _roundedBoxGeom(w, h, r, depth, bevel) {
+  const shape = new THREE.Shape();
+  const x0 = -w / 2, y0 = -h / 2, x1 = w / 2, y1 = h / 2;
+  shape.moveTo(x0 + r, y0);
+  shape.lineTo(x1 - r, y0);
+  shape.quadraticCurveTo(x1, y0, x1, y0 + r);
+  shape.lineTo(x1, y1 - r);
+  shape.quadraticCurveTo(x1, y1, x1 - r, y1);
+  shape.lineTo(x0 + r, y1);
+  shape.quadraticCurveTo(x0, y1, x0, y1 - r);
+  shape.lineTo(x0, y0 + r);
+  shape.quadraticCurveTo(x0, y0, x0 + r, y0);
+  const geom = new THREE.ExtrudeGeometry(shape, {
+    depth: depth,
+    bevelEnabled: true,
+    bevelSize: bevel,
+    bevelThickness: bevel,
+    bevelSegments: 3,
+    curveSegments: 8,
+  });
+  // Vystředit Z (extruze jde od 0 do depth → posun o -depth/2)
+  geom.translate(0, 0, -depth / 2);
+  return geom;
+}
+
+// CSS pixel coords (Y=0 nahoře) → Three.js world coords (Y=0 dole, Y=H nahoře)
+function _worldY(cssY) { return st.H - cssY; }
+
+// Toon shader gradient: 3-band cel-shaded look — větší kontrast u shadow bandu
+// (47 %), takže spodek koule je viditelně tmavší než středový mid-tone.
+// 120 = shadow (47 %), 200 = mid (78 %), 255 = bright cap (100 %).
+function _makeToonGradient() {
+  const data = new Uint8Array([120, 200, 255]);
+  const tex  = new THREE.DataTexture(data, data.length, 1, THREE.RedFormat);
+  tex.minFilter = THREE.NearestFilter;
+  tex.magFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// Chrome matcap textůra pro belt boxy.
+// Používáme simple normal.xy→UV mapování (viz onBeforeCompile override na boxMat):
+//   uv.x = normal.x * 0.495 + 0.5  (levá/pravá strana)
+//   uv.y = normal.y * 0.495 + 0.5  (horní/spodní strana)
+// Pro front-facing plochy (normal ≈ (0,0,1)) → uv ≈ (0.5, 0.5) = střed textury.
+// Proto střed musí být mid-bright silver. Horní oblast textury = odraz oblohy (viditelný
+// na horních hranách boxu). Ostrý spec o kousek výš od středu.
+function _makeChromeMatcap() {
+  const N = 256;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = N;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, N, N);
+  const cx = N / 2, cy = N / 2, r = N / 2;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.clip();
+  // Základ: střední kovová šedá (barva předních ploch)
+  ctx.fillStyle = '#6878a0';
+  ctx.fillRect(0, 0, N, N);
+  // Vertikální přechod: horní polovina světlá (odraz oblohy na horních hranách)
+  const g = ctx.createLinearGradient(0, 0, 0, N);
+  g.addColorStop(0.00, 'rgba(255,255,255,0.95)'); // čistá obloha nahoře
+  g.addColorStop(0.25, 'rgba(180,200,240,0.65)'); // světle modrá obloha
+  g.addColorStop(0.45, 'rgba(80,100,150,0.25)');  // přechod k neutrální
+  g.addColorStop(0.55, 'rgba(0,0,0,0)');          // střed průhledný → base color
+  g.addColorStop(0.72, 'rgba(20,30,60,0.30)');    // dolní ztmavení
+  g.addColorStop(1.00, 'rgba(100,130,200,0.40)'); // odraz země
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, N, N);
+  // Spec hot-spot: o kousek výš od středu (normals mírně nahoru = horní bevel boxu)
+  const sx = cx, sy = cy * 0.68;
+  const spec = ctx.createRadialGradient(sx, sy, 0, sx, sy, N * 0.17);
+  spec.addColorStop(0.00, 'rgba(255,255,255,1.0)');
+  spec.addColorStop(0.35, 'rgba(255,255,255,0.65)');
+  spec.addColorStop(1.00, 'rgba(255,255,255,0)');
+  ctx.fillStyle = spec;
+  ctx.fillRect(0, 0, N, N);
+  // Rim vignette — ztmavení krajních (grazing angle) hran
+  const edge = ctx.createRadialGradient(cx, cy, r * 0.72, cx, cy, r);
+  edge.addColorStop(0, 'rgba(0,0,0,0)');
+  edge.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = edge;
+  ctx.fillRect(0, 0, N, N);
+  ctx.restore();
+  const tex = new THREE.CanvasTexture(cv);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+let _chromeMatcap = null;
+function _getChromeMatcap() {
+  if (!_chromeMatcap) _chromeMatcap = _makeChromeMatcap();
+  return _chromeMatcap;
+}
+
+// Pro velmi tmavé barvy (např. černý nosič #141414) zvedni minimální jas, aby
+// shading bandy byly vidět. Pure black × cokoliv = black → bez liftu nic neuvidíš.
+function _liftDark(col) {
+  const lum = col.r * 0.299 + col.g * 0.587 + col.b * 0.114;
+  if (lum < 0.18) {
+    const t = (0.18 - lum) / 0.18;
+    col.r += (0.30 - col.r) * t;
+    col.g += (0.30 - col.g) * t;
+    col.b += (0.34 - col.b) * t;
+  }
+}
+
+// Outline material — black, BackSide → renderuje pouze zadní stěny zvětšeného mesh,
+// které prosvítají na siluetě → vytvoří outline.
+function _outlineMat() {
+  return new THREE.MeshBasicMaterial({
+    color: OUTLINE_COLOR,
+    side: THREE.BackSide,
+    fog: false,
+  });
+}
+
+// v73.202: helper — vynásobí RGB složky hex barvy faktorem (0..1) pro darken.
+// Zachovává odstín, jen snižuje jas. Příklad: #6a2f4d × 0.10 = #0a0508.
+function _darkenHex(hex, factor) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  const rD = Math.max(0, Math.min(255, Math.round(r * factor)));
+  const gD = Math.max(0, Math.min(255, Math.round(g * factor)));
+  const bD = Math.max(0, Math.min(255, Math.round(b * factor)));
+  return '#' + rD.toString(16).padStart(2, '0') + gD.toString(16).padStart(2, '0') + bD.toString(16).padStart(2, '0');
+}
+
+// Mystery texture — 4×4 grid malých `?` glyphů, každý natočený 45°.
+// Wrap S i T s repeat=(1.5, 1.5) → 1:1 aspect, glyphy klouzají diagonálně přes
+// offset.x i offset.y v render(). Base barva = velmi tmavá verze theme floor
+// (--carriers-3d-bg), match red mauve.
+function _buildMysteryTexture() {
+  const S = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = S; canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  // v73.210: base = MYSTERY_BASE_DEFAULT (laděno přes dev color picker, finalní hex).
+  // Override přes st._mysteryBaseOverride. Mystery už nesleduje floor color
+  // (užívatel chce specific wine darkness, nezávislé na floor change).
+  const baseColor = st._mysteryBaseOverride || MYSTERY_BASE_DEFAULT;
+  ctx.fillStyle = baseColor;
+  ctx.fillRect(0, 0, S, S);
+  // 3×3 grid středně velkých tilted ?s + jemný tmavý outline (stroke před fill).
+  ctx.font = 'bold 40px system-ui, -apple-system, Segoe UI, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.lineWidth = 2.5;
+  ctx.lineJoin = 'round';
+  const N = 3;
+  const cell = S / N;
+  for (let row = 0; row < N; row++) {
+    for (let col = 0; col < N; col++) {
+      const cx = col * cell + cell / 2;
+      const cy = row * cell + cell / 2;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(-Math.PI / 4);
+      // Outline (stroke first, then fill overlays)
+      ctx.strokeText('?', 0, 0);
+      ctx.fillStyle = 'rgba(220, 225, 240, 0.55)';
+      ctx.fillText('?', 0, 0);
+      ctx.restore();
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  tex.repeat.set(0.7, 0.7);   // ~2×2 glyphů visible per slot, větší rozestupy
+  return tex;
+}
+
+// Reveal shader material — kruhový "wipe" od středu UV (0.5, 0.5). uRevealT 0→1.
+// Sdílí texturu + offset s rowMysteryMeshes (st._mysteryTex), aby ? glyphy
+// pokračovaly v animaci i během reveal. mapRepeat sync s st._mysteryTex.repeat.
+function _buildRevealMaterial(mysteryTex) {
+  const uniforms = {
+    map:       { value: mysteryTex },
+    mapOffset: { value: new THREE.Vector2(0, 0) },
+    mapRepeat: { value: new THREE.Vector2(mysteryTex.repeat.x, mysteryTex.repeat.y) },
+    uRevealT:  { value: 0 },
+  };
+  const MAX_DIST = SLOT_SIZE * 0.72;  // ~36 pro SLOT_SIZE=50 — dist od středu k rohu boxu
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `
+      varying vec2 vUv;
+      varying vec3 vLocalPos;
+      void main() {
+        vUv = uv;
+        vLocalPos = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D map;
+      uniform vec2 mapOffset;
+      uniform vec2 mapRepeat;
+      uniform float uRevealT;
+      varying vec2 vUv;
+      varying vec3 vLocalPos;
+      void main() {
+        // Radial discard v object-space XY — uniformní přes top i side faces
+        // (UV based wipe by tvořil two-phase bug: top má 0-1 UV, sides perimetr).
+        float dist = length(vLocalPos.xy);
+        float cutR = uRevealT * ${MAX_DIST.toFixed(2)};
+        if (dist < cutR) discard;
+        // Soft edge pro plynulý přechod (1 unit = 1 px world)
+        float edge = smoothstep(cutR - 1.5, cutR, dist);
+        vec2 sampleUV = vUv * mapRepeat + mapOffset;
+        vec4 tex = texture2D(map, sampleUV);
+        gl_FragColor = vec4(tex.rgb, tex.a * edge);
+      }
+    `,
+    // v72.66: opaque místo transparent — pending balls (renderOrder 150) jinak
+    // renderují AŽ po transparent pass = reveal mesh by je překryl. S transparent:false
+    // jsme v opaque pass kde renderOrder 144 < 150 → pending balls draw po reveal mesh.
+    // Smooth edge alpha už nebude (discard je hard), což je acceptable trade-off.
+    transparent: false,
+    // v74.79: depthTest:false → reveal mesh vždy překryje carriers (renderOrder 144
+    // mezi carriers ~110 a pending 150). Carrier balls jsou pod coverem během wipe,
+    // postupně se odhalují jak uRevealT roste. Pending balls (renderOrder 150) renderují
+    // až po reveal mesh, takže přes něj normálně létají.
+    depthTest: false,
+    depthWrite: false,
+    fog: false,
+  });
+  return { mat, uniforms };
+}
+
+// ExtrudeGeometry mapuje top-face UV na world coords (-25..25). Pro mystery slot
+// chceme 0-1 UV → naklonujeme slotGeom a přepíšeme UV bufferAttribute.
+function _buildMysterySlotGeom(slotGeom) {
+  const geom = slotGeom.clone();
+  const uvAttr = geom.attributes.uv;
+  const posAttr = geom.attributes.position;
+  const half = SLOT_SIZE / 2;
+  for (let i = 0; i < uvAttr.count; i++) {
+    const x = posAttr.getX(i);
+    const y = posAttr.getY(i);
+    // Normalize -half..half → 0..1
+    uvAttr.setXY(i, (x + half) / SLOT_SIZE, (y + half) / SLOT_SIZE);
+  }
+  uvAttr.needsUpdate = true;
+  return geom;
+}
+
+// ─── Inicializace ────────────────────────────────────────────────────────────
+
+function init(shared) {
+  if (st.ready) return true;
+  if (!THREE) return false;
+  st._shared = shared || null;   // unified orchestrator (sdílený renderer/scene/camera/mount)
+
+  const gameEl   = document.getElementById('game');
+  const beltWrap = document.getElementById('belt-wrap');
+  if (!gameEl || !beltWrap) return false;
+
+  // Změříme layout TEĎ (browser musí mít layout vypočítaný)
+  const gameRect = gameEl.getBoundingClientRect();
+  const beltRect = beltWrap.getBoundingClientRect();
+
+  // Spodní hranice: bottom-deck (pending+carriers v 3D) nebo carriers-wrap (2D)
+  const bottomEl = document.getElementById('bottom-deck') ||
+                   document.getElementById('carriers-wrap');
+  const bottomRect = bottomEl ? bottomEl.getBoundingClientRect() : beltRect;
+
+  // Canvas musí pokrýt nejširší area (carriers/pending = 420 px, belt = 360 px)
+  const carrEl     = document.getElementById('carriers-wrap');
+  const carrGridEl = document.getElementById('carriers-grid');  // v73.122: skutečné řady (ne wrap s paddingem)
+  const pendWrapEl = document.getElementById('pending-wrap');
+  let widestRect = beltRect;
+  if (carrEl && carrEl.getBoundingClientRect().width > widestRect.width) widestRect = carrEl.getBoundingClientRect();
+  if (pendWrapEl && pendWrapEl.getBoundingClientRect().width > widestRect.width) widestRect = pendWrapEl.getBoundingClientRect();
+
+  const W = Math.ceil(widestRect.width);
+  // v72.75: +400 px buffer (was +90) — canvas musí pojmout MAX_ROWS=7 i když init
+  // bežel s menším levelem. Level switch by jinak vyžadoval canvas resize, který
+  // by rozbil staticky pozicovaný belt track. Extra prostor = neviditelný (pod deckem).
+  const H = Math.max(180, Math.ceil(bottomRect.bottom - beltRect.top) + 400);
+
+  st.W = W;
+  st.H = H;
+
+  // Canvas pozice relativně k #game divu.
+  // POZOR: canvasTop měřený teď zahrnuje aktuální --game-top-extra padding.
+  // Abychom auto-followovali jeho budoucí změny (level change s jiným numRows
+  // může změnit topExtra), uložíme baseline (= top při topExtra=0) a CSS calc()
+  // dopočítá aktuální pozici za běhu. v71.21 fix bug 'belt zůstává stejně
+  // pozicovaný' při změně top paddingu.
+  const _currentTopExtra = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--game-top-extra')) || 0;
+  const canvasTop  = Math.round(beltRect.top  - gameRect.top);
+  const canvasTopBaseline = canvasTop - _currentTopExtra;
+  const canvasLeft = Math.round(widestRect.left - gameRect.left);
+
+  // X-offset belt-wrap od levé hrany canvasu (belt-svg + pending-canvas jsou užší a vystředěné)
+  st.beltOffsetX = Math.round(beltRect.left - widestRect.left);
+
+  // Dynamicky změřit pozice belt-svg a pending-canvas v rámci bottom3d-canvas
+  const beltSvgEl   = document.getElementById('belt-svg');
+  const pendEl      = document.getElementById('pending-canvas');
+  const beltSvgRect = beltSvgEl ? beltSvgEl.getBoundingClientRect() : null;
+  const pendRect    = pendEl    ? pendEl.getBoundingClientRect()    : null;
+  if (beltSvgRect) {
+    const beltSvgOffY = Math.round(beltSvgRect.top - gameRect.top) - canvasTop;
+    st.beltCenterY   = beltSvgOffY + Math.round(beltSvgRect.height / 2);
+  }
+  if (pendRect) {
+    st.pendingTopCSS = Math.round(pendRect.top - gameRect.top) - canvasTop;
+  }
+  // v73.122: měříme #carriers-grid místo #carriers-wrap → first row top + last row bottom
+  // (frame se anchoruje na reálné buňky, ne na wrap padding)
+  const carrGridForMeas = carrGridEl || carrEl;
+  if (carrGridForMeas) {
+    const cR = carrGridForMeas.getBoundingClientRect();
+    st.carriersTopCSS    = Math.round(cR.top    - gameRect.top) - canvasTop;
+    st.carriersBottomCSS = Math.round(cR.bottom - gameRect.top) - canvasTop;
+  }
+
+  // Canvas + camera extended o CANVAS_PAD aby se vešel frame outline který sahá
+  // ~8 px za frame edge. KNOWN ISSUE: 3D carriery posunuté o ~pad vpravo —
+  // updateCarriers počítá DOM-to-world přes canvasRect, který se s extending
+  // posune. Fix v dalším commitu (bottom-deck reference).
+  const CANVAS_PAD = 12;
+  const canvasFullW = W + 2 * CANVAS_PAD;
+  const canvasLeftShifted = canvasLeft - CANVAS_PAD;
+
+  // Vytvořit canvas a přidat do #game
+  const canvas = document.createElement('canvas');
+  canvas.id = 'bottom3d-canvas';
+  canvas.width  = canvasFullW;
+  canvas.height = H;
+  canvas.style.cssText = [
+    'position:absolute',
+    `left:${canvasLeftShifted}px`,
+    `top:calc(${canvasTopBaseline}px + var(--game-top-extra, 0px))`,
+    `width:${canvasFullW}px`,
+    `height:${H}px`,
+    'pointer-events:none',
+    'z-index:2',
+    'display:block',
+  ].join(';');
+
+  if (getComputedStyle(gameEl).position === 'static') gameEl.style.position = 'relative';
+  gameEl.appendChild(canvas);
+  st.canvas = canvas;
+  st.canvasPad = CANVAS_PAD;
+
+  // Three.js renderer — toon look nepotřebuje shadow mapy (cel-shading je flat)
+  let renderer;
+  if (shared && shared.renderer) {
+    renderer = shared.renderer;   // unified: sdílený renderer (velikost/clear/shadow řídí orchestrátor)
+  } else {
+    renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, stencil: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));  // v74.79: cap 1.5× (perf)
+    renderer.setSize(canvasFullW, H, false);
+    renderer.setClearColor(0, 0);
+    renderer.shadowMap.enabled = false;  // v73.216: real shadow nefungoval, zpět na disk
+  }
+
+  // OrthographicCamera: extended o CANVAS_PAD → world x ∈ [0, W] zůstává v centru,
+  // ale outline (x ∈ [-8, W+8]) je viditelný v rozšířené canvas oblasti.
+  // Unified: kreslíme přes unified kameru + mountBottom placement, vlastní kamera nepoužita pro draw.
+  let camera;
+  if (shared && shared.camera) {
+    camera = shared.camera;
+  } else {
+    camera = new THREE.OrthographicCamera(-CANVAS_PAD, W + CANVAS_PAD, H, 0, -300, 300);
+    camera.position.set(0, 0, 100);
+  }
+
+  const scene = (shared && shared.scene) ? shared.scene : new THREE.Scene();
+
+  // Tilt struktura — všechny meshes půjdou do contentGroup, který je naklopený
+  // o -TILT_RAD okolo X osy s pivotem ve středu canvas, podobně jako render3d.js.
+  const pivot = new THREE.Group();
+  pivot.position.set(W / 2, H / 2, 0);
+  // Unified: pivot jde do placement grupy (mountBottom), ne přímo do sdílené scény.
+  ((shared && shared.mount) ? shared.mount : scene).add(pivot);
+  st._uMount = (shared && shared.mount) ? shared.mount : null;
+
+  const tiltGroup = new THREE.Group();
+  tiltGroup.rotation.x = -TILT_RAD;
+  pivot.add(tiltGroup);
+
+  const contentGroup = new THREE.Group();
+  contentGroup.position.set(-W / 2, -H / 2, 0);  // posun zpět do původního souřadnic. systému
+  tiltGroup.add(contentGroup);
+
+  st.pivot = pivot;
+  st.tiltGroup = tiltGroup;
+  st.contentGroup = contentGroup;
+
+  // Osvětlení: ŽÁDNÝ ambient (rozmazává toon bands).
+  // Light z 3/4 úhlu (top-front-left) → přirozený 3D shading, ne flat-front.
+  // Highlight na top-left, shadow na bottom-right. Klasické art-school 3/4 lighting.
+  // Intensity = π kompenzuje BRDF_Diffuse_Lambert dělení / π → full saturation.
+  // v73.102: světla EXACTNĚ match image scéna (render3d.js):
+  //   - DirectionalLight intensity 1.55 (bylo Math.PI = 3.14)
+  //   - HemisphereLight intensity 1.85 (bylo 1.2)
+  // Aby band visuálně matchoval image frame, materiály i světla musí být stejné.
+  // Unified: spodek používá sdílený rig z horního modulu (méně světel = cíl refaktoru).
+  // Vlastní sun+hemi se přidají JEN ve standalone (ne-unified) módu.
+  if (!shared) {
+    const sun = new THREE.DirectionalLight(0xffffff, 1.55);
+    sun.position.set(-300, 800, 600);
+    scene.add(sun);
+
+    const hemi = new THREE.HemisphereLight(0xffe8f0, 0xa090a8, 1.85);
+    scene.add(hemi);
+  }
+  st.frameLightLayer = 0;
+
+  st.scene    = scene;
+  st.camera   = camera;
+  st.renderer = renderer;
+
+  // Sdílená geometrie pro koule (víc segmentů → hladší shading)
+  const carrierGeom = new THREE.SphereGeometry(R_CARRIER, 24, 16);
+  const pendingGeom = new THREE.SphereGeometry(R_PENDING, 18, 12);
+  const beltGeom    = new THREE.SphereGeometry(R_BELT,    24, 16);
+
+  // Toon shader gradient — sdílený mezi všemi materiály
+  const toonGrad = _makeToonGradient();
+
+  // v73.250: ball noise shader odstraněn — koule jsou zpět čistě toon-shaded.
+  const ballMat = () => new THREE.MeshToonMaterial({ gradientMap: toonGrad });
+
+  // Carrier slot rounded boxes (3D containery pro koule).
+  // v72.12: split-mesh approach — outer + inner separate InstancedMesh.
+  //   - slotMatOuter: výchozí color (white) → instance color × 1.0 = full
+  //   - slotMatInner: HSL darken (v72.14) — reduce lightness only, preserve
+  //     hue + saturation. Tmavomodrá zůstane modrá, ne načernalá.
+  //     Tunable: SLOT_INNER_LIGHTNESS_FACTOR konstanta (0.55 = 45% darker).
+  const slotGeom     = _roundedBoxGeom(SLOT_SIZE, SLOT_SIZE, SLOT_RADIUS, SLOT_DEPTH, SLOT_BEVEL);
+  const slotMatOuter = new THREE.MeshToonMaterial({ gradientMap: toonGrad });
+  const slotMatInner = new THREE.MeshToonMaterial({ gradientMap: toonGrad });
+  const slotMat      = slotMatOuter;  // pro initial InstancedMesh creation (placeholder = single group)
+
+  // v72.14: HSL darken pro slotMatInner — preserve hue + saturation, reduce
+  // lightness. Standard color-preserving shadow přístup z designerské praxe.
+  // Tunable: změň 0.55 ve fragment shaderu (níž = tmavší).
+  slotMatInner.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>',
+        `#include <common>
+         // HSL conversion (standard Wikipedia formulas)
+         vec3 _rgb2hsl(vec3 c) {
+           float maxC = max(max(c.r, c.g), c.b);
+           float minC = min(min(c.r, c.g), c.b);
+           float l = (maxC + minC) * 0.5;
+           vec3 hsl = vec3(0.0, 0.0, l);
+           if (maxC != minC) {
+             float d = maxC - minC;
+             hsl.y = l > 0.5 ? d / (2.0 - maxC - minC) : d / (maxC + minC);
+             if (maxC == c.r)      hsl.x = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);
+             else if (maxC == c.g) hsl.x = (c.b - c.r) / d + 2.0;
+             else                  hsl.x = (c.r - c.g) / d + 4.0;
+             hsl.x /= 6.0;
+           }
+           return hsl;
+         }
+         float _h2r(float p, float q, float t) {
+           if (t < 0.0) t += 1.0;
+           if (t > 1.0) t -= 1.0;
+           if (t < 1.0/6.0) return p + (q - p) * 6.0 * t;
+           if (t < 0.5)     return q;
+           if (t < 2.0/3.0) return p + (q - p) * (2.0/3.0 - t) * 6.0;
+           return p;
+         }
+         vec3 _hsl2rgb(vec3 hsl) {
+           if (hsl.y == 0.0) return vec3(hsl.z);
+           float q = hsl.z < 0.5 ? hsl.z * (1.0 + hsl.y) : hsl.z + hsl.y - hsl.z * hsl.y;
+           float p = 2.0 * hsl.z - q;
+           return vec3(_h2r(p, q, hsl.x + 1.0/3.0), _h2r(p, q, hsl.x), _h2r(p, q, hsl.x - 1.0/3.0));
+         }
+        `)
+      .replace('#include <color_fragment>',
+        `#include <color_fragment>
+         // v72.14: HSL darken — preserve hue & saturation, reduce lightness only.
+         // Tunable: 0.55 = 45 % darker lightness. Nižší = tmavší (0.4 = strong),
+         // vyšší = jemnější (0.7 = subtle).
+         vec3 _hsl = _rgb2hsl(diffuseColor.rgb);
+         _hsl.z *= 0.55;
+         diffuseColor.rgb = _hsl2rgb(_hsl);
+        `);
+  };
+
+  // Helper: vytvoří outline InstancedMesh pro danou geometrii a max počet instancí
+  const mkOutline = (geom, max) => {
+    const m = new THREE.InstancedMesh(geom, _outlineMat(), max);
+    m.count = 0;
+    m.renderOrder = -1;  // outline se kreslí PŘED main mesh (BackSide+depth = silueta)
+    m.frustumCulled = false;  // InstancedMesh per-instance positions přesahují geometry boundingSphere
+    return m;
+  };
+
+  // ─── Carrier slots + balls — PER-ROW InstancedMesh ───
+  // Důvod: Lower rows musí ALWAYS překrýt upper rows. Explicit renderOrder per row
+  // řeší problém že depth test sám nesedí když se mesh boundary překrývají (rounded
+  // corners, scene tilt). Drawing order: row 0 první → row 3 poslední (= na vrcholu).
+  const ROW_COUNT_MAX = 7;
+  const PER_ROW_SLOTS = 20;
+  const PER_ROW_BALLS = PER_ROW_SLOTS * 4;
+  st.rowSlotMeshes = [];        // outer parts (rim/sides) — slotMatOuter
+  st.rowSlotInnerMeshes = [];   // inner parts (top face) — slotMatInner, v72.12
+  st.rowSlotOutlineMeshes = [];
+  st.rowBallMeshes = [];
+  st.rowBallOutlineMeshes = [];
+  st.rowMysteryMeshes = [];     // mystery slots (hidden=true) — animated ? texture, v72.46
+  st.rowMysteryOutlineMeshes = []; // outline pro mystery — black BackSide, v72.53
+
+  // Mystery texture + material — single texture sdílená všemi rows. Animace v render().
+  // v73.209: MeshBasicMaterial místo Toon — bez lightingu, rendered color =
+  // texture color přesně (match dev color picker hex). Bylo: Toon dělalo
+  // rendered výrazně jasnější než texture base (light × texture).
+  st._mysteryTex = _buildMysteryTexture();
+  st._mysteryMat = new THREE.MeshBasicMaterial({
+    map: st._mysteryTex,
+    fog: false,
+  });
+  // Mystery geometry — clone slotGeom s přepsaným UV mappingem 0-1 na top face
+  // (default ExtrudeGeometry UVs jsou world coords -25..25 → texture wraps 100×).
+  st._mysterySlotGeom = _buildMysterySlotGeom(slotGeom);
+  for (let row = 0; row < ROW_COUNT_MAX; row++) {
+    // Slot mesh — OUTER
+    const sm = new THREE.InstancedMesh(slotGeom, slotMatOuter, PER_ROW_SLOTS);
+    sm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PER_ROW_SLOTS * 3), 3);
+    sm.count = 0;
+    sm.frustumCulled = false;
+    sm.renderOrder = 100 + row * 4;          // higher row = drawn later = on top
+    contentGroup.add(sm);
+    st.rowSlotMeshes.push(sm);
+    // Slot mesh — INNER (top face, separate geometry from GLB primitive 1, darker)
+    // v72.12: separate InstancedMesh místo multi-material array (InstancedMesh
+    // multi-material support v Three.js je nereliabilní). Same matrix + same
+    // color jako outer, materiál × 0.4 modulator = 60 % darker render.
+    const smInner = new THREE.InstancedMesh(slotGeom, slotMatInner, PER_ROW_SLOTS);
+    smInner.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PER_ROW_SLOTS * 3), 3);
+    smInner.count = 0;
+    smInner.frustumCulled = false;
+    smInner.renderOrder = 100 + row * 4 + 0.5;  // mezi outer (100+r*4) a balls (100+r*4+2)
+    contentGroup.add(smInner);
+    st.rowSlotInnerMeshes.push(smInner);
+    // Slot outline (covers full silhouette — outer + inner share)
+    const so = mkOutline(slotGeom, PER_ROW_SLOTS);
+    so.renderOrder = 100 + row * 4 - 1;
+    contentGroup.add(so);
+    st.rowSlotOutlineMeshes.push(so);
+    // Ball mesh
+    const bm = new THREE.InstancedMesh(carrierGeom, ballMat(), PER_ROW_BALLS);
+    bm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PER_ROW_BALLS * 3), 3);
+    bm.count = 0;
+    bm.frustumCulled = false;
+    bm.renderOrder = 100 + row * 4 + 2;      // after slot main + outline, within row
+    contentGroup.add(bm);
+    st.rowBallMeshes.push(bm);
+    // Ball outline
+    const bo = mkOutline(carrierGeom, PER_ROW_BALLS);
+    bo.renderOrder = 100 + row * 4 + 1;      // between slot main and ball
+    contentGroup.add(bo);
+    st.rowBallOutlineMeshes.push(bo);
+    // Mystery slot mesh — uses _mysterySlotGeom (cloned slotGeom + remapped UVs 0-1).
+    const mm = new THREE.InstancedMesh(st._mysterySlotGeom, st._mysteryMat, PER_ROW_SLOTS);
+    mm.count = 0;
+    mm.frustumCulled = false;
+    mm.renderOrder = 100 + row * 4;
+    contentGroup.add(mm);
+    st.rowMysteryMeshes.push(mm);
+    // Mystery outline — black BackSide, scaled up. Darker than mystery slot color
+    // (slot je #03060d, outline je 0x000000) → vizuálně odděluje slot od bg.
+    const mo = mkOutline(slotGeom, PER_ROW_SLOTS);
+    mo.renderOrder = 100 + row * 4 - 1;
+    contentGroup.add(mo);
+    st.rowMysteryOutlineMeshes.push(mo);
+  }
+
+  // Legacy single meshes pro carrier-fire ghost anim (zatím)
+  st.carrierSlotMesh = new THREE.InstancedMesh(slotGeom, slotMat, MAX_CARRIER_SLOTS);
+  st.carrierSlotMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARRIER_SLOTS * 3), 3);
+  st.carrierSlotMesh.count = 0;
+  st.carrierSlotMesh.frustumCulled = false;
+  st.carrierSlotMesh.renderOrder = 147;   // v72.76: ghost (tilting) nad mystery reveal (144), pod pending (150)
+  contentGroup.add(st.carrierSlotMesh);
+  // v72.15: parallel inner ghost mesh — během fire animace lift drží i top
+  // face (jinak inner mizí ze row mesh, top face vypadá černá).
+  st.carrierSlotInnerMesh = new THREE.InstancedMesh(slotGeom, slotMatInner, MAX_CARRIER_SLOTS);
+  st.carrierSlotInnerMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARRIER_SLOTS * 3), 3);
+  st.carrierSlotInnerMesh.count = 0;
+  st.carrierSlotInnerMesh.frustumCulled = false;
+  st.carrierSlotInnerMesh.renderOrder = 147.5;  // v72.76: mezi outer ghost (147) a ghost balls (148)
+  contentGroup.add(st.carrierSlotInnerMesh);
+  // v73.317: carrier mark — plochý rounded čtverec pod každým carrier slotem.
+  // Vizuální stopa "tady byl carrier" — vidí se i když je slot null (zničený).
+  // Color = floor color × HSL L+0.10 (lehce světlejší). Position captured
+  // na první updateCarriers full pass + persistuje přes celý level.
+  const markGeom = _roundedBoxGeom(SLOT_SIZE * 0.66, SLOT_SIZE * 0.66, SLOT_RADIUS, 3, 1);
+  const markMat = new THREE.MeshToonMaterial({ color: 0x6a2f4d, gradientMap: toonGrad });
+  st.carrierMarkMesh = new THREE.InstancedMesh(markGeom, markMat, MAX_CARRIER_SLOTS);
+  st.carrierMarkMesh.count = 0;
+  st.carrierMarkMesh.frustumCulled = false;
+  st.carrierMarkMesh.renderOrder = 90; // pod row carriers (100+), nad floor
+  contentGroup.add(st.carrierMarkMesh);
+  st._carrierMarkPositions = null; // captured na první full updateCarriers pass
+
+  st.carrierSlotOutlineMesh = mkOutline(slotGeom, MAX_CARRIER_SLOTS);
+  st.carrierSlotOutlineMesh.renderOrder = 146;   // v72.76: pod ghost slot (147), nad mystery reveal (144)
+  contentGroup.add(st.carrierSlotOutlineMesh);
+
+  // v72.18: Walls — technique 3 (per-rect Mesh s custom RoundedBoxGeometry).
+  // Předchozí InstancedMesh + scale (v72.17) měl pravoúhlé hrany a oválné
+  // rounded corners by scaled. Teď generujeme samostatný Mesh per merged rect
+  // s exact dimensions → uniform corner radius napříč všemi velikostmi walls.
+  // Material shared (theme color), meshes recreated v každém updateWalls call.
+  const wallMat = new THREE.MeshToonMaterial({ gradientMap: toonGrad });
+  st._wallMat = wallMat;
+  // Wall outline material — sdílí barvu wallu (darkened) místo pure black. Vypadá to
+  // jako stínovaná část bloku, ne kontrastní okraj.
+  st._wallOutlineMat = new THREE.MeshBasicMaterial({ side: THREE.BackSide, fog: false });
+  st._wallContentGroup = contentGroup;  // ref pro dynamic mesh add/remove
+  st.wallMeshes = [];         // dynamically created Mesh (per rect)
+  st.wallOutlineMeshes = [];  // dynamically created outline Mesh (per rect)
+
+  // Hot-swap slot geometry s GLB assetem (async — placeholder rendered do té doby).
+  // Asset z Blenderu má 1m × 1m × 0.28m → scale 50× sjednotí na náš SLOT_SIZE.
+  new GLTFLoader().load('./assets/3d/carrier.glb', (gltf) => {
+    const geoms = [];
+    gltf.scene.traverse(obj => { if (obj.isMesh) geoms.push(obj.geometry.clone()); });
+    if (geoms.length === 0) { console.warn('[render3d_bottom] GLB nemá mesh'); return; }
+    console.log('[render3d_bottom] GLB má', geoms.length, 'primitives — outer + inner separately rendered');
+    // v72.12: pro consistent transform na obou geoms použijeme PRVNÍ geom jako
+    // reference (jeho bbox). Stejné scale + center pro všechny → primitives
+    // si zachovají svou relativní pozici v rámci slotu.
+    // Asset je exportován s +Z up. Apply scale × 50 + common center na VŠECHNY
+    // geoms aby si zachovaly relativní pozice (oba primitives z téhož Blender
+    // meshe sdílí coord space).
+    for (const g of geoms) g.scale(50, 50, 50);
+    // Compute combined bbox aby translate byl consistent pro všechny primitives
+    const combinedBB = new THREE.Box3();
+    for (const g of geoms) {
+      g.computeBoundingBox();
+      combinedBB.union(g.boundingBox);
+    }
+    const cx = (combinedBB.min.x + combinedBB.max.x) / 2;
+    const cy = (combinedBB.min.y + combinedBB.max.y) / 2;
+    const cz = (combinedBB.min.z + combinedBB.max.z) / 2;
+    for (const g of geoms) {
+      g.translate(-cx, -cy, -cz);
+      g.computeBoundingSphere();
+    }
+    // v72.13: user's Blender konvence — Material.001 (primitive 0) = top face
+    // (inner, darker), Material.002 (primitive 1) = outer shell (full color).
+    // Swap přiřazení: inner mesh dostane geoms[0], outer mesh dostane geoms[1].
+    const geomInner = geoms[0];                                   // primitive 0 = top face (Material.001)
+    const geomOuter = geoms.length >= 2 ? geoms[1] : geoms[0];    // primitive 1 = shell    (Material.002)
+
+    // v72.12: separate InstancedMesh per part (outer + inner). Each gets jeho
+    // vlastní geometry + material. Per-instance color identický u outer/inner;
+    // material.color modulator dělá depth illusion (inner × 0.4 = 60% darker).
+    const oldOuterGeom = st.carrierSlotMesh.geometry;
+    st.carrierSlotMesh.geometry = geomOuter;               // ghost mesh: jen outer
+    st.carrierSlotOutlineMesh.geometry = geomOuter;        // outline: jen outer (full silhouette)
+    for (const m of st.rowSlotMeshes) m.geometry = geomOuter;
+    for (const m of st.rowSlotOutlineMeshes) m.geometry = geomOuter;
+    if (geomInner) {
+      for (const m of st.rowSlotInnerMeshes) m.geometry = geomInner;
+      // v72.15: inner ghost mesh dostane stejnou geometrii (ghost anim při fire)
+      if (st.carrierSlotInnerMesh) st.carrierSlotInnerMesh.geometry = geomInner;
+      console.log('[render3d_bottom] GLB primitive 1 → inner mesh assigned (depth illusion ON)');
+    } else {
+      // Single-primitive GLB: skip inner rendering (no depth illusion)
+      for (const m of st.rowSlotInnerMeshes) m.count = 0;
+      if (st.carrierSlotInnerMesh) st.carrierSlotInnerMesh.count = 0;
+      console.log('[render3d_bottom] GLB single primitive — depth illusion vypnutá');
+    }
+    if (oldOuterGeom) oldOuterGeom.dispose();
+    console.log('[render3d_bottom] carrier.glb loaded, combined bbox:', combinedBB);
+  }, undefined, (err) => {
+    console.warn('[render3d_bottom] carrier.glb load failed, keep placeholder:', err);
+  });
+
+  // ─── Carrier balls — legacy single mesh pouze pro ghost anim ───
+  st.carrierMesh = new THREE.InstancedMesh(carrierGeom, ballMat(), MAX_CARRIER_BALLS);
+  st.carrierMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARRIER_BALLS * 3), 3);
+  st.carrierMesh.count = 0;
+  st.carrierMesh.frustumCulled = false;
+  st.carrierMesh.renderOrder = 148;  // v72.76: ghost balls nad ghost slot (147), pod pending (150)
+  contentGroup.add(st.carrierMesh);
+  st.carrierOutlineMesh = mkOutline(carrierGeom, MAX_CARRIER_BALLS);
+  st.carrierOutlineMesh.renderOrder = 147.8;  // v72.76: mezi ghost slot (147) a ghost balls (148)
+  contentGroup.add(st.carrierOutlineMesh);
+
+  // ─── Pending balls ───
+  st.pendingMesh = new THREE.InstancedMesh(pendingGeom, ballMat(), MAX_PENDING);
+  st.pendingMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PENDING * 3), 3);
+  st.pendingMesh.count = 0;
+  st.pendingMesh.frustumCulled = false;
+  st.pendingMesh.renderOrder = 150;  // nad všema row carriery (100–114), pod ghost tilt (200)
+  st.pendingMesh.material = st.pendingMesh.material.clone();
+  st.pendingMesh.material.depthTest = false;  // renderOrder fully authoritative
+  st.pendingMesh.material.depthWrite = false;
+  contentGroup.add(st.pendingMesh);
+  st.pendingOutlineMesh = mkOutline(pendingGeom, MAX_PENDING);
+  st.pendingOutlineMesh.renderOrder = 149;  // pod pendingMesh (150) ale nad carriery
+  st.pendingOutlineMesh.material.depthTest = false;
+  contentGroup.add(st.pendingOutlineMesh);
+
+  // v73.211: Pending shadows enabled — disk pod každou kuličkou v trychtýři.
+  const shadowGeom = new THREE.CircleGeometry(R_PENDING * 1.35, 18);
+  const shadowMat  = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: 0.35,
+    depthWrite: false,
+    depthTest: true,  // renderOrder authoritative — vždy pod balls
+  });
+  st.pendingShadowMesh = new THREE.InstancedMesh(shadowGeom, shadowMat, MAX_PENDING);
+  st.pendingShadowMesh.count = 0;
+  st.pendingShadowMesh.frustumCulled = false;
+  st.pendingShadowMesh.renderOrder = 148;
+  st.pendingShadowMesh.visible = false;  // v73.217: shadow disabled per user request
+  contentGroup.add(st.pendingShadowMesh);
+
+  // ─── Belt balls ───
+  st.beltMesh = new THREE.InstancedMesh(beltGeom, ballMat(), BELT_CAP);
+  st.beltMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(BELT_CAP * 3), 3);
+  st.beltMesh.count = 0;
+  st.beltMesh.frustumCulled = false;
+  contentGroup.add(st.beltMesh);
+  st.beltOutlineMesh = mkOutline(beltGeom, BELT_CAP);
+  contentGroup.add(st.beltOutlineMesh);
+
+  _buildBeltTrack(contentGroup, W, toonGrad, st.beltCenterY);
+  _loadBeltBoxes(contentGroup, toonGrad); // v74.79: 3D krabice po stranách belt
+  _initUnifiedFrame();  // v73.54: belt + skulina + arena jako jeden 3D povrch
+
+  st.ready = true;
+  st._dirty = true; // v74.79: first frame render
+  // v74.79: shader pre-warm — kompiluj všechny WebGL programy předem aby
+  // při prvním use (carrier fire, pending ball spawn) nebyl 50–200ms jam.
+  try {
+    st.renderer.compile(st.scene, st.camera);
+  } catch (e) { console.warn('[render3d_bottom] shader pre-warm failed:', e); }
+  return true;
+}
+
+// ─── Belt track geometry ─────────────────────────────────────────────────────
+
+function _buildBeltTrack(parent, W, toonGrad, beltCenterY) {
+  // v73.306: stará belt plane odstraněna, nahrazena GLB plátky.
+  // v73.309: rails odstraněny — zůstaly jen side edges (tmavé pruhy pod plates).
+  const trackWY = _worldY(beltCenterY);
+  const ox = st.beltOffsetX;
+  const edgeLength = 304;
+  const edgeMid    = ox + 180;
+  const edgeGeom   = new THREE.BoxGeometry(edgeLength, 5, 4);
+  const edgeMat    = new THREE.MeshToonMaterial({ color: 0x1a1a25, gradientMap: toonGrad });
+
+  const edgeTop = new THREE.Mesh(edgeGeom, edgeMat);
+  edgeTop.position.set(edgeMid, trackWY + 13, -8);
+  parent.add(edgeTop);
+  st.beltEdgeTop = edgeTop;
+  const edgeBot = new THREE.Mesh(edgeGeom, edgeMat);
+  edgeBot.position.set(edgeMid, trackWY - 13, -8);
+  parent.add(edgeBot);
+  st.beltEdgeBot = edgeBot;
+}
+
+// v74.79: GLB loader pro belt-side krabice (BeltBoxLeft, BeltBoxRight).
+// Asset: 1m = 50px konvence. Boxy překryjí rollers — left box přes rollerL,
+// right box přes rollerR. Detekce object names přes traverse.
+function _loadBeltBoxes(parent, toonGrad) {
+  new GLTFLoader().load('./assets/3d/belt-boxes.glb', (gltf) => {
+    const trackWY = _worldY(st.beltCenterY);
+    const ox = st.beltOffsetX;
+    // v73.324: collect ALL primitives per side. Box má 2 primitives (shell + arrow).
+    const leftGeoms = [], rightGeoms = [];
+    gltf.scene.traverse(obj => {
+      if (!obj.isMesh) return;
+      const myName = (obj.name || '').toLowerCase();
+      const parentName = (obj.parent?.name || '').toLowerCase();
+      const isBoxMesh = myName.startsWith('beltbox') || parentName.startsWith('beltbox');
+      if (!isBoxMesh) return;
+      const ref = parentName.startsWith('beltbox') ? parentName : myName;
+      if (ref.endsWith('l') || ref.endsWith('left'))  leftGeoms.push(obj.geometry.clone());
+      else if (ref.endsWith('r') || ref.endsWith('right')) rightGeoms.push(obj.geometry.clone());
+    });
+    console.log('[render3d_bottom] belt-boxes.glb loaded — left:', leftGeoms.length, 'geoms, right:', rightGeoms.length, 'geoms');
+    let mirrorLeft = false, mirrorRight = false;
+    if (leftGeoms.length === 0 && rightGeoms.length > 0) {
+      for (const g of rightGeoms) leftGeoms.push(g.clone());
+      mirrorLeft = true;
+    }
+    if (rightGeoms.length === 0 && leftGeoms.length > 0 && !mirrorLeft) {
+      for (const g of leftGeoms) rightGeoms.push(g.clone());
+      mirrorRight = true;
+    }
+    if (leftGeoms.length === 0 && rightGeoms.length === 0) {
+      console.warn('[render3d_bottom] belt-boxes.glb: žádné belt box meshes nalezeny');
+      return;
+    }
+    // Arrow gradient — 6-band toon metallic (sdíleno jen arrow matsem)
+    if (!st._metalToonGrad) {
+      const data = new Uint8Array([15, 60, 130, 195, 240, 255]);
+      const tex = new THREE.DataTexture(data, data.length, 1, THREE.RedFormat);
+      tex.minFilter = THREE.NearestFilter;
+      tex.magFilter = THREE.NearestFilter;
+      tex.generateMipmaps = false;
+      tex.needsUpdate = true;
+      st._metalToonGrad = tex;
+    }
+    // Shell: MeshMatcapMaterial — šrafování z chrome textury, ignoruje scene lights.
+    // onBeforeCompile: přepíše UV výpočet z view-direction-based na simple normal.xy.
+    // Důvod: orthographic kamera s near/far ±300 a objekty na Z≈10 → vViewPosition.z≈10
+    // ale vViewPosition.x dosahuje 0–420 → normalize(vViewPosition) je velmi různé pro
+    // levý vs pravý box → různé matcap UV i pro identické normály. Normal.xy mapping
+    // je position-independent: stejné normály = stejný UV = oba boxy vypadají stejně.
+    const boxMat = new THREE.MeshMatcapMaterial({ matcap: _getChromeMatcap(), color: 0xffffff });
+    boxMat.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        'texture2D( matcap, uv )',
+        'texture2D( matcap, normal.xy * 0.495 + 0.5 )'
+      );
+    };
+    // Arrow zůstává toon — potřebujeme emissive pro neon theme.
+    const arrowMat = new THREE.MeshToonMaterial({ color: 0x707888, gradientMap: st._metalToonGrad });
+    st._boxArrowMat = arrowMat;
+    // Outline materials — shell (lehce světlejší než černá), arrow (tmavší než arrow body)
+    const boxOutlineMat = new THREE.MeshBasicMaterial({
+      color: 0x303040, side: THREE.BackSide, fog: false,
+    });
+    const arrowOutlineMat = new THREE.MeshBasicMaterial({
+      color: 0x1a1a25, side: THREE.BackSide, fog: false, // tmavší než arrow color
+    });
+
+    // Scale + center všechny geoms jedné strany dohromady, identifikuj shell (větší) vs arrow (menší)
+    function _prepareSideGeoms(geoms) {
+      for (const g of geoms) g.scale(50, 50, 50);
+      const combined = new THREE.Box3();
+      for (const g of geoms) {
+        g.computeBoundingBox();
+        combined.union(g.boundingBox);
+      }
+      const cx = (combined.min.x + combined.max.x) / 2;
+      const cy = (combined.min.y + combined.max.y) / 2;
+      const cz = (combined.min.z + combined.max.z) / 2;
+      for (const g of geoms) {
+        g.translate(-cx, -cy, -cz);
+        g.computeBoundingSphere();
+      }
+      let shell = geoms[0], arrow = null;
+      if (geoms.length >= 2) {
+        const c0 = geoms[0].attributes.position.count;
+        const c1 = geoms[1].attributes.position.count;
+        shell = c0 >= c1 ? geoms[0] : geoms[1];
+        arrow = c0 >= c1 ? geoms[1] : geoms[0];
+      }
+      return { shell, arrow };
+    }
+    function _mkBoxSide(geoms, position, mirror) {
+      const { shell, arrow } = _prepareSideGeoms(geoms);
+      const shellMesh = new THREE.Mesh(shell, boxMat);
+      shellMesh.position.copy(position);
+      const outMesh = new THREE.Mesh(shell, boxOutlineMat);
+      outMesh.position.copy(position);
+      outMesh.scale.setScalar(1.04);
+      outMesh.renderOrder = -1;
+      let arrowMesh = null, arrowOutMesh = null;
+      if (arrow) {
+        arrowMesh = new THREE.Mesh(arrow, arrowMat);
+        arrowMesh.position.copy(position);
+      }
+      if (mirror) {
+        shellMesh.scale.x = -1;
+        outMesh.scale.x *= -1;
+        // v73.326: arrow se nemirroruje — zachová original orientaci aby ukazoval
+        // stejně jako na pravém boxu.
+      }
+      return { shellMesh, outMesh, arrowMesh, arrowOutMesh };
+    }
+
+    if (leftGeoms.length > 0) {
+      const pos = new THREE.Vector3(ox + 28 - 12, trackWY + 10, 10);
+      const { shellMesh, outMesh, arrowMesh, arrowOutMesh } = _mkBoxSide(leftGeoms, pos, mirrorLeft);
+      parent.add(outMesh);
+      parent.add(shellMesh);
+      if (arrowOutMesh) parent.add(arrowOutMesh);
+      if (arrowMesh) parent.add(arrowMesh);
+      st.beltBoxLeft = shellMesh;
+      st.beltBoxLeftOutline = outMesh;
+      st.beltBoxLeftArrow = arrowMesh;
+    }
+    if (rightGeoms.length > 0) {
+      const pos = new THREE.Vector3(ox + 332 + 12, trackWY + 10, 10);
+      const { shellMesh, outMesh, arrowMesh, arrowOutMesh } = _mkBoxSide(rightGeoms, pos, mirrorRight);
+      parent.add(outMesh);
+      parent.add(shellMesh);
+      if (arrowOutMesh) parent.add(arrowOutMesh);
+      if (arrowMesh) parent.add(arrowMesh);
+      st.beltBoxRight = shellMesh;
+      st.beltBoxRightOutline = outMesh;
+      st.beltBoxRightArrow = arrowMesh;
+    }
+
+    // v73.307: belt plate — 2 primitives (outer + inner), stejně jako carrier.
+    // Najdi všechny meshes z beltPlate group (GLTFLoader rozdělí multi-primitive
+    // mesh do víc Mesh nodes pod společným parentem).
+    const plateGeoms = [];
+    gltf.scene.traverse(obj => {
+      if (!obj.isMesh) return;
+      const n = (obj.name || '').toLowerCase();
+      const pn = (obj.parent?.name || '').toLowerCase();
+      if (n.startsWith('beltplate') || pn.startsWith('beltplate')) {
+        plateGeoms.push(obj.geometry.clone());
+      }
+    });
+    if (plateGeoms.length > 0) {
+      // Scale ×50 a center všechny geoms identicky (přes combined bbox).
+      for (const g of plateGeoms) g.scale(50, 50, 50);
+      const combinedBB = new THREE.Box3();
+      for (const g of plateGeoms) {
+        g.computeBoundingBox();
+        combinedBB.union(g.boundingBox);
+      }
+      const pcx = (combinedBB.min.x + combinedBB.max.x) / 2;
+      const pcy = (combinedBB.min.y + combinedBB.max.y) / 2;
+      const pcz = (combinedBB.min.z + combinedBB.max.z) / 2;
+      for (const g of plateGeoms) {
+        g.translate(-pcx, -pcy, -pcz);
+        g.computeBoundingSphere();
+      }
+      // Která je outer (větší) a která inner (menší/detail)? Spočítej vertex count.
+      let outerGeom = plateGeoms[0], innerGeom = plateGeoms[1] || plateGeoms[0];
+      if (plateGeoms.length >= 2) {
+        const c0 = plateGeoms[0].attributes.position.count;
+        const c1 = plateGeoms[1].attributes.position.count;
+        // v73.330: swap — user prohodil materiály, takže menší = main, větší = dimple
+        outerGeom = c0 >= c1 ? plateGeoms[1] : plateGeoms[0];
+        innerGeom = c0 >= c1 ? plateGeoms[0] : plateGeoms[1];
+      }
+      // v73.308: outer material color WHITE, per-instance color dodá tint
+      // (alternující zebra — even plates tmavší, odd světlejší).
+      const outerMat = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: toonGrad });
+      st.beltPlateMesh = new THREE.InstancedMesh(outerGeom, outerMat, BELT_CAP);
+      st.beltPlateMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(BELT_CAP * 3), 3);
+      st.beltPlateMesh.count = BELT_CAP;
+      st.beltPlateMesh.frustumCulled = false;
+      parent.add(st.beltPlateMesh);
+      // Outline (jen na outer geometry — silueta z venku)
+      st.beltPlateOutlineMesh = new THREE.InstancedMesh(outerGeom, _outlineMat(), BELT_CAP);
+      st.beltPlateOutlineMesh.count = BELT_CAP;
+      st.beltPlateOutlineMesh.frustumCulled = false;
+      st.beltPlateOutlineMesh.renderOrder = -1;
+      parent.add(st.beltPlateOutlineMesh);
+      // Inner = světlejší accent (pokud existuje druhá primitive)
+      if (plateGeoms.length >= 2) {
+        const innerMat = new THREE.MeshToonMaterial({ color: 0x5a5a70, gradientMap: toonGrad });
+        st.beltPlateInnerMesh = new THREE.InstancedMesh(innerGeom, innerMat, BELT_CAP);
+        st.beltPlateInnerMesh.count = BELT_CAP;
+        st.beltPlateInnerMesh.frustumCulled = false;
+        parent.add(st.beltPlateInnerMesh);
+      }
+      console.log('[render3d_bottom] beltPlate loaded:', plateGeoms.length, 'primitives, instanced ×', BELT_CAP);
+    } else {
+      console.warn('[render3d_bottom] beltPlate object nebyl nalezen v GLB');
+    }
+
+    // Hole — kruhový otvor na zdi frame mezi belt boxy. 2 primitives:
+    //  - rim (více vertices) = chrome rámeček, sdílí matcap s belt boxy
+    //  - flat ploška (méně vertices) = tmavá vnitřní plocha (vypadá jako díra)
+    const holeGeoms = [];
+    gltf.scene.traverse(obj => {
+      if (!obj.isMesh) return;
+      const n = (obj.name || '').toLowerCase();
+      const pn = (obj.parent?.name || '').toLowerCase();
+      if (n === 'hole' || pn === 'hole') holeGeoms.push(obj.geometry.clone());
+    });
+    if (holeGeoms.length > 0) {
+      // Scale + center všechny geoms společně přes combined bbox (jeden shared origin)
+      for (const g of holeGeoms) g.scale(50, 50, 50);
+      const combinedBB = new THREE.Box3();
+      for (const g of holeGeoms) {
+        g.computeBoundingBox();
+        combinedBB.union(g.boundingBox);
+      }
+      const hcx = (combinedBB.min.x + combinedBB.max.x) / 2;
+      const hcy = (combinedBB.min.y + combinedBB.max.y) / 2;
+      const hcz = (combinedBB.min.z + combinedBB.max.z) / 2;
+      for (const g of holeGeoms) {
+        g.translate(-hcx, -hcy, -hcz);
+        g.computeBoundingSphere();
+      }
+      // Identify rim (větší = více vertices) vs inner plate (menší)
+      let rimGeom = holeGeoms[0], plateGeom = null;
+      if (holeGeoms.length >= 2) {
+        const c0 = holeGeoms[0].attributes.position.count;
+        const c1 = holeGeoms[1].attributes.position.count;
+        rimGeom   = c0 >= c1 ? holeGeoms[0] : holeGeoms[1];
+        plateGeom = c0 >= c1 ? holeGeoms[1] : holeGeoms[0];
+      }
+      const holePos = new THREE.Vector3(st.W / 2, trackWY + 20, 10);
+      // Rim: sdílí matcap chrome s belt boxy
+      const rimMesh = new THREE.Mesh(rimGeom, boxMat);
+      rimMesh.position.copy(holePos);
+      parent.add(rimMesh);
+      st.beltHole = rimMesh;
+      // Outline okolo rim (BackSide expand)
+      const rimOutMesh = new THREE.Mesh(rimGeom, boxOutlineMat);
+      rimOutMesh.position.copy(holePos);
+      rimOutMesh.scale.setScalar(1.12);
+      rimOutMesh.renderOrder = -1;
+      parent.add(rimOutMesh);
+      st.beltHoleOutline = rimOutMesh;
+      // Inner plate: tmavá ploška = vypadá jako díra
+      if (plateGeom) {
+        const plateMat = new THREE.MeshBasicMaterial({ color: 0x252a3d, fog: false });
+        const plateMesh = new THREE.Mesh(plateGeom, plateMat);
+        plateMesh.position.copy(holePos);
+        parent.add(plateMesh);
+        st.beltHoleInner = plateMesh;
+      }
+      console.log('[render3d_bottom] hole loaded —', holeGeoms.length, 'primitives');
+    } else {
+      console.warn('[render3d_bottom] hole object nebyl nalezen v GLB');
+    }
+
+    st._dirty = true; // force render
+    // v73.332: applyTheme tint na boxy + plates hned po load (async GLTFLoader
+    // jinak loaded after first refreshBeltTint call → boxy by zůstaly default)
+    refreshBeltTint();
+  }, undefined, (err) => {
+    console.warn('[render3d_bottom] belt-boxes.glb load failed:', err);
+  });
+}
+
+// ─── Unified surface frame ───────────────────────────────────────────────────
+// v73.54: Belt slot + skulina + arena = jeden 3D povrch s proraženými otvory.
+// Pattern stejný jako _buildImageFrameGeom v render3d.js — ExtrudeGeometry s
+// bevel dává rámu 3D hloubku a depth.
+//
+// Geometrie: outer rect (full canvas width × visible area height) s jedním
+// spojeným hole (belt slot → bridge sides → skulina → arena). Bridge materiál
+// na bocích skuliny vizuálně spojuje belt a arenu jako jeden kus.
+//
+// Souřadnice: world Y (Y-up) — viz _worldY(cssY) = st.H - cssY.
+
+const FRAME_SKULINA_HALF = 32;  // v73.112: 40→32, užší hrdlo (64 px wide, 2-3 balónky)
+const FRAME_ARENA_PAD    = 6;   // tloušťka rámu na bocích arény (px)
+const FRAME_DEPTH        = 50;  // ExtrudeGeometry depth — match image frame v73.63
+const FRAME_BEVEL        = 2;   // bevel size + thickness — match image frame v73.63
+const FRAME_BEVEL_SEGS   = 3;   // bevel segments — match image frame
+// v73.276: FRAME_OUTLINE_PX odstraněn — byl dead, skutečnou šířku řídí OUTLINE_W
+// v _rebuildUnifiedFrame (~ř. 1158).
+const FRAME_COLOR        = 0xf4b8c8;  // match image frame color (render3d.js line ~537)
+const FRAME_EMISSIVE     = 0x4a2f3d;  // mauve fill — lifts dark inner walls bez ambient light
+const FRAME_OUTLINE_COLOR= 0x8a5066;  // mauve-pink rim — match image area box-shadow
+const MYSTERY_BASE_DEFAULT = '#1c0410';  // v73.212: finální tuning, deeper wine
+const CORNER_R_BOT       = 20;  // radius zaoblení dolních rohů arény (~5% šířky)
+const FRAME_ARCH_HEIGHT  = 90;  // v73.121: locknutá výška oblouku skulina→arena; přebytek (carriers shift) se přidá k vertikálním stěnám arény místo deformace bezier
+
+function _buildUnifiedFrameGeom(W, p) {
+  // Outer shape: velký obdélník přes celou viditelnou oblast (CCW v Y-up)
+  const shape = new THREE.Shape();
+  shape.moveTo(0,  p.frameBotW);
+  shape.lineTo(W,  p.frameBotW);
+  shape.lineTo(W,  p.frameTopW);
+  shape.lineTo(0,  p.frameTopW);
+  shape.lineTo(0,  p.frameBotW);
+
+  // Jeden spojený hole: belt → bridge → skulina → arch → arena (CW v Y-up)
+  //
+  // Klíčový tvar: skulina (úzká, nahoře) se quadratic Bezier obloukem rozevírá
+  // do plné šířky arény (dole). Oblouk = ta "hezká část" — control point je
+  // na straně arény ve výšce skuliny, což vytvoří plynulý sweep outward+down.
+  //
+  //   skulinaRight ──╮            ╭── skulinaLeft
+  //                   \          /
+  //    (quadratic)     \        /   (quadratic)
+  //                     ╰──────╯
+  //   arenaRight ────────────────── arenaLeft   ← arenaTopW (níže)
+
+  const hole = new THREE.Path();
+
+  // 1. Start: belt top-left (belt hole dosahuje canvas top)
+  hole.moveTo(p.beltLeft,     p.beltTopW);
+  // 2. Belt top edge → doprava
+  hole.lineTo(p.beltRight,    p.beltTopW);
+  // 3. Belt pravá strana → dolů na belt-bottom
+  hole.lineTo(p.beltRight,    p.beltBotW);
+  // 4. Bridge pravá: krok dovnitř na skulinu pravou (stejná Y)
+  hole.lineTo(p.skulinaRight, p.skulinaTopW);
+  // 5. Skulina pravá → dolů na skulina-bottom (vrchol pravého oblouku)
+  hole.lineTo(p.skulinaRight, p.skulinaBotW);
+  // 6. ARCH vpravo: DVA cubic Bezier segmenty (matches curve_2.svg reference).
+  //    Segment 1: horizontální sweep s degenerate tangent na hrdle, sweeps 79% width / 41% height
+  //    Segment 2: prudký vertikální drop na arena edge s degenerate tangent
+  //    Konkavita ven, plynulý smooth tvar jako v SVG referenci.
+  const arcW_r = p.arenaRight - p.skulinaRight;
+  const arcH_r = p.skulinaBotW - p.arenaTopW;
+  // 6a. Segment 1: smooth horizontal sweep z hrdla (CP1 = start = degenerate tangent)
+  hole.bezierCurveTo(
+    p.skulinaRight,                    p.skulinaBotW,                  // CP1 = start (degenerate)
+    p.skulinaRight + arcW_r * 0.505,  p.skulinaBotW - arcH_r * 0.130, // CP2: ~50% across, ~13% down
+    p.skulinaRight + arcW_r * 0.785,  p.skulinaBotW - arcH_r * 0.411  // End: ~79% across, ~41% down
+  );
+  // 6b. Segment 2: vertical drop na arena edge (CP2 = end = degenerate tangent)
+  hole.bezierCurveTo(
+    p.skulinaRight + arcW_r * 0.959,  p.skulinaBotW - arcH_r * 0.637, // CP1: 96% across, 64% down
+    p.arenaRight,                       p.arenaTopW,                    // CP2 = end (degenerate)
+    p.arenaRight,                       p.arenaTopW                     // End: arena top-right corner
+  );
+  // 7. Arena pravá strana → dolů (k zaoblenému spodnímu rohu)
+  hole.lineTo(p.arenaRight, p.arenaBotW + CORNER_R_BOT);
+  // 7b. Zaoblený pravý spodní roh (quarter-circle Bezier, SVG-style)
+  hole.bezierCurveTo(
+    p.arenaRight,                          p.arenaBotW + CORNER_R_BOT * 0.448,
+    p.arenaRight - CORNER_R_BOT * 0.448,  p.arenaBotW,
+    p.arenaRight - CORNER_R_BOT,           p.arenaBotW
+  );
+  // 8. Arena spodek → doleva (k zaoblenému spodnímu rohu vlevo)
+  hole.lineTo(p.arenaLeft + CORNER_R_BOT, p.arenaBotW);
+  // 8b. Zaoblený levý spodní roh
+  hole.bezierCurveTo(
+    p.arenaLeft + CORNER_R_BOT * 0.448,   p.arenaBotW,
+    p.arenaLeft,                            p.arenaBotW + CORNER_R_BOT * 0.448,
+    p.arenaLeft,                            p.arenaBotW + CORNER_R_BOT
+  );
+  // 9. Arena levá strana → nahoru na arenaTop
+  hole.lineTo(p.arenaLeft, p.arenaTopW);
+  // 10. ARCH vlevo: DVA cubic Bezier segmenty (symetricky k pravému)
+  const arcW_l = p.skulinaLeft - p.arenaLeft;
+  const arcH_l = p.skulinaBotW - p.arenaTopW;
+  // 10a. Segment 1: rounded corner z arena bottom (CP1 = start = degenerate)
+  hole.bezierCurveTo(
+    p.arenaLeft,                       p.arenaTopW,                    // CP1 = start (degenerate)
+    p.arenaLeft + arcW_l * 0.041,     p.arenaTopW + arcH_l * 0.363,   // CP2: 4% across, 36% up
+    p.arenaLeft + arcW_l * 0.215,     p.arenaTopW + arcH_l * 0.589    // End: 21% across, 59% up
+  );
+  // 10b. Segment 2: horizontální sweep do hrdla (CP2 = end = degenerate)
+  hole.bezierCurveTo(
+    p.arenaLeft + arcW_l * 0.495,     p.arenaTopW + arcH_l * 0.870,   // CP1: 50% across, 87% up
+    p.skulinaLeft,                     p.skulinaBotW,                   // CP2 = end (degenerate)
+    p.skulinaLeft,                     p.skulinaBotW                    // End: skulina edge
+  );
+  // 11. Skulina levá → nahoru
+  hole.lineTo(p.skulinaLeft,  p.skulinaTopW);
+  // 12. Bridge levá: krok ven na belt levou
+  hole.lineTo(p.beltLeft,     p.beltBotW);
+  // 13. Belt levá strana → nahoru
+  hole.lineTo(p.beltLeft,     p.beltTopW);
+  hole.closePath();
+
+  shape.holes.push(hole);
+
+  return new THREE.ExtrudeGeometry(shape, {
+    depth:          FRAME_DEPTH,
+    bevelEnabled:   true,
+    bevelThickness: FRAME_BEVEL,
+    bevelSize:      FRAME_BEVEL,
+    bevelSegments:  FRAME_BEVEL_SEGS,
+    curveSegments:  8,
+  });
+}
+
+// v73.77: extract hole path building do samostatné funkce (reuse mezi
+// _initUnifiedFrame a _renderMiterOffsetTest). Vrací THREE.Path (CW v Y-up).
+function _buildHolePath(p) {
+  const hole = new THREE.Path();
+  // Radius zaoblení belt-skulina spojů (4 rohy: shoulder + skulina top, oba boky)
+  const R_SHOULDER = 5;
+  // Radius zaoblení belt-canvas top rohů (2 rohy: vlevo/vpravo nahoře)
+  const R_TOP = 5;
+  // "Radius" smooth-tangent na skulina→arch spoji (cp1 posun pro plynulý přechod)
+  const R_FUNNEL = 5;
+  // Top-left rounded corner: start path AFTER the corner pro plynulou closure
+  hole.moveTo(p.beltLeft + R_TOP, p.beltTopW);
+  hole.lineTo(p.beltRight - R_TOP, p.beltTopW);
+  // Top-right corner: horizontální → vertikální dolů
+  hole.quadraticCurveTo(p.beltRight, p.beltTopW, p.beltRight, p.beltTopW - R_TOP);
+  // Right shoulder: vertikální belt edge → horizontální step → vertikální skulina
+  hole.lineTo(p.beltRight,    p.beltBotW + R_SHOULDER);
+  hole.quadraticCurveTo(p.beltRight, p.beltBotW, p.beltRight - R_SHOULDER, p.beltBotW);
+  hole.lineTo(p.skulinaRight + R_SHOULDER, p.skulinaTopW);
+  hole.quadraticCurveTo(p.skulinaRight, p.skulinaTopW, p.skulinaRight, p.skulinaTopW - R_SHOULDER);
+  hole.lineTo(p.skulinaRight, p.skulinaBotW);
+  const arcW_r = p.arenaRight - p.skulinaRight;
+  const arcH_r = p.skulinaBotW - p.arenaTopW;
+  hole.bezierCurveTo(
+    p.skulinaRight,                    p.skulinaBotW,
+    p.skulinaRight + arcW_r * 0.505,  p.skulinaBotW - arcH_r * 0.130,
+    p.skulinaRight + arcW_r * 0.785,  p.skulinaBotW - arcH_r * 0.411
+  );
+  hole.bezierCurveTo(
+    p.skulinaRight + arcW_r * 0.959,  p.skulinaBotW - arcH_r * 0.637,
+    p.arenaRight,                       p.arenaTopW,
+    p.arenaRight,                       p.arenaTopW
+  );
+  hole.lineTo(p.arenaRight, p.arenaBotW + CORNER_R_BOT);
+  hole.bezierCurveTo(
+    p.arenaRight,                          p.arenaBotW + CORNER_R_BOT * 0.448,
+    p.arenaRight - CORNER_R_BOT * 0.448,  p.arenaBotW,
+    p.arenaRight - CORNER_R_BOT,           p.arenaBotW
+  );
+  hole.lineTo(p.arenaLeft + CORNER_R_BOT, p.arenaBotW);
+  hole.bezierCurveTo(
+    p.arenaLeft + CORNER_R_BOT * 0.448,   p.arenaBotW,
+    p.arenaLeft,                            p.arenaBotW + CORNER_R_BOT * 0.448,
+    p.arenaLeft,                            p.arenaBotW + CORNER_R_BOT
+  );
+  hole.lineTo(p.arenaLeft, p.arenaTopW);
+  const arcW_l = p.skulinaLeft - p.arenaLeft;
+  const arcH_l = p.skulinaBotW - p.arenaTopW;
+  hole.bezierCurveTo(
+    p.arenaLeft,                       p.arenaTopW,
+    p.arenaLeft + arcW_l * 0.041,     p.arenaTopW + arcH_l * 0.363,
+    p.arenaLeft + arcW_l * 0.215,     p.arenaTopW + arcH_l * 0.589
+  );
+  hole.bezierCurveTo(
+    p.arenaLeft + arcW_l * 0.495,     p.arenaTopW + arcH_l * 0.870,
+    p.skulinaLeft,                     p.skulinaBotW,
+    p.skulinaLeft,                     p.skulinaBotW
+  );
+  // Left shoulder: vertikální skulina → horizontální step → vertikální belt edge
+  hole.lineTo(p.skulinaLeft, p.skulinaTopW - R_SHOULDER);
+  hole.quadraticCurveTo(p.skulinaLeft, p.skulinaTopW, p.skulinaLeft - R_SHOULDER, p.skulinaTopW);
+  hole.lineTo(p.beltLeft + R_SHOULDER, p.beltBotW);
+  hole.quadraticCurveTo(p.beltLeft, p.beltBotW, p.beltLeft, p.beltBotW + R_SHOULDER);
+  // Up to top-left rounded corner
+  hole.lineTo(p.beltLeft, p.beltTopW - R_TOP);
+  hole.quadraticCurveTo(p.beltLeft, p.beltTopW, p.beltLeft + R_TOP, p.beltTopW);
+  return hole;
+}
+
+// v73.103: re-measure DOM pozice (volat z updateCarriers / resize).
+// Updates st.beltCenterY, st.pendingTopCSS, st.carriersTopCSS, st.carriersBottomCSS.
+function _measureFramePositions() {
+  if (!st.canvas) return;
+  const gameEl = document.getElementById('game');
+  if (!gameEl) return;
+  const gameRect = gameEl.getBoundingClientRect();
+  const canvasRect = st.canvas.getBoundingClientRect();
+  const canvasTop = canvasRect.top - gameRect.top;
+
+  const beltSvgEl = document.getElementById('belt-svg');
+  if (beltSvgEl) {
+    const r = beltSvgEl.getBoundingClientRect();
+    const offY = Math.round(r.top - gameRect.top) - canvasTop;
+    st.beltCenterY = offY + Math.round(r.height / 2);
+  }
+  const pendEl = document.getElementById('pending-canvas');
+  if (pendEl) {
+    const r = pendEl.getBoundingClientRect();
+    st.pendingTopCSS = Math.round(r.top - gameRect.top) - canvasTop;
+  }
+  // v73.122: měříme #carriers-grid místo #carriers-wrap → first row top / last row bottom
+  const carrEl = document.getElementById('carriers-grid') || document.getElementById('carriers-wrap');
+  if (carrEl) {
+    const cR = carrEl.getBoundingClientRect();
+    st.carriersTopCSS    = Math.round(cR.top    - gameRect.top) - canvasTop;
+    st.carriersBottomCSS = Math.round(cR.bottom - gameRect.top) - canvasTop;
+  }
+}
+
+// v73.103: dispose existing frame meshes (band, mask, floor) — pro rebuild.
+// v73.195: přidán unifiedFrameOutline — bez něj se hromadily duplikáty outline meshe
+// při každém rebuildu (resize/layout change) a vznikala viditelná druhá linka.
+function _disposeUnifiedFrame() {
+  const meshes = [st.unifiedFrameMesh, st.unifiedFrameMaskStencil, st.unifiedFrameFloor, st.unifiedFrameOutline, st.colliderDebugLine];
+  for (const m of meshes) {
+    if (!m) continue;
+    if (st.contentGroup) st.contentGroup.remove(m);
+    if (m.geometry) m.geometry.dispose();
+    if (m.material) m.material.dispose();
+  }
+  st.unifiedFrameMesh = null;
+  st.unifiedFrameMaskStencil = null;
+  st.unifiedFrameFloor = null;
+  st.unifiedFrameOutline = null;
+  st.colliderDebugLine = null;
+}
+
+// v73.104: nastavuje --carriers-pad-top CSS var podle dostupného prostoru.
+// Když je carrier-size na MAX (TARGET, ~54), máme místo → padding 18 px (breathing
+// room mezi obloukem a první řadou). Když shrunknuté, padding 4 px (default).
+function _setCarriersPadTop() {
+  const carrierSize = parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--carrier-size')
+  ) || 54;
+  const pad = (carrierSize >= 50) ? 18 : 4;
+  document.documentElement.style.setProperty('--carriers-pad-top', pad + 'px');
+}
+
+// v73.103: rebuild frame na základě aktuálních DOM pozic. Memoized — pokud
+// klíčové měření nezměnilo, skip.
+function _rebuildUnifiedFrame() {
+  if (!st.ready) return;
+  _setCarriersPadTop();  // nastav CSS var PŘED měřením
+  _measureFramePositions();
+  // Memoization key — pokud nezměnilo, skip
+  const key = `${st.beltCenterY}|${st.carriersTopCSS}|${st.carriersBottomCSS}`;
+  if (key === st.lastFrameKey) return;
+  st.lastFrameKey = key;
+  st._slotCacheValid = false; // v74.79: layout reálně mění slot pozice
+  _disposeUnifiedFrame();
+  _initUnifiedFrame();
+}
+
+function _initUnifiedFrame() {
+  const W = st.W;
+  const H = st.H;
+  const wy = (cssY) => H - cssY;
+
+  // Belt rozměry — match _buildBeltTrack (trackH=28, beltOffsetX)
+  const TRACK_H   = 28;
+  const beltCY    = st.beltCenterY || 32;
+  const beltLeft  = st.beltOffsetX || 30;
+  const beltRight = W - beltLeft;
+
+  // CSS Y souřadnice (Y-down od vrcholu canvasu)
+  const beltBotCSS  = beltCY + TRACK_H / 2 + 6;   // těsně pod belt
+  const skulinaLeft  = W / 2 - FRAME_SKULINA_HALF;
+  const skulinaRight = W / 2 + FRAME_SKULINA_HALF;
+
+  // Skulina = úzké hrdlo TĚSNĚ pod belt (kde se balls přelévají).
+  // skulinaBotCSS = kde oblouk ZAČÍNÁ (vrchol oblouku — úzká část).
+  // Posunuto blízko belt aby výška oblouku byla velká → výrazný spád od skuliny.
+  const skulinaBotCSS = beltBotCSS + 14;  // v73.112: 4→14, arch top níž (kopíruje hlubší linii)
+
+  // Arena = carriers oblast; arenaTopCSS je kde oblouk KONČÍ (plná šířka)
+  // Vertikální rozdíl skulinaBotCSS→arenaTopCSS = výška oblouku (čím větší, tím výraznější)
+  const arenaLeft   = FRAME_ARENA_PAD;
+  const arenaRight  = W - FRAME_ARENA_PAD;
+  // v73.121: arenaTopCSS (= konec oblouku) locknut na max FRAME_ARCH_HEIGHT pod skulinou.
+  // v73.122: anchory měřené z #carriers-grid (= reálné řady). Arch končí 15 px nad
+  // prvni horní řadou. Frame bottom = bottom poslední řady (pin tight).
+  const carriersBaseTopCSS = st.carriersTopCSS != null ? st.carriersTopCSS - 15 : skulinaBotCSS + 50;
+  const arenaTopCSS = Math.min(skulinaBotCSS + FRAME_ARCH_HEIGHT, carriersBaseTopCSS);
+  const arenaBotCSS = (st.carriersBottomCSS || H - 30) + 5;  // v73.124: 5 px buffer pod poslední řadou
+  const frameBotCSS = arenaBotCSS + 6;
+
+  const params = {
+    frameTopW:   wy(0),
+    frameBotW:   wy(frameBotCSS),
+    beltTopW:    wy(0),           // belt hole dosahuje canvas top
+    beltBotW:    wy(beltBotCSS),
+    beltLeft,
+    beltRight,
+    skulinaTopW: wy(beltBotCSS),  // skulina začíná hned pod belt
+    skulinaBotW: wy(skulinaBotCSS),  // vrchol oblouku (úzká část)
+    skulinaLeft,
+    skulinaRight,
+    arenaTopW:   wy(arenaTopCSS),    // spodek oblouku (plná šířka arény)
+    arenaBotW:   wy(arenaBotCSS),
+    arenaLeft,
+    arenaRight,
+  };
+
+  // v73.77: REAL MASK + OUTLINE via miter offset + self-intersection clipping.
+  //
+  // Mask = pás konstantní šířky kolem hole (= body BG color, splývá s pozadím).
+  // Outline = tenký dark rim na vnější hraně masky.
+  //
+  // Algoritmus:
+  //   1. Build hole path (CW v Y-up)
+  //   2. Sample (Bezier tessellation 30 subdivs)
+  //   3. _miterOffsetPolygon(samples, BAND_WIDTH) → outer offset
+  //      _clipSelfIntersections → splajzne self-intersections (bridge × arch crosses)
+  //   4. Stejně pro outline (BAND_WIDTH + OUTLINE_W)
+  //   5. Band Shape: outer = bandOuter reversed (CCW), hole = samples (CW)
+  //      Outline Shape: outer = outlineOuter reversed, hole = bandOuter (CW)
+  //   6. ShapeGeometry (flat 2D) — žádné depth artefakty
+  const BAND_WIDTH  = 6;   // šířka masky
+  const OUTLINE_W   = 1.3; // v73.276: 2 → 1.3 (match picture frame CSS box-shadow)
+
+  const holePath = _buildHolePath(params);
+  const innerPts = holePath.getPoints(30);
+
+  let bandOuterPts = _miterOffsetPolygon(innerPts, BAND_WIDTH);
+  bandOuterPts = _clipSelfIntersections(bandOuterPts);
+
+  // v73.193: offsetuj outline z už vyčištěného bandOuter (ne z raw innerPts).
+  // Tím se eliminují self-intersection artifakty na úzkých místech (skulina/krk).
+  let outlineOuterPts = _miterOffsetPolygon(bandOuterPts, OUTLINE_W);
+  outlineOuterPts = _clipSelfIntersections(outlineOuterPts);
+
+  // Shape builder helper
+  const _buildShape = (outerPts, holePts) => {
+    const sh = new THREE.Shape();
+    sh.moveTo(outerPts[0].x, outerPts[0].y);
+    for (let i = 1; i < outerPts.length; i++) sh.lineTo(outerPts[i].x, outerPts[i].y);
+    const h = new THREE.Path();
+    h.moveTo(holePts[0].x, holePts[0].y);
+    for (let i = 1; i < holePts.length; i++) h.lineTo(holePts[i].x, holePts[i].y);
+    sh.holes.push(h);
+    return sh;
+  };
+
+  const bandShape    = _buildShape(bandOuterPts.slice().reverse(),    innerPts);
+  const outlineShape = _buildShape(outlineOuterPts.slice().reverse(), bandOuterPts);
+
+  // v73.87: STENCIL CLIPPING — mask shape se vykreslí do stencil bufferu jako "1",
+  // pak band se renderuje s stencilFunc: EQUAL 1 → fragmenty mimo mask region se
+  // automaticky discardují → visible outer side walls jsou clipnuté.
+
+  // Stencil mask = FILLED shape do bandOuter (BEZ hole na innerPts) → stencil=1
+  // všude uvnitř bandOuter včetně hole interior. Outer side walls projektující
+  // ven jsou clipnuté; inner side walls projektující do hole zůstávají viditelné.
+  const maskShape = new THREE.Shape();
+  const bandOuterCCW = bandOuterPts.slice().reverse();
+  maskShape.moveTo(bandOuterCCW[0].x, bandOuterCCW[0].y);
+  for (let i = 1; i < bandOuterCCW.length; i++) {
+    maskShape.lineTo(bandOuterCCW[i].x, bandOuterCCW[i].y);
+  }
+  const maskGeom = new THREE.ShapeGeometry(maskShape, 4);
+  const maskMat = new THREE.MeshBasicMaterial({
+    colorWrite:    false,
+    depthWrite:    false,
+    depthTest:     false,            // always pass depth → mask vždy zapíše do stencil
+    stencilWrite:  true,
+    stencilRef:    1,
+    stencilFunc:   THREE.AlwaysStencilFunc,
+    stencilZPass:  THREE.ReplaceStencilOp,
+    stencilFail:   THREE.ReplaceStencilOp,
+    stencilZFail:  THREE.ReplaceStencilOp,
+  });
+  // v73.94: jen FLOOR posunutý o 12 px nahoru (band a mask zůstávají na místě)
+  const FLOOR_SHIFT_Y = 12;
+
+  const maskMesh = new THREE.Mesh(maskGeom, maskMat);
+  maskMesh.position.set(0, 0, 0);
+  maskMesh.renderOrder   = -1;
+  maskMesh.frustumCulled = false;
+  st.contentGroup.add(maskMesh);
+  st.unifiedFrameMaskStencil = maskMesh;
+
+  // v73.95: match image frame z render3d.js — depth 50, bevel 2, bevelSegs 3,
+  // color #f4b8c8 (hardcoded jako image frame). Stencil clipping skryje visible
+  // outer bevel surfaces, inner bevel zůstává viditelný uvnitř cavity.
+  const extrudeOpts = {
+    depth:          FRAME_DEPTH,
+    bevelEnabled:   true,
+    bevelThickness: 2,
+    bevelSize:      2,
+    bevelSegments:  3,
+    curveSegments:  2,
+  };
+  const bandGeom = new THREE.ExtrudeGeometry(bandShape, extrudeOpts);
+
+  // MeshLambertMaterial — match image frame exact (žádné emissive).
+  // Side walls budou lit přes HemisphereLight stejně jako image frame.
+  const cs    = getComputedStyle(document.body);
+  const bandMat = new THREE.MeshLambertMaterial({
+    color:            st._frameColorOverride || FRAME_COLOR,
+    stencilWrite:     true,
+    stencilWriteMask: 0x00,
+    stencilRef:       1,
+    stencilFunc:      THREE.EqualStencilFunc,
+    stencilFail:      THREE.KeepStencilOp,
+    stencilZFail:     THREE.KeepStencilOp,
+    stencilZPass:     THREE.KeepStencilOp,
+  });
+
+  const frameZ = -(FRAME_DEPTH + 2);
+
+  const bandMesh = new THREE.Mesh(bandGeom, bandMat);
+  bandMesh.position.set(0, 0, frameZ);
+  bandMesh.renderOrder   = 1;      // RENDER PO MASCE
+  bandMesh.frustumCulled = false;
+  // (no layer enable — hemisphere replaced by emissive on material)
+  st.contentGroup.add(bandMesh);
+  st.unifiedFrameMesh = bandMesh;
+
+  // v73.91: FLOOR — flat ShapeGeometry s tvarem innerPts (= hole shape).
+  // Vyplní dno kavity přesně podle tvaru naší díry. Tmavá mauve barva
+  // matching --carriers-3d-bg. Pozice hluboko za bandem.
+  const innerCCW = innerPts.slice().reverse();
+  const floorShape = new THREE.Shape();
+  floorShape.moveTo(innerCCW[0].x, innerCCW[0].y);
+  for (let i = 1; i < innerCCW.length; i++) {
+    floorShape.lineTo(innerCCW[i].x, innerCCW[i].y);
+  }
+  const floorGeom = new THREE.ShapeGeometry(floorShape, 4);
+  floorGeom.computeBoundingBox();
+  const floorMinY = floorGeom.boundingBox.min.y + FLOOR_SHIFT_Y; // world Y nejnižšího vertexu
+  const floorMaxY = floorGeom.boundingBox.max.y + FLOOR_SHIFT_Y; // world Y nejvyššího vertexu
+  const carriersBg = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
+  const floorMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(carriersBg) });
+  // v74.79: gradient injection — bottom (low Y, = nejnižší row) je světlejší ×1.18,
+  // top (= belt area) má base color × 1.0. Inject přes onBeforeCompile.
+  floorMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uFloorMinY = { value: floorMinY };
+    shader.uniforms.uFloorMaxY = { value: floorMaxY };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>',
+        '#include <common>\nvarying vec3 vFloorWorldPos;')
+      .replace('#include <begin_vertex>',
+        '#include <begin_vertex>\nvFloorWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>',
+        '#include <common>\nuniform float uFloorMinY;\nuniform float uFloorMaxY;\nvarying vec3 vFloorWorldPos;')
+      .replace('#include <dithering_fragment>',
+        '#include <dithering_fragment>\n' +
+        // t = 0 dole, 1 nahoře. Multiplier 1.18 (light) → 1.0 (base)
+        'float _floorT = clamp((vFloorWorldPos.y - uFloorMinY) / max(1.0, uFloorMaxY - uFloorMinY), 0.0, 1.0);\n' +
+        'float _floorGrad = mix(1.18, 1.0, _floorT);\n' +
+        'gl_FragColor.rgb *= _floorGrad;');
+  };
+  const floorMesh = new THREE.Mesh(floorGeom, floorMat);
+  floorMesh.position.set(0, FLOOR_SHIFT_Y, frameZ + 1);  // dno kavity, posunuté o 12 nahoru
+  floorMesh.renderOrder   = 0;  // render brzy
+  floorMesh.frustumCulled = false;
+  st.contentGroup.add(floorMesh);
+  st.unifiedFrameFloor = floorMesh;
+
+  // v73.194: outline jako flat ShapeGeometry (2D, žádné side walls / bocnice).
+  // Polož na front face bandu — flat rim viditelný jako tenká linka kolem celého rámu.
+  const outlineMat = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(st._outlineColorOverride || FRAME_OUTLINE_COLOR),
+  });
+  const outlineGeom = new THREE.ShapeGeometry(outlineShape, 4);
+  const outlineMesh = new THREE.Mesh(outlineGeom, outlineMat);
+  // Band extruduje z frameZ do frameZ+FRAME_DEPTH (+bevel ~2). Outline mírně nad front face.
+  outlineMesh.position.set(0, 0, frameZ + FRAME_DEPTH + 3);
+  outlineMesh.renderOrder   = 2;
+  outlineMesh.frustumCulled = false;
+  st.contentGroup.add(outlineMesh);
+  st.unifiedFrameOutline = outlineMesh;
+
+  // v73.110: BEZIER ARCH COLLIDER — sample left+right arch curves, convert na
+  // FUN coords a expose pro multi-segment collision detection v game.js.
+  if (window.FUN) {
+    const F = window.FUN;
+    const TOP_CSS = st.beltCenterY + R_BELT + 2;
+    const toFunY = (worldY) => (st.H - worldY) - TOP_CSS + F.narrowY;
+
+    // Right arch: 2 bezier segmenty — replikujeme z _buildHolePath
+    const archRight = new THREE.Path();
+    const arcW_r = params.arenaRight - params.skulinaRight;
+    const arcH_r = params.skulinaBotW - params.arenaTopW;
+    archRight.moveTo(params.skulinaRight, params.skulinaBotW);
+    archRight.bezierCurveTo(
+      params.skulinaRight,                    params.skulinaBotW,
+      params.skulinaRight + arcW_r * 0.505,  params.skulinaBotW - arcH_r * 0.130,
+      params.skulinaRight + arcW_r * 0.785,  params.skulinaBotW - arcH_r * 0.411
+    );
+    archRight.bezierCurveTo(
+      params.skulinaRight + arcW_r * 0.959,  params.skulinaBotW - arcH_r * 0.637,
+      params.arenaRight,                       params.arenaTopW,
+      params.arenaRight,                       params.arenaTopW
+    );
+    const archRightPts = archRight.getPoints(80);  // v73.127: 40→80 dvojnásob jemnější polyline
+
+    // Left arch: 2 bezier segmenty
+    const archLeft = new THREE.Path();
+    const arcW_l = params.skulinaLeft - params.arenaLeft;
+    const arcH_l = params.skulinaBotW - params.arenaTopW;
+    archLeft.moveTo(params.arenaLeft, params.arenaTopW);
+    archLeft.bezierCurveTo(
+      params.arenaLeft,                       params.arenaTopW,
+      params.arenaLeft + arcW_l * 0.041,     params.arenaTopW + arcH_l * 0.363,
+      params.arenaLeft + arcW_l * 0.215,     params.arenaTopW + arcH_l * 0.589
+    );
+    archLeft.bezierCurveTo(
+      params.arenaLeft + arcW_l * 0.495,     params.arenaTopW + arcH_l * 0.870,
+      params.skulinaLeft,                     params.skulinaBotW,
+      params.skulinaLeft,                     params.skulinaBotW
+    );
+    const archLeftPts = archLeft.getPoints(80);  // v73.127: 40→80 dvojnásob jemnější polyline
+
+    // v73.113: shift arch dolů o ARCH_Y_SHIFT px aby kolizoval s "hlubší" linií
+    // (zadní stěnou kavity, kterou vidíme přes tilt 3D projekce).
+    // FRAME_DEPTH=50 × sin(TILT_RAD ≈ 0.335) ≈ 16 px screen offset.
+    const ARCH_Y_SHIFT = 16;
+    F.archSegmentsRight = archRightPts.map(pt => ({ x: pt.x, y: toFunY(pt.y) + ARCH_Y_SHIFT }));
+    F.archSegmentsLeft  = archLeftPts.map(pt  => ({ x: pt.x, y: toFunY(pt.y) + ARCH_Y_SHIFT }));
+    // v73.126: precomputed smoothed interior normals per vertex (average of adjacent
+    // edge normals → continuous normal field). collideFunnelSeg lerpuje mezi p1/p2
+    // normálami podle t → ball klouže s plynule se měnící normálou, žádné skoky
+    // na segment-segment hraně. Pravidlo: CCW winding (right arch top→bot, left arch
+    // bot→top oba CCW v Y-down FUN coords), interior = rotace tangenty CCW 90° = (-dy, dx).
+    const _smoothNormals = (pts) => {
+      const n = pts.length;
+      const eN = new Array(n - 1);
+      for (let i = 0; i < n - 1; i++) {
+        const dx = pts[i+1].x - pts[i].x;
+        const dy = pts[i+1].y - pts[i].y;
+        const L = Math.hypot(dx, dy);
+        eN[i] = (L < 1e-4) ? { nx: 0, ny: 0 } : { nx: -dy / L, ny: dx / L };
+      }
+      for (let i = 0; i < n; i++) {
+        let nx, ny;
+        if (i === 0)            { nx = eN[0].nx;     ny = eN[0].ny; }
+        else if (i === n - 1)   { nx = eN[n-2].nx;   ny = eN[n-2].ny; }
+        else {
+          nx = (eN[i-1].nx + eN[i].nx) * 0.5;
+          ny = (eN[i-1].ny + eN[i].ny) * 0.5;
+          const L = Math.hypot(nx, ny);
+          if (L > 1e-4) { nx /= L; ny /= L; }
+        }
+        pts[i].nx = nx; pts[i].ny = ny;
+      }
+    };
+    _smoothNormals(F.archSegmentsRight);
+    _smoothNormals(F.archSegmentsLeft);
+    // Update slopeEndY aby vertikální arena walls navazovaly na nový arch konec
+    F.slopeEndY = F.archSegmentsRight[F.archSegmentsRight.length - 1].y;
+
+    // DEBUG outline: trace both arches as zelená line. Order musí být CW (clockwise)
+    // bez self-intersection: narrowR → archRight (top→bot) → wide bottom → archLeft
+    // (bot→top, native order since archLeft samples START at arena corner) → narrowL.
+    const debugPts = [];
+    debugPts.push({ x: F.narrowR, y: F.narrowY });           // top-right of narrow
+    for (const p of F.archSegmentsRight) debugPts.push(p);   // right arch top → bottom
+    debugPts.push({ x: F.wideR, y: F.wideY });               // bottom-right of arena
+    debugPts.push({ x: F.wideL, y: F.wideY });               // bottom-left of arena
+    for (const p of F.archSegmentsLeft) debugPts.push(p);    // left arch bot → top (native)
+    debugPts.push({ x: F.narrowL, y: F.narrowY });           // top-left of narrow
+
+    const funYtoCanvasY = (funY) => TOP_CSS + (funY - F.narrowY);
+    const coords = [];
+    for (const p of debugPts) coords.push(p.x, _worldY(funYtoCanvasY(p.y)), 0);
+    // v73.114: debug line vypnutá v produkci. Pro debug zapnout `DEBUG_COLLIDER_LINE = true`
+    const DEBUG_COLLIDER_LINE = false;
+    if (DEBUG_COLLIDER_LINE) {
+      const colliderGeom = new THREE.BufferGeometry();
+      colliderGeom.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
+      const colliderMat = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+      const colliderLine = new THREE.Line(colliderGeom, colliderMat);
+      colliderLine.position.set(0, 0, 0);
+      colliderLine.renderOrder = 200;
+      colliderLine.frustumCulled = false;
+      st.contentGroup.add(colliderLine);
+      st.colliderDebugLine = colliderLine;
+    }
+  }
+
+  console.log('[render3d_bottom] mask+outline built — band:', BAND_WIDTH,
+    '| outline:', OUTLINE_W, '| inner:', innerPts.length,
+    '| band outer:', bandOuterPts.length, '| outline outer:', outlineOuterPts.length);
+}
+
+// v73.68: minimal safe test rendering — paralelní offset jako tenká bright ring.
+function _renderMiterOffsetTest(params, distance, colorHex) {
+  // Build hole path z params (stejně jako v _buildUnifiedFrameGeom)
+  const W = st.W;
+  const hole = new THREE.Path();
+  const p = params;
+  hole.moveTo(p.beltLeft,     p.beltTopW);
+  hole.lineTo(p.beltRight,    p.beltTopW);
+  hole.lineTo(p.beltRight,    p.beltBotW);
+  hole.lineTo(p.skulinaRight, p.skulinaTopW);
+  hole.lineTo(p.skulinaRight, p.skulinaBotW);
+  const arcW_r = p.arenaRight - p.skulinaRight;
+  const arcH_r = p.skulinaBotW - p.arenaTopW;
+  hole.bezierCurveTo(
+    p.skulinaRight,                    p.skulinaBotW,
+    p.skulinaRight + arcW_r * 0.505,  p.skulinaBotW - arcH_r * 0.130,
+    p.skulinaRight + arcW_r * 0.785,  p.skulinaBotW - arcH_r * 0.411
+  );
+  hole.bezierCurveTo(
+    p.skulinaRight + arcW_r * 0.959,  p.skulinaBotW - arcH_r * 0.637,
+    p.arenaRight,                       p.arenaTopW,
+    p.arenaRight,                       p.arenaTopW
+  );
+  hole.lineTo(p.arenaRight, p.arenaBotW + CORNER_R_BOT);
+  hole.bezierCurveTo(
+    p.arenaRight,                          p.arenaBotW + CORNER_R_BOT * 0.448,
+    p.arenaRight - CORNER_R_BOT * 0.448,  p.arenaBotW,
+    p.arenaRight - CORNER_R_BOT,           p.arenaBotW
+  );
+  hole.lineTo(p.arenaLeft + CORNER_R_BOT, p.arenaBotW);
+  hole.bezierCurveTo(
+    p.arenaLeft + CORNER_R_BOT * 0.448,   p.arenaBotW,
+    p.arenaLeft,                            p.arenaBotW + CORNER_R_BOT * 0.448,
+    p.arenaLeft,                            p.arenaBotW + CORNER_R_BOT
+  );
+  hole.lineTo(p.arenaLeft, p.arenaTopW);
+  const arcW_l = p.skulinaLeft - p.arenaLeft;
+  const arcH_l = p.skulinaBotW - p.arenaTopW;
+  hole.bezierCurveTo(
+    p.arenaLeft,                       p.arenaTopW,
+    p.arenaLeft + arcW_l * 0.041,     p.arenaTopW + arcH_l * 0.363,
+    p.arenaLeft + arcW_l * 0.215,     p.arenaTopW + arcH_l * 0.589
+  );
+  hole.bezierCurveTo(
+    p.arenaLeft + arcW_l * 0.495,     p.arenaTopW + arcH_l * 0.870,
+    p.skulinaLeft,                     p.skulinaBotW,
+    p.skulinaLeft,                     p.skulinaBotW
+  );
+  hole.lineTo(p.skulinaLeft,  p.skulinaTopW);
+  hole.lineTo(p.beltLeft,     p.beltBotW);
+  hole.lineTo(p.beltLeft,     p.beltTopW);
+
+  // Sample hole, offset, build thin ring shape
+  const innerPts = hole.getPoints(30);
+  let outerPts = _miterOffsetPolygon(innerPts, distance);
+  // v73.76: clip self-intersections (cross-overs mezi non-adjacent edges)
+  outerPts = _clipSelfIntersections(outerPts);
+
+  // Shape: outer = outerPts reversed (CCW), hole = innerPts (CW)
+  const ringShape = new THREE.Shape();
+  const outerReversed = outerPts.slice().reverse();
+  ringShape.moveTo(outerReversed[0].x, outerReversed[0].y);
+  for (let i = 1; i < outerReversed.length; i++) ringShape.lineTo(outerReversed[i].x, outerReversed[i].y);
+  const ringHole = new THREE.Path();
+  ringHole.moveTo(innerPts[0].x, innerPts[0].y);
+  for (let i = 1; i < innerPts.length; i++) ringHole.lineTo(innerPts[i].x, innerPts[i].y);
+  ringShape.holes.push(ringHole);
+
+  // Flat 2D geometry (ShapeGeometry → žádná hloubka, žádná triangulace složitosti)
+  const ringGeom = new THREE.ShapeGeometry(ringShape, 4);
+  const ringMat  = new THREE.MeshBasicMaterial({ color: colorHex });
+  const ringMesh = new THREE.Mesh(ringGeom, ringMat);
+  // Position v front of main frame ale za carriery
+  ringMesh.position.set(0, 0, -1);
+  ringMesh.renderOrder   = 50;
+  ringMesh.frustumCulled = false;
+  st.contentGroup.add(ringMesh);
+  st.miterTestMesh = ringMesh;
+
+  // v73.75: BLACK OUTLINE tracing přesně outer offset path — uvidíme kde se
+  // linie zlomí / přeskakuje (každý bod offset polygonu = vertex v line).
+  const outlineCoords = [];
+  for (const pt of outerPts) outlineCoords.push(pt.x, pt.y, 0);
+  outlineCoords.push(outerPts[0].x, outerPts[0].y, 0);  // close loop
+  const lineGeom = new THREE.BufferGeometry();
+  lineGeom.setAttribute('position', new THREE.Float32BufferAttribute(outlineCoords, 3));
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x000000 });
+  const lineMesh = new THREE.Line(lineGeom, lineMat);
+  lineMesh.position.set(0, 0, -0.5);  // nad ring mesh (ke kameře)
+  lineMesh.renderOrder   = 51;
+  lineMesh.frustumCulled = false;
+  st.contentGroup.add(lineMesh);
+  st.miterTestOutline = lineMesh;
+}
+
+// v73.68: helper — proper polygon offset s miter joins (Blender Inset-style).
+// v73.69: Proper polygon offset s miter joins + SELF-INTERSECTION CLIPPING.
+// Algoritmus:
+//   1. Pro každý segment spočítej offset přímku
+//   2. Compute naivní miter v každém rohu (= intersection sousedních offset přímek)
+//   3. Detect flipped runs — kde offset segment jde proti směru původního (= miters se překryly)
+//   4. Pro každý flipped run najdi intersection valid prev × valid next offset line
+//      → replace flipped miters jedním bodem
+//
+// Pojmenováno _miterOffsetPolygon aby nekolidovalo s existujícím _offsetPolygonOutward
+// (wall outline, řádek ~1781, jiný algoritmus, používá se pro 3D walls).
+function _miterOffsetPolygon(points, distance) {
+  // 1. Build segments
+  const segs = [];
+  for (let i = 0; i < points.length; i++) {
+    const p1 = points[i];
+    const p2 = points[(i + 1) % points.length];
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-9) continue;
+    const nx = -dy / len;
+    const ny =  dx / len;
+    segs.push({
+      offsetP1:  new THREE.Vector2(p1.x + nx * distance, p1.y + ny * distance),
+      offsetP2:  new THREE.Vector2(p2.x + nx * distance, p2.y + ny * distance),
+      tangentX:  dx / len,
+      tangentY:  dy / len,
+      corner:    new THREE.Vector2(p1.x, p1.y),  // original start corner pro miter distance check
+    });
+  }
+  const ns = segs.length;
+  if (ns === 0) return [];
+
+  // 2. Compute corner points:
+  //    - SMOOTH corners (small angle change, jako Bezier samples): use midpoint of
+  //      adjacent offset endpoints → no far-miter artifact
+  //    - SHARP corners (angle > ~18°): use miter intersection (line-line intersect)
+  //    cos(18°) ≈ 0.95
+  const SMOOTH_COS_THRESHOLD = 0.95;
+  const miters = new Array(ns);
+  for (let i = 0; i < ns; i++) {
+    const prev = segs[(i - 1 + ns) % ns];
+    const cur  = segs[i];
+    const cosA = prev.tangentX * cur.tangentX + prev.tangentY * cur.tangentY;
+    if (cosA > SMOOTH_COS_THRESHOLD) {
+      // Smooth — offset přímky téměř paralelní, midpoint adjacent endpoints
+      miters[i] = new THREE.Vector2(
+        (prev.offsetP2.x + cur.offsetP1.x) / 2,
+        (prev.offsetP2.y + cur.offsetP1.y) / 2
+      );
+    } else {
+      // Sharp — line-line intersection
+      miters[i] = _lineLineIntersect(prev.offsetP1, prev.offsetP2, cur.offsetP1, cur.offsetP2)
+                  || cur.offsetP1.clone();
+    }
+  }
+
+  // 3. Detect problematic segments:
+  //    a) FLIPPED — offset segment goes proti směru original (miters překryly)
+  //    b) FAR MITER — miter je dál než 3*distance od původního rohu (nearly parallel
+  //       offset lines u smooth Bezier curves → intersection v "nekonečnu")
+  const MITER_LIMIT_DIST = distance * 3;
+  const flipped = new Array(ns).fill(false);
+  for (let i = 0; i < ns; i++) {
+    // 3a) Flip check
+    const m1 = miters[i];
+    const m2 = miters[(i + 1) % ns];
+    const dot = (m2.x - m1.x) * segs[i].tangentX + (m2.y - m1.y) * segs[i].tangentY;
+    if (dot < 0) { flipped[i] = true; continue; }
+    // 3b) Far miter check — miters[i] vůči segs[i].corner (původní roh = start segs[i])
+    const corner = segs[i].corner;
+    const dCorner = Math.hypot(miters[i].x - corner.x, miters[i].y - corner.y);
+    if (dCorner > MITER_LIMIT_DIST) flipped[i] = true;
+  }
+
+  // 4. Walk přes ns segments. Valid runs jdou normal, flipped runs nahradíme
+  //    jedním intersection bodem mezi valid sousedy.
+  // Najdi start non-flipped segmentu (aby cyklus nezačal uprostřed runu)
+  let startIdx = 0;
+  while (startIdx < ns && flipped[startIdx]) startIdx++;
+  if (startIdx === ns) return miters;  // všechny flipped → degenerate, fallback na naive
+
+  const result = [];
+  let i = startIdx;
+  do {
+    if (!flipped[i]) {
+      result.push(miters[i]);
+      i = (i + 1) % ns;
+    } else {
+      // Start of flipped run. Find end.
+      const runStart = i;
+      let runLen = 0;
+      while (flipped[i] && runLen < ns) {
+        i = (i + 1) % ns;
+        runLen++;
+      }
+      // Segs[runStart..i-1] jsou flipped (s wraparound). Najdi intersection
+      // offset line předchozího valid segmentu s offset line následujícího.
+      const prevValid = segs[(runStart - 1 + ns) % ns];
+      const nextValid = segs[i];
+      const isect = _lineLineIntersect(
+        prevValid.offsetP1, prevValid.offsetP2,
+        nextValid.offsetP1, nextValid.offsetP2
+      );
+      // Distance check — pokud intersection je MOC DALEKO (offset přímky skoro paralelní
+      // jako u bridge+arch s opačnými směry), fallback na BEVEL = připoj prev endpoint na next start.
+      // Tím zabráníme "ouškům" které vznikaly extrapolací na vzdálené průsečíky.
+      const CLIP_LIMIT = distance * 3;
+      if (isect) {
+        const dEnd = Math.hypot(isect.x - prevValid.offsetP2.x, isect.y - prevValid.offsetP2.y);
+        const dStart = Math.hypot(isect.x - nextValid.offsetP1.x, isect.y - nextValid.offsetP1.y);
+        if (dEnd > CLIP_LIMIT || dStart > CLIP_LIMIT) {
+          // Bevel — 2 body, přímá spojnice
+          result.push(prevValid.offsetP2);
+          result.push(nextValid.offsetP1);
+        } else {
+          result.push(isect);
+        }
+      } else {
+        // Paralelní (denom = 0) — bevel
+        result.push(prevValid.offsetP2);
+        result.push(nextValid.offsetP1);
+      }
+      // Skip miters[i] — intersection/bevel becomes new corner at start of segs[i]
+      i = (i + 1) % ns;
+    }
+  } while (i !== startIdx);
+
+  return result;
+}
+
+function _lineLineIntersect(p1, p2, p3, p4) {
+  const denom = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
+  if (Math.abs(denom) < 1e-9) return null;
+  const t = ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) / denom;
+  return new THREE.Vector2(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
+}
+
+// v73.76: FINITE segment intersection — vrátí intersection POUZE pokud leží
+// uvnitř obou segmentů (t ∈ [0,1] pro oba). Null pokud segments nekříží.
+function _segSegIntersect(p1, p2, p3, p4) {
+  const denom = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
+  if (Math.abs(denom) < 1e-9) return null;
+  const t = ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) / denom;
+  const u = -((p1.x - p2.x) * (p1.y - p3.y) - (p1.y - p2.y) * (p1.x - p3.x)) / denom;
+  // Tolerance EPS na okrajích aby adjacent segments které sdílí endpoint nevyhodily false positive
+  const EPS = 1e-6;
+  if (t < EPS || t > 1 - EPS || u < EPS || u > 1 - EPS) return null;
+  return new THREE.Vector2(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
+}
+
+// v73.76: Self-intersection clipping. Pro polygon points najdi všechny dvojice
+// non-adjacent edges (i, j) které se křižují uvnitř, a splice polygon — nahraď
+// vnitřní loop jediným bodem v průsečíku.
+function _clipSelfIntersections(points) {
+  if (points.length < 4) return points;
+  const n = points.length;
+  const result = [];
+  let i = 0;
+  let iter = 0;
+  while (i < n && iter < n * 2) {
+    iter++;
+    result.push(points[i]);
+    const p1 = points[i];
+    const p2 = points[(i + 1) % n];
+    // Hledej intersection s nejdřív vzdálenějším future edge (greedy skip)
+    let bestJ = -1;
+    let bestIsect = null;
+    for (let j = i + 2; j < n; j++) {
+      if ((j + 1) % n === i) continue;  // last edge wraps back to start
+      const p3 = points[j];
+      const p4 = points[(j + 1) % n];
+      const isect = _segSegIntersect(p1, p2, p3, p4);
+      if (isect) {
+        bestJ = j;
+        bestIsect = isect;
+        break;  // greedy — vezmi PRVNÍ intersection
+      }
+    }
+    if (bestIsect) {
+      result.push(bestIsect);
+      i = bestJ + 1;
+    } else {
+      i++;
+    }
+  }
+  return result;
+}
+
+// ─── updateCarriers ──────────────────────────────────────────────────────────
+// Volá se po drawCarriers() v game.js — DOM je čerstvý, můžeme měřit pozice.
+// columns: pole sloupců (game.js global)
+// colorsArr: COLORS array z game.js (hex stringy)
+
+function updateCarriers(columns, colorsArr) {
+  if (!st.ready || !columns) return;
+  st._dirty = true; // v74.79: carriers update = layout change → vždy dirty
+
+  // v73.103: rebuild frame pokud carriers pozice změnila (responzivní layout)
+  _rebuildUnifiedFrame();
+
+  // v74.79: per-slot measurement cache — během anim se layout nemění, takže
+  // místo per-frame getBoundingClientRect (36 carriers × ~3 rect calls = 108
+  // forced layouts/frame) cache pozice + dynScale. Invalidace přes
+  // _invalidateSlotCache() (resize, level start, theme change).
+  let canvasRect, refRect;
+  let useCache = !!(st._slotCache && st._slotCacheValid);
+  if (!useCache) {
+    canvasRect = st.canvas.getBoundingClientRect();
+    refRect = document.getElementById('bottom-deck')?.getBoundingClientRect() || canvasRect;
+    st._cachedCanvasTop = canvasRect.top;
+    st._cachedRefLeft = refRect.left;
+    if (!st._slotCache) st._slotCache = new Map();
+    st._slotCache.clear();
+    st._slotCacheValid = true;
+    // v73.317: full pass + cache invalid = nový level/layout → recapture marks
+    st._carrierMarkPositions = [];
+    st._carrierMarkCaptureMode = true; // flagsignal pro iteration loop
+  }
+  const gridEl = document.getElementById('carriers-grid');
+  if (!gridEl) return;
+
+  const dummy   = st._dummy;
+  const c3      = st._col3;
+  const cSlot   = new THREE.Color();
+  let ballIdx  = 0;   // ghost mesh ball index (only ghost anim now)
+  let slotIdx  = 0;   // ghost mesh slot index
+  const rowSlotIdx = [0, 0, 0, 0, 0, 0, 0];  // per-row slot indices (max 7)
+  const rowBallIdx = [0, 0, 0, 0, 0, 0, 0];  // per-row ball indices  (max 7)
+  const rowMysteryIdx = [0, 0, 0, 0, 0, 0, 0]; // per-row mystery slot indices, v72.46
+
+  const colDivs = gridEl.querySelectorAll('.carrier-col');
+
+  for (let c = 0; c < colDivs.length && c < columns.length; c++) {
+    const col       = columns[c];
+    const slotDivs  = colDivs[c].querySelectorAll('.carrier');
+
+    for (let r = 0; r < slotDivs.length && r < col.length; r++) {
+      const slot = col[r];
+      // Přeskočíme prázdné, wall, garages a rockets (renderuje CSS)
+      if (!slot || slot.wall || slot.type === 'garage' || slot.type === 'rocket') continue;
+
+      // v72.46/57: mystery (hidden) carrier — separate branch, renderuje na rowMysteryMeshes
+      // s animovanou ? texturou. Skip regular slot/ball rendering.
+      // Pozor: slot.hidden zůstává true napořád (data flag) — "odhalení" je pouze
+      // visual když má null souseda (= active). DOM má class 'hiddenq' jen pokud
+      // je NEodhalená (= !active && slot.hidden). Proto kontrolujeme DOM class.
+      const isHiddenVisual = slotDivs[r].classList.contains('hiddenq');
+      const mysteryKey = c + ',' + r;
+      const wasHidden = st.carrierHiddenCache.get(mysteryKey) === true;
+      // Detekce transition: mystery → reveal — spustíme circular-wipe shader anim
+      // přes one-off Mesh (ne shrink na rowMysteryMeshes).
+      if (wasHidden && !isHiddenVisual) {
+        // Spočítej pozici z .cbox (nyní revealed slot)
+        const cboxR = slotDivs[r].querySelector('.cbox');
+        if (cboxR) {
+          // v74.79: reveal trigger — 1× per slot reveal, neoptimalizujeme cache
+          const crR = cboxR.getBoundingClientRect();
+          const refL = st._cachedRefLeft !== undefined ? st._cachedRefLeft : (refRect ? refRect.left : 0);
+          const canT = st._cachedCanvasTop !== undefined ? st._cachedCanvasTop : (canvasRect ? canvasRect.top : 0);
+          const xWR = crR.left + crR.width / 2 - refL;
+          const yWR = _worldY(crR.top + crR.height / 2 - canT);
+          const dynR = crR.width / SLOT_SIZE;
+          const { mat, uniforms } = _buildRevealMaterial(st._mysteryTex);
+          const mesh = new THREE.Mesh(st._mysterySlotGeom, mat);
+          mesh.position.set(xWR, yWR, 0);
+          mesh.scale.set(dynR, dynR, dynR);
+          mesh.renderOrder = 144;
+          mesh.frustumCulled = false;
+          st.contentGroup.add(mesh);
+          st.mysteryRevealMeshes.set(mysteryKey, { mesh, mat, uniforms, t0: performance.now() });
+        }
+        st.mysteryRevealAnim.set(mysteryKey, performance.now());
+      }
+      st.carrierHiddenCache.set(mysteryKey, isHiddenVisual);
+      if (isHiddenVisual) {
+        const cboxHid = slotDivs[r].querySelector('.cbox-hid');
+        if (!cboxHid) continue;
+        // v74.79: cache hidden slot pos
+        const hidCacheKey = 'h:' + c + ',' + r;
+        let xWh, yWh, dynScaleH;
+        const cachedH = useCache ? st._slotCache.get(hidCacheKey) : null;
+        if (cachedH) {
+          xWh = cachedH.xW; yWh = cachedH.yW; dynScaleH = cachedH.dynScale;
+        } else {
+          const crH = cboxHid.getBoundingClientRect();
+          const xCSSh = crH.left + crH.width  / 2 - st._cachedRefLeft;
+          const yCSSh = crH.top  + crH.height / 2 - st._cachedCanvasTop;
+          xWh = xCSSh;
+          yWh = _worldY(yCSSh);
+          dynScaleH = crH.width / SLOT_SIZE;
+          st._slotCache.set(hidCacheKey, { xW: xWh, yW: yWh, dynScale: dynScaleH });
+        }
+        // v73.318: mystery carrier dostane stejný mark jako regular
+        if (st._carrierMarkCaptureMode && st._carrierMarkPositions) {
+          st._carrierMarkPositions.push({ xW: xWh, yW: yWh, dynScale: dynScaleH });
+        }
+        const denialRotY = _computeDenialRotation(mysteryKey);  // v72.78
+        const rowIdxH = Math.min(r, st.rowMysteryMeshes.length - 1);
+        const myMesh = st.rowMysteryMeshes[rowIdxH];
+        const myOutMesh = st.rowMysteryOutlineMeshes[rowIdxH];
+        const myIdx = rowMysteryIdx[rowIdxH];
+        if (myMesh && myIdx < myMesh.instanceMatrix.count) {
+          dummy.position.set(xWh, yWh, 0);
+          dummy.rotation.set(0, denialRotY, 0);
+          dummy.scale.set(dynScaleH, dynScaleH, dynScaleH);
+          dummy.updateMatrix();
+          myMesh.setMatrixAt(myIdx, dummy.matrix);
+          // Outline — scaled up by OUTLINE_SCALE_SLOT
+          if (myOutMesh) {
+            const oS = dynScaleH * OUTLINE_SCALE_SLOT;
+            dummy.scale.set(oS, oS, oS);
+            dummy.updateMatrix();
+            myOutMesh.setMatrixAt(myIdx, dummy.matrix);
+          }
+          rowMysteryIdx[rowIdxH]++;
+        }
+        continue;
+      }
+
+      const cbox = slotDivs[r].querySelector('.cbox');
+      if (!cbox) continue;
+
+      // v72.62: reveal anim se renderuje přes one-off ShaderMaterial Mesh
+      // (circular wipe) — vytvořený v transition detection (viz výše).
+      // Animace uniforms + dispose probíhá v render().
+
+      // Active vs inactive — inactive carrier je menší (scale 0.78) bez koulí.
+      // Při přechodu inactive→active spustíme pop anim (overshoot scale).
+      const isActive = slotDivs[r].classList.contains('active');
+      const carrierKey = c + ',' + r;
+      const prevActive = st.carrierActiveCache.get(carrierKey);
+      // v72.63: nepouštět pop anim když transition vznikla z mystery reveal —
+      // circular wipe sám stačí jako vizuální efekt, double-anim by byl rušivý.
+      if (prevActive === false && isActive && !st.mysteryRevealMeshes.has(carrierKey)) {
+        st.carrierPopAnim.set(carrierKey, performance.now());
+      }
+      st.carrierActiveCache.set(carrierKey, isActive);
+
+      // Compute scale: inactive=0.78, active=1.0, pop anim přidává overshoot křivku
+      let slotScale = isActive ? 1.0 : 0.78;
+      // v72.67: pop entry žije po celou cascade duration (0.55s) — slot anim jen
+      // v prvních 0.30s, zbytek je ball cascade. popT shared pro ball-loop níže.
+      const POP_TOTAL = 0.55;
+      const popT0 = st.carrierPopAnim.get(carrierKey);
+      let popT = -1;
+      if (popT0 !== undefined) {
+        popT = (performance.now() - popT0) / 1000;
+        if (popT >= POP_TOTAL) {
+          st.carrierPopAnim.delete(carrierKey);
+          popT = -1;
+        } else if (popT < 0.15) {
+          // Fáze 1: 0.78 → 1.15 (ease-out)
+          const t = popT / 0.15;
+          slotScale = 0.78 + (1.15 - 0.78) * (1 - Math.pow(1 - t, 2));
+        } else if (popT < 0.30) {
+          // Fáze 2: 1.15 → 1.0 (settle)
+          const t = (popT - 0.15) / 0.15;
+          slotScale = 1.15 - (1.15 - 1.0) * (1 - Math.pow(1 - t, 2));
+        }
+        // popT 0.30..0.55: slot settled at 1.0, ball cascade runs
+      }
+
+      // v74.79: cache slot pos + dynScale (jinak getBoundingClientRect per slot per frame)
+      const slotCacheKey = c + ',' + r;
+      let xW, yW, dynScale;
+      const cached = useCache ? st._slotCache.get(slotCacheKey) : null;
+      if (cached) {
+        xW = cached.xW; yW = cached.yW; dynScale = cached.dynScale;
+      } else {
+        const cr = cbox.getBoundingClientRect();
+        const xCSS = cr.left + cr.width  / 2 - st._cachedRefLeft;
+        const yCSS = cr.top  + cr.height / 2 - st._cachedCanvasTop;
+        xW = xCSS;
+        yW = _worldY(yCSS);
+        dynScale = cr.width / SLOT_SIZE;
+        st._slotCache.set(slotCacheKey, { xW, yW, dynScale });
+      }
+      // v73.317: capture mark position pro tento valid carrier slot
+      if (st._carrierMarkCaptureMode && st._carrierMarkPositions) {
+        st._carrierMarkPositions.push({ xW, yW, dynScale });
+      }
+      slotScale *= dynScale;
+
+      // Barva slotu — inactive je desaturovaný (× 0.55).
+      const hexColor = colorsArr ? colorsArr[slot.color] : '#888888';
+      c3.set(_hex(hexColor));
+      if (!isActive) c3.multiplyScalar(0.55);
+      // Slot box: lehce ztlumený (× 0.85) → koule vystupují přes outline.
+      cSlot.copy(c3).multiplyScalar(0.85);
+
+      // Z bias podle row indexu: spodní řády push forward, aby překrývaly horní řády
+      // při tilt rendering (na hraně sousedních carriers depth test jinak losuje).
+      // Per-row mesh: lower rows mají vyšší renderOrder → drawn last → na vrcholu.
+      // Žádný Z bias potřeba — explicit layering řeší overlap.
+      const rowIdx = Math.min(r, st.rowSlotMeshes.length - 1);
+      const slotMesh = st.rowSlotMeshes[rowIdx];
+      const slotOutMesh = st.rowSlotOutlineMeshes[rowIdx];
+      const ballMesh = st.rowBallMeshes[rowIdx];
+      const ballOutMesh = st.rowBallOutlineMeshes[rowIdx];
+
+      // 3D slot container (per-row mesh)
+      const slotInstIdx = rowSlotIdx[rowIdx];
+      const denialRotYReg = _computeDenialRotation(carrierKey);  // v72.78
+      if (slotInstIdx < slotMesh.count + slotMesh.instanceMatrix.count) {
+        dummy.position.set(xW, yW, 0);
+        dummy.rotation.set(0, denialRotYReg, 0);
+        dummy.scale.set(slotScale, slotScale, slotScale);
+        dummy.updateMatrix();
+        slotMesh.setMatrixAt(slotInstIdx, dummy.matrix);
+        slotMesh.setColorAt(slotInstIdx, cSlot);
+        // v72.12: paralelní inner mesh — same matrix + same color, material × 0.4
+        const innerMesh = st.rowSlotInnerMeshes[rowIdx];
+        if (innerMesh) {
+          innerMesh.setMatrixAt(slotInstIdx, dummy.matrix);
+          innerMesh.setColorAt(slotInstIdx, cSlot);
+        }
+        const oS = slotScale * OUTLINE_SCALE_SLOT;
+        dummy.scale.set(oS, oS, oS);
+        dummy.updateMatrix();
+        slotOutMesh.setMatrixAt(slotInstIdx, dummy.matrix);
+        rowSlotIdx[rowIdx]++;
+      }
+
+      // Inactive carrier nemá koule — jen menší shell.
+      if (!isActive) continue;
+
+      // Rozložení koulí: max 4 v 2×2 mřížce uvnitř slotu (per-row mesh).
+      // v71.26 fix: ofset počítaný z SLOT_SIZE (base units), ne z cr.width —
+      // jinak by se násobil 2× slotScale (cr.width sám koreluje s slotScale)
+      // a balls by se při shrink sbíhaly do středu kvadraticky místo lineárně.
+      // Final offset = SLOT_SIZE × 0.18 × slotScale = consistent ratio k radius
+      // přes všechny carrier velikosti.
+      const offX = [-SLOT_SIZE * 0.195, SLOT_SIZE * 0.195];
+      const offY = [-SLOT_SIZE * 0.195, SLOT_SIZE * 0.195];
+      const ballZ = SLOT_DEPTH / 2 + R_CARRIER * 0.25;
+      const filled = _countFilled(slot.projectiles);
+
+      // v72.67: cascade pop — pokud popT je active, každá koule popne s offsetem.
+      // Slot popne v 0..0.30s, balls follow s staggerem: ball 0 začne v 0.15s (slot peak),
+      // ball 1 v 0.20s, ball 2 v 0.25s, ball 3 v 0.30s. Každá ball anim 0.20s (0 → 1.15 → 1.0).
+      const BALL_FIRST_START = 0.15;
+      const BALL_STAGGER = 0.05;
+      const BALL_DUR = 0.20;
+      let bi = 0;
+      outer: for (let bRow = 0; bRow < 2; bRow++) {
+        for (let col2 = 0; col2 < 2; col2++) {
+          if (bi >= filled) break outer;
+          const ballIdx0 = bi;  // 0-based pro cascade
+          bi++;
+          // Per-ball pop scale (vůči slotScale)
+          let ballPopScale = 1.0;
+          if (popT >= 0) {
+            const ballT = popT - (BALL_FIRST_START + ballIdx0 * BALL_STAGGER);
+            if (ballT < 0) {
+              ballPopScale = 0;  // not yet started → invisible
+            } else if (ballT < BALL_DUR / 2) {
+              // Fáze 1: 0 → 1.15 (ease-out)
+              const t = ballT / (BALL_DUR / 2);
+              ballPopScale = 1.15 * (1 - Math.pow(1 - t, 2));
+            } else if (ballT < BALL_DUR) {
+              // Fáze 2: 1.15 → 1.0 (settle)
+              const t = (ballT - BALL_DUR / 2) / (BALL_DUR / 2);
+              ballPopScale = 1.15 - (1.15 - 1.0) * (1 - Math.pow(1 - t, 2));
+            }
+            // ballT >= BALL_DUR → ballPopScale = 1.0 (settled, default)
+          }
+          const effBallScale = slotScale * ballPopScale;
+          const bIdx = rowBallIdx[rowIdx];
+          dummy.position.set(xW + offX[col2] * slotScale, yW + offY[1 - bRow] * slotScale, ballZ);
+          dummy.scale.set(effBallScale, effBallScale, effBallScale);
+          dummy.updateMatrix();
+          ballMesh.setMatrixAt(bIdx, dummy.matrix);
+          ballMesh.setColorAt(bIdx, c3);
+          const oB = effBallScale * OUTLINE_SCALE_BALL;
+          dummy.scale.set(oB, oB, oB);
+          dummy.updateMatrix();
+          ballOutMesh.setMatrixAt(bIdx, dummy.matrix);
+          rowBallIdx[rowIdx]++;
+        }
+      }
+    }
+  }
+
+  // Ghost render aktivních carrier-fire animací (lift + tilt + fade)
+  // Vykreslujeme PŘÍDAVNÉ instance sloty + koule pro animace, kdy slot je už null
+  // (po onCarrierClick → drawCarriers vyčistilo data, ale animace ještě běží).
+  if (st.carrierAnim.size > 0) {
+    const now = performance.now();
+    const _vec = new THREE.Vector3();
+    const _quat = new THREE.Quaternion();
+    const _slotM = new THREE.Matrix4();
+    const _axisX = new THREE.Vector3(1, 0, 0);
+
+    for (const [key, anim] of st.carrierAnim) {
+      const t = (now - anim.t0) / 1000;
+      if (t >= 0.65) { st.carrierAnim.delete(key); continue; }
+      if (slotIdx >= MAX_CARRIER_SLOTS && ballIdx >= MAX_CARRIER_BALLS) break;
+
+      // Lift: 0 → 1 (peak at t=0.25) → klesá zpět; ease-out
+      const liftT = t < 0.25 ? (t / 0.25) : Math.max(0, 1 - (t - 0.25) / 0.40);
+      const lift  = liftT * 25;   // canvas Y up px (méně Y, ghost spíš jde dopředu v Z)
+      const liftZ = liftT * 45;   // Z push toward camera (ghost vystupuje dopředu místo nahoru)
+
+      // Tilt: top of slot rotates AWAY from viewer (negative X rotation = top → -Z)
+      const tiltT = t < 0.30 ? (t / 0.30) : Math.max(0, 1 - (t - 0.30) / 0.35);
+      const tilt  = -tiltT * 0.55;
+
+      // Fade: scale 1→0 v posledních 30 % animace
+      const fadeT = Math.max(0, (t - 0.45) / 0.20);
+      const scale = Math.max(0, 1 - fadeT);
+      if (scale < 0.04) continue;
+
+      c3.set(_hex(anim.hex));
+      cSlot.copy(c3).multiplyScalar(0.85);
+
+      const xW = anim.x;
+      const yW = _worldY(anim.y - lift);
+
+      // Z=5 = mezi slot (Z=0) a ball (Z=10) — ghost je nad ostatními slot, ale balls
+      // okolo zůstávají viditelné nad ním.
+      _vec.set(xW, yW, 5 + liftZ);   // Z roste s liftT → ghost vystupuje směrem ke kameře
+      _quat.setFromAxisAngle(_axisX, tilt);
+
+      // Slot
+      if (slotIdx < MAX_CARRIER_SLOTS) {
+        _slotM.compose(_vec, _quat, dummy.scale.set(scale, scale, scale));
+        st.carrierSlotMesh.setMatrixAt(slotIdx, _slotM);
+        st.carrierSlotMesh.setColorAt(slotIdx, cSlot);
+        // v72.15: parallel inner ghost — same matrix + same color jako outer.
+        // Bez tohoto by inner part zmizela po kliku → top face by vypadala
+        // černá během fire anim lift.
+        if (st.carrierSlotInnerMesh) {
+          st.carrierSlotInnerMesh.setMatrixAt(slotIdx, _slotM);
+          st.carrierSlotInnerMesh.setColorAt(slotIdx, cSlot);
+        }
+        const oS = scale * OUTLINE_SCALE_SLOT;
+        const _outM = new THREE.Matrix4().compose(_vec, _quat, dummy.scale.set(oS, oS, oS));
+        st.carrierSlotOutlineMesh.setMatrixAt(slotIdx, _outM);
+        slotIdx++;
+      }
+
+      // Balls — naparentované ke slotu (ride se slotem během lift+tilt).
+      // Fade out: scale 1 → 0 přes prvních 0.075s, pak invisible (= "vysypaly se" rychle).
+      const ballFadeT = Math.max(0, Math.min(1, t / 0.075));
+      const ballScale = scale * (1 - ballFadeT);
+      if (ballScale > 0.04) {
+        _slotM.compose(_vec, _quat, dummy.scale.set(1, 1, 1));   // matrix bez scale pro pozici
+        // v71.26: SLOT_SIZE base units (sync s main path, žádné double scaling)
+        const offX = [-SLOT_SIZE * 0.195, SLOT_SIZE * 0.195];
+        const offY = [-SLOT_SIZE * 0.195, SLOT_SIZE * 0.195];
+        const ballZ = SLOT_DEPTH / 2 + R_CARRIER * 0.25;
+        let bi = 0;
+        outer: for (let row = 0; row < 2; row++) {
+          for (let col2 = 0; col2 < 2; col2++) {
+            if (ballIdx >= MAX_CARRIER_BALLS) break outer;
+            if (bi >= anim.fill) break outer;
+            bi++;
+            const local = new THREE.Vector3(offX[col2], offY[1 - row], ballZ);
+            local.applyMatrix4(_slotM);
+            dummy.position.copy(local);
+            dummy.quaternion.copy(_quat);
+            dummy.scale.set(ballScale, ballScale, ballScale);
+            dummy.updateMatrix();
+            st.carrierMesh.setMatrixAt(ballIdx, dummy.matrix);
+            st.carrierMesh.setColorAt(ballIdx, c3);
+            const oB = ballScale * OUTLINE_SCALE_BALL;
+            dummy.scale.set(oB, oB, oB);
+            dummy.updateMatrix();
+            st.carrierOutlineMesh.setMatrixAt(ballIdx, dummy.matrix);
+            ballIdx++;
+          }
+        }
+      }
+    }
+    // Reset dummy.quaternion na identitu pro budoucí volání
+    dummy.quaternion.identity();
+  }
+
+  // Per-row mesh counts
+  for (let row = 0; row < st.rowSlotMeshes.length; row++) {
+    const sCount = rowSlotIdx[row] || 0;
+    const bCount = rowBallIdx[row] || 0;
+    st.rowSlotMeshes[row].count = sCount;
+    st.rowSlotMeshes[row].instanceMatrix.needsUpdate = true;
+    if (st.rowSlotMeshes[row].instanceColor) st.rowSlotMeshes[row].instanceColor.needsUpdate = true;
+    // v72.12: inner mesh sync s outer (paralelní rendering pro depth illusion)
+    if (st.rowSlotInnerMeshes && st.rowSlotInnerMeshes[row]) {
+      st.rowSlotInnerMeshes[row].count = sCount;
+      st.rowSlotInnerMeshes[row].instanceMatrix.needsUpdate = true;
+      if (st.rowSlotInnerMeshes[row].instanceColor) st.rowSlotInnerMeshes[row].instanceColor.needsUpdate = true;
+    }
+    st.rowSlotOutlineMeshes[row].count = sCount;
+    st.rowSlotOutlineMeshes[row].instanceMatrix.needsUpdate = true;
+    st.rowBallMeshes[row].count = bCount;
+    st.rowBallMeshes[row].instanceMatrix.needsUpdate = true;
+    if (st.rowBallMeshes[row].instanceColor) st.rowBallMeshes[row].instanceColor.needsUpdate = true;
+    st.rowBallOutlineMeshes[row].count = bCount;
+    st.rowBallOutlineMeshes[row].instanceMatrix.needsUpdate = true;
+    // Mystery mesh count, v72.46 + outline v72.53
+    if (st.rowMysteryMeshes && st.rowMysteryMeshes[row]) {
+      const myCount = rowMysteryIdx[row] || 0;
+      st.rowMysteryMeshes[row].count = myCount;
+      st.rowMysteryMeshes[row].instanceMatrix.needsUpdate = true;
+      if (st.rowMysteryOutlineMeshes && st.rowMysteryOutlineMeshes[row]) {
+        st.rowMysteryOutlineMeshes[row].count = myCount;
+        st.rowMysteryOutlineMeshes[row].instanceMatrix.needsUpdate = true;
+      }
+    }
+  }
+
+  // Ghost mesh counts (only for tilt anim — single legacy mesh)
+  st.carrierSlotMesh.count = slotIdx;
+  st.carrierSlotMesh.instanceMatrix.needsUpdate = true;
+  if (st.carrierSlotMesh.instanceColor) st.carrierSlotMesh.instanceColor.needsUpdate = true;
+  // v72.15: inner ghost sync (parallel s outer ghost při fire anim)
+  if (st.carrierSlotInnerMesh) {
+    st.carrierSlotInnerMesh.count = slotIdx;
+    st.carrierSlotInnerMesh.instanceMatrix.needsUpdate = true;
+    if (st.carrierSlotInnerMesh.instanceColor) st.carrierSlotInnerMesh.instanceColor.needsUpdate = true;
+  }
+  st.carrierSlotOutlineMesh.count = slotIdx;
+  st.carrierSlotOutlineMesh.instanceMatrix.needsUpdate = true;
+  st.carrierMesh.count = ballIdx;
+  st.carrierMesh.instanceMatrix.needsUpdate = true;
+  if (st.carrierMesh.instanceColor) st.carrierMesh.instanceColor.needsUpdate = true;
+  st.carrierOutlineMesh.count = ballIdx;
+  st.carrierOutlineMesh.instanceMatrix.needsUpdate = true;
+  // v74.79: track přítomnost mystery slotů — jejich textura scrolluje a tedy
+  // vyžaduje continuous render kde jsou visible.
+  let myTotal = 0;
+  for (let r = 0; r < rowMysteryIdx.length; r++) myTotal += rowMysteryIdx[r] || 0;
+  st._mysteryHasVisible = myTotal > 0;
+  // v73.317: po capture mode zapiš marky do InstancedMesh + ukončí capture
+  if (st._carrierMarkCaptureMode && st._carrierMarkPositions && st.carrierMarkMesh) {
+    const positions = st._carrierMarkPositions;
+    const markZ = -10; // těsně pod carrier slot (slot Z rozsah -7..+7)
+    for (let i = 0; i < positions.length && i < MAX_CARRIER_SLOTS; i++) {
+      const p = positions[i];
+      dummy.position.set(p.xW, p.yW, markZ);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(p.dynScale, p.dynScale, 1);
+      dummy.updateMatrix();
+      st.carrierMarkMesh.setMatrixAt(i, dummy.matrix);
+    }
+    st.carrierMarkMesh.count = Math.min(positions.length, MAX_CARRIER_SLOTS);
+    st.carrierMarkMesh.instanceMatrix.needsUpdate = true;
+    st._carrierMarkCaptureMode = false;
+    // Aplikuj color z floor (lazy init)
+    if (typeof refreshFloorColor === 'function') refreshFloorColor();
+  }
+}
+
+// v74.79: dirty helper pro bottom scénu — krátký a explicit
+function _bottomMarkDirty() { st._dirty = true; }
+// v74.79: invalidace per-slot měření cache — volat při resize, level start, theme change
+function invalidateSlotCache() {
+  st._slotCacheValid = false;
+  if (st._slotCache) st._slotCache.clear();
+}
+function triggerCarrierFire(col, row, hexColor, fillCount, canvasX, canvasY, cboxW, cboxH) {
+  st._dirty = true;
+  if (!st.ready) return;
+  st.carrierAnim.set(col + ',' + row, {
+    t0:   performance.now(),
+    hex:  hexColor,
+    fill: fillCount,
+    x:    canvasX,
+    y:    canvasY,
+    w:    cboxW,
+    h:    cboxH,
+  });
+}
+
+// v72.78: trigger denial shake anim (klik na inactive / mystery carrier).
+function triggerCarrierDenial(col, row) {
+  st._dirty = true;
+  if (!st.ready) return;
+  st.carrierDenialAnim.set(col + ',' + row, performance.now());
+}
+
+function _hasActiveCarrierAnim() {
+  return (st.carrierAnim && st.carrierAnim.size > 0)
+      || (st.carrierPopAnim && st.carrierPopAnim.size > 0)
+      || (st.mysteryRevealMeshes && st.mysteryRevealMeshes.size > 0)
+      || (st.carrierDenialAnim && st.carrierDenialAnim.size > 0)
+      || (_holeAnims.length > 0)
+      || (_carrierRipples.length > 0)
+      || (_rippleDots.length > 0)
+      || _hasFunnelWarning();
+}
+
+// Carrier click ripple — full circle → expanding thin ring → zmizí.
+// CircleGeometry s custom shader: alpha vyplněna z (0.5*uT) do 0.5 → hole roste,
+// ring se zužuje až zmizí.
+const _carrierRipples = [];
+let _ripple_circle_geom = null;
+function _getRippleGeom(){
+  if(!_ripple_circle_geom) _ripple_circle_geom = new THREE.CircleGeometry(1, 48);
+  return _ripple_circle_geom;
+}
+function triggerCarrierRipple(col, row, hexColor, canvasX, canvasY, cboxW, cboxH) {
+  if (!st.ready || !st.contentGroup) return;
+  st._dirty = true;
+  const xW = canvasX;
+  const yW = _worldY(canvasY);
+  const baseR = Math.max(cboxW, cboxH) * 0.45;
+  const c = new THREE.Color(hexColor || 0xffffff);
+  c.convertSRGBToLinear(); // bez tohohle ShaderMaterial bypassuje color mgmt → divná barva
+  const mat = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    depthTest: false, // vždy nad scénou
+    side: THREE.DoubleSide,
+    uniforms: {
+      uT:     { value: 0 },
+      uColor: { value: new THREE.Vector3(c.r, c.g, c.b) },
+    },
+    vertexShader: `varying vec2 vUv;
+      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `varying vec2 vUv;
+      uniform float uT;
+      uniform vec3 uColor;
+      void main(){
+        float d = length(vUv - vec2(0.5));
+        float innerR = 0.5 * uT;       // hole roste z 0 do 0.5
+        float outerR = 0.5;
+        // soft edges
+        float a = smoothstep(innerR - 0.02, innerR + 0.02, d) * (1.0 - smoothstep(outerR - 0.02, outerR + 0.02, d));
+        a *= 0.85; // konstantní opacity — zmizí jen ztenčením
+        if(a < 0.01) discard;
+        gl_FragColor = vec4(uColor, a);
+      }`,
+  });
+  const mesh = new THREE.Mesh(_getRippleGeom(), mat);
+  mesh.position.set(xW, yW, SLOT_DEPTH * 0.5 + R_CARRIER * 1.5 + 5);
+  mesh.scale.setScalar(baseR);
+  mesh.renderOrder = 250; // nad vším včetně pending balls (150)
+  st.contentGroup.add(mesh);
+  _carrierRipples.push({
+    mesh: mesh,
+    mat: mat,
+    t0: performance.now(),
+    baseR: baseR,
+    maxR: baseR * 1.35, // menší max radius
+    dur: 240,
+  });
+}
+// Tečky které zůstanou po prstenci a pomalu zmizí
+const _rippleDots = [];
+let _rippleDotGeom = null;
+function _getDotGeom(){
+  if(!_rippleDotGeom) _rippleDotGeom = new THREE.CircleGeometry(1, 12);
+  return _rippleDotGeom;
+}
+// ── Funnel warning — Three.js text mesh v 3D scéně ──────────────────────
+// CanvasTexture s textem, ShaderMaterial s reveal/erase mask přes UV.x.
+// Pozice fixní ve world coords → stabilní napříč resize.
+// renderOrder 100 → pod pending balls (150), balónky překryjí text.
+let _funnelWarning = null;
+function _drawFunnelWarningText(tc){
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const ctx = tc.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0); // reset transform
+  ctx.clearRect(0, 0, tc.width, tc.height);
+  ctx.scale(dpr, dpr);
+  // Mix 90% bílá + 10% floor color z aktuálního theme (--carriers-3d-bg na body)
+  const themeFloor = (getComputedStyle(document.body).getPropertyValue('--carriers-3d-bg') || '#5a3855').trim();
+  const m = themeFloor.match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
+  let r = 90, g = 56, b = 85; // default mauve fallback
+  if(m){ r = parseInt(m[1],16); g = parseInt(m[2],16); b = parseInt(m[3],16); }
+  const mixR = Math.round(255 * 0.90 + r * 0.10);
+  const mixG = Math.round(255 * 0.90 + g * 0.10);
+  const mixB = Math.round(255 * 0.90 + b * 0.10);
+  ctx.font = 'normal 38px Bangers, Impact, "Arial Black", sans-serif';
+  ctx.fillStyle = `rgba(${mixR},${mixG},${mixB},0.72)`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('MAX 4 CARRIERS AT ONCE!', 360, 45);
+}
+function _createFunnelWarningMesh(){
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const tc = document.createElement('canvas');
+  tc.width = 720 * dpr; tc.height = 90 * dpr;
+  _drawFunnelWarningText(tc);
+  const tex = new THREE.CanvasTexture(tc);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  if(THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTex:    { value: tex },
+      uReveal: { value: 0 }, // 0..1 — pravý okraj viditelné oblasti
+      uErase:  { value: 0 }, // 0..1 — levý okraj viditelné oblasti (eraser zleva)
+    },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: 'varying vec2 vUv; uniform sampler2D uTex; uniform float uReveal; uniform float uErase; void main(){ if(vUv.x > uReveal || vUv.x < uErase) discard; vec4 c = texture2D(uTex, vUv); if(c.a < 0.01) discard; gl_FragColor = c; }',
+    transparent: true,
+    depthWrite: false,
+    depthTest: false, // vždy nad scénou — smooth edges, ostrý text
+  });
+  const planeW = 320, planeH = 40;
+  const geom = new THREE.PlaneGeometry(planeW, planeH);
+  const mesh = new THREE.Mesh(geom, mat);
+  // Position — center X, just below funnel narrowing point (FUN.narrowY + offset)
+  const FUN_NY = (window.FUN && window.FUN.narrowY) || 14;
+  // narrowY je v CSS coords; _worldY převede. Posun níž (60px CSS) aby byl text v wide area.
+  mesh.position.set(st.W / 2, _worldY(FUN_NY + 112), -5);
+  mesh.renderOrder = 300; // nad balls
+  mesh.visible = false;
+  st.contentGroup.add(mesh);
+  _funnelWarning = { mesh, mat, tex, canvas: tc, t0: 0, phase: null };
+}
+function triggerFunnelWarning(){
+  if(!_funnelWarning){
+    if(!st.ready || !st.contentGroup) return;
+    _createFunnelWarningMesh();
+  }
+  const fw = _funnelWarning;
+  // Pokud už hraje writing/visible → no-op (zůstává zobrazený)
+  if(fw.phase === 'writing' || fw.phase === 'visible') return;
+  fw.mesh.visible = true;
+  fw.mat.uniforms.uReveal.value = 0;
+  fw.mat.uniforms.uErase.value = 0;
+  fw.t0 = performance.now();
+  fw.phase = 'writing';
+  st._dirty = true;
+}
+function hideFunnelWarning(){
+  const fw = _funnelWarning;
+  if(!fw) return;
+  if(fw.phase !== 'writing' && fw.phase !== 'visible') return;
+  fw.phase = 'erasing';
+  fw.t0 = performance.now();
+  st._dirty = true;
+}
+function _updateFunnelWarning(now){
+  const fw = _funnelWarning;
+  if(!fw || !fw.phase) return;
+  st._dirty = true;
+  const dt = (now - fw.t0) / 1000;
+  if(fw.phase === 'writing'){
+    const t = Math.min(1, dt / 0.85);
+    fw.mat.uniforms.uReveal.value = 1 - Math.pow(1 - t, 3); // ease-out
+    if(t >= 1){ fw.mat.uniforms.uReveal.value = 1; fw.phase = 'visible'; }
+  } else if(fw.phase === 'erasing'){
+    const t = Math.min(1, dt / 0.70);
+    fw.mat.uniforms.uErase.value = t * t; // ease-in
+    if(t >= 1){ fw.mesh.visible = false; fw.phase = null; }
+  }
+}
+function _hasFunnelWarning(){ return _funnelWarning && _funnelWarning.phase; }
+
+function refreshFunnelWarningTheme(){
+  if(!_funnelWarning) return;
+  _drawFunnelWarningText(_funnelWarning.canvas);
+  _funnelWarning.tex.needsUpdate = true;
+  st._dirty = true;
+}
+
+function _spawnRippleDots(centerX, centerY, centerZ, threeColor, currentRadius){
+  const N = 6 + ((Math.random() * 3) | 0); // 6-8 teček
+  for(let i = 0; i < N; i++){
+    const ang = (i / N) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+    const r = currentRadius * (0.85 + Math.random() * 0.25);
+    const dotMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(threeColor.x, threeColor.y, threeColor.z),
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      side: THREE.DoubleSide,
+      fog: false,
+      opacity: 0.85,
+    });
+    const dot = new THREE.Mesh(_getDotGeom(), dotMat);
+    dot.position.set(centerX + Math.cos(ang) * r, centerY + Math.sin(ang) * r, centerZ);
+    const dotSize = 1.5 + Math.random() * 1.0;
+    dot.scale.setScalar(dotSize);
+    dot.renderOrder = 251;
+    st.contentGroup.add(dot);
+    // Drift outward + slight upward jitter
+    const driftX = Math.cos(ang) * (3 + Math.random() * 4);
+    const driftY = Math.sin(ang) * (3 + Math.random() * 4);
+    _rippleDots.push({
+      mesh: dot, mat: dotMat,
+      t0: performance.now(),
+      dur: 280 + Math.random() * 180,
+      startX: dot.position.x, startY: dot.position.y,
+      driftX, driftY,
+    });
+  }
+}
+function _updateRippleDots(now){
+  if(_rippleDots.length === 0) return;
+  st._dirty = true;
+  for(let i = _rippleDots.length - 1; i >= 0; i--){
+    const d = _rippleDots[i];
+    const t = (now - d.t0) / d.dur;
+    if(t >= 1){
+      st.contentGroup.remove(d.mesh);
+      d.mat.dispose();
+      _rippleDots.splice(i, 1);
+      continue;
+    }
+    const ease = 1 - Math.pow(1 - t, 3); // ease-out
+    d.mesh.position.x = d.startX + d.driftX * ease;
+    d.mesh.position.y = d.startY + d.driftY * ease;
+    d.mat.opacity = 0.85 * (1 - t * t); // accelerating fade
+  }
+}
+
+function _updateCarrierRipples(now) {
+  if (_carrierRipples.length === 0) return;
+  st._dirty = true;
+  for (let i = _carrierRipples.length - 1; i >= 0; i--) {
+    const r = _carrierRipples[i];
+    const t = (now - r.t0) / r.dur;
+    // Při t > 0.7 spawn dots (jen jednou per ripple)
+    if (t > 0.7 && !r.dotsSpawned) {
+      r.dotsSpawned = true;
+      const ease = 1 - Math.pow(1 - t, 2);
+      const currentR = r.baseR + (r.maxR - r.baseR) * ease;
+      _spawnRippleDots(r.mesh.position.x, r.mesh.position.y, r.mesh.position.z,
+                       r.mat.uniforms.uColor.value, currentR);
+    }
+    if (t >= 1) {
+      st.contentGroup.remove(r.mesh);
+      r.mat.dispose();
+      _carrierRipples.splice(i, 1);
+      continue;
+    }
+    const ease = 1 - Math.pow(1 - t, 2);
+    r.mesh.scale.setScalar(r.baseR + (r.maxR - r.baseR) * ease);
+    r.mat.uniforms.uT.value = t;
+  }
+}
+
+// Hole-suck animace: koule letí z LAUNCH pozice na pásu do hole assetu, scaluje
+// se na 0 (vcucnutí). Trigger z game.js v každém belt[i]=null místě.
+const _holeAnims = [];
+let _holeAnimGeom = null;
+function _getHoleAnimGeom() {
+  if (!_holeAnimGeom) _holeAnimGeom = new THREE.SphereGeometry(R_BELT, 16, 12);
+  return _holeAnimGeom;
+}
+function triggerHoleSuck(hexColor) {
+  if (!st.beltHole || !st.ready || !st.contentGroup) return;
+  const fromX = (st.beltOffsetX || 30) + 180; // LAUNCH_X position v CSS
+  const fromY = _worldY(st.beltCenterY || 32);
+  const fromZ = R_BELT;
+  const toX = st.beltHole.position.x;
+  const toY = st.beltHole.position.y;
+  const toZ = st.beltHole.position.z;
+  const mat = new THREE.MeshToonMaterial({ color: new THREE.Color(_hex(hexColor)) });
+  const mesh = new THREE.Mesh(_getHoleAnimGeom(), mat);
+  mesh.position.set(fromX, fromY, fromZ);
+  mesh.renderOrder = 100;
+  st.contentGroup.add(mesh);
+  _holeAnims.push({
+    mesh, mat, fromX, fromY, fromZ, toX, toY, toZ,
+    t0: performance.now(), duration: 180,
+  });
+  st._dirty = true;
+}
+function _updateHoleAnims(now) {
+  if (_holeAnims.length === 0) return;
+  // Phase 1 (t < SPLIT): pomalé přibližování + wiggle (jako vysavač)
+  // Phase 2 (t ≥ SPLIT): rychlý vcuc, scale 1→0
+  const SPLIT = 0.72;
+  const PHASE1_DIST = 0.28; // ujede 28 % vzdálenosti během wiggle
+  for (let i = _holeAnims.length - 1; i >= 0; i--) {
+    const a = _holeAnims[i];
+    const t = (now - a.t0) / a.duration;
+    if (t >= 1) {
+      st.contentGroup.remove(a.mesh);
+      a.mat.dispose();
+      _holeAnims.splice(i, 1);
+      continue;
+    }
+    let progress, scale, wiggleAmp;
+    if (t < SPLIT) {
+      // Phase 1: pomalý posun + výrazný wiggle
+      progress = (t / SPLIT) * PHASE1_DIST;
+      scale = 1.0;
+      wiggleAmp = 3.5 * (1 - t / SPLIT * 0.4); // mírně klesá ke splitu
+    } else {
+      // Phase 2: rychlý cubic ease-in, scale shrink
+      const t2 = (t - SPLIT) / (1 - SPLIT);
+      progress = PHASE1_DIST + (t2 * t2) * (1 - PHASE1_DIST);
+      scale = 1.0 - t2 * t2;
+      wiggleAmp = 3.5 * (1 - t2) * 0.5; // doznívá
+    }
+    const x0 = a.fromX + (a.toX - a.fromX) * progress;
+    const y0 = a.fromY + (a.toY - a.fromY) * progress;
+    const z = a.fromZ + (a.toZ - a.fromZ) * progress;
+    // Wiggle — fázově posunuté sin/cos na X i Y (chaotický pohyb jako pod tlakem)
+    const wHz = 22; // frekvence oscilace
+    const wx = Math.sin(t * wHz * Math.PI * 2) * wiggleAmp;
+    const wy = Math.cos(t * wHz * Math.PI * 2 * 1.3) * wiggleAmp * 0.6;
+    a.mesh.position.set(x0 + wx, y0 + wy, z);
+    a.mesh.scale.setScalar(scale);
+    st._dirty = true;
+  }
+}
+
+// v72.78: compute Y rotation pro denial shake. Vrací { rotY, active } nebo null.
+// Curve: dampened sin oscillation, amplitude 0.14 rad (~8°), 3.5 cykly přes 0.32s.
+function _computeDenialRotation(carrierKey) {
+  const t0 = st.carrierDenialAnim.get(carrierKey);
+  if (t0 === undefined) return 0;
+  const t = (performance.now() - t0) / 1000;
+  const DUR = 0.32;
+  if (t >= DUR) { st.carrierDenialAnim.delete(carrierKey); return 0; }
+  const tt = t / DUR;
+  const decay = 1 - tt;            // amplituda klesá
+  const wave  = Math.sin(tt * Math.PI * 7);  // 3.5 cykly
+  return 0.22 * decay * wave;
+}
+
+// Helper: převede canvasY v souřadnicích bottom3d-canvas → FUN.y
+// (inverze mapování v updatePending: yCSS = TOP_CSS + (b.y - narrowY))
+function canvasYtoFunY(canvasY) {
+  const TOP_CSS = st.beltCenterY + R_BELT + 2;
+  const NARROW_Y = (window.FUN && window.FUN.narrowY) || 14;
+  return canvasY - TOP_CSS + NARROW_Y;
+}
+
+// Kolik koulí je plných (naplněno ze 40 max)
+function _countFilled(projectiles) {
+  const p = projectiles === undefined ? 40 : projectiles;
+  // Odpovídá distributeProjectiles v game.js: 4 sloty, každý ≥ 0
+  if (p <= 0)  return 0;
+  if (p >= 40) return 4;
+  return Math.ceil(p / 10);  // 1 koule = 10 projektilů (PPU=10)
+}
+
+// ─── updatePending ───────────────────────────────────────────────────────────
+// pendingArr: game.js `pending` array, každý prvek má {x, y, r, ci}
+// colorsArr:  COLORS z game.js
+
+function updatePending(pendingArr, colorsArr) {
+  if (!st.ready) return;
+  // v74.79: dirty pokud má aspoň jednu pending ball (pohybují se každý frame)
+  if (pendingArr && pendingArr.length > 0) st._dirty = true;
+  const dummy = st._dummy;
+  const c3    = st._col3;
+  let idx = 0;
+
+  // V 3D fyzika je rozšířená (FUN.h=360, FUN.wideY=346), aby Y rozestupy mezi
+  // koulemi v rendering odpovídaly X rozestupům (1:1 scale, žádné pohyblivé mezery).
+  // Mapujeme b.y → canvas Y posunem o TOP_CSS (offset, žádný násobitel).
+  const FUN_NARROW_Y = (window.FUN && window.FUN.narrowY) || 14;
+  const TOP_CSS      = st.beltCenterY + R_BELT + 2;     // těsně pod beltem
+
+  const SQUASH_DUR_MS = 220; // ms
+  const now = performance.now();
+
+  for (const b of (pendingArr || [])) {
+    if (idx >= MAX_PENDING) break;
+    if (b.x === undefined || b.y === undefined) continue;
+
+    const yCSS = TOP_CSS + (b.y - FUN_NARROW_Y);   // 1:1 mapping (Y v canvas = Y v fyzice)
+    // V 3D mode (FUN.w=420) je b.x už v canvas coords → žádný offset.
+    // V 2D fallback (FUN.w=360) je b.x v pending-canvas coords → přičti beltOffsetX.
+    const xW   = (window.FUN && window.FUN.w === 420) ? b.x : (st.beltOffsetX + b.x);
+    const yW   = _worldY(yCSS);
+
+    const hexColor = colorsArr ? colorsArr[b.ci] : '#888888';
+    c3.set(_hex(hexColor));
+
+    // Squash & stretch: intenzita úměrná síle nárazu (bounceAmp), max velmi subtilní
+    let sx = 1, sz = 1;
+    if (b.bounceT0) {
+      const k = Math.min(1, (now - b.bounceT0) / SQUASH_DUR_MS);
+      if (k < 1) {
+        const squash = Math.cos(k * Math.PI * 0.5) * (1 - k) * 0.10 * (b.bounceAmp || 0);
+        sx = 1 + squash;
+        sz = Math.max(0.7, 1 - squash * 0.8);
+      }
+    }
+
+    dummy.position.set(xW, yW, R_PENDING);
+    dummy.scale.set(sx, sx, sz);
+    dummy.updateMatrix();
+    st.pendingMesh.setMatrixAt(idx, dummy.matrix);
+    st.pendingMesh.setColorAt(idx, c3);
+    // Outline
+    dummy.scale.set(sx * OUTLINE_SCALE_BALL, sx * OUTLINE_SCALE_BALL, sz * OUTLINE_SCALE_BALL);
+    dummy.updateMatrix();
+    st.pendingOutlineMesh.setMatrixAt(idx, dummy.matrix);
+    // Shadow — disk lehce pod koulí (sun z upper-left → shadow offset doprava-dolů).
+    // v73.216: méně oválný (Y scale 0.45 → 0.70), blíž k ball (4 → 2 px), slight X
+    // offset (sun direction). Velikost roste s "výškou" ball v trychtýři.
+    const FUN_WIDE = (window.FUN && window.FUN.wideY) || 346;
+    const tHeight = Math.max(0, Math.min(1, (b.y - FUN_NARROW_Y) / (FUN_WIDE - FUN_NARROW_Y)));
+    const sScale  = 0.55 + tHeight * 0.55;             // 0.55×–1.10×
+    const shadowY = _worldY(yCSS + R_PENDING + 2);     // pod kouli, blíž (4 → 2)
+    const shadowX = xW + 2;                            // slight right offset (match sun upper-left)
+    dummy.position.set(shadowX, shadowY, 0.5);
+    dummy.scale.set(sScale, sScale * 0.70, 1);         // méně oválný (0.45 → 0.70)
+    dummy.updateMatrix();
+    st.pendingShadowMesh.setMatrixAt(idx, dummy.matrix);
+    idx++;
+  }
+
+  st.pendingMesh.count = idx;
+  st.pendingMesh.instanceMatrix.needsUpdate = true;
+  if (st.pendingMesh.instanceColor) st.pendingMesh.instanceColor.needsUpdate = true;
+  st.pendingOutlineMesh.count = idx;
+  st.pendingOutlineMesh.instanceMatrix.needsUpdate = true;
+  st.pendingShadowMesh.count = idx;
+  st.pendingShadowMesh.instanceMatrix.needsUpdate = true;
+}
+
+// ─── updateBelt ──────────────────────────────────────────────────────────────
+// beltArr:   game.js `belt` array, každý prvek {ci, ppu, rocket?}
+// beltAnim:  akumulátor z beltLoop (px, scrolluje 0→BELT_TOTAL)
+// colorsArr: COLORS z game.js
+
+function updateBelt(beltArr, beltAnim, colorsArr) {
+  if (!st.ready) return;
+  // v74.79: dirty pokud má aspoň jednu belt ball (belt anim posouvá)
+  if (beltArr) { for (let i = 0; i < beltArr.length; i++) { if (beltArr[i]) { st._dirty = true; break; } } }
+  const dummy = st._dummy;
+  const c3    = st._col3;
+  let idx = 0;
+
+  const yW     = _worldY(st.beltCenterY);
+  const offset = (beltAnim || 0) % BELT_TOTAL;
+
+  // v73.304: belt plates — 14 plátků se posouvá stejně jako balls. Vždy
+  // se updatují (bez ohledu na beltArr), protože plátky existují i pod
+  // prázdnými sloty. v73.307: outer + inner mesh share matrix.
+  // v73.308: alternating tint (zebra) + subtle Y-shake (±0.4 px sin per index).
+  if (st.beltPlateMesh) {
+    st._dirty = true; // plates se hýbou s beltAnim
+    const now = performance.now();
+    // v73.311: theme-aware tint — pokud refreshBeltTint() proběhlo, use cached values
+    if (!st._beltTint) refreshBeltTint(); // lazy init
+    const even = st._beltTint.even, odd = st._beltTint.odd;
+    const evenR = even.r, evenG = even.g, evenB = even.b;
+    const oddR  = odd.r,  oddG  = odd.g,  oddB  = odd.b;
+    for (let i = 0; i < BELT_CAP; i++) {
+      const xCSSrel = BELT_STARTX + (i * BELT_SPACING + offset) % BELT_TOTAL;
+      const xCSS = st.beltOffsetX + xCSSrel;
+      // Y-shake: subtle vibration 0.4 px amplitude, per-plate phase
+      const jitter = Math.sin(now * 0.018 + i * 1.37) * 0.4;
+      dummy.position.set(xCSS, yW + jitter, -10);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      st.beltPlateMesh.setMatrixAt(i, dummy.matrix);
+      // Alternating tint: even=darker, odd=lighter
+      const isEven = (i % 2) === 0;
+      st.beltPlateMesh.instanceColor.setXYZ(i,
+        isEven ? evenR : oddR, isEven ? evenG : oddG, isEven ? evenB : oddB);
+      if (st.beltPlateInnerMesh) st.beltPlateInnerMesh.setMatrixAt(i, dummy.matrix);
+      if (st.beltPlateOutlineMesh) {
+        dummy.scale.set(1.06, 1.06, 1.06);
+        dummy.updateMatrix();
+        st.beltPlateOutlineMesh.setMatrixAt(i, dummy.matrix);
+      }
+    }
+    st.beltPlateMesh.instanceMatrix.needsUpdate = true;
+    st.beltPlateMesh.instanceColor.needsUpdate = true;
+    if (st.beltPlateInnerMesh) st.beltPlateInnerMesh.instanceMatrix.needsUpdate = true;
+    if (st.beltPlateOutlineMesh) st.beltPlateOutlineMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  for (let i = 0; i < BELT_CAP; i++) {
+    const b = beltArr ? beltArr[i] : null;
+    if (!b) continue;
+
+    const xCSSrel = BELT_STARTX + (i * BELT_SPACING + offset) % BELT_TOTAL;
+    // v74.79: visibility cull odstraněn. Balls jsou vždy v range 20..369,
+    // box mesh řeší occlusion přes depth test (inside left/right box → hidden).
+    const xCSS = st.beltOffsetX + xCSSrel;
+
+    const hexColor = colorsArr ? colorsArr[b.ci] : '#888888';
+    c3.set(_hex(hexColor));
+
+    // v73.310: stejný shake jako plates (synchronizovaná fáze přes index i)
+    const ballJitter = Math.sin(performance.now() * 0.018 + i * 1.37) * 0.4;
+    dummy.position.set(xCSS, yW + ballJitter, R_BELT);
+    dummy.scale.set(1, 1, 1);
+    dummy.updateMatrix();
+    st.beltMesh.setMatrixAt(idx, dummy.matrix);
+    st.beltMesh.setColorAt(idx, c3);
+    // Outline
+    dummy.scale.set(OUTLINE_SCALE_BALL, OUTLINE_SCALE_BALL, OUTLINE_SCALE_BALL);
+    dummy.updateMatrix();
+    st.beltOutlineMesh.setMatrixAt(idx, dummy.matrix);
+    idx++;
+  }
+
+  st.beltMesh.count = idx;
+  st.beltMesh.instanceMatrix.needsUpdate = true;
+  if (st.beltMesh.instanceColor) st.beltMesh.instanceColor.needsUpdate = true;
+  st.beltOutlineMesh.count = idx;
+  st.beltOutlineMesh.instanceMatrix.needsUpdate = true;
+}
+
+// ─── Render ──────────────────────────────────────────────────────────────────
+
+// v74.79: dirty-flag render skipping pro bottom scénu — analogie top scene.
+// Skip render pokud žádná pending/belt ball + žádná aktivní carrier anim.
+// Bezpečnostní fallback: vždy 1× za 60 framů (1 fps base).
+function render() {
+  if (!st.ready) return;
+  st._frameCount = (st._frameCount || 0) + 1;
+  const sinceLast = st._frameCount - (st._lastRenderFrame || 0);
+  // Mystery texture scroll a aktivní reveals značí scénu jako vždy dirty
+  if (st._mysteryHasVisible || (st.mysteryRevealMeshes && st.mysteryRevealMeshes.size > 0)) {
+    st._dirty = true;
+  }
+  if (_hasActiveCarrierAnim()) st._dirty = true;
+  if (!st._dirty && sinceLast < 60) return;
+  const now = performance.now();
+  _updateHoleAnims(now);
+  _updateCarrierRipples(now);
+  _updateRippleDots(now);
+  _updateFunnelWarning(now);
+  // v72.49: animace mystery textury — diagonální scroll (offset.x i offset.y).
+  if (st._mysteryTex) {
+    if (st._mysteryLastTs !== undefined) {
+      const dt = Math.min(0.1, (now - st._mysteryLastTs) / 1000);
+      const speed = 0.04;
+      st._mysteryTex.offset.x = (st._mysteryTex.offset.x - dt * speed) % 1;
+      st._mysteryTex.offset.y = (st._mysteryTex.offset.y - dt * speed) % 1;
+    }
+    st._mysteryLastTs = now;
+  }
+  // v72.62: reveal meshes — animate uRevealT 0→1 over 0.45s, sync mapOffset s main tex,
+  // dispose když anim skončí.
+  if (st.mysteryRevealMeshes && st.mysteryRevealMeshes.size > 0) {
+    const REVEAL_DUR = 0.45;
+    const toDelete = [];
+    for (const [key, entry] of st.mysteryRevealMeshes) {
+      const t = (now - entry.t0) / 1000;
+      if (t >= REVEAL_DUR) {
+        toDelete.push(key);
+        continue;
+      }
+      entry.uniforms.uRevealT.value = t / REVEAL_DUR;
+      // Sync texture offset so glyphs keep scrolling during reveal
+      if (st._mysteryTex) {
+        entry.uniforms.mapOffset.value.copy(st._mysteryTex.offset);
+      }
+    }
+    for (const key of toDelete) {
+      const entry = st.mysteryRevealMeshes.get(key);
+      if (entry) {
+        st.contentGroup.remove(entry.mesh);
+        entry.mat.dispose();
+      }
+      st.mysteryRevealMeshes.delete(key);
+    }
+  }
+  // Unified: samotné kreslení dělá orchestrátor (jeden render pass). Per-frame anim
+  // updaty výše proběhnou, draw se přeskočí.
+  if (!st._shared) st.renderer.render(st.scene, st.camera);
+  st._dirty = false;
+  st._lastRenderFrame = st._frameCount;
+}
+
+function isReady() { return st.ready; }
+
+function dispose() {
+  if (!st.scene) return;
+  st.renderer.dispose();
+  st.scene.traverse(obj => {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) obj.material.dispose();
+  });
+  if (st.canvas && st.canvas.parentNode) st.canvas.parentNode.removeChild(st.canvas);
+  st.ready = false;
+}
+
+// ─── updateWalls (v72.19) ────────────────────────────────────────────────────
+// BFS connected components + ExtrudeGeometry z polygon outline. Adjacent walls
+// libovolného tvaru (L/T/+/U) se merguje do JEDNOHO mesh s true monolith
+// vzhledem — žádné seams. Inflated cell rects (each ±half-gap směrem k sousedu
+// v komponentě) zajistí že polygon překlene gaps mezi cells.
+//
+// Algoritmus:
+//   1. BFS najde connected wall components (4-directional adjacency).
+//   2. Pro každou komponentu: inflated cell rects (gaps included).
+//   3. Boundary edges = outer edges (kde adjacent cell NENÍ v komponentě).
+//   4. Trace edges in chain → polygon.
+//   5. THREE.Shape z polygon → ExtrudeGeometry → Mesh.
+
+// Posune každý vertex polygonu outward o `thickness` px po bisektoru sousedních hran.
+// Trace je CW v Y-down (CSS) coords, takže outward = rotace dir o -90° (= (dy, -dx)).
+// Použito pro wall outline — uniform tloušťka kolem celého obvodu (vs. scale, který
+// dělá tloušťku závislou na rozměru).
+function _offsetPolygonOutward(poly, thickness) {
+  const n = poly.length;
+  if (n < 3) return poly.slice();
+  const edges = [];
+  for (let i = 0; i < n; i++) {
+    const p1 = poly[i];
+    const p2 = poly[(i + 1) % n];
+    const dx = p2[0] - p1[0];
+    const dy = p2[1] - p1[1];
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-6) { edges.push(null); continue; }
+    const nx = dy / len;   // outward normal pro CW-in-Y-down polygon
+    const ny = -dx / len;
+    edges.push({
+      ox: p1[0] + nx * thickness,
+      oy: p1[1] + ny * thickness,
+      dx, dy,
+    });
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const eA = edges[(i - 1 + n) % n];
+    const eB = edges[i];
+    if (!eA || !eB) { out.push(poly[i].slice()); continue; }
+    const cross = eA.dx * eB.dy - eA.dy * eB.dx;
+    if (Math.abs(cross) < 1e-6) {
+      // Kolineární — použij start offsetované eB
+      out.push([eB.ox, eB.oy]);
+      continue;
+    }
+    const t = ((eB.ox - eA.ox) * eB.dy - (eB.oy - eA.oy) * eB.dx) / cross;
+    out.push([eA.ox + t * eA.dx, eA.oy + t * eA.dy]);
+  }
+  return out;
+}
+
+// Vytvoří THREE.Shape z polygonu (pole [x, y]) s zaoblenými rohy.
+// Místo lineTo do každého vertexu se použije quadraticCurveTo: kvadratická křivka
+// začíná `radius` px před vertexem na předchozí hraně, kontrolní bod je samotný
+// vertex, končí `radius` px za vertexem na následující hraně.
+// Funguje pro convex i concave rohy (rounding směřuje "do strany" od vrcholu).
+function _buildRoundedShape(polygon, radius) {
+  const n = polygon.length;
+  const shape = new THREE.Shape();
+  if (n < 3) return shape;
+
+  // Pro každý vertex spočítej in-point (před vertexem) a out-point (za vertexem)
+  const inPts = new Array(n);
+  const outPts = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const prev = polygon[(i - 1 + n) % n];
+    const curr = polygon[i];
+    const next = polygon[(i + 1) % n];
+    const dxIn = curr[0] - prev[0];
+    const dyIn = curr[1] - prev[1];
+    const lenIn = Math.hypot(dxIn, dyIn);
+    const dxOut = next[0] - curr[0];
+    const dyOut = next[1] - curr[1];
+    const lenOut = Math.hypot(dxOut, dyOut);
+    // Cap radius na polovinu kratší přilehlé hrany (jinak by se křivky překrývaly)
+    const rIn = Math.min(radius, lenIn / 2);
+    const rOut = Math.min(radius, lenOut / 2);
+    inPts[i]  = lenIn  > 1e-6 ? [curr[0] - dxIn  / lenIn  * rIn,  curr[1] - dyIn  / lenIn  * rIn]  : curr.slice();
+    outPts[i] = lenOut > 1e-6 ? [curr[0] + dxOut / lenOut * rOut, curr[1] + dyOut / lenOut * rOut] : curr.slice();
+  }
+
+  shape.moveTo(outPts[0][0], outPts[0][1]);
+  for (let i = 0; i < n; i++) {
+    const nextIdx = (i + 1) % n;
+    shape.lineTo(inPts[nextIdx][0], inPts[nextIdx][1]);
+    shape.quadraticCurveTo(polygon[nextIdx][0], polygon[nextIdx][1], outPts[nextIdx][0], outPts[nextIdx][1]);
+  }
+  shape.closePath();
+  return shape;
+}
+
+function _findWallComponents(columns) {
+  const visited = columns.map(col => (col || []).map(_ => false));
+  const components = [];
+  for (let c = 0; c < columns.length; c++) {
+    const col = columns[c];
+    if (!col) continue;
+    for (let r = 0; r < col.length; r++) {
+      if (!col[r] || col[r].wall !== true || visited[c][r]) continue;
+      // BFS flood-fill
+      const cells = [];
+      const queue = [[c, r]];
+      visited[c][r] = true;
+      while (queue.length) {
+        const [cc, rr] = queue.shift();
+        cells.push([cc, rr]);
+        const dirs = [[0,1], [0,-1], [1,0], [-1,0]];
+        for (const [dc, dr] of dirs) {
+          const nc = cc + dc, nr = rr + dr;
+          if (nc < 0 || nc >= columns.length || !columns[nc]) continue;
+          if (nr < 0 || nr >= columns[nc].length) continue;
+          if (visited[nc][nr]) continue;
+          if (!columns[nc][nr] || columns[nc][nr].wall !== true) continue;
+          visited[nc][nr] = true;
+          queue.push([nc, nr]);
+        }
+      }
+      components.push(cells);
+    }
+  }
+  return components;
+}
+
+function _buildComponentPolygon(cells, colDivs, halfRowGap, halfColGap) {
+  // Trace v grid-coords (integer korner pozice → vždy matchují, no sub-pixel
+  // bugs). Pak konvert na CSS pozice přes helper. Inside corners (concave)
+  // se umístí na midpoint mezi cells — žádné gap-induced trace failures.
+  const cellRects = new Map();
+  for (const [c, r] of cells) {
+    if (!colDivs[c]) continue;
+    const slotDivs = colDivs[c].querySelectorAll('.carrier');
+    if (!slotDivs[r]) continue;
+    const wb = slotDivs[r].querySelector('.wall-block');
+    if (!wb) continue;
+    cellRects.set(c + ',' + r, { c, r, rect: wb.getBoundingClientRect() });
+  }
+  if (cellRects.size === 0) return null;
+  const hasCell = (c, r) => cellRects.has(c + ',' + r);
+
+  // Boundary edges v grid-coords (clockwise). Korner = grid intersection.
+  // Cell (c, r) zabírá grid square (c, r) → (c+1, r+1).
+  const edges = [];
+  for (const [c, r] of cells) {
+    if (!hasCell(c, r - 1)) edges.push({ from: [c,   r  ], to: [c+1, r  ] });   // top →
+    if (!hasCell(c + 1, r)) edges.push({ from: [c+1, r  ], to: [c+1, r+1] });   // right ↓
+    if (!hasCell(c, r + 1)) edges.push({ from: [c+1, r+1], to: [c,   r+1] });   // bottom ←
+    if (!hasCell(c - 1, r)) edges.push({ from: [c,   r+1], to: [c,   r  ] });   // left ↑
+  }
+  if (edges.length === 0) return null;
+
+  // Trace — at concave corners 2 edges meet, edgeMap picks first one added.
+  // For grid coord exact match works regardless of pixel rounding.
+  const k = p => p[0] + ',' + p[1];
+  const edgeMap = new Map();
+  for (const e of edges) edgeMap.set(k(e.from), e);
+  const start = edges[0];
+  const gridPoly = [start.from.slice()];
+  let current = start;
+  for (let i = 0; i < edges.length + 4; i++) {
+    gridPoly.push(current.to.slice());
+    const next = edgeMap.get(k(current.to));
+    if (!next || next === start) break;
+    current = next;
+  }
+
+  // Convert grid corners → CSS pozice. Pro každý korner (gc, gr) zjisti
+  // pozici z okolních cells.
+  // cTL = cell jejíž TL corner je zde, cTR = TR corner, cBL = BL corner, cBR = BR corner.
+  // count=1 convex outer: přesný outer-corner cell.
+  // count=2 edge (2 sousední cells): midpoint gapů — bridge.
+  // count=3 concave inside: snap na cell-edge chybějící cell → čistý 90° roh.
+  function cornerCSS(gc, gr) {
+    const cTL = cellRects.get(gc + ',' + gr);
+    const cTR = cellRects.get((gc-1) + ',' + gr);
+    const cBL = cellRects.get(gc + ',' + (gr-1));
+    const cBR = cellRects.get((gc-1) + ',' + (gr-1));
+    let x, y;
+    const count = [cTL, cTR, cBL, cBR].filter(Boolean).length;
+    if (count === 3) {
+      // Concave corner — snap na vnitřní hranu notče (opačná strana od missing cell).
+      if (!cTL)      { x = cTR.rect.right;  y = cBL.rect.bottom; }
+      else if (!cTR) { x = cTL.rect.left;   y = cBR.rect.bottom; }
+      else if (!cBL) { x = cBR.rect.right;  y = cTL.rect.top;    }
+      else           { x = cBL.rect.left;   y = cTR.rect.top;    }
+    } else {
+      // X
+      if (cTL && cTR)      x = (cTR.rect.right + cTL.rect.left) / 2;
+      else if (cBL && cBR) x = (cBR.rect.right + cBL.rect.left) / 2;
+      else if (cTL || cBL) x = (cTL || cBL).rect.left;
+      else if (cTR || cBR) x = (cTR || cBR).rect.right;
+      else return null;
+      // Y
+      if (cTL && cBL)      y = (cBL.rect.bottom + cTL.rect.top) / 2;
+      else if (cTR && cBR) y = (cBR.rect.bottom + cTR.rect.top) / 2;
+      else if (cTL || cTR) y = (cTL || cTR).rect.top;
+      else if (cBL || cBR) y = (cBL || cBR).rect.bottom;
+      else return null;
+    }
+    return [x, y];
+  }
+
+  const cssPoly = [];
+  for (const [gc, gr] of gridPoly) {
+    const p = cornerCSS(gc, gr);
+    if (!p) continue;
+    cssPoly.push(p);
+  }
+  // Trace končí duplikem start-vertexu ([A,B,C,A]) — dedup, jinak offset polygon
+  // má zero-length edge na konci a první vertex se neoffsetne (tenký šev).
+  while (cssPoly.length >= 2) {
+    const a = cssPoly[0], b = cssPoly[cssPoly.length - 1];
+    if (Math.abs(a[0] - b[0]) < 0.5 && Math.abs(a[1] - b[1]) < 0.5) {
+      cssPoly.pop();
+    } else {
+      break;
+    }
+  }
+  if (cssPoly.length < 3) return null;
+  return cssPoly;
+}
+
+function _disposeWallMeshes() {
+  for (const m of st.wallMeshes) {
+    if (st._wallContentGroup) st._wallContentGroup.remove(m);
+    if (m.geometry) m.geometry.dispose();
+  }
+  for (const m of st.wallOutlineMeshes) {
+    if (st._wallContentGroup) st._wallContentGroup.remove(m);
+    if (m.geometry) m.geometry.dispose();
+  }
+  st.wallMeshes.length = 0;
+  st.wallOutlineMeshes.length = 0;
+}
+
+let _wallCacheKey = null;
+function updateWalls(columns) {
+  if (!st.ready || !st._wallMat) return;
+  // v74.79: cache key — walls jsou statické per level, na carrier klik se nemění.
+  // Předtím per drawCarriers (= per klik) dispose + rebuild ALL wall ExtrudeGeometries
+  // = obrovská ztráta. Theme bg + wall pozice = invariant per level.
+  const cs = getComputedStyle(document.body);
+  const bgColor = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
+  // Hash walls pozice + theme color
+  let wallKey = bgColor + '|';
+  for(let c=0; c<columns.length; c++){
+    const col = columns[c];
+    if(!col) continue;
+    for(let r=0; r<col.length; r++){
+      if(col[r] && col[r].wall === true) wallKey += c+','+r+';';
+    }
+  }
+  if(wallKey === _wallCacheKey) return; // Walls unchanged → skip rebuild
+  _wallCacheKey = wallKey;
+  st._dirty = true; // walls update = layout/color change
+  // Wall barva = bgColor lightened ~+8 % HSL lightness — wall mírně vyniká z bg.
+  const wallCol = new THREE.Color(bgColor);
+  const hsl = { h: 0, s: 0, l: 0 };
+  wallCol.getHSL(hsl);
+  wallCol.setHSL(hsl.h, hsl.s, Math.min(1, hsl.l + 0.02));
+  st._wallMat.color.copy(wallCol);
+  // Outline barva = wall color × ~0.38 — lehce tmavší než nejtmavší toon band (0.47)
+  // pro jemné oddělení od bg, ale ne kontrastně černá.
+  st._wallOutlineMat.color.copy(wallCol).multiplyScalar(0.38);
+  const rowGap = parseFloat(cs.getPropertyValue('--row-gap')) || 6;
+  const colGap = 4;  // viz #carriers-grid gap v CSS
+
+  _disposeWallMeshes();
+
+  const gridEl = document.getElementById('carriers-grid');
+  if (!gridEl) return;
+  const canvasRect = st.canvas.getBoundingClientRect();
+  const refRect = document.getElementById('bottom-deck')?.getBoundingClientRect() || canvasRect;
+  const colDivs = gridEl.querySelectorAll('.carrier-col');
+
+  const components = _findWallComponents(columns);
+  if (components.length === 0) return;
+
+  for (const cells of components) {
+    const polygon = _buildComponentPolygon(cells, colDivs, rowGap / 2, colGap / 2);
+    if (!polygon || polygon.length < 3) continue;
+
+    // Polygon je v CSS coords (Y down). Convert na shape-local (centered, Y flipped pro Three.js Y up).
+    let cx = 0, cy = 0;
+    for (const p of polygon) { cx += p[0]; cy += p[1]; }
+    cx /= polygon.length;
+    cy /= polygon.length;
+
+    // Konvert polygon na shape-local coords (centered, Y flipped pro Three.js Y up)
+    const shapePoly = polygon.map(p => [p[0] - cx, -(p[1] - cy)]);
+    const shape = _buildRoundedShape(shapePoly, WALL_CORNER_RADIUS);
+
+    const geo = new THREE.ExtrudeGeometry(shape, {
+      depth: WALL_DEPTH,
+      bevelEnabled: true,
+      bevelThickness: WALL_BEVEL,
+      bevelSize: WALL_BEVEL,
+      bevelSegments: WALL_BEVEL_SEGS,
+      curveSegments: 4,
+    });
+    // Center mesh v Z (default ExtrudeGeometry extruduje z=0..depth)
+    geo.translate(0, 0, -WALL_DEPTH / 2);
+
+    // Mesh position v scene = polygon center v world coords (X přes refRect)
+    const xCSS = cx - refRect.left;
+    const yCSS = cy - canvasRect.top;
+    const xW = xCSS;
+    const yW = _worldY(yCSS);
+
+    const mesh = new THREE.Mesh(geo, st._wallMat);
+    mesh.position.set(xW, yW, 0);
+    mesh.renderOrder = 130;
+    mesh.frustumCulled = false;
+    st._wallContentGroup.add(mesh);
+    st.wallMeshes.push(mesh);
+
+    // Outline: pevná tloušťka (WALL_OUTLINE_PX) — polygon offset outward po normálách,
+    // ne scale. Scale dělá tloušťku závislou na rozměru (široká strana = tlustší outline);
+    // polygon offset dává uniformní tloušťku po celém obvodu.
+    const offsetPoly = _offsetPolygonOutward(polygon, WALL_OUTLINE_PX);
+    const outShapePoly = offsetPoly.map(p => [p[0] - cx, -(p[1] - cy)]);
+    // Outline corner radius = wall radius + outline thickness, aby outer křivka outlinu
+    // byla koncentrická s wall křivkou (jinak outline na rohu vypadá moc tlustý/tenký).
+    const outShape = _buildRoundedShape(outShapePoly, WALL_CORNER_RADIUS + WALL_OUTLINE_PX);
+    const outGeo = new THREE.ExtrudeGeometry(outShape, {
+      depth: WALL_DEPTH + 2 * WALL_OUTLINE_PX,
+      bevelEnabled: true,
+      bevelThickness: WALL_BEVEL,
+      bevelSize: WALL_BEVEL,
+      bevelSegments: WALL_BEVEL_SEGS,
+      curveSegments: 4,
+    });
+    outGeo.translate(0, 0, -(WALL_DEPTH + 2 * WALL_OUTLINE_PX) / 2);
+    const outMesh = new THREE.Mesh(outGeo, st._wallOutlineMat);
+    outMesh.position.set(xW, yW, 0);
+    outMesh.renderOrder = 129;
+    outMesh.frustumCulled = false;
+    st._wallContentGroup.add(outMesh);
+    st.wallOutlineMeshes.push(outMesh);
+  }
+}
+
+// ─── Export ──────────────────────────────────────────────────────────────────
+
+// v72.74: re-měření layoutu + canvas/renderer/camera resize. Voláno z game.js
+// při level switchi nebo viewport resize, kde se může změnit výška decku
+// (nový level s víc řadami = vyšší deck). Bez resize by se bottom rows renderovaly
+// MIMO canvas (clipped).
+function resize() {
+  st._dirty = true; // v74.79: viewport change → refresh
+  st._slotCacheValid = false; // v74.79: layout může změnit slot pozice
+  if (!st.ready || !st.canvas) return;
+  const gameEl   = document.getElementById('game');
+  const beltWrap = document.getElementById('belt-wrap');
+  if (!gameEl || !beltWrap) return;
+  const gameRect = gameEl.getBoundingClientRect();
+  const beltRect = beltWrap.getBoundingClientRect();
+  const bottomEl = document.getElementById('bottom-deck') ||
+                   document.getElementById('carriers-wrap');
+  const bottomRect = bottomEl ? bottomEl.getBoundingClientRect() : beltRect;
+  const carrEl     = document.getElementById('carriers-wrap');
+  const pendWrapEl = document.getElementById('pending-wrap');
+  let widestRect = beltRect;
+  if (carrEl && carrEl.getBoundingClientRect().width > widestRect.width) widestRect = carrEl.getBoundingClientRect();
+  if (pendWrapEl && pendWrapEl.getBoundingClientRect().width > widestRect.width) widestRect = pendWrapEl.getBoundingClientRect();
+  const W = Math.ceil(widestRect.width);
+  const H = Math.max(180, Math.ceil(bottomRect.bottom - beltRect.top) + 90);
+  if (W === st.W && H === st.H) return;
+  st.W = W;
+  st.H = H;
+  const pad = st.canvasPad || 0;
+  const canvasFullW = W + 2 * pad;
+  // Ghost canvas (měřící reference) drží správnou velikost i v unified módu.
+  st.canvas.width  = canvasFullW;
+  st.canvas.height = H;
+  st.canvas.style.width  = canvasFullW + 'px';
+  st.canvas.style.height = H + 'px';
+  // Unified: sdílený renderer + unified kameru NEsahat (řídí orchestrátor; mountBottom
+  // se přepočítá z ghost canvas rectu přes render3dUnified.layout()).
+  if (!st._shared) {
+    if (st.renderer) st.renderer.setSize(canvasFullW, H, false);
+    if (st.camera) {
+      st.camera.left   = -pad;
+      st.camera.right  = W + pad;
+      st.camera.top    = H;
+      st.camera.bottom = 0;
+      st.camera.updateProjectionMatrix();
+    }
+  }
+  if (st.pivot) st.pivot.position.set(W / 2, H / 2, 0);
+  if (st.contentGroup) st.contentGroup.position.set(-W / 2, -H / 2, 0);
+  // Update measured position refs (used by updateBelt / updatePending / canvasYtoFunY)
+  const canvasTop = Math.round(beltRect.top - gameRect.top);
+  const beltSvgEl = document.getElementById('belt-svg');
+  const pendEl    = document.getElementById('pending-canvas');
+  if (beltSvgEl) {
+    const r = beltSvgEl.getBoundingClientRect();
+    const offY = Math.round(r.top - gameRect.top) - canvasTop;
+    st.beltCenterY = offY + Math.round(r.height / 2);
+  }
+  if (pendEl) {
+    const r = pendEl.getBoundingClientRect();
+    st.pendingTopCSS = Math.round(r.top - gameRect.top) - canvasTop;
+  }
+  // v73.122: měříme #carriers-grid místo #carriers-wrap → first row top / last row bottom
+  const carrGridEl2 = document.getElementById('carriers-grid') || carrEl;
+  if (carrGridEl2) {
+    const cR = carrGridEl2.getBoundingClientRect();
+    st.carriersTopCSS    = Math.round(cR.top    - gameRect.top) - canvasTop;
+    st.carriersBottomCSS = Math.round(cR.bottom - gameRect.top) - canvasTop;
+  }
+}
+
+// v72.68: clear per-carrier caches + animace — voláno z game.js startLevel, aby
+// se carriery nového levelu nedetekovaly jako transition z předchozího levelu
+// (falešné pop animace na startu levelu).
+function clearCarrierState() {
+  if (st.carrierActiveCache) st.carrierActiveCache.clear();
+  if (st.carrierHiddenCache) st.carrierHiddenCache.clear();
+  if (st.carrierPopAnim) st.carrierPopAnim.clear();
+  if (st.carrierDenialAnim) st.carrierDenialAnim.clear();   // v72.78
+  if (st.mysteryRevealAnim) st.mysteryRevealAnim.clear();
+  if (st.mysteryRevealMeshes) {
+    for (const [, entry] of st.mysteryRevealMeshes) {
+      if (st.contentGroup && entry.mesh) st.contentGroup.remove(entry.mesh);
+      if (entry.mat) entry.mat.dispose();
+    }
+    st.mysteryRevealMeshes.clear();
+  }
+}
+
+// v73.205: color tuning hooks pro dev color picker
+function setBottomFrameColor(hex) {
+  st._dirty = true;
+  st._frameColorOverride = hex;
+  if (st.unifiedFrameMesh && st.unifiedFrameMesh.material) {
+    st.unifiedFrameMesh.material.color.set(hex);
+  }
+}
+function getBottomFrameColor() {
+  return st.unifiedFrameMesh?.material?.color?.getHexString() || 'f4b8c8';
+}
+function setOutlineColor(hex) {
+  st._dirty = true;
+  st._outlineColorOverride = hex;
+  if (st.unifiedFrameOutline && st.unifiedFrameOutline.material) {
+    st.unifiedFrameOutline.material.color.set(hex);
+  }
+}
+function getOutlineColor() {
+  return st.unifiedFrameOutline?.material?.color?.getHexString() || '8a5066';
+}
+function setMysteryBaseColor(hex) {
+  st._dirty = true;
+  st._mysteryBaseOverride = hex;
+  rebuildMysteryTexture();
+}
+function getMysteryBaseColor() {
+  return st._mysteryBaseOverride || MYSTERY_BASE_DEFAULT;
+}
+function rebuildMysteryTexture() {
+  st._dirty = true;
+  // Rebuild mystery `?` texture po theme/color change (čte aktuální --carriers-3d-bg).
+  if (!st._mysteryTex || !st._mysteryMat) return;
+  const newTex = _buildMysteryTexture();
+  // Preserve offset (anim phase)
+  newTex.offset.copy(st._mysteryTex.offset);
+  st._mysteryTex.dispose();
+  st._mysteryTex = newTex;
+  st._mysteryMat.map = newTex;
+  st._mysteryMat.needsUpdate = true;
+}
+// v73.311: belt theme tint — smísí default belt grays s theme primary color
+// (`--carriers-3d-bg`) v poměru 0.18 (subtle). Aplikuje na outer plate instance
+// colors, inner plate material, edges material.
+function refreshBeltTint() {
+  st._dirty = true;
+  const cs = getComputedStyle(document.body);
+  const themeHex = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
+  const theme = new THREE.Color(themeHex);
+  const BLEND     = 0.18; // 18% theme — plates, edges
+  const BOX_BLEND = 0.12; // v73.314: 12% theme — trochu výraznější nadech
+  // Default belt grays (RGB)
+  const baseEven  = new THREE.Color(0x303040);
+  const baseOdd   = new THREE.Color(0x3a3a48); // v73.312: blíž k even, mensí kontrast
+  const baseEdge  = new THREE.Color(0x1a1a25);
+  function mix(base, ratio) {
+    const r = ratio !== undefined ? ratio : BLEND;
+    return new THREE.Color(
+      base.r + (theme.r - base.r) * r,
+      base.g + (theme.g - base.g) * r,
+      base.b + (theme.b - base.b) * r
+    );
+  }
+  const evenMixed = mix(baseEven);
+  const oddMixed  = mix(baseOdd);
+  st._beltTint = { even: evenMixed, odd: oddMixed };
+  // v74.79: inner barva odvozená z plate odd-tinted barvy + lighter (HSL L+0.28)
+  // → automaticky ladí s každým theme + je dostatečně světlá.
+  if (st.beltPlateInnerMesh) {
+    const innerColor = oddMixed.clone();
+    const hsl = {h:0, s:0, l:0};
+    innerColor.getHSL(hsl);
+    innerColor.setHSL(hsl.h, hsl.s, Math.min(0.85, hsl.l + 0.28));
+    st.beltPlateInnerMesh.material.color.copy(innerColor);
+  }
+  if (st.beltEdgeTop) st.beltEdgeTop.material.color.copy(mix(baseEdge));
+  if (st.beltEdgeBot) st.beltEdgeBot.material.color.copy(mix(baseEdge));
+  // v73.331: boxy mají toon material — base 0x9aa0b0 (shell) + 0x5a606e (arrow).
+  // v73.333: neon theme — boxy tmavé + arrow emissive (svítící šipky).
+  const isNeon = document.body.classList.contains('theme-neon');
+  if (isNeon) {
+    // Tmavý korpus
+    if (st.beltBoxLeft) st.beltBoxLeft.material.color.set(0x0a1018);
+    // Arrow neonově svítí
+    if (st._boxArrowMat) {
+      st._boxArrowMat.color.set(0x00e8f8);
+      if (!st._boxArrowMat.emissive) st._boxArrowMat.emissive = new THREE.Color();
+      st._boxArrowMat.emissive.set(0x00e8f8);
+      st._boxArrowMat.emissiveIntensity = 0.85;
+      st._boxArrowMat.needsUpdate = true;
+    }
+  } else {
+    const BOX_BLEND_TOON = 0.30;
+    const baseBoxShell = new THREE.Color(0xc0c8d4); // v73.335: match new init color (6-band gradient base)
+    const baseBoxArrow = new THREE.Color(0x707888);
+    if (st.beltBoxLeft) st.beltBoxLeft.material.color.copy(mix(baseBoxShell, BOX_BLEND_TOON));
+    if (st._boxArrowMat) {
+      st._boxArrowMat.color.copy(mix(baseBoxArrow, BOX_BLEND_TOON));
+      // Zhasnout emissive po návratu z neonu
+      if (st._boxArrowMat.emissive) {
+        st._boxArrowMat.emissive.set(0x000000);
+        st._boxArrowMat.emissiveIntensity = 0;
+        st._boxArrowMat.needsUpdate = true;
+      }
+    }
+  }
+  // Right box sdílí stejný material instance s left → updates automaticky.
+}
+
+function refreshFloorColor() {
+  st._dirty = true;
+  // Floor mesh color je hard-coded při init z --carriers-3d-bg. Refresh po color change.
+  const cs = getComputedStyle(document.body);
+  const carriersBg = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
+  if (st.unifiedFrameFloor) st.unifiedFrameFloor.material.color.set(carriersBg);
+  // Carrier mark color = floor lightened. HSL L+0.09 (lehce světlejší než floor).
+  if (st.carrierMarkMesh) {
+    const c = new THREE.Color(carriersBg);
+    const hsl = {h:0, s:0, l:0};
+    c.getHSL(hsl);
+    c.setHSL(hsl.h, hsl.s, Math.min(0.85, hsl.l + 0.09));
+    st.carrierMarkMesh.material.color.copy(c);
+  }
+}
+function refreshWallColor() {
+  st._dirty = true;
+  // Wall barva = --carriers-3d-bg lightened +0.02 HSL. Outline = wall × 0.38.
+  // Sync s updateWalls() logic — voláno z dev tool floor change cascade.
+  if (!st._wallMat) return;
+  const cs = getComputedStyle(document.body);
+  const bgColor = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
+  const wallCol = new THREE.Color(bgColor);
+  const hsl = { h: 0, s: 0, l: 0 };
+  wallCol.getHSL(hsl);
+  wallCol.setHSL(hsl.h, hsl.s, Math.min(1, hsl.l + 0.02));
+  st._wallMat.color.copy(wallCol);
+  if (st._wallOutlineMat) st._wallOutlineMat.color.copy(wallCol).multiplyScalar(0.38);
+}
+
+// v73.255: quality tier — bottom renderer nemá shadows, ale snižujeme pixelRatio.
+// v73.257: setPixelRatio per tier — největší win na mobile (retina 2× = 4× pixelů).
+function setQualityTier(tier){
+  st.qualityTier = Math.max(0, Math.min(2, tier|0));
+  st._dirty = true; // v74.79: tier change → vynucený refresh
+  // v74.79: pixel ratio cap 1.5× pro VŠECHNY tiery (perf).
+  // Unified: pixel ratio řídí orchestrátor (sdílený renderer), nesahat.
+  if (st.renderer && !st._shared) {
+    const dpr = window.devicePixelRatio || 1;
+    st.renderer.setPixelRatio(Math.min(dpr, 1.5));
+  }
+}
+function getQualityTier(){ return st.qualityTier || 0; }
+
+// Unified: umístí mountBottom (placement grupu) tak, aby spodní lokální svět
+// (frustum x∈[-pad,W+pad], y∈[0,H]) padl přesně na screen rect ghost canvasu.
+// Ghost canvas drží stejnou CSS pozici jako dřív renderovaný bottom canvas →
+// auto-follow topExtra/resize. Veškerá carrier/frame matematika beze změny.
+function placeUnifiedMount(U, gRect) {
+  if (!st._uMount || !st.canvas || !U || typeof U.placeMountFrustum !== 'function') return;
+  const cr = st.canvas.getBoundingClientRect();
+  const pad = st.canvasPad || 0;
+  U.placeMountFrustum(
+    st._uMount,
+    cr.left - gRect.left, cr.top - gRect.top, cr.width, cr.height,
+    -pad, st.W + pad, 0, st.H
+  );
+}
+window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, triggerCarrierRipple, triggerHoleSuck, triggerFunnelWarning, hideFunnelWarning, refreshFunnelWarningTheme, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor, setQualityTier, getQualityTier, invalidateSlotCache, refreshBeltTint, placeUnifiedMount };
+window._r3dBState = st;  // debug
