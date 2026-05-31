@@ -61,7 +61,7 @@ function _makeChromeMatcap() {
 }
 
 // v74.79: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v74.79';
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v74.80';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
@@ -455,10 +455,11 @@ function _makeBevelTexture(style) {
   }
 }
 
-function init(canvas, opts) {
+function init(canvas, opts, shared) {
   if (state.ready) return true;
   if (!canvas) return false;
   opts = opts || {};
+  state._shared = shared || null;   // unified orchestrator context (sdílený renderer/scene/camera/mount)
   state.canvasEl = canvas;
   state.GW = opts.GW || 36;
   state.GH = opts.GH || 31;
@@ -466,10 +467,12 @@ function init(canvas, opts) {
 
   const W = state.GW * SCALE;   // 360
   const H = state.GH * SCALE;   // 310
+  state._localW = W;
+  state._localH = H;
 
   // Scéna — standardní Y-up world (kladné Y = nahoře). Pixel placement flipuje
   // grid Y (grid[0] = top of screen → world Y=H, grid[IMG_GH-1] → world Y=H-IMG_H).
-  state.scene = new THREE.Scene();
+  state.scene = (shared && shared.scene) ? shared.scene : new THREE.Scene();
 
   // Tilt group — scéna se naklopí kolem X osy s pivotem ve středu image area.
   // OrthographicCamera zůstává top-down. Match Blender Camera.010 X=19.216°.
@@ -478,7 +481,8 @@ function init(canvas, opts) {
   const imgCenterY = H - imgH / 2;
   state.pivot = new THREE.Group();
   state.pivot.position.set(W / 2, imgCenterY, 0);
-  state.scene.add(state.pivot);
+  // Při unified módu jde pivot do placement grupy (mount), ne přímo do sdílené scény.
+  ((shared && shared.mount) ? shared.mount : state.scene).add(state.pivot);
 
   state.tiltGroup = new THREE.Group();
   // Záporné rotation.x = top of scene tilts BACKWARD (away from camera, +Z). To je
@@ -493,8 +497,12 @@ function init(canvas, opts) {
 
   // OrthographicCamera — frustum standardní Y-up (bottom=0, top=H). Frustum
   // generózní v Z (–500..500), aby tilt nezpůsobil clipping vyšších kostek.
-  state.camera = new THREE.OrthographicCamera(0, W, H, 0, -500, 500);
-  state.camera.position.set(0, 0, 100);
+  if (shared && shared.camera) {
+    state.camera = shared.camera;   // unified kamera (CSS-pixel prostor #game), už umístěná
+  } else {
+    state.camera = new THREE.OrthographicCamera(0, W, H, 0, -500, 500);
+    state.camera.position.set(0, 0, 100);
+  }
 
   // Lighting — HemisphereLight (sky + ground) ambient, DirectionalLight = „slunce".
   // User feedback iterace: vyšší ambient + sun pro více svítivosti pixelů, ale
@@ -530,17 +538,22 @@ function init(canvas, opts) {
   state.scene.add(fill);
 
   // Renderer — alpha:true aby pixel-canvas pod tím prosvítal (bloky 2D).
-  state.renderer = new THREE.WebGLRenderer({
-    canvas: canvas,
-    antialias: true,
-    alpha: true,
-    premultipliedAlpha: true,
-  });
-  state.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));  // v74.79: top canvas zpět 2× (B-pool dal headroom), bottom drží 1.5×
-  state.renderer.setSize(W, H, false); // false = neměnit CSS rozměr canvasu
-  state.renderer.setClearColor(0x000000, 0);
-  state.renderer.shadowMap.enabled = true;
-  state.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  if (shared && shared.renderer) {
+    // Unified: sdílený renderer vlastní orchestrátor (velikost/pixelRatio/clear/shadow).
+    state.renderer = shared.renderer;
+  } else {
+    state.renderer = new THREE.WebGLRenderer({
+      canvas: canvas,
+      antialias: true,
+      alpha: true,
+      premultipliedAlpha: true,
+    });
+    state.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));  // v74.79: top canvas zpět 2× (B-pool dal headroom), bottom drží 1.5×
+    state.renderer.setSize(W, H, false); // false = neměnit CSS rozměr canvasu
+    state.renderer.setClearColor(0x000000, 0);
+    state.renderer.shadowMap.enabled = true;
+    state.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  }
 
   // InstancedMesh pro pixely — max GW*IMG_GH (jen image area, ne belt rows)
   const maxInstances = state.GW * state.IMG_GH; // 36*27 = 972
@@ -1586,6 +1599,9 @@ function render() {
   state._frameCount = (state._frameCount || 0) + 1;
   const sinceLast = state._frameCount - (state._lastRenderFrame || 0);
   _updateMuzzleFlash(performance.now());
+  // Unified: samotné kreslení dělá orchestrátor (jeden render pass pro obě scény).
+  // Tady jen bookkeeping (muzzle flash výše), draw se přeskočí.
+  if (state._shared) { state._dirty = false; state._lastRenderFrame = state._frameCount; return; }
   if (!state._dirty && sinceLast < 60) return;
   state.renderer.render(state.scene, state.camera);
   state._dirty = false;
@@ -1802,6 +1818,8 @@ if (typeof window !== 'undefined') {
       if (state.sun && !state.sun.shadow.autoUpdate) state.sun.shadow.needsUpdate = true;
     },
     getQualityTier: () => state.qualityTier || 0,
+    // Lokální world rozměry (pro unified placement grupy).
+    getLocalSize: () => ({ w: state._localW || 360, h: state._localH || 310 }),
     triggerPixelWave,
     triggerPixelHit,
     triggerBounceSpark,   // v73.49

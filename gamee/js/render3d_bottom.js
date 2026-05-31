@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // v74.79: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v74.79';
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v74.80';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
@@ -387,9 +387,10 @@ function _buildMysterySlotGeom(slotGeom) {
 
 // ─── Inicializace ────────────────────────────────────────────────────────────
 
-function init() {
+function init(shared) {
   if (st.ready) return true;
   if (!THREE) return false;
+  st._shared = shared || null;   // unified orchestrator (sdílený renderer/scene/camera/mount)
 
   const gameEl   = document.getElementById('game');
   const beltWrap = document.getElementById('belt-wrap');
@@ -486,24 +487,37 @@ function init() {
   st.canvasPad = CANVAS_PAD;
 
   // Three.js renderer — toon look nepotřebuje shadow mapy (cel-shading je flat)
-  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, stencil: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));  // v74.79: cap 1.5× (perf)
-  renderer.setSize(canvasFullW, H, false);
-  renderer.setClearColor(0, 0);
-  renderer.shadowMap.enabled = false;  // v73.216: real shadow nefungoval, zpět na disk
+  let renderer;
+  if (shared && shared.renderer) {
+    renderer = shared.renderer;   // unified: sdílený renderer (velikost/clear/shadow řídí orchestrátor)
+  } else {
+    renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, stencil: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));  // v74.79: cap 1.5× (perf)
+    renderer.setSize(canvasFullW, H, false);
+    renderer.setClearColor(0, 0);
+    renderer.shadowMap.enabled = false;  // v73.216: real shadow nefungoval, zpět na disk
+  }
 
   // OrthographicCamera: extended o CANVAS_PAD → world x ∈ [0, W] zůstává v centru,
   // ale outline (x ∈ [-8, W+8]) je viditelný v rozšířené canvas oblasti.
-  const camera = new THREE.OrthographicCamera(-CANVAS_PAD, W + CANVAS_PAD, H, 0, -300, 300);
-  camera.position.set(0, 0, 100);
+  // Unified: kreslíme přes unified kameru + mountBottom placement, vlastní kamera nepoužita pro draw.
+  let camera;
+  if (shared && shared.camera) {
+    camera = shared.camera;
+  } else {
+    camera = new THREE.OrthographicCamera(-CANVAS_PAD, W + CANVAS_PAD, H, 0, -300, 300);
+    camera.position.set(0, 0, 100);
+  }
 
-  const scene = new THREE.Scene();
+  const scene = (shared && shared.scene) ? shared.scene : new THREE.Scene();
 
   // Tilt struktura — všechny meshes půjdou do contentGroup, který je naklopený
   // o -TILT_RAD okolo X osy s pivotem ve středu canvas, podobně jako render3d.js.
   const pivot = new THREE.Group();
   pivot.position.set(W / 2, H / 2, 0);
-  scene.add(pivot);
+  // Unified: pivot jde do placement grupy (mountBottom), ne přímo do sdílené scény.
+  ((shared && shared.mount) ? shared.mount : scene).add(pivot);
+  st._uMount = (shared && shared.mount) ? shared.mount : null;
 
   const tiltGroup = new THREE.Group();
   tiltGroup.rotation.x = -TILT_RAD;
@@ -525,12 +539,16 @@ function init() {
   //   - DirectionalLight intensity 1.55 (bylo Math.PI = 3.14)
   //   - HemisphereLight intensity 1.85 (bylo 1.2)
   // Aby band visuálně matchoval image frame, materiály i světla musí být stejné.
-  const sun = new THREE.DirectionalLight(0xffffff, 1.55);
-  sun.position.set(-300, 800, 600);
-  scene.add(sun);
+  // Unified: spodek používá sdílený rig z horního modulu (méně světel = cíl refaktoru).
+  // Vlastní sun+hemi se přidají JEN ve standalone (ne-unified) módu.
+  if (!shared) {
+    const sun = new THREE.DirectionalLight(0xffffff, 1.55);
+    sun.position.set(-300, 800, 600);
+    scene.add(sun);
 
-  const hemi = new THREE.HemisphereLight(0xffe8f0, 0xa090a8, 1.85);
-  scene.add(hemi);
+    const hemi = new THREE.HemisphereLight(0xffe8f0, 0xa090a8, 1.85);
+    scene.add(hemi);
+  }
   st.frameLightLayer = 0;
 
   st.scene    = scene;
@@ -3115,7 +3133,9 @@ function render() {
       st.mysteryRevealMeshes.delete(key);
     }
   }
-  st.renderer.render(st.scene, st.camera);
+  // Unified: samotné kreslení dělá orchestrátor (jeden render pass). Per-frame anim
+  // updaty výše proběhnou, draw se přeskočí.
+  if (!st._shared) st.renderer.render(st.scene, st.camera);
   st._dirty = false;
   st._lastRenderFrame = st._frameCount;
 }
@@ -3506,17 +3526,22 @@ function resize() {
   st.H = H;
   const pad = st.canvasPad || 0;
   const canvasFullW = W + 2 * pad;
+  // Ghost canvas (měřící reference) drží správnou velikost i v unified módu.
   st.canvas.width  = canvasFullW;
   st.canvas.height = H;
   st.canvas.style.width  = canvasFullW + 'px';
   st.canvas.style.height = H + 'px';
-  if (st.renderer) st.renderer.setSize(canvasFullW, H, false);
-  if (st.camera) {
-    st.camera.left   = -pad;
-    st.camera.right  = W + pad;
-    st.camera.top    = H;
-    st.camera.bottom = 0;
-    st.camera.updateProjectionMatrix();
+  // Unified: sdílený renderer + unified kameru NEsahat (řídí orchestrátor; mountBottom
+  // se přepočítá z ghost canvas rectu přes render3dUnified.layout()).
+  if (!st._shared) {
+    if (st.renderer) st.renderer.setSize(canvasFullW, H, false);
+    if (st.camera) {
+      st.camera.left   = -pad;
+      st.camera.right  = W + pad;
+      st.camera.top    = H;
+      st.camera.bottom = 0;
+      st.camera.updateProjectionMatrix();
+    }
   }
   if (st.pivot) st.pivot.position.set(W / 2, H / 2, 0);
   if (st.contentGroup) st.contentGroup.position.set(-W / 2, -H / 2, 0);
@@ -3704,12 +3729,28 @@ function refreshWallColor() {
 function setQualityTier(tier){
   st.qualityTier = Math.max(0, Math.min(2, tier|0));
   st._dirty = true; // v74.79: tier change → vynucený refresh
-  // v74.79: pixel ratio cap 1.5× pro VŠECHNY tiery (perf)
-  if (st.renderer) {
+  // v74.79: pixel ratio cap 1.5× pro VŠECHNY tiery (perf).
+  // Unified: pixel ratio řídí orchestrátor (sdílený renderer), nesahat.
+  if (st.renderer && !st._shared) {
     const dpr = window.devicePixelRatio || 1;
     st.renderer.setPixelRatio(Math.min(dpr, 1.5));
   }
 }
 function getQualityTier(){ return st.qualityTier || 0; }
-window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, triggerCarrierRipple, triggerHoleSuck, triggerFunnelWarning, hideFunnelWarning, refreshFunnelWarningTheme, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor, setQualityTier, getQualityTier, invalidateSlotCache, refreshBeltTint };
+
+// Unified: umístí mountBottom (placement grupu) tak, aby spodní lokální svět
+// (frustum x∈[-pad,W+pad], y∈[0,H]) padl přesně na screen rect ghost canvasu.
+// Ghost canvas drží stejnou CSS pozici jako dřív renderovaný bottom canvas →
+// auto-follow topExtra/resize. Veškerá carrier/frame matematika beze změny.
+function placeUnifiedMount(U, gRect) {
+  if (!st._uMount || !st.canvas || !U || typeof U.placeMountFrustum !== 'function') return;
+  const cr = st.canvas.getBoundingClientRect();
+  const pad = st.canvasPad || 0;
+  U.placeMountFrustum(
+    st._uMount,
+    cr.left - gRect.left, cr.top - gRect.top, cr.width, cr.height,
+    -pad, st.W + pad, 0, st.H
+  );
+}
+window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, triggerCarrierRipple, triggerHoleSuck, triggerFunnelWarning, hideFunnelWarning, refreshFunnelWarningTheme, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor, setQualityTier, getQualityTier, invalidateSlotCache, refreshBeltTint, placeUnifiedMount };
 window._r3dBState = st;  // debug
