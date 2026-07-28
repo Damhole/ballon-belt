@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // v74.79: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.28';
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.29';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
@@ -541,9 +541,12 @@ function init() {
   st.renderer = renderer;
 
   // Sdílená geometrie pro koule (víc segmentů → hladší shading)
-  const carrierGeom = new THREE.SphereGeometry(R_CARRIER, 24, 16);
-  const pendingGeom = new THREE.SphereGeometry(R_PENDING, 18, 12);
-  const beltGeom    = new THREE.SphereGeometry(R_BELT,    24, 16);
+  // v75.29: 24×16 (~768 tris) → 12×8 (~192 tris) — koule mají ~11-24 px,
+  // rozdíl není vidět, ale outline mesh sdílí geometrii → úspora se počítá 2×.
+  // Plná mřížka ≈ 200 koulí ≈ 300k tris/frame jen za carrier balls (Adreno 506!).
+  const carrierGeom = new THREE.SphereGeometry(R_CARRIER, 12, 8);
+  const pendingGeom = new THREE.SphereGeometry(R_PENDING, 12, 8);
+  const beltGeom    = new THREE.SphereGeometry(R_BELT,    12, 8);
 
   // Toon shader gradient — sdílený mezi všemi materiály
   const toonGrad = _makeToonGradient();
