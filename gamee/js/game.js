@@ -1,7 +1,7 @@
 // v73.278: VERSION CONSTANT + WATCHDOG (rozšířen na render3d moduly)
 // Porovnává HTML #version-badge + window.BB_VERSION_R3D + window.BB_VERSION_R3DB
 // proti BB_VERSION. Kterákoli mismatch → force reload (sessionStorage guard).
-const BB_VERSION = 'v75.12';
+const BB_VERSION = 'v75.13';
 (function _versionWatchdog(){
   function check(){
     var badge = document.getElementById('version-badge');
@@ -1365,6 +1365,7 @@ const CANNON_SIDE_COMMIT=15;      // po kolika ranách se kanon rozhodne přehod
 let cannonIdleT=0;                // čas co kanon nevystřelil (watchdog proti zamrznutí queue)
 let introSeq=0;                   // token pro zrušení naplánovaného intra při resetu/přepnutí levelu
 let _levelSeq=0;                  // v75.08: token pro zrušení stale timeoutů (endGame/overlay/confetti) po restartu
+let _gridDrawPending=false;       // v75.13: destrukce v updateParticles jen flagují; drawGrid 1× za frame v beltLoop
 // === CHROMATIC ABERRATION RANDOM INTERVAL (v73.236) ===
 // CA se spustí každý 3.–5. zničený pixel (náhodně). Bez heat/streak.
 let _caCountdown=3+Math.floor(Math.random()*3); // 3..5
@@ -2306,10 +2307,10 @@ function updateParticles(dt){
           for(const cx of _cols) applyGravityToCol(grid,cx);
         }
         if(destroyed){
-          drawGrid();
+          _gridDrawPending=true;
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.12'));
+          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.13'));
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -2377,7 +2378,7 @@ function updateParticles(dt){
           // Odhaleno! Pixely pod blokem zůstávají (blok je jen "sundáme").
           spawnBlockExplosion(hitBlock);
           currentBlocks=currentBlocks.filter(b=>b!==hitBlock);
-          drawGrid();
+          _gridDrawPending=true;
           // Projektil pokračuje v letu za odhalenou plochu (odraz se neprovede,
           // když blok zmizel — jen přesměrujeme na nejbližší cíl své barvy).
           steerAfterBounce(p);
@@ -2388,7 +2389,7 @@ function updateParticles(dt){
           if(prevGy!==gy)p.vy=-p.vy;
           if(prevGx===gx&&prevGy===gy){p.vx=-p.vx;p.vy=-p.vy;}
           anyBounce=true;
-          drawGrid(); // překreslit HP číslo
+          _gridDrawPending=true; // překreslit HP číslo
         }
       } else if(hitBlock.color===p.ci){
         // Solid blok, color match → blok utrpí 1 HP (1 projektil = 1 HP), projektil pop
@@ -2414,7 +2415,7 @@ function updateParticles(dt){
           spawnBlockExplosion(hitBlock);
           currentBlocks=currentBlocks.filter(b=>b!==hitBlock);
         }
-        drawGrid();
+        _gridDrawPending=true;
         if(running&&!anyTargetLeft()){
           particles.forEach(q=>{if(q.phase==='fly'){q.phase='pop';q.popX=q.x;q.popY=q.y;}});
           {const _s=_levelSeq;setTimeout(()=>{if(running&&_s===_levelSeq)endGame(true);},80);}
@@ -2488,7 +2489,7 @@ function updateParticles(dt){
       }
       grid[gy][gx]=-1;
       if(gravityOn)applyGravityToCol(grid,gx);
-      drawGrid();
+      _gridDrawPending=true;
       p.phase='pop'; p.popX=nx; p.popY=ny; p.onPop();
       // 2D pop shards layer — běží v obou módech (user chce kombinaci 2D + 3D).
       _playPop();
@@ -7815,7 +7816,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.12'));
+    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.13'));
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7944,7 +7945,7 @@ function endGame(win){
   const _seq=_levelSeq; // v75.08: restart během win animace nesmí dostat overlay/confetti starého levelu
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.12'));
+  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.13'));
   _safeGamee(()=>gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined));
   if(win){
     spawnConfetti();
@@ -8660,6 +8661,8 @@ function beltLoop(ts){
 
     const _tu0=performance.now();
     updateParticles(dtAdj);  // v74.62: projektily zrychlí s speedMul
+    // v75.13: batch — salva 10 projektilů dřív = až 10× full přepis instance bufferu za frame
+    if(_gridDrawPending){_gridDrawPending=false;drawGrid();}
     const _tu1=performance.now();
     updatePending(dtAdj);    // v74.62: pending balls zrychlí s speedMul
     const _tu2=performance.now();
@@ -8893,7 +8896,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.12'));
+      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.13'));
       event.detail.callback();
     });
 

@@ -433,7 +433,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | Prio | Stav | Vel. | Téma | Nápad |
 |------|------|------|------|-------|
 | P1 | 📋 | M | Hra | **Aiming pipeline kanónu** — `gridVersion` counter: (a) plný `pickCannonShot` po každém výstřelu ~27×/s (game.js:1702, reset :8596), (b) revalidace locku ray-marchem každý frame (:8503), (c) `steerAfterBounce` 20 úhlů × 600 kroků v jednom framu (:2128). Největší CPU žrout |
-| P1 | 📋 | S | Hra | **`drawGrid()` dirty flag** — volá se per zásah z `updateParticles` (game.js:2289 aj.), při salvě až 10×/frame full přepis instance bufferu; batchnout na 1×/frame |
+| P1 | ✅ | S | Hra | **`drawGrid()` dirty flag** ✅ v75.13 — volá se per zásah z `updateParticles` (game.js:2289 aj.), při salvě až 10×/frame full přepis instance bufferu; batchnout na 1×/frame |
 | P1 | 📋 | S | 3D | **Pixel geometrie zředit** — render3d.js:563 `bevelSegments:6, curveSegments:6` ≈ 700–800 tris/kostka, s outline hull ~1,5 M tris/frame; 6→2 je vizuálně nerozeznatelné, ~10× méně vertexů |
 | P1 | 📋 | S | 3D | **updateCarriers layout thrash** — render3d_bottom.js:1358 write-then-read (`setProperty` + 4× `getBoundingClientRect`) každý frame animace = forced reflow; měřit jen při resize/level-start/theme |
 | P2 | 📋 | S | 3D | **Shadow double-compile při startu** — render3d.js:797 prewarm s `shadowMap.enabled=true`, pak `setQualityTier(1)` vše rekompiluje (iOS freeze, který měl prewarm řešit); tier 0 je nedosažitelný → shadow pipeline je mrtvá váha |
@@ -588,6 +588,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v75.13 | (pending) | 2026-07-28 | **E3.2 drawGrid dirty flag** — 5 přímých `drawGrid()` v updateParticles (pixel/blok/mystery/raketa destrukce) nahrazeno `_gridDrawPending=true`; jeden flush za frame v beltLoop hned po updateParticles. Salva projektilů dřív = až 10× full přepis instance bufferu + HP overlay za jediný frame. |
 | v75.12 | (pending) | 2026-07-28 | **E2.7 teleport-kill posledního pixelu** — expanded collider (v74.53) se aktivoval i při reálné kolizi s cizí barvou (`cell !== p.ci`) → poslední pixel do 2,5×SCALE se zničil skrz překážku. Nová podmínka `!(cell>=0)` = jen při čistém průletu; usnadnění pro volně stojící poslední pixel zůstává. |
 | v75.11 | (pending) | 2026-07-28 | **E2.6 raketa + gravitace** — exploze rakety mazala pixely bez `applyGravityToCol` (běžná destrukce ji má) → plovoucí pixely na gravity levelech, které solver/simulace nepředpovídá. Gravitace se aplikuje na všechny zasažené sloupce před drawGrid. |
 | v75.10 | (pending) | 2026-07-28 | **E2.5 garáž mode off nepolyká projektily** — konverze garage→wall se dělá hned při stavbě (před konzumací colorChunks), ne až v postprocessu, kdy queue už chunky spotřebovala → tichý deficit munice. Postprocess větev zůstává jako pojistka. pxCounts logika nedotčena (známý quirk). |
