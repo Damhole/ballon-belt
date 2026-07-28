@@ -64,7 +64,7 @@ function _makeChromeMatcap() {
 }
 
 // v74.79: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v76.03';
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v76.04';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
@@ -715,7 +715,7 @@ function init(canvas, opts) {
   // Low-poly (12×8 segments) pro mobile, MeshLambertMaterial dává sphere shading
   // od DirectionalLight (highlight + shadow side). Per-instance color.
   // Z = PROJECTILE_Z (12) — mírně nad baseline pixely, ale pod block tops.
-  const projGeom = new THREE.SphereGeometry(PROJECTILE_RADIUS, 12, 8);
+  const projGeom = new THREE.SphereGeometry(PROJECTILE_RADIUS, 8, 6); // v76.04: 12×8 (168 tris) → 8×6 (80) — na přání; outline sdílí geometrii
   const projMatOpts = {
     color: 0xffffff,
     transparent: false,
