@@ -439,7 +439,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | P2 | 📋 | S | 3D | **Shadow double-compile při startu** — render3d.js:797 prewarm s `shadowMap.enabled=true`, pak `setQualityTier(1)` vše rekompiluje (iOS freeze, který měl prewarm řešit); tier 0 je nedosažitelný → shadow pipeline je mrtvá váha |
 | P2 | ✅ | S | Hra | **`_recomputeLastPxPos` event-driven** ✅ v75.14 — game.js:2215 full-grid scan + alokace každý frame (tentýž scan, co v74.76/79 vypnul jinde) |
 | P2 | 📋 | S | Hra | **Funnel broad-phase** — game.js:7513 160 arch segmentů × ball × 4 substeps bez indexu; vybrat ±2 segmenty podle Y |
-| P2 | 📋 | XS | Hra | **Hot-path console.log za flag** — game.js:8601 `cannon FIRE` log 27×/s + diagnostické smyčky (:2376, :2440, :8541) |
+| P2 | ✅ | XS | Hra | **Hot-path console.log za flag** ✅ v75.15 — game.js:8601 `cannon FIRE` log 27×/s + diagnostické smyčky (:2376, :2440, :8541) |
 
 #### Etapa 4 — Infra, loading, úklid
 
@@ -588,6 +588,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v75.15 | (pending) | 2026-07-28 | **E3.8 hot-path logy za `_BB_DEBUG` flag** — cannon FIRE log (~27×/s, alokace objektu), 2× crossed-block diagnostický scan (smyčka + findBlockAtPixel per zásah), respawn-stuck log. iOS WKWebView console není zdarma a drží reference. |
 | v75.14 | (pending) | 2026-07-28 | **E3.6 `_recomputeLastPxPos` event-driven** — full-grid scan (~1100 buněk + 2 alokace) běžel KAŽDÝ frame jako první řádek updateParticles (tentýž typ scanu, co v74.76/79 vypnul jinde). Teď jen při změně gridu (piggyback na _gridDrawPending flush) + init ve startLevel. |
 | v75.13 | (pending) | 2026-07-28 | **E3.2 drawGrid dirty flag** — 5 přímých `drawGrid()` v updateParticles (pixel/blok/mystery/raketa destrukce) nahrazeno `_gridDrawPending=true`; jeden flush za frame v beltLoop hned po updateParticles. Salva projektilů dřív = až 10× full přepis instance bufferu + HP overlay za jediný frame. |
 | v75.12 | (pending) | 2026-07-28 | **E2.7 teleport-kill posledního pixelu** — expanded collider (v74.53) se aktivoval i při reálné kolizi s cizí barvou (`cell !== p.ci`) → poslední pixel do 2,5×SCALE se zničil skrz překážku. Nová podmínka `!(cell>=0)` = jen při čistém průletu; usnadnění pro volně stojící poslední pixel zůstává. |

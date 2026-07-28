@@ -1,7 +1,7 @@
 // v73.278: VERSION CONSTANT + WATCHDOG (rozšířen na render3d moduly)
 // Porovnává HTML #version-badge + window.BB_VERSION_R3D + window.BB_VERSION_R3DB
 // proti BB_VERSION. Kterákoli mismatch → force reload (sessionStorage guard).
-const BB_VERSION = 'v75.14';
+const BB_VERSION = 'v75.15';
 (function _versionWatchdog(){
   function check(){
     var badge = document.getElementById('version-badge');
@@ -43,6 +43,9 @@ const BB_VERSION = 'v75.14';
 // v75.07: Gamee SDK volání nesmí shodit hru — jeden throw uvnitř beltLoop
 // by trvale zabil rAF smyčku (rAF se plánuje až na konci).
 function _safeGamee(fn){ try { fn(); } catch (e) { console.warn('[BB] gamee SDK error', e); } }
+
+// v75.15: hot-path diagnostika (crossed-block scany, cannon FIRE log ~27×/s) — jen pro dev.
+const _BB_DEBUG = false;
 
 const COLORS=[
   // 0–11  výchozí (původní)
@@ -2309,7 +2312,7 @@ function updateParticles(dt){
           _gridDrawPending=true;
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.14'));
+          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.15'));
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -2392,7 +2395,7 @@ function updateParticles(dt){
         }
       } else if(hitBlock.color===p.ci){
         // Solid blok, color match → blok utrpí 1 HP (1 projektil = 1 HP), projektil pop
-        {
+        if(_BB_DEBUG){
           const oldGx=Math.floor(p.x/SCALE), oldGy=Math.floor(p.y/SCALE);
           const steps=Math.max(1,Math.abs(gx-oldGx)+Math.abs(gy-oldGy));
           const crossed=[];
@@ -2435,7 +2438,7 @@ function updateParticles(dt){
         anyBounce=true;
         p.stuckT+=dt;
         if(p.stuckT>1.2){
-          console.log('[BB-DEBUG] respawn (stuck)', {ci:p.ci, atX:p.x|0, atY:p.y|0, blockColor:hitBlock.color, blockHP:hitBlock.hp});
+          if(_BB_DEBUG)console.log('[BB-DEBUG] respawn (stuck)', {ci:p.ci, atX:p.x|0, atY:p.y|0, blockColor:hitBlock.color, blockHP:hitBlock.hp});
           respawnParticle(p);
         }
       }
@@ -2460,7 +2463,7 @@ function updateParticles(dt){
     }
     if(cell===p.ci){
       // Vlastní barva → znič pixel
-      {
+      if(_BB_DEBUG){
         // Diagnostika: jestli se mezi starou a novou buňkou nějaký blok
         // „přeskočil" (corner-cut / tunnel), vypíšeme to. Pokud byla jakákoli
         // buňka na cestě pokryta blokem, projektil by se měl odrazit → log.
@@ -7815,7 +7818,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.14'));
+    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.15'));
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7944,7 +7947,7 @@ function endGame(win){
   const _seq=_levelSeq; // v75.08: restart během win animace nesmí dostat overlay/confetti starého levelu
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.14'));
+  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.15'));
   _safeGamee(()=>gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined));
   if(win){
     spawnConfetti();
@@ -8634,7 +8637,7 @@ function beltLoop(ts){
             const a=cannonAngle+(Math.random()-0.5)*0.06;
             const muzzleX=cannonX+Math.cos(cannonAngle)*14;
             const muzzleY=CANNON_Y+Math.sin(cannonAngle)*14;
-            console.log('[BB-DEBUG] cannon FIRE', {ci:item.ci, targetKind:shot.kind, tBlockColor: shot.blockRef?shot.blockRef.color:null, tBlockHP: shot.blockRef?shot.blockRef.hp:null, type:shot.type});
+            if(_BB_DEBUG)console.log('[BB-DEBUG] cannon FIRE', {ci:item.ci, targetKind:shot.kind, tBlockColor: shot.blockRef?shot.blockRef.color:null, tBlockHP: shot.blockRef?shot.blockRef.hp:null, type:shot.type});
             particles.push({
               x:muzzleX,y:muzzleY,
               vx:Math.cos(a)*PSPEED,vy:Math.sin(a)*PSPEED,
@@ -8896,7 +8899,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.14'));
+      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.15'));
       event.detail.callback();
     });
 
