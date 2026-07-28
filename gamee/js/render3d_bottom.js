@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // v74.79: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.30';
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.31';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
@@ -1974,6 +1974,15 @@ function _clipSelfIntersections(points) {
 // colorsArr: COLORS array z game.js (hex stringy)
 
 function updateCarriers(columns, colorsArr) {
+  // v75.31: stale sweep — pop/denial klíče se mažou jen při renderu SVÉHO slotu.
+  // Když nosič zmizí během animace (klik hned po reveal cascade), klíč osiřel
+  // a _hasActiveCarrierAnim() držel updateCarriers + full render bottom canvasu
+  // do konce levelu (druhý zdroj „přepočítává nosiče, i když se nehýbou").
+  {
+    const _swNow = performance.now();
+    if (st.carrierPopAnim.size) { for (const [k, t0] of st.carrierPopAnim) if (_swNow - t0 > 700) st.carrierPopAnim.delete(k); }
+    if (st.carrierDenialAnim.size) { for (const [k, t0] of st.carrierDenialAnim) if (_swNow - t0 > 500) st.carrierDenialAnim.delete(k); }
+  }
   if (!st.ready || !columns) return;
   st._dirty = true; // v74.79: carriers update = layout change → vždy dirty
 
