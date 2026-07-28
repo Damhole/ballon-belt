@@ -1,7 +1,7 @@
 // v73.278: VERSION CONSTANT + WATCHDOG (rozšířen na render3d moduly)
 // Porovnává HTML #version-badge + window.BB_VERSION_R3D + window.BB_VERSION_R3DB
 // proti BB_VERSION. Kterákoli mismatch → force reload (sessionStorage guard).
-const BB_VERSION = 'v75.11';
+const BB_VERSION = 'v75.12';
 (function _versionWatchdog(){
   function check(){
     var badge = document.getElementById('version-badge');
@@ -2309,7 +2309,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.11'));
+          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.12'));
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -2442,7 +2442,10 @@ function updateParticles(dt){
     } else {
       // v74.53: expanded collider pro POSLEDNÍ pixel barvy (2.5× collider radius)
       // — usnadní dohrání levelu, single pixel uprostřed často trvá věčnost.
-      if(cell !== p.ci && _lastPxPosByColor && _lastPxPosByColor[p.ci]){
+      // v75.12: expanded collider jen když NIC netrefeno (cell prázdná/-1).
+      // Původní podmínka (cell !== p.ci) platila i pro reálnou kolizi s cizí
+      // barvou → poslední pixel se zničil „skrz" překážku (teleport-kill).
+      if(!(cell>=0) && _lastPxPosByColor && _lastPxPosByColor[p.ci]){
         const lpp = _lastPxPosByColor[p.ci];
         const cx = lpp.gx * SCALE + SCALE/2;
         const cy = lpp.gy * SCALE + SCALE/2;
@@ -7812,7 +7815,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.11'));
+    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.12'));
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7941,7 +7944,7 @@ function endGame(win){
   const _seq=_levelSeq; // v75.08: restart během win animace nesmí dostat overlay/confetti starého levelu
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.11'));
+  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.12'));
   _safeGamee(()=>gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined));
   if(win){
     spawnConfetti();
@@ -8890,7 +8893,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.11'));
+      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.12'));
       event.detail.callback();
     });
 

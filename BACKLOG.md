@@ -426,7 +426,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | P1 | ✅ | S | Hra | **Intro input locky prodloužit** ✅ v75.09 (event-driven) — `_LEVEL_INTRO_DURATIONS` (game.js:1291) 2000–2200 ms vs. reálné intro ~4,2 s → výstřely během intra vzkřísí finální `grid=finalGrid` = promarněná munice |
 | P2 | ✅ | S | Hra | **Garáž→zeď polyká projektily** ✅ v75.10 — game.js:6021 při `garageMode==='off'` se garage dlaždice mění na zdi, ale fronta už spotřebovala chunky barev → tichý deficit munice (a `_ENABLE_AMMO_AUDIT=false` to už nehlásí) |
 | P2 | ✅ | XS | Hra | **Raketa vs. gravitace** ✅ v75.11 — game.js:2283 exploze maže pixely bez `applyGravityToCol` → plovoucí pixely, které solver nepředpovídá |
-| P2 | 📋 | XS | Hra | **Teleport-kill přes zeď** — game.js:2425 expanded collider posledního pixelu (v74.53) se aktivuje i při kolizi s cizí barvou |
+| P2 | ✅ | XS | Hra | **Teleport-kill přes zeď** ✅ v75.12 — game.js:2425 expanded collider posledního pixelu (v74.53) se aktivuje i při kolizi s cizí barvou |
 
 #### Etapa 3 — Výkon
 
@@ -588,6 +588,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v75.12 | (pending) | 2026-07-28 | **E2.7 teleport-kill posledního pixelu** — expanded collider (v74.53) se aktivoval i při reálné kolizi s cizí barvou (`cell !== p.ci`) → poslední pixel do 2,5×SCALE se zničil skrz překážku. Nová podmínka `!(cell>=0)` = jen při čistém průletu; usnadnění pro volně stojící poslední pixel zůstává. |
 | v75.11 | (pending) | 2026-07-28 | **E2.6 raketa + gravitace** — exploze rakety mazala pixely bez `applyGravityToCol` (běžná destrukce ji má) → plovoucí pixely na gravity levelech, které solver/simulace nepředpovídá. Gravitace se aplikuje na všechny zasažené sloupce před drawGrid. |
 | v75.10 | (pending) | 2026-07-28 | **E2.5 garáž mode off nepolyká projektily** — konverze garage→wall se dělá hned při stavbě (před konzumací colorChunks), ne až v postprocessu, kdy queue už chunky spotřebovala → tichý deficit munice. Postprocess větev zůstává jako pojistka. pxCounts logika nedotčena (známý quirk). |
 | v75.09 | (pending) | 2026-07-28 | **E2.4 intro lock event-driven** — tabulkové locky (2000–2500 ms) byly kratší než reálná intra (smiley ~4,2 s) → výstřely během intra vzkřísil finální grid swap = promarněná munice. `_introUnlock()` volané na skutečném konci všech 5 intro sekvencí (smiley/moon/starwars poslední swap final, frog konec riseStep, mondrian konec colorStep); startovní lock intro levelů = 15 s pojistka. |
