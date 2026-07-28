@@ -61,7 +61,7 @@ function _makeChromeMatcap() {
 }
 
 // v74.79: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v75.26';
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v75.27';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
