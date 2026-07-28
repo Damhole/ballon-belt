@@ -15,6 +15,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+// v75.32: diagnostický mód — ?diag=nopixels (mobilní profiling)
+const _DIAG = (typeof location !== 'undefined') ? new URLSearchParams(location.search).get('diag') : null;
+
 // Chrome matcap textůra pro cannon hole — front face = střed matcap (vertikální
 // pásy sky/horizon/ground). Sdílí stejnou estetiku jako belt boxy.
 function _makeChromeMatcap() {
@@ -61,7 +64,7 @@ function _makeChromeMatcap() {
 }
 
 // v74.79: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v75.31';
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v75.32';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
@@ -1353,6 +1356,13 @@ function updateAnimations(dt) {
 // Každý cell mask bloku → jedna cube instance. Solid blok dostane COLORS[block.color],
 // mystery blok #555a62. Bottom plane všech bloků na z=0 (rostou nahoru jako stěny).
 function updateBlocks(blocks, COLORS) {
+  // v75.32: ?diag=nopixels — zhasni i bloky
+  if (_DIAG === 'nopixels') {
+    if (state.blockMesh) state.blockMesh.count = 0;
+    for (const m of (state.blockOutlineMeshes || [])) if (m) m.visible = false;
+    state._dirty = true;
+    return;
+  }
   if (!state.ready || !state.blockMesh) return;
   state._dirty = true;
   // v74.79: blocks se mohou změnit (HP klesá, blok zničen) → shadow refresh
@@ -1537,6 +1547,13 @@ function updateBlockOutlines(blocks) {
 // Y-flip: grid[0] = top of screen → world Y=H. grid[IMG_GH-1] = bottom image
 // area → world Y=H-IMG_H. Standardní Three.js Y-up konvence (kladné Y = nahoře).
 function updateGrid(grid, COLORS) {
+  // v75.32: ?diag=nopixels — zhasni pixel meshe (diagnostika výkonu)
+  if (_DIAG === 'nopixels') {
+    if (state.pixelMesh) state.pixelMesh.count = 0;
+    if (state.pixelOutlineMesh) state.pixelOutlineMesh.count = 0;
+    state._dirty = true;
+    return;
+  }
   if (!state.ready) return;
   state._dirty = true;
   state._lastGrid = grid;

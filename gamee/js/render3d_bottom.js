@@ -7,8 +7,11 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+// v75.32: diagnostické módy pro mobilní profiling — ?diag=nocarriers | ?diag=nopixels
+const _DIAG = (typeof location !== 'undefined') ? new URLSearchParams(location.search).get('diag') : null;
+
 // v74.79: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.31';
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.32';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
@@ -1988,6 +1991,19 @@ function updateCarriers(columns, colorsArr) {
 
   // v73.103: rebuild frame pokud carriers pozice změnila (responzivní layout)
   _rebuildUnifiedFrame();
+  // v75.32: ?diag=nocarriers — zhasni všechny carrier meshe a přeskoč jejich
+  // per-frame práci; rám/floor/belt zůstávají. Jen pro diagnostiku výkonu.
+  if (_DIAG === 'nocarriers') {
+    if (!st._diagCarriersCleared) {
+      st._diagCarriersCleared = true;
+      for (const arr of [st.rowSlotMeshes, st.rowSlotInnerMeshes, st.rowSlotOutlineMeshes,
+                         st.rowBallMeshes, st.rowBallOutlineMeshes, st.rowMysteryMeshes]) {
+        if (arr) for (const m of arr) { if (m) m.count = 0; }
+      }
+      st._dirty = true;
+    }
+    return;
+  }
 
   // v74.79: per-slot measurement cache — během anim se layout nemění, takže
   // místo per-frame getBoundingClientRect (36 carriers × ~3 rect calls = 108
