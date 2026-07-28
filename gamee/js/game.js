@@ -1,7 +1,7 @@
 // v73.278: VERSION CONSTANT + WATCHDOG (rozšířen na render3d moduly)
 // Porovnává HTML #version-badge + window.BB_VERSION_R3D + window.BB_VERSION_R3DB
 // proti BB_VERSION. Kterákoli mismatch → force reload (sessionStorage guard).
-const BB_VERSION = 'v76.02';
+const BB_VERSION = 'v76.03';
 (function _versionWatchdog(){
   function check(){
     var badge = document.getElementById('version-badge');
@@ -1150,13 +1150,10 @@ let _fpsLastUpdate=0;
 let _perfTier=1;
 let _perfManual=false;
 let _perfLowSince=0;
-let _perfHighSince=0;
 let _perfLastChangeAt=0;            // v73.258: timestamp posledního tier change
 const PERF_FPS_DOWN=45;          // HIGH → MED threshold
 const PERF_FPS_DOWN_TO_LOW=29;   // v73.261: MED → LOW threshold (přísnější)
-const PERF_FPS_UP=55;
 const PERF_DOWN_HOLD_MS=4000;       // v76.02: 10→4s — slabý telefon nemá 10 s čekat na úspory; proti kmitání drží CHANGE_COOLDOWN + UP_HOLD
-const PERF_UP_HOLD_MS=8000;
 const PERF_CHANGE_COOLDOWN_MS=5000; // po každé změně 5s žádná další = max 1 flash
 function _applyPerfTier(tier){
   _perfTier=tier;
@@ -1186,31 +1183,24 @@ function _perfAutoUpdate(fps, ts){
   if(_perfManual) return;
   // v73.258: cooldown po každé tier change → krátké okno bez dalších změn
   // (jinak HIGH→MED→LOW kaskáda dělala 2 flashe rychle za sebou).
-  if(ts-_perfLastChangeAt < PERF_CHANGE_COOLDOWN_MS){ _perfLowSince=0; _perfHighSince=0; return; }
+  if(ts-_perfLastChangeAt < PERF_CHANGE_COOLDOWN_MS){ _perfLowSince=0; return; }
   // v73.261: práh pro downgrade se liší podle current tieru.
   // HIGH → MED při fps < 45. MED → LOW jen když fps ≤ 29 (přísnější — LOW
   // znamená sticky shadows-off, takže ji aktivujeme až když to opravdu hoří).
   const downThreshold = _perfTier === 0 ? PERF_FPS_DOWN : PERF_FPS_DOWN_TO_LOW;
   if(fps<downThreshold){
     if(!_perfLowSince) _perfLowSince=ts;
-    _perfHighSince=0;
     if(_perfTier<2 && ts-_perfLowSince>=PERF_DOWN_HOLD_MS){
       _applyPerfTier(_perfTier+1);
       _perfLastChangeAt=ts;
       _perfLowSince=ts;
     }
-  } else if(fps>PERF_FPS_UP){
-    if(!_perfHighSince) _perfHighSince=ts;
-    _perfLowSince=0;
-    // v74.70: cap step-up na MED — LOW→MED OK, MED→HIGH ne (HIGH zatím skip)
-    if(_perfTier>1 && ts-_perfHighSince>=PERF_UP_HOLD_MS){
-      _applyPerfTier(_perfTier-1);
-      _perfLastChangeAt=ts;
-      _perfHighSince=ts;
-    }
   } else {
+    // v76.03: upgrade zpět nahoru ZRUŠEN — na slabém telefonu vedl k oscilaci:
+    // fps se zvedlo DÍKY úsporám LOW tieru → upgrade → propad → degrade → ...
+    // Tier je teď sticky-down na celou session (stejný princip jako
+    // _shadowsStuckOff). Manuální přepnutí v dev overlay funguje dál.
     _perfLowSince=0;
-    _perfHighSince=0;
   }
 }
 // Per-frame profiler — kumuluje čas v jednotlivých sekcích beltLoop. Reset
@@ -2285,7 +2275,7 @@ function updateParticles(dt){
           _gridMutated();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v76.02'));
+          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v76.03'));
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7761,7 +7751,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v76.02'));
+    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v76.03'));
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7877,7 +7867,7 @@ function endGame(win){
   const _seq=_levelSeq; // v75.08: restart během win animace nesmí dostat overlay/confetti starého levelu
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v76.02'));
+  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v76.03'));
   _safeGamee(()=>gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined));
   if(win){
     spawnConfetti();
@@ -8840,7 +8830,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v76.02'));
+      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v76.03'));
       event.detail.callback();
     });
 
