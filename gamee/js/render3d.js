@@ -64,7 +64,7 @@ function _makeChromeMatcap() {
 }
 
 // v74.79: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v76.00';
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v76.01';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
@@ -139,7 +139,12 @@ const state = {
   ghostMesh: null,  // v73.228: InstancedMesh pro CA efekt
   dust: [],         // v73.237: ambient dust motes
   dustMesh: null,   // v73.237: InstancedMesh pro dust
+  // v76.01: RTT cache statické scény (pixely+outline+bloky+frame → texture)
+  _staticDirty: true,
+  staticRT: null,
+  compositeQuad: null,
 };
+if (typeof window !== 'undefined') window._r3dState = state;  // debug (jako _r3dBState u bottom)
 
 const _dummy = new THREE.Object3D();
 
@@ -554,7 +559,7 @@ function init(canvas, opts) {
   // geometrií/textur a po restore GL stav obnoví, ale náš dirty-flag skip by
   // nechal canvas prázdný. preventDefault umožní restore, po něm vynuť redraw.
   canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); console.warn('[render3d] WebGL context lost'); });
-  canvas.addEventListener('webglcontextrestored', () => { console.warn('[render3d] WebGL context restored — force redraw'); state._dirty = true; });
+  canvas.addEventListener('webglcontextrestored', () => { console.warn('[render3d] WebGL context restored — force redraw'); state._dirty = true; state._staticDirty = true; });
 
   // InstancedMesh pro pixely — max GW*IMG_GH (jen image area, ne belt rows)
   const maxInstances = state.GW * state.IMG_GH; // 36*27 = 972
@@ -810,6 +815,23 @@ function init(canvas, opts) {
   // v74.79: gun (gunBody + gunHead) z GLB — async load
   _loadGun();
 
+  // ── v76.01: RTT CACHE — kompozitní quad. POZOR: přímo do scény (screen-space),
+  // NE do tiltGroup — render target už obsahuje tilt projekci. Mapa se přiřadí
+  // při prvním _renderStaticToRT (velikost RT = drawing buffer). ?diag=nortt vypíná.
+  if (_DIAG !== 'nortt') {
+    const quad = new THREE.Mesh(
+      new THREE.PlaneGeometry(W, H),
+      new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false })
+    );
+    quad.position.set(W / 2, H / 2, -300);
+    quad.renderOrder = -100;   // kreslí se pod vším dynamickým
+    quad.frustumCulled = false;
+    quad.visible = false;      // zapne se po prvním RT renderu
+    state.scene.add(quad);
+    state.compositeQuad = quad;
+  }
+  state._staticDirty = true;
+
   state.ready = true;
   state._dirty = true; // v74.79: po init první render musí proběhnout
   // v74.79: PRE-WARM SHADER COMPILE — bez tohohle iOS Safari kompiluje shadery
@@ -1017,7 +1039,7 @@ function triggerBounceSpark(gridX, gridY, vx, vy, hexColor) {
 function triggerPixelDestroy(gridX, gridY, hexColor) {
   if (!state.ready || !state.shardMesh) return;
   if (state.destroyMode === 'none') return;
-  state._dirty = true;
+  state._dirty = true; state._staticDirty = true;
   // v73.259: shadow map refresh při destrukci (on-demand mode na MED tieru)
   if (state.sun && !state.sun.shadow.autoUpdate) state.sun.shadow.needsUpdate = true;
   const color = _getColor(hexColor).clone();
@@ -1102,7 +1124,7 @@ function triggerPixelDestroy(gridX, gridY, hexColor) {
 function triggerPixelCA(gx, gy, hexColor) {
   if (!state.ready || !state.ghostMesh) return;
   // v74.79: CA zůstává i na LOW — cost je mizivý (1 extra draw call, fade 180ms)
-  state._dirty = true;
+  state._dirty = true; state._staticDirty = true;
   const col = _getColor(hexColor);
   const wx = gx * SCALE + SCALE / 2;
   const wy = gy * SCALE + SCALE / 2;
@@ -1168,7 +1190,7 @@ function triggerPixelHit(gx, gy) {
   // v74.79: LOW tier — hit bounce OFF. Stejný updateGrid full-rewrite mechanismus
   // jako wave, agregátně může stát víc (mnoho bounces per projektil).
   if ((state.qualityTier || 0) >= 2) return;
-  state._dirty = true;
+  state._dirty = true; state._staticDirty = true;
   const RADIUS = 1;
   const BASE_AMP  = 4;   // střed dostane plný amp
   const LIFE      = 0.18;
@@ -1197,7 +1219,7 @@ function triggerPixelWave(gx, gy) {
   // v74.79: LOW tier — wave OFF. updateGrid re-write všech ~750 pixel positions
   // per frame na 0.36s je největší per-destruction cost. Particles zůstávají všude.
   if ((state.qualityTier || 0) >= 2) return;
-  state._dirty = true;
+  state._dirty = true; state._staticDirty = true;
   const RADIUS = 4;
   const WAVE_SPEED = 0.042; // s per grid cell vzdálenosti
   const BASE_AMP  = 8;      // Three.js units Z-boost v centru vlny
@@ -1371,11 +1393,11 @@ function updateBlocks(blocks, COLORS) {
   if (_DIAG === 'nopixels') {
     if (state.blockMesh) state.blockMesh.count = 0;
     for (const m of (state.blockOutlineMeshes || [])) if (m) m.visible = false;
-    state._dirty = true;
+    state._dirty = true; state._staticDirty = true;
     return;
   }
   if (!state.ready || !state.blockMesh) return;
-  state._dirty = true;
+  state._dirty = true; state._staticDirty = true;
   // v74.79: blocks se mohou změnit (HP klesá, blok zničen) → shadow refresh
   if (state.sun && !state.sun.shadow.autoUpdate) state.sun.shadow.needsUpdate = true;
   const H = state.GH * SCALE;
@@ -1549,7 +1571,7 @@ function updateBlockOutlines(blocks) {
     state.pixelsGroup.add(m);
     state.blockOutlineMeshes.push(m);
   }
-  state._dirty = true;
+  state._dirty = true; state._staticDirty = true;
 }
 
 // Aktualizuje InstancedMesh z aktuálního grid[][] state.
@@ -1562,11 +1584,11 @@ function updateGrid(grid, COLORS) {
   if (_DIAG === 'nopixels') {
     if (state.pixelMesh) state.pixelMesh.count = 0;
     if (state.pixelOutlineMesh) state.pixelOutlineMesh.count = 0;
-    state._dirty = true;
+    state._dirty = true; state._staticDirty = true;
     return;
   }
   if (!state.ready) return;
-  state._dirty = true;
+  state._dirty = true; state._staticDirty = true;
   state._lastGrid = grid;
   state._lastColors = COLORS;
   const H = state.GH * SCALE;
@@ -1623,18 +1645,64 @@ function updateGrid(grid, COLORS) {
 // změnilo (mutace nastaví state._dirty = true). Bezpečnostní fallback: vždy
 // 1× za 60 framů (1 fps base) — pokud někde mutace zapomeneme označit, scéna
 // se obnoví max po 1 s.
+// ── v76.01: RTT CACHE statické scény ─────────────────────────────────────────
+// Statická část (pixely, outline, bloky, shadowGround, image frame) se renderuje
+// do WebGLRenderTarget jen při změně (_staticDirty). Každý frame pak jede jen
+// levný kompozitní quad + dynamika (dělo, projektily, shardy, ghosty, dust).
+// Mi A1: let projektilů dřív rasterizoval 972+972 instancí toon shaderu každý
+// frame (47 → 27 fps), teď 1 texture fetch na fragment.
+function _staticMeshList() {
+  const list = [state.pixelMesh, state.pixelOutlineMesh, state.blockMesh,
+                state.shadowGround, state.imageFrame];
+  if (state.blockOutlineMeshes) list.push(...state.blockOutlineMeshes);
+  return list.filter(Boolean);
+}
+function _dynamicMeshList() {
+  return [state.gunGroup, state.projectileMesh, state.projectileOutlineMesh,
+          state.shardMesh, state.ghostMesh, state.dustMesh].filter(Boolean);
+}
+function _renderStaticToRT() {
+  const r = state.renderer;
+  const size = r.getDrawingBufferSize(new THREE.Vector2());
+  if (!state.staticRT) {
+    state.staticRT = new THREE.WebGLRenderTarget(size.x, size.y, {
+      samples: r.capabilities.isWebGL2 ? 4 : 0,  // MSAA v cache (WebGL2)
+      depthBuffer: true,
+    });
+    state.compositeQuad.material.map = state.staticRT.texture;
+    state.compositeQuad.material.needsUpdate = true;
+  } else if (state.staticRT.width !== size.x || state.staticRT.height !== size.y) {
+    state.staticRT.setSize(size.x, size.y); // tier change (pixelRatio) / resize
+  }
+  const statics = _staticMeshList(), dynamics = _dynamicMeshList();
+  for (const m of statics) m.visible = true;
+  for (const m of dynamics) m.visible = false;
+  state.compositeQuad.visible = false;
+  r.setRenderTarget(state.staticRT);
+  r.clear();
+  r.render(state.scene, state.camera);
+  r.setRenderTarget(null);
+  for (const m of statics) m.visible = false;
+  for (const m of dynamics) m.visible = true;
+  state.compositeQuad.visible = true;
+  state._staticDirty = false;
+  state._dirty = true; // nová cache → překreslit canvas
+}
+
 function render() {
   if (!state.ready) return;
   state._frameCount = (state._frameCount || 0) + 1;
   const sinceLast = state._frameCount - (state._lastRenderFrame || 0);
   _updateMuzzleFlash(performance.now());
+  // v76.01: bez quadu (?diag=nortt) jede legacy cesta — statika zůstává viditelná
+  if (state.compositeQuad && state._staticDirty) _renderStaticToRT();
   if (!state._dirty && sinceLast < 60) return;
   state.renderer.render(state.scene, state.camera);
   state._dirty = false;
   state._lastRenderFrame = state._frameCount;
 }
 // Pomocné helpery — markují scénu jako dirty z externích triggerů
-function _markDirty() { state._dirty = true; }
+function _markDirty() { state._dirty = true; state._staticDirty = true; } // v76.01: externí trigger (theme apod.) → i cache
 
 function isReady() {
   return state.ready;
@@ -1651,7 +1719,7 @@ function hasActiveAnimations() {
 
 function setVisible(visible) {
   if (state.canvasEl) state.canvasEl.style.display = visible ? 'block' : 'none';
-  if (visible) state._dirty = true; // v74.79: po zviditelnění vynucený refresh
+  if (visible) { state._dirty = true; state._staticDirty = true; } // v74.79/v76.01: po zviditelnění vynucený refresh vč. cache
 }
 
 // Cleanup pro level switch nebo dispose. Nepoužíváme zatím (state je per-page),
@@ -1837,7 +1905,7 @@ if (typeof window !== 'undefined') {
         });
         if (state.renderer) state.renderer.shadowMap.needsUpdate = true;
       }
-      state._dirty = true; // v74.79: tier change → vynucený refresh
+      state._dirty = true; state._staticDirty = true; // v74.79/v76.01: tier change → refresh vč. RT (změna pixelRatio → resize v _renderStaticToRT)
       // Cleanup particles při downgrade na LOW
       if (t >= 2) {
         if (state.dust) state.dust.length = 0;

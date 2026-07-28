@@ -409,7 +409,7 @@ rasterizuje každý frame). Větev `m15-render-01`.
 
 | Prio | Stav | Vel. | Téma | Nápad |
 |------|------|------|------|-------|
-| P1 | 📋 | L | 3D | **RTT cache statických pixelů** — statická scéna (pixely+outline+bloky+frame) do WebGLRenderTarget, per frame jen quad + dynamika (dělo/projektily/shardy). Invalidace: destrukce, wave, intro, theme, resize, tier. Diag `?diag=nortt` pro A/B. Detail: plán bright-roaming-matsumoto.md |
+| P1 | ✅ | L | 3D | **RTT cache statických pixelů** ✅ v76.01 — statická scéna (pixely+outline+bloky+frame) do WebGLRenderTarget, per frame jen quad + dynamika (dělo/projektily/shardy). Invalidace: destrukce, wave, intro, theme, resize, tier. Diag `?diag=nortt` pro A/B. Detail: plán bright-roaming-matsumoto.md |
 | P2 | 💡 | L | 3D | **Row-merge carrier řad** — 7 řad × 7 InstancedMesh → 1 mesh per typ (~50–70 → ~10 draw calls na bottom canvasu), vrstvení přes Z-bias per row |
 | P2 | 💡 | XL | 3D | **Unified canvas** — jeden WebGL kontext místo dvou (experiment v74.80 v gamee-test/); zabije 2× present/composite |
 | P3 | 💡 | S | 3D | **Audit `_dirty = true` setů v render3d_bottom** — v M14 nalezeny 3 výskyty vzoru „bezpodmínečné dirty" (belt, warning, dělo); systematicky projít zbytek |
@@ -602,6 +602,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v76.01 | (pending) | 2026-07-28 | **RTT cache statických pixelů** — statická scéna (pixely+outline+bloky+frame) do WebGLRenderTarget (MSAA 4×, WebGL2), per frame jen kompozitní quad + dynamika. Změřeno: dynamický pass 5 calls / 1 146 tris vs. legacy 8 calls / 273 946 tris (238× méně). Invalidace přes _staticDirty (updateGrid/Blocks/Outlines, triggery, theme, tier, context restore); wave jde přes updateGrid → beze změny chování. `?diag=nortt` = legacy A/B. Debug: window._r3dState. |
 | v76.00 | (pending) | 2026-07-28 | **M15 založení** — M14 merged (PR #1, 37 commitů, Mi A1 idle 24 → 47 fps). Nová větev m15-render-01, Pages přepnuty na ni. Scope M15: RTT cache statických pixelů, později row-merge + unified canvas. |
 | v75.34 | (pending) | 2026-07-28 | **LOW tier → top canvas DPR 1.5** — rasterizace statické pixel scény při DPR 2 + antialias je hlavní cena top canvasu během letu projektilů (geometrie po E3.3 už hrdlo není — 140 tris/pixel). Tier 0/1 drží 2×; auto-degrade aktivuje na slabých telefonech sám. Protikus v75.30 (bottom 1.0). |
 | v75.33 | a896654 | 2026-07-28 | **setCannonPosition — dirty jen při pohybu** — volané každý frame s bezpodmínečným dirty → top canvas (972 px + 972 outline) se kreslil na 60 fps i v klidu. Potvrzeno diag testem na Mi A1: nopixels 40 fps vs baseline 24 → viník top canvas, ne nosiče (falešná korelace). Epsilon prahy (0.02 px / 0.03 st.) ukončí asymptotické easing lerpy. Třetí výskyt vzoru bezpodmínečného dirty (belt jitter v75.04, funnel warning v75.28). |
