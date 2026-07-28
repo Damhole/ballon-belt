@@ -447,7 +447,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 |------|------|------|------|-------|
 | P2 | ✅ | S | 3D | **WebGL context loss recovery** ✅ v75.21 — render3d.js:533 + render3d_bottom.js:489 bez listenerů → blank screen na iOS po memory pressure; `dispose()` v render3d.js navíc nekompletní (leakuje geometrie) |
 | P2 | 📋 | S | Infra | **levels.js minifikovaně z editoru** — 254 KB pretty-printed (gzip 9 KB), synchronní parse při startu; minifikace → ~70 KB + menší git diffy |
-| P2 | 📋 | S | Infra | **SW cache normalizace** — sw.js:44 každý unikátní `?t=`/`?v=` = nový záznam, nic se nemaže do bump verze; +3–4 MB na reload |
+| P2 | ✅ | S | Infra | **SW cache normalizace** ✅ v75.22 — sw.js:44 každý unikátní `?t=`/`?v=` = nový záznam, nic se nemaže do bump verze; +3–4 MB na reload |
 | P2 | 📋 | S | Infra | **Google Fonts `@import` zrušit/self-host** — game.css:1 render-blocking řetěz; jediný DOM konzument trvale `display:none`, canvas text má font race |
 | P2 | 📋 | XS | Infra | **`backdrop-filter: blur` zrušit** — game.css:466 nad nekonečně animovaným pozadím (`bgGlow`) = trvalá kompozitorová práce i v idle |
 | P3 | 📋 | S | Infra | **CLAUDE.md aktualizace** — pravidlo „index.html = index_local až na SDK řádek" už neplatí (4 záměrné diff bloky); deployment cesta `~/Documents/GitHub/` je stará; `BB_VERSION` do checklistu |
@@ -588,6 +588,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v75.22 | (pending) | 2026-07-28 | **E4.3 SW cache normalizace** — cache.put klíč bez volatile `?t=`/`?v=` paramů; dřív každý bust = nový záznam, cache uvnitř verze rostla bez limitu (~3–4 MB na dev reload). Offline match (ignoreSearch) normalizovaný klíč najde. |
 | v75.21 | (pending) | 2026-07-28 | **E4.1 WebGL context loss recovery** — oba renderery: preventDefault na contextlost + po contextrestored vynucený redraw (dirty flagy by jinak nechaly canvas prázdný — blank screen na iOS po memory pressure). `render3d.dispose()` dokompletován na traverse-dispose celé scény (dřív leakoval vše kromě pixelMesh). |
 | v75.20 | (pending) | 2026-07-28 | **E3.1 aiming pipeline** — (a) `_gridVersion` bump při každé mutaci gridu/bloků; (b) 240-krokový LoS ray-march locku běží jen po změně verze (dřív každý frame); (c) lock se recykluje pro další kouli stejné barvy (pick je deterministický, žádný claimed-mechanismus → identický cíl; plný pickCannonShot dřív ~27×/s); (d) steerAfterBounce: 20→8 úhlů, 600→240 kroků, 250 ms cooldown po neúspěchu. Největší CPU win dispatch bucketu. |
 | v75.19 | (pending) | 2026-07-28 | **E3.4 updateCarriers layout thrash** — _rebuildUnifiedFrame dělal write (`--carriers-pad-top`) + 4× getBoundingClientRect KAŽDÝ frame carrier animace = forced reflow (memo klíč se testoval až PO měření). Teď gated: `invalidateFrameLayout()` z drawCarriers (level start/resize/garáže) + 500ms self-healing fallback. |
