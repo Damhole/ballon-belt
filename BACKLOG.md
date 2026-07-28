@@ -410,7 +410,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 
 | Prio | Stav | Vel. | Téma | Nápad |
 |------|------|------|------|-------|
-| P0 | 📋 | XS | Infra | **`_BB_SOUND_V` definovat** — game.js:183 fallback `Date.now()` → ~1,9 MB zvuků se stahuje znovu při každém spuštění (obchází HTTP i SW cache) |
+| P0 | ✅ | XS | Infra | **`_BB_SOUND_V` definovat** ✅ v75.01 — game.js:183 fallback `Date.now()` → ~1,9 MB zvuků se stahuje znovu při každém spuštění (obchází HTTP i SW cache) |
 | P0 | 📋 | XS | Infra | **`BB_VERSION` sync + watchdog fix** — game.js:4 je `v73.278` (stale) a badge text `"Plop! vX.Y"` se s konstantou nikdy nerovná → force-reload každé nové session. Přidat `BB_VERSION` do post-commit checklistu v CLAUDE.md |
 | P0 | 📋 | XS | Hra | **`dt` clamp v beltLoop** — game.js:8399 neclampnuté (jen `_animDt` má 0.05) → návrat z backgroundu = skok o sekundy (launch pointy, časovače) |
 | P1 | 📋 | XS | 3D | **Zrušit plate jitter** — render3d_bottom.js:3006 ±0.4px sin vibrace nutí full re-render bottom canvasu každý frame → dirty-skip z v74.79 se nikdy netrefí |
@@ -588,6 +588,8 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v75.01 | (pending) | 2026-07-28 | **E1.1 `_BB_SOUND_V` definován** — `window._BB_SOUND_V` v obou HTML (bumpuje se s verzí). Zvuky (~1,9 MB) měly fallback `Date.now()` → unikátní URL každý launch = obcházely HTTP i SW cache. |
+| v75.00 | bd97076 | 2026-07-28 | **M14 založení** — zápis nálezů celkové revize kódu do backlogu (27 položek, 4 etapy) + bump verze. Větev `m14-stabilizace-01`. |
 | v74.79 | (pending) | 2026-05-22 | **End-of-level slowdown zpět + ammo audit off.** (1) `_remainingPxCache` refresh přes throttle (2 Hz = každých 500ms) místo per-frame. ~2200 ops/s místo 67k = 30× míň. Slowdown ramp (poslední 40→20 pixelů auto-2× → 1×) funguje plynule díky lerp v `_speedMul()` mezi vzorky. v74.76 ho omylem vypnul (chtěl jsem jen per-frame counter, ale slowdown na něm závisel). (2) `computeAmmoAudit` všechny callsity vypnuté `_ENABLE_AMMO_AUDIT = false`: 4s deficit check, 1s panel display (chips v ⚙), 6Hz drift detector. Save ~60k ops/s. Dev re-enable přes toggle. |
 | v74.78 | (pending) | 2026-05-22 | **Bottom canvas 45fps (skip every 4th frame).** Změna z 30fps (v74.77) na ~45fps — kompromis mezi smoothness a perf. `_BOTTOM_SKIP_EVERY = 4` → render 3 ze 4 frames = 60 × 3/4 = 45fps. Frame pattern: render, render, render, skip, render, render, render, skip, ... Time gaps mírně mixed (16.7ms + 33ms) ale visuálně méně stuttery než 30fps. Save ~0.3-0.7ms/frame vs full 60. |
 | v74.77 | (pending) | 2026-05-22 | **Bottom canvas 30fps (half rate).** Render+updates bottom canvasu jen každý druhý frame přes `window._bbBottomFrame & 1` check. Wrappnuto v `_BOTTOM_HALF_RATE = true` flag pro snadný revert. Fyzika v game.js (updatePending) běží dál 60fps s 4 substeps — jen vizuální mesh update půlrychlostí. Důsledky: pending balls v letu = 1 frame visual lag (~33ms stutter), belt scroll ~2px jump/frame, mystery texture scroll choppy. Saving: ~0.5-1.5ms/frame na bottom render + GPU bandwidth halved + updatePending/updateBelt/updateCarriers calls halved. Top canvas (image area) zůstává 60fps. |
