@@ -413,7 +413,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | P0 | ✅ | XS | Infra | **`_BB_SOUND_V` definovat** ✅ v75.01 — game.js:183 fallback `Date.now()` → ~1,9 MB zvuků se stahuje znovu při každém spuštění (obchází HTTP i SW cache) |
 | P0 | ✅ | XS | Infra | **`BB_VERSION` sync + watchdog fix** ✅ v75.02 — game.js:4 je `v73.278` (stale) a badge text `"Plop! vX.Y"` se s konstantou nikdy nerovná → force-reload každé nové session. Přidat `BB_VERSION` do post-commit checklistu v CLAUDE.md |
 | P0 | ✅ | XS | Hra | **`dt` clamp v beltLoop** ✅ v75.03 — game.js:8399 neclampnuté (jen `_animDt` má 0.05) → návrat z backgroundu = skok o sekundy (launch pointy, časovače) |
-| P1 | 📋 | XS | 3D | **Zrušit plate jitter** — render3d_bottom.js:3006 ±0.4px sin vibrace nutí full re-render bottom canvasu každý frame → dirty-skip z v74.79 se nikdy netrefí |
+| P1 | ✅ | XS | 3D | **Zrušit plate jitter** ✅ v75.04 — render3d_bottom.js:3006 ±0.4px sin vibrace nutí full re-render bottom canvasu každý frame → dirty-skip z v74.79 se nikdy netrefí |
 | P1 | 📋 | XS | Infra | **Zip exclude list** — prod zip 10 MB, z toho ~5,9 MB balast (`js/.bak/` 5 MB, `levels (1).js`, PNG ikony 790 KB, debug.js, test_balloon.html, BufferGeometryUtils.js, .DS_Store) |
 
 #### Etapa 2 — Herní korektnost
@@ -588,6 +588,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v75.04 | (pending) | 2026-07-28 | **E1.4 belt jitter odstraněn + dirty gating** — ±0.4px sin vibrace plátů i koulí (v73.308/310) nutila full re-render bottom canvasu každý frame → dirty-skip z v74.79 se nikdy netrefil. Pláty/koule se přepisují jen při reálném pohybu offsetu nebo změně obsahu pásu (podpis); theme change vynutí refresh přes `_beltPlatesNeedRefresh`. |
 | v75.03 | (pending) | 2026-07-28 | **E1.3 dt clamp v beltLoop** — herní `dt` neměl clamp (jen `_animDt`); návrat z backgroundovaného tabu dával dt v sekundách → skok beltAnim/launch pointů/časovačů. Teď `Math.min(0.05, ...)`. |
 | v75.02 | (pending) | 2026-07-28 | **E1.2 BB_VERSION watchdog fix** — stale konstanta v73.278 + badge s prefixem Plop! → watchdog force-reloadoval každou novou session. Fix: BB_VERSION=aktuální (bumpuje se v rituálu, přidáno do CLAUDE.md checklistu), verze se čte z `.ver-num` spanu, sessionStorage přístupy v try/catch. |
 | v75.01 | (pending) | 2026-07-28 | **E1.1 `_BB_SOUND_V` definován** — `window._BB_SOUND_V` v obou HTML (bumpuje se s verzí). Zvuky (~1,9 MB) měly fallback `Date.now()` → unikátní URL každý launch = obcházely HTTP i SW cache. |

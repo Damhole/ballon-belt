@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // v74.79: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.03';
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.04';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
@@ -2987,13 +2987,20 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
   const yW     = _worldY(st.beltCenterY);
   const offset = (beltAnim || 0) % BELT_TOTAL;
 
+  // v75.04: change-detection pro dirty-flag — pláty i koule se přepisují
+  // jen když se belt reálně pohnul (jinak dirty-skip v render() nikdy nechytl).
+  const offsetChanged = (st._lastBeltOffset !== offset);
+  st._lastBeltOffset = offset;
+
   // v73.304: belt plates — 14 plátků se posouvá stejně jako balls. Vždy
   // se updatují (bez ohledu na beltArr), protože plátky existují i pod
   // prázdnými sloty. v73.307: outer + inner mesh share matrix.
   // v73.308: alternating tint (zebra) + subtle Y-shake (±0.4 px sin per index).
-  if (st.beltPlateMesh) {
+  // v75.04: trvalý sin-jitter (v73.308) odstraněn — ±0.4 px je při 1.5× DPR
+  // neviditelný a nutil full re-render bottom canvasu i v idle.
+  if (st.beltPlateMesh && (offsetChanged || st._beltPlatesNeedRefresh)) {
+    st._beltPlatesNeedRefresh = false;
     st._dirty = true; // plates se hýbou s beltAnim
-    const now = performance.now();
     // v73.311: theme-aware tint — pokud refreshBeltTint() proběhlo, use cached values
     if (!st._beltTint) refreshBeltTint(); // lazy init
     const even = st._beltTint.even, odd = st._beltTint.odd;
@@ -3002,9 +3009,7 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
     for (let i = 0; i < BELT_CAP; i++) {
       const xCSSrel = BELT_STARTX + (i * BELT_SPACING + offset) % BELT_TOTAL;
       const xCSS = st.beltOffsetX + xCSSrel;
-      // Y-shake: subtle vibration 0.4 px amplitude, per-plate phase
-      const jitter = Math.sin(now * 0.018 + i * 1.37) * 0.4;
-      dummy.position.set(xCSS, yW + jitter, -10);
+      dummy.position.set(xCSS, yW, -10);
       dummy.rotation.set(0, 0, 0);
       dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();
@@ -3026,8 +3031,10 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
     if (st.beltPlateOutlineMesh) st.beltPlateOutlineMesh.instanceMatrix.needsUpdate = true;
   }
 
+  let beltSig = 0; // v75.04: podpis obsahu pásu — nová/odebraná koule = dirty i při stojícím pásu
   for (let i = 0; i < BELT_CAP; i++) {
     const b = beltArr ? beltArr[i] : null;
+    beltSig = (beltSig * 31 + (b ? (b.ci + 1) + (b.rocket ? 64 : 0) : 0)) | 0;
     if (!b) continue;
 
     const xCSSrel = BELT_STARTX + (i * BELT_SPACING + offset) % BELT_TOTAL;
@@ -3038,9 +3045,7 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
     const hexColor = colorsArr ? colorsArr[b.ci] : '#888888';
     c3.set(_hex(hexColor));
 
-    // v73.310: stejný shake jako plates (synchronizovaná fáze přes index i)
-    const ballJitter = Math.sin(performance.now() * 0.018 + i * 1.37) * 0.4;
-    dummy.position.set(xCSS, yW + ballJitter, R_BELT);
+    dummy.position.set(xCSS, yW, R_BELT);
     dummy.scale.set(1, 1, 1);
     dummy.updateMatrix();
     st.beltMesh.setMatrixAt(idx, dummy.matrix);
@@ -3051,6 +3056,9 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
     st.beltOutlineMesh.setMatrixAt(idx, dummy.matrix);
     idx++;
   }
+
+  if (offsetChanged || beltSig !== st._lastBeltSig) st._dirty = true;
+  st._lastBeltSig = beltSig;
 
   st.beltMesh.count = idx;
   st.beltMesh.instanceMatrix.needsUpdate = true;
@@ -3606,6 +3614,7 @@ function rebuildMysteryTexture() {
 // colors, inner plate material, edges material.
 function refreshBeltTint() {
   st._dirty = true;
+  st._beltPlatesNeedRefresh = true; // v75.04: pláty jsou gatované na pohyb — theme change je musí přepsat
   const cs = getComputedStyle(document.body);
   const themeHex = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
   const theme = new THREE.Color(themeHex);
