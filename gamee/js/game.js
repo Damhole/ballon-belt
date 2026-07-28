@@ -1,7 +1,7 @@
 // v73.278: VERSION CONSTANT + WATCHDOG (rozšířen na render3d moduly)
 // Porovnává HTML #version-badge + window.BB_VERSION_R3D + window.BB_VERSION_R3DB
 // proti BB_VERSION. Kterákoli mismatch → force reload (sessionStorage guard).
-const BB_VERSION = 'v75.05';
+const BB_VERSION = 'v75.06';
 (function _versionWatchdog(){
   function check(){
     var badge = document.getElementById('version-badge');
@@ -2294,7 +2294,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v75.05');
+          gamee.updateScore(score,playTime,'balloon-belt-v75.06');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7704,7 +7704,10 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     // Ball má co zasáhnout, pokud zbývají pixely ORdanou barvou, nebo živý blok té barvy.
     const pxNow=countPixels(grid);
-    const hasBlockTarget=currentBlocks.some(b=>b.hp>0&&b.color===color);
+    // v75.06: mystery blok je validní cíl pro KAŽDOU barvu — bez něj se po vyčerpání
+    // pixelů barvy koule sály do díry a mystery blok nešel dorazit (soft-lock).
+    // Predikát sjednocen s hasLiveBlockOfColor níž.
+    const hasBlockTarget=currentBlocks.some(b=>b.hp>0&&(b.kind==='mystery'||b.color===color));
     if((pxNow[color]||0)===0&&!hasBlockTarget){
       window.render3dBottom?.triggerHoleSuck?.(COLORS[color]);
       _playSuckMelody();
@@ -7790,7 +7793,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v75.05');
+    gamee.updateScore(score,playTime,'balloon-belt-v75.06');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7918,7 +7921,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v75.05');
+  gamee.updateScore(score,playTime,'balloon-belt-v75.06');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8859,7 +8862,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v75.05');
+      gamee.updateScore(score,playTime,'balloon-belt-v75.06');
       event.detail.callback();
     });
 

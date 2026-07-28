@@ -420,7 +420,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 
 | Prio | Stav | Vel. | Téma | Nápad |
 |------|------|------|------|-------|
-| P0 | 📋 | S | Hra | **Mystery soft-lock** — game.js:7702 `hasBlockTarget` ignoruje mystery bloky (vs. :7728 + ammo účetnictví) → po vyčerpání pixelů barvy se koule sají do díry, mystery blok nejde dorazit → level neřešitelný |
+| P0 | ✅ | S | Hra | **Mystery soft-lock** ✅ v75.06 — game.js:7702 `hasBlockTarget` ignoruje mystery bloky (vs. :7728 + ammo účetnictví) → po vyčerpání pixelů barvy se koule sají do díry, mystery blok nejde dorazit → level neřešitelný |
 | P1 | 📋 | S | Hra | **Výjimková izolace beltLoop** — game.js:8694 throw kdekoli (vč. 4 neguardovaných `gamee.updateScore`) zabije rAF smyčku trvale; try/catch + rAF na začátek |
 | P1 | 📋 | S | Hra | **Restart races** — stale `setTimeout(()=>{if(running)endGame(true)},80)` (game.js:2297/2400/2475) + overlay timeout 1400 ms chytí `running` nového levelu → falešná výhra + druhý `gameOver` se skóre 0 |
 | P1 | 📋 | S | Hra | **Intro input locky prodloužit** — `_LEVEL_INTRO_DURATIONS` (game.js:1291) 2000–2200 ms vs. reálné intro ~4,2 s → výstřely během intra vzkřísí finální `grid=finalGrid` = promarněná munice |
@@ -588,6 +588,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v75.06 | (pending) | 2026-07-28 | **E2.1 mystery soft-lock fix** — `checkLaunchPoint` discard check ignoroval mystery bloky (vs. predikát hasLiveBlockOfColor o 25 ř. níž i ammo účetnictví) → po vyčerpání pixelů barvy se koule sály do díry a mystery blok nešel dorazit = neřešitelný level. Predikáty sjednoceny. |
 | v75.05 | (pending) | 2026-07-28 | **E1.5 zip exclude list + deployment cesta** — CLAUDE.md: cesta ~/CodeProjects/, exclude rozšířen o js/.bak/ (5 MB), levels (1).js, debug.js, test_balloon.html, utils/, PNG ikony, .DS_Store. Ověřeno testovacím buildem: 39 souborů, 1,4 MB zip (dřív ~10 MB), nula balastu. |
 | v75.04 | (pending) | 2026-07-28 | **E1.4 belt jitter odstraněn + dirty gating** — ±0.4px sin vibrace plátů i koulí (v73.308/310) nutila full re-render bottom canvasu každý frame → dirty-skip z v74.79 se nikdy netrefil. Pláty/koule se přepisují jen při reálném pohybu offsetu nebo změně obsahu pásu (podpis); theme change vynutí refresh přes `_beltPlatesNeedRefresh`. |
 | v75.03 | (pending) | 2026-07-28 | **E1.3 dt clamp v beltLoop** — herní `dt` neměl clamp (jen `_animDt`); návrat z backgroundovaného tabu dával dt v sekundách → skok beltAnim/launch pointů/časovačů. Teď `Math.min(0.05, ...)`. |
