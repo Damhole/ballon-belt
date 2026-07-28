@@ -1,7 +1,7 @@
 // v73.278: VERSION CONSTANT + WATCHDOG (rozšířen na render3d moduly)
 // Porovnává HTML #version-badge + window.BB_VERSION_R3D + window.BB_VERSION_R3DB
 // proti BB_VERSION. Kterákoli mismatch → force reload (sessionStorage guard).
-const BB_VERSION = 'v76.01';
+const BB_VERSION = 'v76.02';
 (function _versionWatchdog(){
   function check(){
     var badge = document.getElementById('version-badge');
@@ -1155,7 +1155,7 @@ let _perfLastChangeAt=0;            // v73.258: timestamp posledního tier chang
 const PERF_FPS_DOWN=45;          // HIGH → MED threshold
 const PERF_FPS_DOWN_TO_LOW=29;   // v73.261: MED → LOW threshold (přísnější)
 const PERF_FPS_UP=55;
-const PERF_DOWN_HOLD_MS=10000;      // v73.299: 4→10s — dáme hře šanci se srovnat
+const PERF_DOWN_HOLD_MS=4000;       // v76.02: 10→4s — slabý telefon nemá 10 s čekat na úspory; proti kmitání drží CHANGE_COOLDOWN + UP_HOLD
 const PERF_UP_HOLD_MS=8000;
 const PERF_CHANGE_COOLDOWN_MS=5000; // po každé změně 5s žádná další = max 1 flash
 function _applyPerfTier(tier){
@@ -2285,7 +2285,7 @@ function updateParticles(dt){
           _gridMutated();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v76.01'));
+          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v76.02'));
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7761,7 +7761,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v76.01'));
+    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v76.02'));
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7877,7 +7877,7 @@ function endGame(win){
   const _seq=_levelSeq; // v75.08: restart během win animace nesmí dostat overlay/confetti starého levelu
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v76.01'));
+  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v76.02'));
   _safeGamee(()=>gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined));
   if(win){
     spawnConfetti();
@@ -8840,7 +8840,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v76.01'));
+      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v76.02'));
       event.detail.callback();
     });
 
