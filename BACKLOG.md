@@ -588,6 +588,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v75.30 | (pending) | 2026-07-28 | **LOW tier → bottom DPR 1.0** — setQualityTier na bottom canvasu dřív nastavoval stejný 1.5× cap pro všechny tiery (degrade nic nešetřil). Tier 2 teď 1.0× = 2,25× méně fill-rate; tier 0/1 beze změny. Na slabých telefonech se aktivuje sám přes auto-degrade. |
 | v75.29 | (pending) | 2026-07-28 | **Koule 24×16 → 12×8 segmentů** — ~768 → ~192 tris/koule (outline sdílí geometrii → 2× úspora); plná mřížka ≈ 300k tris/frame jen za carrier balls. Nález z Mi A1 testu (fps roste s ubývajícími nosiči — bottom canvas kreslí vše při belt scrollu). Vizuálně nerozeznatelné (ověřeno screenshotem). |
 | v75.28 | (pending) | 2026-07-28 | **Funnel warning 'visible' nedrží render pipeline** — statická fáze warningu držela `_hasActiveCarrierAnim()` = updateCarriers každý frame + full re-render bottom canvasu po celou dobu zobrazení nápisu (klidně desítky sekund). Nález z mobilního testu na Mi A1 (uživatel: „přepočítává nosiče, i když se nehýbou"). Dirty + anim flag teď jen ve writing/erasing fázích. |
 | v75.27 | (pending) | 2026-07-28 | **Fix regrese z v75.19** — `_recomputeCarrierLayout` (resize/visualViewport handler) volá `updateCarriers` přímo, obchází drawCarriers → po gatingu měření se rám dorovnal až přes 500ms fallback (rotace displeje, iOS URL bar = viditelné cuknutí). Přidán `invalidateFrameLayout()`. Odhaleno při mobilním testu na GH Pages. |

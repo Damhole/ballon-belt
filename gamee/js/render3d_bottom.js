@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // v74.79: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.29';
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.30';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
@@ -3639,10 +3639,12 @@ function refreshWallColor() {
 function setQualityTier(tier){
   st.qualityTier = Math.max(0, Math.min(2, tier|0));
   st._dirty = true; // v74.79: tier change → vynucený refresh
-  // v74.79: pixel ratio cap 1.5× pro VŠECHNY tiery (perf)
+  // v75.30: LOW tier (2) = DPR 1.0 — fill-rate je na slabých GPU hlavní hrdlo
+  // bottom canvasu (1.5²/1.0² = 2,25× méně vyplňovaných pixelů). Tier 0/1 drží
+  // 1.5× jako dřív; auto-degrade (game.js _applyPerfTier) to zapne samo.
   if (st.renderer) {
     const dpr = window.devicePixelRatio || 1;
-    st.renderer.setPixelRatio(Math.min(dpr, 1.5));
+    st.renderer.setPixelRatio(Math.min(dpr, st.qualityTier >= 2 ? 1.0 : 1.5));
   }
 }
 function getQualityTier(){ return st.qualityTier || 0; }
