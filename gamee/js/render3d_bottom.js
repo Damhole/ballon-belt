@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // v74.79: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.22';
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.23';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
@@ -2643,7 +2643,7 @@ function _drawFunnelWarningText(tc){
   const mixR = Math.round(255 * 0.90 + r * 0.10);
   const mixG = Math.round(255 * 0.90 + g * 0.10);
   const mixB = Math.round(255 * 0.90 + b * 0.10);
-  ctx.font = 'normal 38px Bangers, Impact, "Arial Black", sans-serif';
+  ctx.font = 'normal 38px Impact, "Arial Black", sans-serif'; // v75.23: Bangers pryč (font race — kreslilo se dřív, než doletěl; fallback byl stejně Impact)
   ctx.fillStyle = `rgba(${mixR},${mixG},${mixB},0.72)`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';

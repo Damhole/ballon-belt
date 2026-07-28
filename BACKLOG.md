@@ -448,8 +448,8 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | P2 | ✅ | S | 3D | **WebGL context loss recovery** ✅ v75.21 — render3d.js:533 + render3d_bottom.js:489 bez listenerů → blank screen na iOS po memory pressure; `dispose()` v render3d.js navíc nekompletní (leakuje geometrie) |
 | P2 | 📋 | S | Infra | **levels.js minifikovaně z editoru** — 254 KB pretty-printed (gzip 9 KB), synchronní parse při startu; minifikace → ~70 KB + menší git diffy |
 | P2 | ✅ | S | Infra | **SW cache normalizace** ✅ v75.22 — sw.js:44 každý unikátní `?t=`/`?v=` = nový záznam, nic se nemaže do bump verze; +3–4 MB na reload |
-| P2 | 📋 | S | Infra | **Google Fonts `@import` zrušit/self-host** — game.css:1 render-blocking řetěz; jediný DOM konzument trvale `display:none`, canvas text má font race |
-| P2 | 📋 | XS | Infra | **`backdrop-filter: blur` zrušit** — game.css:466 nad nekonečně animovaným pozadím (`bgGlow`) = trvalá kompozitorová práce i v idle |
+| P2 | ✅ | S | Infra | **Google Fonts `@import` zrušit/self-host** ✅ v75.23 (zrušeno) — game.css:1 render-blocking řetěz; jediný DOM konzument trvale `display:none`, canvas text má font race |
+| P2 | ✅ | XS | Infra | **`backdrop-filter: blur` zrušit** ✅ v75.23 — game.css:466 nad nekonečně animovaným pozadím (`bgGlow`) = trvalá kompozitorová práce i v idle |
 | P3 | 📋 | S | Infra | **CLAUDE.md aktualizace** — pravidlo „index.html = index_local až na SDK řádek" už neplatí (4 záměrné diff bloky); deployment cesta `~/Documents/GitHub/` je stará; `BB_VERSION` do checklistu |
 | P3 | 📋 | M | Hra | **Mrtvý kód promazat** — `remainingUnits` nedeklarované (latentní ReferenceError, game.js:1854/:7801), 2× duplicitní `_ptBlockedCells`/`_ptGetOpenEmptyCells` (:3522–3661), dead watchdogy (`cannonIdleT`, `_caBumpHeat`), `_renderMiterOffsetTest` (~95 ř.), `levels (1).js` |
 
@@ -588,6 +588,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v75.23 | (pending) | 2026-07-28 | **E4.4+4.5 fonty & CSS** — Google Fonts @import (Bangers) pryč = render-blocking řetěz na first loadu; mrtvý #funnel-warning blok (CSS + div v obou HTML, 0 JS referencí) smazán; canvas text → Impact (Bangers stejně kvůli font race nikdy nestihl); backdrop-filter blur(2px) na .controls pryč (trvalá kompozitorová práce nad animovaným bgGlow). |
 | v75.22 | (pending) | 2026-07-28 | **E4.3 SW cache normalizace** — cache.put klíč bez volatile `?t=`/`?v=` paramů; dřív každý bust = nový záznam, cache uvnitř verze rostla bez limitu (~3–4 MB na dev reload). Offline match (ignoreSearch) normalizovaný klíč najde. |
 | v75.21 | (pending) | 2026-07-28 | **E4.1 WebGL context loss recovery** — oba renderery: preventDefault na contextlost + po contextrestored vynucený redraw (dirty flagy by jinak nechaly canvas prázdný — blank screen na iOS po memory pressure). `render3d.dispose()` dokompletován na traverse-dispose celé scény (dřív leakoval vše kromě pixelMesh). |
 | v75.20 | (pending) | 2026-07-28 | **E3.1 aiming pipeline** — (a) `_gridVersion` bump při každé mutaci gridu/bloků; (b) 240-krokový LoS ray-march locku běží jen po změně verze (dřív každý frame); (c) lock se recykluje pro další kouli stejné barvy (pick je deterministický, žádný claimed-mechanismus → identický cíl; plný pickCannonShot dřív ~27×/s); (d) steerAfterBounce: 20→8 úhlů, 600→240 kroků, 250 ms cooldown po neúspěchu. Největší CPU win dispatch bucketu. |
