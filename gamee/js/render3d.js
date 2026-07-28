@@ -64,7 +64,7 @@ function _makeChromeMatcap() {
 }
 
 // v74.79: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v75.33';
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v75.34';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
@@ -1802,7 +1802,10 @@ if (typeof window !== 'undefined') {
       // na image area. Bottom canvas drží 1.5× (UI elementy, méně critical).
       if (state.renderer) {
         const dpr = window.devicePixelRatio || 1;
-        state.renderer.setPixelRatio(Math.min(dpr, 2));
+        // v75.34: LOW tier = 1.5× — rasterizace statické pixel scény při DPR 2
+        // je hlavní cena top canvasu během letu projektilů (Mi A1: nopixels
+        // 40 fps vs baseline 24). Tier 0/1 drží plné 2× retina.
+        state.renderer.setPixelRatio(Math.min(dpr, t >= 2 ? 1.5 : 2));
       }
       if (state.renderer) state.renderer.shadowMap.enabled = shadowsOn;
       if (state.pixelMesh) state.pixelMesh.castShadow = shadowsOn;
