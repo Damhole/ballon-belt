@@ -61,7 +61,7 @@ function _makeChromeMatcap() {
 }
 
 // v74.79: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v75.16';
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v75.17';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
@@ -539,7 +539,12 @@ function init(canvas, opts) {
   state.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));  // v74.79: top canvas zpět 2× (B-pool dal headroom), bottom drží 1.5×
   state.renderer.setSize(W, H, false); // false = neměnit CSS rozměr canvasu
   state.renderer.setClearColor(0x000000, 0);
-  state.renderer.shadowMap.enabled = true;
+  // v75.17: start s shadows OFF — default tier je MED (game.js _perfTier=1),
+  // který stíny stejně hned vypne. Init s ON působil double-compile: prewarm
+  // zkompiloval USE_SHADOWMAP varianty a setQualityTier(1) hned poté vynutil
+  // recompile všech materiálů (shadowsChanged) — přesně ten startup freeze,
+  // který měl prewarm řešit. Případný tier 0 si recompile udělá při přepnutí.
+  state.renderer.shadowMap.enabled = false;
   state.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   // InstancedMesh pro pixely — max GW*IMG_GH (jen image area, ne belt rows)
