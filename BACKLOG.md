@@ -438,7 +438,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | P1 | 📋 | S | 3D | **updateCarriers layout thrash** — render3d_bottom.js:1358 write-then-read (`setProperty` + 4× `getBoundingClientRect`) každý frame animace = forced reflow; měřit jen při resize/level-start/theme |
 | P2 | ✅ | S | 3D | **Shadow double-compile při startu** ✅ v75.17 — render3d.js:797 prewarm s `shadowMap.enabled=true`, pak `setQualityTier(1)` vše rekompiluje (iOS freeze, který měl prewarm řešit); tier 0 je nedosažitelný → shadow pipeline je mrtvá váha |
 | P2 | ✅ | S | Hra | **`_recomputeLastPxPos` event-driven** ✅ v75.14 — game.js:2215 full-grid scan + alokace každý frame (tentýž scan, co v74.76/79 vypnul jinde) |
-| P2 | 📋 | S | Hra | **Funnel broad-phase** — game.js:7513 160 arch segmentů × ball × 4 substeps bez indexu; vybrat ±2 segmenty podle Y |
+| P2 | ✅ | S | Hra | **Funnel broad-phase** ✅ v75.18 — game.js:7513 160 arch segmentů × ball × 4 substeps bez indexu; vybrat ±2 segmenty podle Y |
 | P2 | ✅ | XS | Hra | **Hot-path console.log za flag** ✅ v75.15 — game.js:8601 `cannon FIRE` log 27×/s + diagnostické smyčky (:2376, :2440, :8541) |
 
 #### Etapa 4 — Infra, loading, úklid
@@ -588,6 +588,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v75.18 | (pending) | 2026-07-28 | **E3.7 funnel broad-phase** — Y-range reject před plným testem segmentu (projekce+hypot). Dřív 160 arch segmentů × koule × 4 substeps naplno (~10k hypot/frame při 16 koulích); teď 2 porovnání pro >95 % segmentů. Bez předpokladu monotonie = identická korektnost. |
 | v75.17 | (pending) | 2026-07-28 | **E3.5 shadow double-compile fix** — init zapínal shadowMap, prewarm zkompiloval USE_SHADOWMAP varianty, a okamžitý setQualityTier(1) je vypnul → shadowsChanged → recompile všech materiálů (druhá plná kompilace = startup freeze, který měl prewarm řešit). Init teď startuje shadows OFF v souladu s default MED tierem. |
 | v75.16 | (pending) | 2026-07-28 | **E3.3 pixel geometrie 6/6 → 2/2** — ExtrudeGeometry pixel kostky měla bevelSegments:6 + curveSegments:6 ≈ 700–800 tris/instanci; s outline hullem (sdílená geometrie) ~1,5 M tris/frame při plné mřížce. 2/2 = ~10× méně vertexů, vizuálně nerozeznatelné na 10px kostce. Vizuální diff ověřen screenshotem. |
 | v75.15 | (pending) | 2026-07-28 | **E3.8 hot-path logy za `_BB_DEBUG` flag** — cannon FIRE log (~27×/s, alokace objektu), 2× crossed-block diagnostický scan (smyčka + findBlockAtPixel per zásah), respawn-stuck log. iOS WKWebView console není zdarma a drží reference. |
