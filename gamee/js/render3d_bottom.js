@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // v74.79: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.27';
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.28';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
@@ -2615,7 +2615,9 @@ function hideFunnelWarning(){
 function _updateFunnelWarning(now){
   const fw = _funnelWarning;
   if(!fw || !fw.phase) return;
-  st._dirty = true;
+  // v75.28: dirty jen v animačních fázích (writing/erasing) — ve 'visible'
+  // se žádný uniform nemění a canvas drží poslední frame sám.
+  if(fw.phase !== 'visible') st._dirty = true;
   const dt = (now - fw.t0) / 1000;
   if(fw.phase === 'writing'){
     const t = Math.min(1, dt / 0.85);
@@ -2627,7 +2629,9 @@ function _updateFunnelWarning(now){
     if(t >= 1){ fw.mesh.visible = false; fw.phase = null; }
   }
 }
-function _hasFunnelWarning(){ return _funnelWarning && _funnelWarning.phase; }
+// v75.28: 'visible' fáze je statický text — nesmí držet anim flag (updateCarriers
+// každý frame + full re-render bottom canvasu po celou dobu zobrazení warningu).
+function _hasFunnelWarning(){ return _funnelWarning && _funnelWarning.phase && _funnelWarning.phase !== 'visible'; }
 
 function refreshFunnelWarningTheme(){
   if(!_funnelWarning) return;
