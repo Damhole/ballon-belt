@@ -434,7 +434,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 |------|------|------|------|-------|
 | P1 | 📋 | M | Hra | **Aiming pipeline kanónu** — `gridVersion` counter: (a) plný `pickCannonShot` po každém výstřelu ~27×/s (game.js:1702, reset :8596), (b) revalidace locku ray-marchem každý frame (:8503), (c) `steerAfterBounce` 20 úhlů × 600 kroků v jednom framu (:2128). Největší CPU žrout |
 | P1 | ✅ | S | Hra | **`drawGrid()` dirty flag** ✅ v75.13 — volá se per zásah z `updateParticles` (game.js:2289 aj.), při salvě až 10×/frame full přepis instance bufferu; batchnout na 1×/frame |
-| P1 | 📋 | S | 3D | **Pixel geometrie zředit** — render3d.js:563 `bevelSegments:6, curveSegments:6` ≈ 700–800 tris/kostka, s outline hull ~1,5 M tris/frame; 6→2 je vizuálně nerozeznatelné, ~10× méně vertexů |
+| P1 | ✅ | S | 3D | **Pixel geometrie zředit** ✅ v75.16 — render3d.js:563 `bevelSegments:6, curveSegments:6` ≈ 700–800 tris/kostka, s outline hull ~1,5 M tris/frame; 6→2 je vizuálně nerozeznatelné, ~10× méně vertexů |
 | P1 | 📋 | S | 3D | **updateCarriers layout thrash** — render3d_bottom.js:1358 write-then-read (`setProperty` + 4× `getBoundingClientRect`) každý frame animace = forced reflow; měřit jen při resize/level-start/theme |
 | P2 | 📋 | S | 3D | **Shadow double-compile při startu** — render3d.js:797 prewarm s `shadowMap.enabled=true`, pak `setQualityTier(1)` vše rekompiluje (iOS freeze, který měl prewarm řešit); tier 0 je nedosažitelný → shadow pipeline je mrtvá váha |
 | P2 | ✅ | S | Hra | **`_recomputeLastPxPos` event-driven** ✅ v75.14 — game.js:2215 full-grid scan + alokace každý frame (tentýž scan, co v74.76/79 vypnul jinde) |
@@ -588,6 +588,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v75.16 | (pending) | 2026-07-28 | **E3.3 pixel geometrie 6/6 → 2/2** — ExtrudeGeometry pixel kostky měla bevelSegments:6 + curveSegments:6 ≈ 700–800 tris/instanci; s outline hullem (sdílená geometrie) ~1,5 M tris/frame při plné mřížce. 2/2 = ~10× méně vertexů, vizuálně nerozeznatelné na 10px kostce. Vizuální diff ověřen screenshotem. |
 | v75.15 | (pending) | 2026-07-28 | **E3.8 hot-path logy za `_BB_DEBUG` flag** — cannon FIRE log (~27×/s, alokace objektu), 2× crossed-block diagnostický scan (smyčka + findBlockAtPixel per zásah), respawn-stuck log. iOS WKWebView console není zdarma a drží reference. |
 | v75.14 | (pending) | 2026-07-28 | **E3.6 `_recomputeLastPxPos` event-driven** — full-grid scan (~1100 buněk + 2 alokace) běžel KAŽDÝ frame jako první řádek updateParticles (tentýž typ scanu, co v74.76/79 vypnul jinde). Teď jen při změně gridu (piggyback na _gridDrawPending flush) + init ve startLevel. |
 | v75.13 | (pending) | 2026-07-28 | **E3.2 drawGrid dirty flag** — 5 přímých `drawGrid()` v updateParticles (pixel/blok/mystery/raketa destrukce) nahrazeno `_gridDrawPending=true`; jeden flush za frame v beltLoop hned po updateParticles. Salva projektilů dřív = až 10× full přepis instance bufferu + HP overlay za jediný frame. |

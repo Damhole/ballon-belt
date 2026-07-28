@@ -61,7 +61,7 @@ function _makeChromeMatcap() {
 }
 
 // v74.79: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v75.15';
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v75.16';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
@@ -565,8 +565,11 @@ function init(canvas, opts) {
       bevelEnabled: true,
       bevelSize: 2.4,
       bevelThickness: 3.2,
-      bevelSegments: 6,
-      curveSegments: 6,
+      // v75.16: 6/6 → 2/2 — ~10px kostka nerozezná rozdíl, ale 6/6 dávalo
+      // ~700-800 tris/instanci; při plné mřížce 972 px × 2 (pixel + outline
+      // hull sdílí geometrii) ~1,5 M tris/frame. 2/2 = ~10× méně vertexů.
+      bevelSegments: 2,
+      curveSegments: 2,
     });
     g.translate(0, 0, -PIXEL_DEPTH / 2);
     return g;
