@@ -7,8 +7,11 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+// v75.32: diagnostické módy pro mobilní profiling — ?diag=nocarriers | ?diag=nopixels
+const _DIAG = (typeof location !== 'undefined') ? new URLSearchParams(location.search).get('diag') : null;
+
 // v74.79: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v74.79';
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.34';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
@@ -487,6 +490,9 @@ function init() {
 
   // Three.js renderer — toon look nepotřebuje shadow mapy (cel-shading je flat)
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, stencil: true });
+  // v75.21: WebGL context loss — viz render3d.js; po restore vynuť redraw + přeměření.
+  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); console.warn('[render3dBottom] WebGL context lost'); });
+  canvas.addEventListener('webglcontextrestored', () => { console.warn('[render3dBottom] WebGL context restored — force redraw'); st._dirty = true; st._frameLayoutDirty = true; });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));  // v74.79: cap 1.5× (perf)
   renderer.setSize(canvasFullW, H, false);
   renderer.setClearColor(0, 0);
@@ -538,9 +544,12 @@ function init() {
   st.renderer = renderer;
 
   // Sdílená geometrie pro koule (víc segmentů → hladší shading)
-  const carrierGeom = new THREE.SphereGeometry(R_CARRIER, 24, 16);
-  const pendingGeom = new THREE.SphereGeometry(R_PENDING, 18, 12);
-  const beltGeom    = new THREE.SphereGeometry(R_BELT,    24, 16);
+  // v75.29: 24×16 (~768 tris) → 12×8 (~192 tris) — koule mají ~11-24 px,
+  // rozdíl není vidět, ale outline mesh sdílí geometrii → úspora se počítá 2×.
+  // Plná mřížka ≈ 200 koulí ≈ 300k tris/frame jen za carrier balls (Adreno 506!).
+  const carrierGeom = new THREE.SphereGeometry(R_CARRIER, 12, 8);
+  const pendingGeom = new THREE.SphereGeometry(R_PENDING, 12, 8);
+  const beltGeom    = new THREE.SphereGeometry(R_BELT,    12, 8);
 
   // Toon shader gradient — sdílený mezi všemi materiály
   const toonGrad = _makeToonGradient();
@@ -1285,7 +1294,7 @@ function _buildUnifiedFrameGeom(W, p) {
 }
 
 // v73.77: extract hole path building do samostatné funkce (reuse mezi
-// _initUnifiedFrame a _renderMiterOffsetTest). Vrací THREE.Path (CW v Y-up).
+// _initUnifiedFrame). Vrací THREE.Path (CW v Y-up).
 function _buildHolePath(p) {
   const hole = new THREE.Path();
   // Radius zaoblení belt-skulina spojů (4 rohy: shoulder + skulina top, oba boky)
@@ -1416,6 +1425,15 @@ function _setCarriersPadTop() {
 // klíčové měření nezměnilo, skip.
 function _rebuildUnifiedFrame() {
   if (!st.ready) return;
+  // v75.19: _setCarriersPadTop (write) + _measureFramePositions (4× gBCR read)
+  // = forced reflow — a běželo to KAŽDÝ frame carrier animace (updateCarriers
+  // per frame z beltLoop). Plné měření teď jen když je layout dirty
+  // (invalidateFrameLayout z drawCarriers: level start / resize / garáže)
+  // nebo 1× za 500 ms jako self-healing pojistka.
+  const _now = performance.now();
+  if (!st._frameLayoutDirty && _now < (st._frameNextCheck || 0)) return;
+  st._frameLayoutDirty = false;
+  st._frameNextCheck = _now + 500;
   _setCarriersPadTop();  // nastav CSS var PŘED měřením
   _measureFramePositions();
   // Memoization key — pokud nezměnilo, skip
@@ -1761,100 +1779,7 @@ function _initUnifiedFrame() {
     '| band outer:', bandOuterPts.length, '| outline outer:', outlineOuterPts.length);
 }
 
-// v73.68: minimal safe test rendering — paralelní offset jako tenká bright ring.
-function _renderMiterOffsetTest(params, distance, colorHex) {
-  // Build hole path z params (stejně jako v _buildUnifiedFrameGeom)
-  const W = st.W;
-  const hole = new THREE.Path();
-  const p = params;
-  hole.moveTo(p.beltLeft,     p.beltTopW);
-  hole.lineTo(p.beltRight,    p.beltTopW);
-  hole.lineTo(p.beltRight,    p.beltBotW);
-  hole.lineTo(p.skulinaRight, p.skulinaTopW);
-  hole.lineTo(p.skulinaRight, p.skulinaBotW);
-  const arcW_r = p.arenaRight - p.skulinaRight;
-  const arcH_r = p.skulinaBotW - p.arenaTopW;
-  hole.bezierCurveTo(
-    p.skulinaRight,                    p.skulinaBotW,
-    p.skulinaRight + arcW_r * 0.505,  p.skulinaBotW - arcH_r * 0.130,
-    p.skulinaRight + arcW_r * 0.785,  p.skulinaBotW - arcH_r * 0.411
-  );
-  hole.bezierCurveTo(
-    p.skulinaRight + arcW_r * 0.959,  p.skulinaBotW - arcH_r * 0.637,
-    p.arenaRight,                       p.arenaTopW,
-    p.arenaRight,                       p.arenaTopW
-  );
-  hole.lineTo(p.arenaRight, p.arenaBotW + CORNER_R_BOT);
-  hole.bezierCurveTo(
-    p.arenaRight,                          p.arenaBotW + CORNER_R_BOT * 0.448,
-    p.arenaRight - CORNER_R_BOT * 0.448,  p.arenaBotW,
-    p.arenaRight - CORNER_R_BOT,           p.arenaBotW
-  );
-  hole.lineTo(p.arenaLeft + CORNER_R_BOT, p.arenaBotW);
-  hole.bezierCurveTo(
-    p.arenaLeft + CORNER_R_BOT * 0.448,   p.arenaBotW,
-    p.arenaLeft,                            p.arenaBotW + CORNER_R_BOT * 0.448,
-    p.arenaLeft,                            p.arenaBotW + CORNER_R_BOT
-  );
-  hole.lineTo(p.arenaLeft, p.arenaTopW);
-  const arcW_l = p.skulinaLeft - p.arenaLeft;
-  const arcH_l = p.skulinaBotW - p.arenaTopW;
-  hole.bezierCurveTo(
-    p.arenaLeft,                       p.arenaTopW,
-    p.arenaLeft + arcW_l * 0.041,     p.arenaTopW + arcH_l * 0.363,
-    p.arenaLeft + arcW_l * 0.215,     p.arenaTopW + arcH_l * 0.589
-  );
-  hole.bezierCurveTo(
-    p.arenaLeft + arcW_l * 0.495,     p.arenaTopW + arcH_l * 0.870,
-    p.skulinaLeft,                     p.skulinaBotW,
-    p.skulinaLeft,                     p.skulinaBotW
-  );
-  hole.lineTo(p.skulinaLeft,  p.skulinaTopW);
-  hole.lineTo(p.beltLeft,     p.beltBotW);
-  hole.lineTo(p.beltLeft,     p.beltTopW);
-
-  // Sample hole, offset, build thin ring shape
-  const innerPts = hole.getPoints(30);
-  let outerPts = _miterOffsetPolygon(innerPts, distance);
-  // v73.76: clip self-intersections (cross-overs mezi non-adjacent edges)
-  outerPts = _clipSelfIntersections(outerPts);
-
-  // Shape: outer = outerPts reversed (CCW), hole = innerPts (CW)
-  const ringShape = new THREE.Shape();
-  const outerReversed = outerPts.slice().reverse();
-  ringShape.moveTo(outerReversed[0].x, outerReversed[0].y);
-  for (let i = 1; i < outerReversed.length; i++) ringShape.lineTo(outerReversed[i].x, outerReversed[i].y);
-  const ringHole = new THREE.Path();
-  ringHole.moveTo(innerPts[0].x, innerPts[0].y);
-  for (let i = 1; i < innerPts.length; i++) ringHole.lineTo(innerPts[i].x, innerPts[i].y);
-  ringShape.holes.push(ringHole);
-
-  // Flat 2D geometry (ShapeGeometry → žádná hloubka, žádná triangulace složitosti)
-  const ringGeom = new THREE.ShapeGeometry(ringShape, 4);
-  const ringMat  = new THREE.MeshBasicMaterial({ color: colorHex });
-  const ringMesh = new THREE.Mesh(ringGeom, ringMat);
-  // Position v front of main frame ale za carriery
-  ringMesh.position.set(0, 0, -1);
-  ringMesh.renderOrder   = 50;
-  ringMesh.frustumCulled = false;
-  st.contentGroup.add(ringMesh);
-  st.miterTestMesh = ringMesh;
-
-  // v73.75: BLACK OUTLINE tracing přesně outer offset path — uvidíme kde se
-  // linie zlomí / přeskakuje (každý bod offset polygonu = vertex v line).
-  const outlineCoords = [];
-  for (const pt of outerPts) outlineCoords.push(pt.x, pt.y, 0);
-  outlineCoords.push(outerPts[0].x, outerPts[0].y, 0);  // close loop
-  const lineGeom = new THREE.BufferGeometry();
-  lineGeom.setAttribute('position', new THREE.Float32BufferAttribute(outlineCoords, 3));
-  const lineMat = new THREE.LineBasicMaterial({ color: 0x000000 });
-  const lineMesh = new THREE.Line(lineGeom, lineMat);
-  lineMesh.position.set(0, 0, -0.5);  // nad ring mesh (ke kameře)
-  lineMesh.renderOrder   = 51;
-  lineMesh.frustumCulled = false;
-  st.contentGroup.add(lineMesh);
-  st.miterTestOutline = lineMesh;
-}
+// v75.24: _renderMiterOffsetTest (~90 ř. dev vizualizace z v73.68) smazán — nevolaný.
 
 // v73.68: helper — proper polygon offset s miter joins (Blender Inset-style).
 // v73.69: Proper polygon offset s miter joins + SELF-INTERSECTION CLIPPING.
@@ -2052,11 +1977,33 @@ function _clipSelfIntersections(points) {
 // colorsArr: COLORS array z game.js (hex stringy)
 
 function updateCarriers(columns, colorsArr) {
+  // v75.31: stale sweep — pop/denial klíče se mažou jen při renderu SVÉHO slotu.
+  // Když nosič zmizí během animace (klik hned po reveal cascade), klíč osiřel
+  // a _hasActiveCarrierAnim() držel updateCarriers + full render bottom canvasu
+  // do konce levelu (druhý zdroj „přepočítává nosiče, i když se nehýbou").
+  {
+    const _swNow = performance.now();
+    if (st.carrierPopAnim.size) { for (const [k, t0] of st.carrierPopAnim) if (_swNow - t0 > 700) st.carrierPopAnim.delete(k); }
+    if (st.carrierDenialAnim.size) { for (const [k, t0] of st.carrierDenialAnim) if (_swNow - t0 > 500) st.carrierDenialAnim.delete(k); }
+  }
   if (!st.ready || !columns) return;
   st._dirty = true; // v74.79: carriers update = layout change → vždy dirty
 
   // v73.103: rebuild frame pokud carriers pozice změnila (responzivní layout)
   _rebuildUnifiedFrame();
+  // v75.32: ?diag=nocarriers — zhasni všechny carrier meshe a přeskoč jejich
+  // per-frame práci; rám/floor/belt zůstávají. Jen pro diagnostiku výkonu.
+  if (_DIAG === 'nocarriers') {
+    if (!st._diagCarriersCleared) {
+      st._diagCarriersCleared = true;
+      for (const arr of [st.rowSlotMeshes, st.rowSlotInnerMeshes, st.rowSlotOutlineMeshes,
+                         st.rowBallMeshes, st.rowBallOutlineMeshes, st.rowMysteryMeshes]) {
+        if (arr) for (const m of arr) { if (m) m.count = 0; }
+      }
+      st._dirty = true;
+    }
+    return;
+  }
 
   // v74.79: per-slot measurement cache — během anim se layout nemění, takže
   // místo per-frame getBoundingClientRect (36 carriers × ~3 rect calls = 108
@@ -2631,7 +2578,7 @@ function _drawFunnelWarningText(tc){
   const mixR = Math.round(255 * 0.90 + r * 0.10);
   const mixG = Math.round(255 * 0.90 + g * 0.10);
   const mixB = Math.round(255 * 0.90 + b * 0.10);
-  ctx.font = 'normal 38px Bangers, Impact, "Arial Black", sans-serif';
+  ctx.font = 'normal 38px Impact, "Arial Black", sans-serif'; // v75.23: Bangers pryč (font race — kreslilo se dřív, než doletěl; fallback byl stejně Impact)
   ctx.fillStyle = `rgba(${mixR},${mixG},${mixB},0.72)`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -2696,7 +2643,9 @@ function hideFunnelWarning(){
 function _updateFunnelWarning(now){
   const fw = _funnelWarning;
   if(!fw || !fw.phase) return;
-  st._dirty = true;
+  // v75.28: dirty jen v animačních fázích (writing/erasing) — ve 'visible'
+  // se žádný uniform nemění a canvas drží poslední frame sám.
+  if(fw.phase !== 'visible') st._dirty = true;
   const dt = (now - fw.t0) / 1000;
   if(fw.phase === 'writing'){
     const t = Math.min(1, dt / 0.85);
@@ -2708,7 +2657,9 @@ function _updateFunnelWarning(now){
     if(t >= 1){ fw.mesh.visible = false; fw.phase = null; }
   }
 }
-function _hasFunnelWarning(){ return _funnelWarning && _funnelWarning.phase; }
+// v75.28: 'visible' fáze je statický text — nesmí držet anim flag (updateCarriers
+// každý frame + full re-render bottom canvasu po celou dobu zobrazení warningu).
+function _hasFunnelWarning(){ return _funnelWarning && _funnelWarning.phase && _funnelWarning.phase !== 'visible'; }
 
 function refreshFunnelWarningTheme(){
   if(!_funnelWarning) return;
@@ -2987,13 +2938,20 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
   const yW     = _worldY(st.beltCenterY);
   const offset = (beltAnim || 0) % BELT_TOTAL;
 
+  // v75.04: change-detection pro dirty-flag — pláty i koule se přepisují
+  // jen když se belt reálně pohnul (jinak dirty-skip v render() nikdy nechytl).
+  const offsetChanged = (st._lastBeltOffset !== offset);
+  st._lastBeltOffset = offset;
+
   // v73.304: belt plates — 14 plátků se posouvá stejně jako balls. Vždy
   // se updatují (bez ohledu na beltArr), protože plátky existují i pod
   // prázdnými sloty. v73.307: outer + inner mesh share matrix.
   // v73.308: alternating tint (zebra) + subtle Y-shake (±0.4 px sin per index).
-  if (st.beltPlateMesh) {
+  // v75.04: trvalý sin-jitter (v73.308) odstraněn — ±0.4 px je při 1.5× DPR
+  // neviditelný a nutil full re-render bottom canvasu i v idle.
+  if (st.beltPlateMesh && (offsetChanged || st._beltPlatesNeedRefresh)) {
+    st._beltPlatesNeedRefresh = false;
     st._dirty = true; // plates se hýbou s beltAnim
-    const now = performance.now();
     // v73.311: theme-aware tint — pokud refreshBeltTint() proběhlo, use cached values
     if (!st._beltTint) refreshBeltTint(); // lazy init
     const even = st._beltTint.even, odd = st._beltTint.odd;
@@ -3002,9 +2960,7 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
     for (let i = 0; i < BELT_CAP; i++) {
       const xCSSrel = BELT_STARTX + (i * BELT_SPACING + offset) % BELT_TOTAL;
       const xCSS = st.beltOffsetX + xCSSrel;
-      // Y-shake: subtle vibration 0.4 px amplitude, per-plate phase
-      const jitter = Math.sin(now * 0.018 + i * 1.37) * 0.4;
-      dummy.position.set(xCSS, yW + jitter, -10);
+      dummy.position.set(xCSS, yW, -10);
       dummy.rotation.set(0, 0, 0);
       dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();
@@ -3026,8 +2982,10 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
     if (st.beltPlateOutlineMesh) st.beltPlateOutlineMesh.instanceMatrix.needsUpdate = true;
   }
 
+  let beltSig = 0; // v75.04: podpis obsahu pásu — nová/odebraná koule = dirty i při stojícím pásu
   for (let i = 0; i < BELT_CAP; i++) {
     const b = beltArr ? beltArr[i] : null;
+    beltSig = (beltSig * 31 + (b ? (b.ci + 1) + (b.rocket ? 64 : 0) : 0)) | 0;
     if (!b) continue;
 
     const xCSSrel = BELT_STARTX + (i * BELT_SPACING + offset) % BELT_TOTAL;
@@ -3038,9 +2996,7 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
     const hexColor = colorsArr ? colorsArr[b.ci] : '#888888';
     c3.set(_hex(hexColor));
 
-    // v73.310: stejný shake jako plates (synchronizovaná fáze přes index i)
-    const ballJitter = Math.sin(performance.now() * 0.018 + i * 1.37) * 0.4;
-    dummy.position.set(xCSS, yW + ballJitter, R_BELT);
+    dummy.position.set(xCSS, yW, R_BELT);
     dummy.scale.set(1, 1, 1);
     dummy.updateMatrix();
     st.beltMesh.setMatrixAt(idx, dummy.matrix);
@@ -3051,6 +3007,9 @@ function updateBelt(beltArr, beltAnim, colorsArr) {
     st.beltOutlineMesh.setMatrixAt(idx, dummy.matrix);
     idx++;
   }
+
+  if (offsetChanged || beltSig !== st._lastBeltSig) st._dirty = true;
+  st._lastBeltSig = beltSig;
 
   st.beltMesh.count = idx;
   st.beltMesh.instanceMatrix.needsUpdate = true;
@@ -3606,6 +3565,7 @@ function rebuildMysteryTexture() {
 // colors, inner plate material, edges material.
 function refreshBeltTint() {
   st._dirty = true;
+  st._beltPlatesNeedRefresh = true; // v75.04: pláty jsou gatované na pohyb — theme change je musí přepsat
   const cs = getComputedStyle(document.body);
   const themeHex = (cs.getPropertyValue('--carriers-3d-bg') || '').trim() || '#6a2f4d';
   const theme = new THREE.Color(themeHex);
@@ -3704,12 +3664,16 @@ function refreshWallColor() {
 function setQualityTier(tier){
   st.qualityTier = Math.max(0, Math.min(2, tier|0));
   st._dirty = true; // v74.79: tier change → vynucený refresh
-  // v74.79: pixel ratio cap 1.5× pro VŠECHNY tiery (perf)
+  // v75.30: LOW tier (2) = DPR 1.0 — fill-rate je na slabých GPU hlavní hrdlo
+  // bottom canvasu (1.5²/1.0² = 2,25× méně vyplňovaných pixelů). Tier 0/1 drží
+  // 1.5× jako dřív; auto-degrade (game.js _applyPerfTier) to zapne samo.
   if (st.renderer) {
     const dpr = window.devicePixelRatio || 1;
-    st.renderer.setPixelRatio(Math.min(dpr, 1.5));
+    st.renderer.setPixelRatio(Math.min(dpr, st.qualityTier >= 2 ? 1.0 : 1.5));
   }
 }
 function getQualityTier(){ return st.qualityTier || 0; }
-window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, triggerCarrierRipple, triggerHoleSuck, triggerFunnelWarning, hideFunnelWarning, refreshFunnelWarningTheme, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor, setQualityTier, getQualityTier, invalidateSlotCache, refreshBeltTint };
+function invalidateFrameLayout() { st._frameLayoutDirty = true; } // v75.19
+
+window.render3dBottom = { init, updateCarriers, updateWalls, invalidateFrameLayout, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, triggerCarrierRipple, triggerHoleSuck, triggerFunnelWarning, hideFunnelWarning, refreshFunnelWarningTheme, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor, setQualityTier, getQualityTier, invalidateSlotCache, refreshBeltTint };
 window._r3dBState = st;  // debug

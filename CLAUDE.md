@@ -37,33 +37,30 @@ balloon-belt-gamee.zip   prod bundle (git-ignored, regeneruje se)
 **Typická změna:**
 - herní logika → `gamee/js/game.js`
 - styl/layout → `gamee/css/game.css`
-- HTML shell → `gamee/index.html` + `gamee/index_local.html` (udržovat oba stejné až na `src="./lib/..."` řádek)
+- HTML shell → `gamee/index.html` + `gamee/index_local.html` — udržovat synchronní AŽ NA 4 povolené diff bloky (v75.23 stav):
+  1. SDK script: `lib/gamee-js.min.js` (prod) vs `lib/gamee-js-stub.js` (dev)
+  2. PWA meta blok (manifest, apple-touch-icon, theme-color) — jen dev; z prodí záměrně odstraněn
+  3. Načítání skriptů: prod statické tagy s `?v=X`, dev `document.write` s `?t=` bustem
+  4. Dev extras: debug.js, stats.js, SW registrace — jen index_local
+  Cokoli jiného (canvasy, herní DOM, `_BB_SOUND_V`, verze) MUSÍ být v obou souborech stejné.
 
 ## Dev workflow
 
-**Aktuální setup (2026-05+, aktualizováno z reálné praxe):**
+**Aktuální setup (v75.26, aktualizováno z reálné praxe — ŽÁDNÝ /tmp sync):**
 
 1. Editace v jednom z těchto míst:
-   - **Worktree** (běžné během session): `/Users/denishrazdira/CodeProjects/ballon-belt/.claude/worktrees/<branch-name>/gamee/`
-   - **Main repo**: `/Users/denishrazdira/CodeProjects/ballon-belt/gamee/`
-2. **Sync do `/tmp/ballon-belt/gamee/`** (Ruby WEBrick servíruje z `/tmp/ballon-belt`):
-   ```bash
-   # Z worktree:
-   rm -rf /tmp/ballon-belt/gamee && cp -r /Users/denishrazdira/CodeProjects/ballon-belt/.claude/worktrees/<branch>/gamee /tmp/ballon-belt/gamee
-
-   # Z main repa:
-   rm -rf /tmp/ballon-belt/gamee && cp -r /Users/denishrazdira/CodeProjects/ballon-belt/gamee /tmp/ballon-belt/gamee
-   ```
-3. Server: BB Editor (Ruby httpd) běží z `/tmp/ballon-belt` na port 8080. User ho má perzistentně, Claude neuruští.
-4. Browser test URL: `http://localhost:8080/gamee/index_local.html` (dev s debug overlay).
-   Force refresh: Cmd+Shift+R.
-   - **Renderer mode** detekce v [game.js:54](gamee/js/game.js#L54): default je `3d`, `?renderer=2d` vynutí 2D fallback (pixel-canvas only). `?renderer=3d` je redundantní — neuvádět ho, plain URL stačí.
-
-**Pokud Claude upraví soubor, MUSÍ hned poté spustit sync krok (2)**, jinak prohlížeč uvidí starou verzi.
+   - **Worktree milníkové větve** (běžný režim): `.claude/worktrees/<větev>/gamee/`
+   - **Main repo** (jen čtení / uživatelovy věci): `/Users/denishrazdira/CodeProjects/ballon-belt/gamee/`
+2. Server: `python3 server.py` z rootu main repa — port 8080, docroot = root repa,
+   no-cache hlavičky. Servíruje repo PŘÍMO, včetně worktrees → žádný sync krok:
+   - main repo: `http://localhost:8080/gamee/index_local.html`
+   - worktree LIVE: `http://localhost:8080/.claude/worktrees/<větev>/gamee/index_local.html`
+   (Historický Ruby WEBrick + /tmp sync setup je zrušený.)
+3. Force refresh: Cmd+Shift+R. Vždy zkontroluj version badge — říká, na co se koukáš.
+   - **Renderer mode** detekce v game.js: default je `3d`, `?renderer=2d` vynutí 2D fallback (pixel-canvas only). `?renderer=3d` je redundantní — neuvádět ho, plain URL stačí.
 
 **Common bugs:**
-- „Vidím starou verzi" → buď sync neproběhl, nebo browser cache. Ověř datum souboru v `/tmp/ballon-belt/gamee/js/game.js` (`ls -la`) a porovnej s repo.
-- Server 500 errors → cílový adresář musí být v `/tmp`. Ruby WEBrick v Claude Code sandboxu nemá TCC přístup do `~/Documents/` ani `~/CodeProjects/` přímo. Proto sync do `/tmp/ballon-belt/`.
+- „Vidím starou verzi" → browser/SW cache. Force refresh + ověř version badge proti očekávané verzi.
 - Preview Panel v Claude Code (Live Preview) neumí load Three.js ES modulů → 3D scéna nezobrazuje. **Test 3D vždy na `localhost:8080`**, ne v Preview panelu.
 
 ## Post-commit checklist (VŽDY po commitu bumpnout verzi + zápis do backlogu)
@@ -73,8 +70,10 @@ Po každém commitu `vXX: ...` **okamžitě**:
 **A) Bump verze na `vYY` v těchto místech:**
 1. `gamee/index.html` — `<title>Balloon Belt vYY</title>` + `<div id="version-badge">vYY</div>`
 2. `gamee/index_local.html` — totéž
-3. `gamee/js/game.js` — checksum string `'balloon-belt-vYY'` (4 výskyty, hledej `gamee.updateScore`)
+3. `gamee/js/game.js` — checksum string `'balloon-belt-vYY'` (4 výskyty, hledej `gamee.updateScore`) **+ `const BB_VERSION = 'vYY'`** (watchdog, řádek ~4)
 4. `gamee/sw.js` — `_VERSION = 'vYY'` (PWA cache name → bump invaliduje starý cache + nový SW se aktivuje)
+5. `gamee/index.html` — všechny `?v=YY` query stringy (css + 4 script tagy) + `window._BB_SOUND_V='YY'`; `gamee/index_local.html` — `window._BB_SOUND_V='YY'`
+6. `gamee/js/render3d.js` — `window.BB_VERSION_R3D = 'vYY'`; `gamee/js/render3d_bottom.js` — `window.BB_VERSION_R3DB = 'vYY'` (watchdog je porovnává proti BB_VERSION)
 
 **B) Zápis do [BACKLOG.md](BACKLOG.md):**
 - Přidej řádek do tabulky `## ✅ Hotovo` s commit hashem + datem
@@ -89,23 +88,27 @@ Další akce podle typu změny:
 ## Gamee deployment
 
 ```bash
-cd ~/Documents/GitHub/ballon-belt/gamee
+cd ~/CodeProjects/ballon-belt/gamee
 rm -f ../balloon-belt-gamee.zip
-zip -r ../balloon-belt-gamee.zip . -x "index_local.html" "lib/gamee-js-stub.js" "manifest.json" "sw.js" "assets/icon-*.svg" "assets/icons/*"
+zip -r ../balloon-belt-gamee.zip . -x "index_local.html" "lib/gamee-js-stub.js" "manifest.json" "sw.js" "assets/icon-*.svg" "assets/icons/*" "assets/icon-*.png" "js/.bak/*" "js/levels (1).js" "js/debug.js" "test_balloon.html" "utils/*" "*.DS_Store"
 ```
 
 Upload `balloon-belt-gamee.zip` do Gamee admin (zip má `index.html` v rootu, to Gamee admin vyžaduje).
 
-**Pozn. exclude list**: manifest.json + sw.js + assets/icon-*.svg + assets/icons/ jsou
-PWA-only (install z `index_local.html`). Gamee iframe je nepoužívá → výsledný zip je
-čistší a menší o ~70 KB.
+**Pozn. exclude list** (rozšířeno v75.05): manifest.json + sw.js + ikony jsou PWA-only
+(install z `index_local.html`), Gamee iframe je nepoužívá. `js/.bak/` (~5 MB rotujících
+záloh levels.js), `levels (1).js`, `debug.js`, `test_balloon.html` a `utils/` jsou
+dev-only balast — bez exclude měl zip ~10 MB, s ním ~4 MB.
 
 ## Konvence
 
 - **Jazyk komunikace**: česky (nikdy slovensky)
 - **Commit message**: začíná `vXX: ...` (např. `v18: konsolidace do Gamee struktury`)
 - **Game checksum**: `balloon-belt-vXX` — identifikuje verzi skóre v Gamee statistikách, bumpuje se s každým vydáním
-- **Git branch**: pracujeme přímo v `master`
+- **Git režim (od 2026-07-28, viz memory collaboration-guide)**: NIKDY nepsat do `master`.
+  Práce na milníkové větvi ve worktree (`git worktree add .claude/worktrees/<větev> -b <větev> master`),
+  název = milník + pořadové číslo (např. `m14-stabilizace-01`), schvaluje uživatel.
+  Commit průběžně; push/PR/merge jen na výslovný pokyn. Jedna dodávka = jeden PR.
 - **Plan files**: `~/.claude/plans/` (historie architektonických rozhodnutí)
 
 ## Známé quirky

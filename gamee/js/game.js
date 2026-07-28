@@ -1,7 +1,7 @@
 // v73.278: VERSION CONSTANT + WATCHDOG (rozšířen na render3d moduly)
 // Porovnává HTML #version-badge + window.BB_VERSION_R3D + window.BB_VERSION_R3DB
 // proti BB_VERSION. Kterákoli mismatch → force reload (sessionStorage guard).
-const BB_VERSION = 'v73.278';
+const BB_VERSION = 'v75.34';
 (function _versionWatchdog(){
   function check(){
     var badge = document.getElementById('version-badge');
@@ -12,7 +12,9 @@ const BB_VERSION = 'v73.278';
       setTimeout(check, 100);
       return;
     }
-    var htmlVer = (badge.textContent || '').trim();
+    // v75.02: badge obsahuje prefix "Plop!" — verzi číst jen z .ver-num spanu.
+    var verEl = badge.querySelector('.ver-num');
+    var htmlVer = ((verEl ? verEl.textContent : badge.textContent) || '').trim();
     var checks = [
       ['HTML',            htmlVer],
       ['render3d',        window.BB_VERSION_R3D],
@@ -21,11 +23,14 @@ const BB_VERSION = 'v73.278';
     var bad = checks.filter(function(c){ return c[1] && c[1] !== BB_VERSION; });
     if (!bad.length) return;
     var key = 'bb-reload-attempted-' + BB_VERSION;
-    if (sessionStorage.getItem(key)) {
+    // v75.02: sessionStorage guard — private mode / storage-disabled nesmí shodit watchdog.
+    var attempted = false;
+    try { attempted = !!sessionStorage.getItem(key); } catch (e) {}
+    if (attempted) {
       console.warn('[BB] Version mismatch po reloadu přetrvává:', bad, '(JS=' + BB_VERSION + '). Zkus Cmd+Shift+R.');
       return;
     }
-    sessionStorage.setItem(key, '1');
+    try { sessionStorage.setItem(key, '1'); } catch (e) {}
     console.warn('[BB] Stale modul(y):', bad, '— force reload.');
     var url = new URL(location.href);
     url.searchParams.set('_bb_v', Date.now());
@@ -34,6 +39,13 @@ const BB_VERSION = 'v73.278';
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', check);
   else check();
 })();
+
+// v75.07: Gamee SDK volání nesmí shodit hru — jeden throw uvnitř beltLoop
+// by trvale zabil rAF smyčku (rAF se plánuje až na konci).
+function _safeGamee(fn){ try { fn(); } catch (e) { console.warn('[BB] gamee SDK error', e); } }
+
+// v75.15: hot-path diagnostika (crossed-block scany, cannon FIRE log ~27×/s) — jen pro dev.
+const _BB_DEBUG = false;
 
 const COLORS=[
   // 0–11  výchozí (původní)
@@ -1289,7 +1301,9 @@ const _SPEEDUP_MAX = 2.0;
 let _levelStartLockUntil = 0;
 const _LEVEL_START_LOCK_DEFAULT_MS = 700; // cascade pop ~0.55s + buffer
 const _LEVEL_INTRO_DURATIONS = {
-  // Časy jsou MAX duration intro animace + 200ms buffer (viz startLevel intro switch)
+  // v75.09: hodnoty už NEJSOU délka locku (byly kratší než reálná intra — smiley
+  // reálně ~4,2 s vs. 2000). Lock odemyká _introUnlock() na konci sekvence;
+  // tabulka slouží jen jako truthy marker „level má intro".
   smiley:   2000,
   moon:     2200,
   starwars: 2400,
@@ -1300,6 +1314,8 @@ const _LEVEL_INTRO_DURATIONS = {
 const _SLOWDOWN_START_PX = 40; // od kolika pixelů zbývajících začneme zpomalovat
 const _SLOWDOWN_END_PX   = 20; // při kolika pixelech jsme zpět na 1.0×
 let _remainingPxCache = null;  // updated v beltLoop tick
+// v75.09: event-driven unlock — volají intro sekvence na svém skutečném konci.
+function _introUnlock(){ _levelStartLockUntil = Date.now() + 200; }
 // v74.64: hold-to-boost — uživatel drží levou/pravou boost zónu → fade na 1.5× a zpět.
 let _userHoldActive = false;
 let _userHoldCurrent = 1.0;
@@ -1351,6 +1367,10 @@ let cannonSideShots=0;            // počet vystřelených ran s aktuální pref
 const CANNON_SIDE_COMMIT=15;      // po kolika ranách se kanon rozhodne přehodnotit stranu
 let cannonIdleT=0;                // čas co kanon nevystřelil (watchdog proti zamrznutí queue)
 let introSeq=0;                   // token pro zrušení naplánovaného intra při resetu/přepnutí levelu
+let _levelSeq=0;                  // v75.08: token pro zrušení stale timeoutů (endGame/overlay/confetti) po restartu
+let _gridDrawPending=false;       // v75.13: destrukce v updateParticles jen flagují; drawGrid 1× za frame v beltLoop
+let _gridVersion=0;               // v75.20: bump při každé mutaci gridu/bloků — gate pro drahé LoS revalidace
+function _gridMutated(){ _gridVersion++; _gridDrawPending=true; }
 // === CHROMATIC ABERRATION RANDOM INTERVAL (v73.236) ===
 // CA se spustí každý 3.–5. zničený pixel (náhodně). Bez heat/streak.
 let _caCountdown=3+Math.floor(Math.random()*3); // 3..5
@@ -1837,46 +1857,8 @@ function pickCannonShotForceBlocked(ci,cannonXPos,cannonYPos){
   };
 }
 
-function launchBouncingParticles(matching,cm,onDone){
-  if(!matching.size){onDone();return;}
-  particlesFlying=true;
-  let popped=0,total=0;
-  let done=false;
-  const finish=()=>{if(done)return;done=true;particlesFlying=false;onDone();};
-  const safety=setTimeout(finish,2500);
-  const onPop=()=>{popped++;if(popped>=total){clearTimeout(safety);finish();}};
-
-  for(const c of matching){
-    // Spočítej kolik pixelů té barvy v gridu skutečně existuje
-    let pixelCount=0;
-    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++)if(grid[y][x]===c)pixelCount++;
-    if(pixelCount===0)continue; // žádný cíl, přeskoč
-    const prev=remainingUnits[c]||0;
-    const budget=cm[c]*PPU+prev;
-    // Nikdy nevypusť víc projektilů než je cílů a než je MAX_PER_COLOR
-    const count=Math.min(budget,MAX_PER_COLOR,pixelCount);
-    // Přebytek uložit, ale taky ho ořezat na rozumný max (2× počet pixelů)
-    remainingUnits[c]=Math.min(budget-count, pixelCount*2);
-    for(let i=0;i<count;i++){
-      total++;
-      // Start ze středu pásu – spodní hrana canvasu, mírný rozptyl ±25px okolo středu
-      const spawnX=155+Math.random()*50;      // 155–205px ≈ střed pásu
-      const spawnY=GH*SCALE-2;               // úplný spodek canvasu (308px)
-      const angle=-Math.PI/2+(Math.random()-0.5)*Math.PI*0.7; // ±63° od svislice
-      particles.push({
-        x:spawnX, y:spawnY,
-        vx:Math.cos(angle)*PSPEED,
-        vy:Math.sin(angle)*PSPEED,
-        ci:c, color:COLORS[c],
-        phase:'fly',
-        stuckT:0,
-        popR:0, popX:0, popY:0,
-        onPop
-      });
-    }
-  }
-  if(total===0){clearTimeout(safety);finish();}
-}
+// v75.24: launchBouncingParticles smazána — mrtvý legacy kód (0 call sites),
+// navíc referencovala nedeklarované `remainingUnits` (latentní ReferenceError).
 
 function randomFreePos(){
   // Najdi náhodnou volnou pozici kdekoliv na canvasu
@@ -2125,12 +2107,20 @@ function steerAfterBounce(p){
   // úhel, který přes odraz od zdi stejně dorazí (simulace jako u děla).
   // Když takovou trajektorii objevíme, projektil ji převezme. Když ne,
   // rozptýlíme aktuální vektor proti zamrznutí.
-  const TRIES=20;
-  let bestA=null, bestAlign=-Infinity;
   const curA=Math.atan2(p.vy,p.vx);
+  // v75.20: cooldown po neúspěchu — zaseknutý projektil jinak platil
+  // TRIES × plnou simulaci při každém odrazu (klidně vícekrát za sekundu).
+  const _nowS=performance.now();
+  if(p._steerCdUntil&&_nowS<p._steerCdUntil){
+    const a=curA+(Math.random()-0.5)*Math.PI*0.18;
+    p.vx=Math.cos(a)*PSPEED; p.vy=Math.sin(a)*PSPEED;
+    return;
+  }
+  const TRIES=8; // v75.20: 20 → 8 pokusů, maxSteps 600 → 240 (dost pro bank shot, viz cannon LoS)
+  let bestA=null, bestAlign=-Infinity;
   for(let i=0;i<TRIES;i++){
     const a=Math.random()*Math.PI*2;
-    if(simulateShotReaches(p.x,p.y,a,p.ci)){
+    if(simulateShotReaches(p.x,p.y,a,p.ci,240)){
       // Preferuj úhel blízký aktuálnímu směru — odraz pak vypadá přirozeně,
       // ne jako ostré teleport-přemíření.
       const align=Math.cos(a-curA);
@@ -2142,6 +2132,7 @@ function steerAfterBounce(p){
     p.vy=Math.sin(bestA)*PSPEED;
     return;
   }
+  p._steerCdUntil=_nowS+250; // v75.20: neúspěch → 250 ms bez dalších simulací
   const a=curA+(Math.random()-0.5)*Math.PI*0.18;
   p.vx=Math.cos(a)*PSPEED;
   p.vy=Math.sin(a)*PSPEED;
@@ -2212,7 +2203,6 @@ function _recomputeLastPxPos(){
 }
 
 function updateParticles(dt){
-  _recomputeLastPxPos();
   for(let i=shards.length-1;i>=0;i--){
     const s=shards[i];
     s.life+=dt;
@@ -2285,16 +2275,22 @@ function updateParticles(dt){
           _playPop(0.06);
           spawnPopShards(h.xx*SCALE+SCALE/2,h.yy*SCALE+SCALE/2,p.color);
         }
+        // v75.11: raketa musí aplikovat gravitaci jako běžná destrukce — jinak
+        // na gravity levelech zůstanou plovoucí pixely, které solver nepředpovídá.
+        if(destroyed&&gravityOn){
+          const _cols=new Set(); for(const h of hits) _cols.add(h.xx);
+          for(const cx of _cols) applyGravityToCol(grid,cx);
+        }
         if(destroyed){
-          drawGrid();
+          _gridMutated();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v74.79');
+          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.34'));
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
         particles.splice(i,1);
-        if(running&&!anyTargetLeft()){setTimeout(()=>{if(running)endGame(true);},80);}
+        if(running&&!anyTargetLeft()){{const _s=_levelSeq;setTimeout(()=>{if(running&&_s===_levelSeq)endGame(true);},80);}}
         continue;
       }
       p.x+=dx/d*p.speed*dt;
@@ -2357,7 +2353,7 @@ function updateParticles(dt){
           // Odhaleno! Pixely pod blokem zůstávají (blok je jen "sundáme").
           spawnBlockExplosion(hitBlock);
           currentBlocks=currentBlocks.filter(b=>b!==hitBlock);
-          drawGrid();
+          _gridMutated();
           // Projektil pokračuje v letu za odhalenou plochu (odraz se neprovede,
           // když blok zmizel — jen přesměrujeme na nejbližší cíl své barvy).
           steerAfterBounce(p);
@@ -2368,11 +2364,11 @@ function updateParticles(dt){
           if(prevGy!==gy)p.vy=-p.vy;
           if(prevGx===gx&&prevGy===gy){p.vx=-p.vx;p.vy=-p.vy;}
           anyBounce=true;
-          drawGrid(); // překreslit HP číslo
+          _gridMutated(); // překreslit HP číslo
         }
       } else if(hitBlock.color===p.ci){
         // Solid blok, color match → blok utrpí 1 HP (1 projektil = 1 HP), projektil pop
-        {
+        if(_BB_DEBUG){
           const oldGx=Math.floor(p.x/SCALE), oldGy=Math.floor(p.y/SCALE);
           const steps=Math.max(1,Math.abs(gx-oldGx)+Math.abs(gy-oldGy));
           const crossed=[];
@@ -2394,10 +2390,10 @@ function updateParticles(dt){
           spawnBlockExplosion(hitBlock);
           currentBlocks=currentBlocks.filter(b=>b!==hitBlock);
         }
-        drawGrid();
+        _gridMutated();
         if(running&&!anyTargetLeft()){
           particles.forEach(q=>{if(q.phase==='fly'){q.phase='pop';q.popX=q.x;q.popY=q.y;}});
-          setTimeout(()=>{if(running)endGame(true);},80);
+          {const _s=_levelSeq;setTimeout(()=>{if(running&&_s===_levelSeq)endGame(true);},80);}
         }
       } else {
         // Solid blok, nesprávná barva → odraz
@@ -2415,14 +2411,17 @@ function updateParticles(dt){
         anyBounce=true;
         p.stuckT+=dt;
         if(p.stuckT>1.2){
-          console.log('[BB-DEBUG] respawn (stuck)', {ci:p.ci, atX:p.x|0, atY:p.y|0, blockColor:hitBlock.color, blockHP:hitBlock.hp});
+          if(_BB_DEBUG)console.log('[BB-DEBUG] respawn (stuck)', {ci:p.ci, atX:p.x|0, atY:p.y|0, blockColor:hitBlock.color, blockHP:hitBlock.hp});
           respawnParticle(p);
         }
       }
     } else {
       // v74.53: expanded collider pro POSLEDNÍ pixel barvy (2.5× collider radius)
       // — usnadní dohrání levelu, single pixel uprostřed často trvá věčnost.
-      if(cell !== p.ci && _lastPxPosByColor && _lastPxPosByColor[p.ci]){
+      // v75.12: expanded collider jen když NIC netrefeno (cell prázdná/-1).
+      // Původní podmínka (cell !== p.ci) platila i pro reálnou kolizi s cizí
+      // barvou → poslední pixel se zničil „skrz" překážku (teleport-kill).
+      if(!(cell>=0) && _lastPxPosByColor && _lastPxPosByColor[p.ci]){
         const lpp = _lastPxPosByColor[p.ci];
         const cx = lpp.gx * SCALE + SCALE/2;
         const cy = lpp.gy * SCALE + SCALE/2;
@@ -2437,7 +2436,7 @@ function updateParticles(dt){
     }
     if(cell===p.ci){
       // Vlastní barva → znič pixel
-      {
+      if(_BB_DEBUG){
         // Diagnostika: jestli se mezi starou a novou buňkou nějaký blok
         // „přeskočil" (corner-cut / tunnel), vypíšeme to. Pokud byla jakákoli
         // buňka na cestě pokryta blokem, projektil by se měl odrazit → log.
@@ -2465,14 +2464,14 @@ function updateParticles(dt){
       }
       grid[gy][gx]=-1;
       if(gravityOn)applyGravityToCol(grid,gx);
-      drawGrid();
+      _gridMutated();
       p.phase='pop'; p.popX=nx; p.popY=ny; p.onPop();
       // 2D pop shards layer — běží v obou módech (user chce kombinaci 2D + 3D).
       _playPop();
       spawnPopShards(nx,ny,p.color);
       if(running&&!anyTargetLeft()){
         particles.forEach(q=>{if(q.phase==='fly'){q.phase='pop';q.popX=q.x;q.popY=q.y;}});
-        setTimeout(()=>{if(running)endGame(true);},80);
+        {const _s=_levelSeq;setTimeout(()=>{if(running&&_s===_levelSeq)endGame(true);},80);}
       }
     } else if(cell>-1){
       // Špatná barva → fyzikální odraz ze strany nárazu
@@ -3517,51 +3516,9 @@ function _ptEstimateBeltPeak(history){
 }
 // Block-free exposure check for simulation — ignores currentBlocks (live state),
 // so mystery-block-covered pixels are treated as reachable in the sim grid.
-// Block-aware helper: vrátí Set buněk uvnitř ŽIVÉHO bloku (HP > 0). Tester to používá
-// jako bariéru pro flood-fill + jako filtr pro accessibility pixelů a bloků.
-function _ptBlockedCells(blocks){
-  const blocked=new Set();
-  if(!blocks||!blocks.length)return blocked;
-  for(const b of blocks){
-    if(b.hp<=0)continue;
-    const m=b._mask;
-    if(!m)continue;
-    for(let dy=0;dy<b.h;dy++){
-      const row=m[dy];if(!row)continue;
-      for(let dx=0;dx<b.w;dx++){
-        if(!row[dx])continue;
-        const x=b.x+dx,y=b.y+dy;
-        if(x<0||x>=GW||y<0||y>=GH)continue;
-        blocked.add(y*GW+x);
-      }
-    }
-  }
-  return blocked;
-}
-// Block-aware varianta getOpenEmptyCells: flood-fill skrz pixely co jsou -1, ale
-// buňky uvnitř živého bloku NEJSOU "open" (blok je bariéra, i když pixely pod
-// ním jsou už -1 z clearSolidBlockFootprints).
-function _ptGetOpenEmptyCells(g,blocks){
-  const blocked=_ptBlockedCells(blocks);
-  const open=new Set();
-  const stack=[];
-  const push=(x,y)=>{
-    const k=y*GW+x;
-    if(open.has(k))return;
-    if(g[y][x]!==-1)return;
-    if(blocked.has(k))return;
-    open.add(k);stack.push([x,y]);
-  };
-  for(let x=0;x<GW;x++)push(x,GH-1);
-  while(stack.length){
-    const [x,y]=stack.pop();
-    if(x>0)push(x-1,y);
-    if(x<GW-1)push(x+1,y);
-    if(y>0)push(x,y-1);
-    if(y<GH-1)push(x,y+1);
-  }
-  return open;
-}
+// v75.24: duplicitní PRVNÍ definice _ptBlockedCells/_ptGetOpenEmptyCells smazány —
+// byly shadowované pozdějšími definicemi níž (function hoisting; platí verze s bounds
+// checkem v push). Chování beze změny.
 // Block accessible iff alespoň jedna jeho cell má neighbor v open zóně.
 // Mystery blok přijímá libovolnou barvu, solid jen matching color.
 function _ptAccessibleBlocks(blocks,g,color){
@@ -5973,6 +5930,10 @@ function buildColsFromLayout(layout,pxCounts){
         continue;
       }
       if(t.type==='garage'){
+        // v75.10: mode off → zeď HNED, dřív než se spotřebují chunky barev.
+        // Konverze až v postprocessu nechala chunky spotřebované (queue si je
+        // vzala při stavbě) → tichý deficit projektilů → nevyhratelný level.
+        if(garageMode==='off'){ cols[c].push({wall:true}); continue; }
         // Directions spočítáme až v postprocessu (potřebujeme vědět sousedy).
         // Každý queue item dostane svou porci projektilů z colorChunks — stejné pravidlo
         // jako hlavní carrier slot. Při prázdných chunkech (designer dal barvu, kterou
@@ -6854,6 +6815,10 @@ function _recomputeCarrierLayout(){
     // změnil pixel rozměry, pivot/contentGroup recentered podle nové W/H, ale
     // existující meshe zůstaly s pozicemi pro starou W/H → frame skoro neviditelný.
     // Pro now necháváme canvas H s init buffer +400 (bezpečný i pro resize-up).
+    // v75.27: resize MUSÍ invalidovat frame layout — tahle cesta obchází
+    // drawCarriers(), takže by se rám po v75.19 dorovnal až přes 500ms
+    // fallback (rotace displeje / iOS URL bar = viditelné cuknutí).
+    window.render3dBottom.invalidateFrameLayout?.();
     window.render3dBottom.updateCarriers(columns, COLORS);
     if (window.render3dBottom.updateWalls) window.render3dBottom.updateWalls(columns);
   }
@@ -6882,6 +6847,8 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', _recomputeCarrierLayout);
 }
 function drawCarriers(){
+  // v75.19: event-driven volání = layout se mohl změnit → příští updateCarriers přeměří frame
+  window.render3dBottom?.invalidateFrameLayout?.();
   _setAdaptiveCarrierSize(columns);
   const el=document.getElementById('carriers-grid');
   // v72.82: event delegation pro denial shake — jednou attach na grid parent.
@@ -7514,11 +7481,17 @@ function updatePending(dt){
           // Left arch curve — v73.126: passing smoothed vertex normály
           for(let i=0;i<FUN.archSegmentsLeft.length-1;i++){
             const p1=FUN.archSegmentsLeft[i], p2=FUN.archSegmentsLeft[i+1];
+            // v75.18: broad-phase Y reject — segment mimo dosah koule přeskočit
+            // před drahou projekcí + hypot (160 seg × ball × 4 substeps).
+            if(b.y<Math.min(p1.y,p2.y)-b.r||b.y>Math.max(p1.y,p2.y)+b.r)continue;
             collideFunnelSeg(b,p1.x,p1.y,p2.x,p2.y,p1.nx,p1.ny,p2.nx,p2.ny);
           }
           // Right arch curve — v73.126: passing smoothed vertex normály
           for(let i=0;i<FUN.archSegmentsRight.length-1;i++){
             const p1=FUN.archSegmentsRight[i], p2=FUN.archSegmentsRight[i+1];
+            // v75.18: broad-phase Y reject — segment mimo dosah koule přeskočit
+            // před drahou projekcí + hypot (160 seg × ball × 4 substeps).
+            if(b.y<Math.min(p1.y,p2.y)-b.r||b.y>Math.max(p1.y,p2.y)+b.r)continue;
             collideFunnelSeg(b,p1.x,p1.y,p2.x,p2.y,p1.nx,p1.ny,p2.nx,p2.ny);
           }
         } else {
@@ -7699,7 +7672,10 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     // Ball má co zasáhnout, pokud zbývají pixely ORdanou barvou, nebo živý blok té barvy.
     const pxNow=countPixels(grid);
-    const hasBlockTarget=currentBlocks.some(b=>b.hp>0&&b.color===color);
+    // v75.06: mystery blok je validní cíl pro KAŽDOU barvu — bez něj se po vyčerpání
+    // pixelů barvy koule sály do díry a mystery blok nešel dorazit (soft-lock).
+    // Predikát sjednocen s hasLiveBlockOfColor níž.
+    const hasBlockTarget=currentBlocks.some(b=>b.hp>0&&(b.kind==='mystery'||b.color===color));
     if((pxNow[color]||0)===0&&!hasBlockTarget){
       window.render3dBottom?.triggerHoleSuck?.(COLORS[color]);
       _playSuckMelody();
@@ -7785,7 +7761,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v74.79');
+    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.34'));
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7796,20 +7772,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
   }
 }
-function destroyPixels(colors,cm){
-  for(const color of colors){
-    const prev=remainingUnits[color]||0;
-    let td=(cm[color]*PPU)+prev;
-    while(td>0){
-      const exp=getExposedPixelsOfColor(grid,color);
-      if(!exp.length)break;
-      exp.sort((a,b)=>b.y-a.y);
-      exp.slice(0,td).forEach(p=>{grid[p.y][p.x]=-1;});
-      td-=Math.min(exp.length,td);
-    }
-    remainingUnits[color]=td>0?td:0;
-  }
-}
+// v75.24: destroyPixels smazána — mrtvý legacy kód (0 call sites), nedeklarované `remainingUnits`.
 function computeAmmoDeficit(){
   const pxCounts=countPixelsAndBlocks(grid);
   const deficits=new Array(COLORS.length).fill(0);
@@ -7911,16 +7874,18 @@ function renderAmmoAudit(audit){
 }
 function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
+  const _seq=_levelSeq; // v75.08: restart během win animace nesmí dostat overlay/confetti starého levelu
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v74.79');
-  gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
+  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.34'));
+  _safeGamee(()=>gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined));
   if(win){
     spawnConfetti();
-    setTimeout(spawnConfetti,280);
-    setTimeout(spawnConfetti,560);
+    setTimeout(()=>{if(_seq===_levelSeq)spawnConfetti();},280);
+    setTimeout(()=>{if(_seq===_levelSeq)spawnConfetti();},560);
   }
   setTimeout(()=>{
+    if(_seq!==_levelSeq)return; // v75.08: mezitím odstartoval nový level
     document.getElementById('overlay-title').textContent=win?'Vyhráno!':'Game Over';
     document.getElementById('overlay-msg').textContent=(win?'Obraz zničen.':'Belt zablokován.')+' Skóre: '+score;
     document.getElementById('overlay').classList.add('show');
@@ -7928,6 +7893,7 @@ function endGame(win){
 }
 function startLevel(){
   gameStarted=true;
+  _levelSeq++; // v75.08: invaliduj stale endGame/overlay timeouty předchozího levelu
   // v73.287: nový level = jiná struktura carriers → invalidate per-slot cache
   if (window.render3dBottom?.invalidateSlotCache) window.render3dBottom.invalidateSlotCache();
   // Sync segment picker s aktuálním `difficulty` — saveState/defaultComplexity
@@ -7951,7 +7917,8 @@ function startLevel(){
   if(typeof window!=='undefined') window._lastPxCountTime=0; // v74.79: force recount hned 1. tickem
   _userHoldActive=false; _userHoldCurrent=1.0; document.body.classList.remove('user-boost-active'); // v74.64
   // v74.62: lock délky podle intro animace levelu (mapping výše).
-  _levelStartLockUntil=Date.now()+(_LEVEL_INTRO_DURATIONS[currentLevel]||_LEVEL_START_LOCK_DEFAULT_MS);
+  // v75.09: intro levely drží lock do _introUnlock() na konci sekvence; 15 s je jen pojistka
+  _levelStartLockUntil=Date.now()+(_LEVEL_INTRO_DURATIONS[currentLevel]?15000:_LEVEL_START_LOCK_DEFAULT_MS);
   _resetMusicState(); // nový level = hudba zase od foundation kick
   _caCountdown=3+Math.floor(Math.random()*3); // v73.236 CA interval reset
   // v72.68: reset 3D carrier transition caches — jinak by se carriery nového levelu
@@ -8142,7 +8109,7 @@ function startLevel(){
         };
         at(350,()=>swap('final'));    // úsměv
         at(900,()=>swap('wink'));     // mrknutí
-        at(1250,()=>swap('final'));   // konec
+        at(1250,()=>{swap('final');_introUnlock();});   // konec intra → odemkni input
       }
     };
     setTimeout(step,120);
@@ -8185,7 +8152,7 @@ function startLevel(){
         at(380,()=>swap('final'));
         at(540,()=>swap('twinkle-b'));
         at(740,()=>swap('twinkle-a'));
-        at(900,()=>swap('final'));
+        at(900,()=>{swap('final');_introUnlock();});
       }
     };
     setTimeout(step,120);
@@ -8227,7 +8194,7 @@ function startLevel(){
         at(650,()=>swap('ha-open'));
         at(850,()=>swap('final'));
         at(1050,()=>swap('ha-open'));
-        at(1300,()=>swap('final'));
+        at(1300,()=>{swap('final');_introUnlock();});
       }
     };
     setTimeout(step,120);
@@ -8275,7 +8242,7 @@ function startLevel(){
       grid=ng;drawGrid();
       i++;
       if(i<offsets.length) setTimeout(riseStep,170);
-      else { grid=finalGrid; drawGrid(); }
+      else { grid=finalGrid; drawGrid(); _introUnlock(); }
     };
     setTimeout(waterStep,220);
   } else if(currentLevel==='mondrian'){
@@ -8306,10 +8273,12 @@ function startLevel(){
       const batch=10;
       for(let k=0;k<batch&&ci2<colors.length;k++,ci2++)grid[colors[ci2].y][colors[ci2].x]=colors[ci2].c;
       drawGrid();
-      if(ci2<colors.length)setTimeout(colorStep,35);
+      if(ci2<colors.length)setTimeout(colorStep,35); else _introUnlock();
     };
     setTimeout(lineStep,150);
   }
+  _gridVersion++; // v75.20: nový level = nový svět pro LoS cache
+  _recomputeLastPxPos(); // v75.14: init pro nový level (jinak by expanded collider viděl stale pozici z minulého levelu)
   updateGarages();
   drawGrid();drawBelt();drawPending();drawCarriers();
   setStatus('Klikni na aktivní nosič');
@@ -8379,6 +8348,7 @@ function setupDOM(){
 
 // ── Animation loop ───────────────────────────────────────────────────────────
 function beltLoop(ts){
+  try { // v75.07: výjimková izolace — throw uvnitř smyčky nesmí zabít rAF řetěz
   if(window._bbStats) window._bbStats.begin();
   // Profiler frame gap — vzdálenost mezi rAF callbacky. ~16.7 = 60fps; > 30 = throttle.
   const _loopStart=performance.now();
@@ -8396,7 +8366,7 @@ function beltLoop(ts){
   // i když je hra paused (game over screen). Clamp na 0.05 s pro tab-switch.
   const _animDt = (lastBeltTime!==null) ? Math.min(0.05, (ts-lastBeltTime)/1000) : 1/60;
   if(lastBeltTime!==null&&!paused){
-    const dt=(ts-lastBeltTime)/1000;
+    const dt=Math.min(0.05,(ts-lastBeltTime)/1000); // v75.03: clamp — návrat z backgroundu nesmí skočit o sekundy
     // v74.62: detekce vyklízených carriers — nastav timestamp pro speed-up rampu
     if(_carriersClearedAt===null && running && cntCarriers()===0) _carriersClearedAt=performance.now();
     // v74.64: tick user hold fade (vstup pro _speedMul())
@@ -8499,13 +8469,18 @@ function beltLoop(ts){
           if(!cannonLock.blockRef||cannonLock.blockRef.hp<=0) cannonLock=null;
         }
         else if(!grid[cannonLock.gy]||grid[cannonLock.gy][cannonLock.gx]!==item.ci) cannonLock=null;
-        // LoS revalidace — pokud cesta od hlavně k cíli už není čistá, zahoď.
-        if(cannonLock){
+        // LoS revalidace — v75.20: jen když se od minula změnil grid/bloky
+        // (_gridVersion gate). Dřív plný 240-krokový ray-march KAŽDÝ frame,
+        // i když se nic nezměnilo. Lock ukládá fixní idealX/angle, takže
+        // výsledek závisí jen na gridu/blocích → gate je exaktní.
+        if(cannonLock && cannonLock._gridV!==_gridVersion){
           const muzX=cannonLock.idealX+Math.cos(cannonLock.angle)*14;
           const muzY=CANNON_Y+Math.sin(cannonLock.angle)*14;
           const tblk=cannonLock.kind==='block'?cannonLock.blockRef:null;
           if(!simulateShotReaches(muzX,muzY,cannonLock.angle,item.ci,240,tblk)){
             cannonLock=null;
+          } else {
+            cannonLock._gridV=_gridVersion;
           }
         }
       }
@@ -8555,7 +8530,7 @@ function beltLoop(ts){
           }
           cannonLock={ci:item.ci,gx:Math.floor(picked.tx/SCALE),gy:Math.floor(picked.ty/SCALE),
                       idealX:picked.idealX,angle:picked.angle,type:picked.type,
-                      kind:picked.kind||'pixel',blockRef:picked.blockRef||null};
+                      kind:picked.kind||'pixel',blockRef:picked.blockRef||null,_gridV:_gridVersion};
           shot=cannonLock;
         } else {
           gunFireTimer=0;
@@ -8593,12 +8568,17 @@ function beltLoop(ts){
             gunFireTimer=0;
             cannonIdleT=0;
             gunQueue.shift();
-            cannonLock=null;
+            // v75.20: lock recykluj pro další kouli stejné barvy — pick je
+            // deterministický (žádný claimed-mechanismus neexistuje), re-pick
+            // by vrátil týž cíl. Plný pickCannonShot tak neběží po každém
+            // výstřelu (~27×/s). Po dopadu cíl zmizí → cheap check /
+            // _gridVersion revalidace lock samy zahodí.
+            if(!(gunQueue.length>0&&gunQueue[0].ci===item.ci)) cannonLock=null;
             cannonSideShots++;
             const a=cannonAngle+(Math.random()-0.5)*0.06;
             const muzzleX=cannonX+Math.cos(cannonAngle)*14;
             const muzzleY=CANNON_Y+Math.sin(cannonAngle)*14;
-            console.log('[BB-DEBUG] cannon FIRE', {ci:item.ci, targetKind:shot.kind, tBlockColor: shot.blockRef?shot.blockRef.color:null, tBlockHP: shot.blockRef?shot.blockRef.hp:null, type:shot.type});
+            if(_BB_DEBUG)console.log('[BB-DEBUG] cannon FIRE', {ci:item.ci, targetKind:shot.kind, tBlockColor: shot.blockRef?shot.blockRef.color:null, tBlockHP: shot.blockRef?shot.blockRef.hp:null, type:shot.type});
             particles.push({
               x:muzzleX,y:muzzleY,
               vx:Math.cos(a)*PSPEED,vy:Math.sin(a)*PSPEED,
@@ -8625,6 +8605,8 @@ function beltLoop(ts){
 
     const _tu0=performance.now();
     updateParticles(dtAdj);  // v74.62: projektily zrychlí s speedMul
+    // v75.13: batch — salva 10 projektilů dřív = až 10× full přepis instance bufferu za frame
+    if(_gridDrawPending){_gridDrawPending=false;_recomputeLastPxPos();drawGrid();} // v75.14: recompute jen při změně gridu (dřív full-grid scan každý frame)
     const _tu1=performance.now();
     updatePending(dtAdj);    // v74.62: pending balls zrychlí s speedMul
     const _tu2=performance.now();
@@ -8691,7 +8673,11 @@ function beltLoop(ts){
   _profAccum.frames++;
   _updateFpsCounter(ts);
   if(window._bbStats) window._bbStats.end();
-  requestAnimationFrame(beltLoop);
+  } catch (e) {
+    console.error('[BB] beltLoop error', e);
+  } finally {
+    requestAnimationFrame(beltLoop);
+  }
 }
 
 // FPS overlay v pravém dolním rohu image-area. Šedá ≥ 55, žlutá 30-54, červená
@@ -8854,7 +8840,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v74.79');
+      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.34'));
       event.detail.callback();
     });
 

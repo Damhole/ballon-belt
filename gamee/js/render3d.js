@@ -15,6 +15,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+// v75.32: diagnostický mód — ?diag=nopixels (mobilní profiling)
+const _DIAG = (typeof location !== 'undefined') ? new URLSearchParams(location.search).get('diag') : null;
+
 // Chrome matcap textůra pro cannon hole — front face = střed matcap (vertikální
 // pásy sky/horizon/ground). Sdílí stejnou estetiku jako belt boxy.
 function _makeChromeMatcap() {
@@ -61,7 +64,7 @@ function _makeChromeMatcap() {
 }
 
 // v74.79: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v74.79';
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v75.34';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
@@ -539,8 +542,19 @@ function init(canvas, opts) {
   state.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));  // v74.79: top canvas zpět 2× (B-pool dal headroom), bottom drží 1.5×
   state.renderer.setSize(W, H, false); // false = neměnit CSS rozměr canvasu
   state.renderer.setClearColor(0x000000, 0);
-  state.renderer.shadowMap.enabled = true;
+  // v75.17: start s shadows OFF — default tier je MED (game.js _perfTier=1),
+  // který stíny stejně hned vypne. Init s ON působil double-compile: prewarm
+  // zkompiloval USE_SHADOWMAP varianty a setQualityTier(1) hned poté vynutil
+  // recompile všech materiálů (shadowsChanged) — přesně ten startup freeze,
+  // který měl prewarm řešit. Případný tier 0 si recompile udělá při přepnutí.
+  state.renderer.shadowMap.enabled = false;
   state.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  // v75.21: WebGL context loss (iOS memory pressure) — Three.js drží CPU kopie
+  // geometrií/textur a po restore GL stav obnoví, ale náš dirty-flag skip by
+  // nechal canvas prázdný. preventDefault umožní restore, po něm vynuť redraw.
+  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); console.warn('[render3d] WebGL context lost'); });
+  canvas.addEventListener('webglcontextrestored', () => { console.warn('[render3d] WebGL context restored — force redraw'); state._dirty = true; });
 
   // InstancedMesh pro pixely — max GW*IMG_GH (jen image area, ne belt rows)
   const maxInstances = state.GW * state.IMG_GH; // 36*27 = 972
@@ -565,8 +579,11 @@ function init(canvas, opts) {
       bevelEnabled: true,
       bevelSize: 2.4,
       bevelThickness: 3.2,
-      bevelSegments: 6,
-      curveSegments: 6,
+      // v75.16: 6/6 → 2/2 — ~10px kostka nerozezná rozdíl, ale 6/6 dávalo
+      // ~700-800 tris/instanci; při plné mřížce 972 px × 2 (pixel + outline
+      // hull sdílí geometrii) ~1,5 M tris/frame. 2/2 = ~10× méně vertexů.
+      bevelSegments: 2,
+      curveSegments: 2,
     });
     g.translate(0, 0, -PIXEL_DEPTH / 2);
     return g;
@@ -937,13 +954,21 @@ function _updateMuzzleFlash(now) {
 function setCannonPosition(xCss, yCss, angleRad) {
   if (!state.gunGroup) return;
   const H = state.GH * SCALE;
-  // Smooth lerp X — bez tohohle gun snapuje při změně cannonX (target switch)
-  state.gunGroup.position.x += (xCss - state.gunGroup.position.x) * 0.22;
-  state.gunGroup.position.y = H - yCss + GUN_Y_OFFSET;
-  state.gunGroup.position.z = GUN_Z_OFFSET;
+  // v75.33: dirty JEN při reálném pohybu — funkce běží každý frame (drawCannon)
+  // a bezpodmínečné dirty nutilo top canvas (972 px + 972 outline instancí)
+  // kreslit na 60 fps i v naprostém klidu. Easing lerpy navíc asymptoticky
+  // nikdy nedokonvergují → epsilon prahy (0.02 px / ~0.03°) je ukončí.
+  const g = state.gunGroup;
+  const prevX = g.position.x;
+  const newX = prevX + (xCss - prevX) * 0.22; // Smooth lerp X — bez toho gun snapuje při změně cannonX
+  const posChanged = Math.abs(newX - prevX) > 0.02;
+  if (posChanged) g.position.x = newX;
+  g.position.y = H - yCss + GUN_Y_OFFSET;
+  g.position.z = GUN_Z_OFFSET;
   // 2D cannonAngle = -PI/2 → aim UP (canvas Y-down). 3D head local +Y = barrel up.
   // Mapping: targetZ = -(cannonAngle + PI/2). Smooth follow přes lerp — bez tohohle
   // gun-head sebou trhal při změně targetu (cannonAngle skočí, head snapne).
+  let rotChanged = false;
   if (state.gunHead && typeof angleRad === 'number') {
     // GUN_ROT_RANGE < 1.0 zmenšuje vizuální rozsah rotace hlavně (180° aim → menší swing)
     const GUN_ROT_RANGE = 0.55;
@@ -952,9 +977,12 @@ function setCannonPosition(xCss, yCss, angleRad) {
     let delta = targetZ - state.gunHead.rotation.z;
     while (delta >  Math.PI) delta -= 2 * Math.PI;
     while (delta < -Math.PI) delta += 2 * Math.PI;
-    state.gunHead.rotation.z += delta * 0.20; // 20% per frame → smooth ease-out
+    if (Math.abs(delta) > 0.0005) {
+      state.gunHead.rotation.z += delta * 0.20; // 20% per frame → smooth ease-out
+      rotChanged = true;
+    }
   }
-  state._dirty = true;
+  if (posChanged || rotChanged) state._dirty = true;
 }
 
 // v73.49: lehký cartoon spark effect při wall bounce — 4 mini shardy explodujou ven
@@ -1339,6 +1367,13 @@ function updateAnimations(dt) {
 // Každý cell mask bloku → jedna cube instance. Solid blok dostane COLORS[block.color],
 // mystery blok #555a62. Bottom plane všech bloků na z=0 (rostou nahoru jako stěny).
 function updateBlocks(blocks, COLORS) {
+  // v75.32: ?diag=nopixels — zhasni i bloky
+  if (_DIAG === 'nopixels') {
+    if (state.blockMesh) state.blockMesh.count = 0;
+    for (const m of (state.blockOutlineMeshes || [])) if (m) m.visible = false;
+    state._dirty = true;
+    return;
+  }
   if (!state.ready || !state.blockMesh) return;
   state._dirty = true;
   // v74.79: blocks se mohou změnit (HP klesá, blok zničen) → shadow refresh
@@ -1523,6 +1558,13 @@ function updateBlockOutlines(blocks) {
 // Y-flip: grid[0] = top of screen → world Y=H. grid[IMG_GH-1] = bottom image
 // area → world Y=H-IMG_H. Standardní Three.js Y-up konvence (kladné Y = nahoře).
 function updateGrid(grid, COLORS) {
+  // v75.32: ?diag=nopixels — zhasni pixel meshe (diagnostika výkonu)
+  if (_DIAG === 'nopixels') {
+    if (state.pixelMesh) state.pixelMesh.count = 0;
+    if (state.pixelOutlineMesh) state.pixelOutlineMesh.count = 0;
+    state._dirty = true;
+    return;
+  }
   if (!state.ready) return;
   state._dirty = true;
   state._lastGrid = grid;
@@ -1616,11 +1658,15 @@ function setVisible(visible) {
 // ale připravené pro budoucí scene rebuild při webglcontextlost.
 function dispose() {
   if (!state.ready) return;
-  if (state.pixelMesh) {
-    state.pixelMesh.geometry.dispose();
-    state.pixelMesh.material.dispose();
-    state.scene.remove(state.pixelMesh);
-  }
+  // v75.21: traverse-dispose CELÉ scény (dřív jen pixelMesh — leakoval blockMesh,
+  // shard/ghost/dust/outline geometrie, textury, GLB gun). Vzor: render3d_bottom.dispose().
+  state.scene.traverse(obj => {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const m of mats) { if (m.map) m.map.dispose(); m.dispose(); }
+    }
+  });
   state.renderer.dispose();
   state.ready = false;
 }
@@ -1756,7 +1802,10 @@ if (typeof window !== 'undefined') {
       // na image area. Bottom canvas drží 1.5× (UI elementy, méně critical).
       if (state.renderer) {
         const dpr = window.devicePixelRatio || 1;
-        state.renderer.setPixelRatio(Math.min(dpr, 2));
+        // v75.34: LOW tier = 1.5× — rasterizace statické pixel scény při DPR 2
+        // je hlavní cena top canvasu během letu projektilů (Mi A1: nopixels
+        // 40 fps vs baseline 24). Tier 0/1 drží plné 2× retina.
+        state.renderer.setPixelRatio(Math.min(dpr, t >= 2 ? 1.5 : 2));
       }
       if (state.renderer) state.renderer.shadowMap.enabled = shadowsOn;
       if (state.pixelMesh) state.pixelMesh.castShadow = shadowsOn;

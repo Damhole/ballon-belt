@@ -13,7 +13,7 @@
 // POZN: SW se registruje jen z index_local.html (PWA entry).
 // Gamee verze (index.html) SW nemá → Gamee iframe deployment netknut.
 
-const _VERSION = 'v74.79';
+const _VERSION = 'v75.34';
 const CACHE_NAME = `bb-cache-${_VERSION}`;
 
 self.addEventListener('install', (e) => {
@@ -47,7 +47,14 @@ self.addEventListener('fetch', (e) => {
         // Úspěšný network response → cache update + return
         if (res && res.ok && res.type !== 'opaque') {
           const clone = res.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(req, clone)).catch(() => {});
+          // v75.22: cache klíč BEZ volatilních bust paramů (?t= dev bust, ?v= verze).
+          // Dřív každý unikátní bust vytvořil nový záznam a cache uvnitř jedné
+          // verze rostla bez limitu (+MB na reload). Offline match používá
+          // ignoreSearch, takže normalizovaný klíč najde.
+          const keyUrl = new URL(req.url);
+          keyUrl.searchParams.delete('t');
+          keyUrl.searchParams.delete('v');
+          caches.open(CACHE_NAME).then(cache => cache.put(keyUrl.toString(), clone)).catch(() => {});
         }
         return res;
       })
