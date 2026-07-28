@@ -64,7 +64,7 @@ function _makeChromeMatcap() {
 }
 
 // v74.79: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v75.32';
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v75.33';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
@@ -954,13 +954,21 @@ function _updateMuzzleFlash(now) {
 function setCannonPosition(xCss, yCss, angleRad) {
   if (!state.gunGroup) return;
   const H = state.GH * SCALE;
-  // Smooth lerp X — bez tohohle gun snapuje při změně cannonX (target switch)
-  state.gunGroup.position.x += (xCss - state.gunGroup.position.x) * 0.22;
-  state.gunGroup.position.y = H - yCss + GUN_Y_OFFSET;
-  state.gunGroup.position.z = GUN_Z_OFFSET;
+  // v75.33: dirty JEN při reálném pohybu — funkce běží každý frame (drawCannon)
+  // a bezpodmínečné dirty nutilo top canvas (972 px + 972 outline instancí)
+  // kreslit na 60 fps i v naprostém klidu. Easing lerpy navíc asymptoticky
+  // nikdy nedokonvergují → epsilon prahy (0.02 px / ~0.03°) je ukončí.
+  const g = state.gunGroup;
+  const prevX = g.position.x;
+  const newX = prevX + (xCss - prevX) * 0.22; // Smooth lerp X — bez toho gun snapuje při změně cannonX
+  const posChanged = Math.abs(newX - prevX) > 0.02;
+  if (posChanged) g.position.x = newX;
+  g.position.y = H - yCss + GUN_Y_OFFSET;
+  g.position.z = GUN_Z_OFFSET;
   // 2D cannonAngle = -PI/2 → aim UP (canvas Y-down). 3D head local +Y = barrel up.
   // Mapping: targetZ = -(cannonAngle + PI/2). Smooth follow přes lerp — bez tohohle
   // gun-head sebou trhal při změně targetu (cannonAngle skočí, head snapne).
+  let rotChanged = false;
   if (state.gunHead && typeof angleRad === 'number') {
     // GUN_ROT_RANGE < 1.0 zmenšuje vizuální rozsah rotace hlavně (180° aim → menší swing)
     const GUN_ROT_RANGE = 0.55;
@@ -969,9 +977,12 @@ function setCannonPosition(xCss, yCss, angleRad) {
     let delta = targetZ - state.gunHead.rotation.z;
     while (delta >  Math.PI) delta -= 2 * Math.PI;
     while (delta < -Math.PI) delta += 2 * Math.PI;
-    state.gunHead.rotation.z += delta * 0.20; // 20% per frame → smooth ease-out
+    if (Math.abs(delta) > 0.0005) {
+      state.gunHead.rotation.z += delta * 0.20; // 20% per frame → smooth ease-out
+      rotChanged = true;
+    }
   }
-  state._dirty = true;
+  if (posChanged || rotChanged) state._dirty = true;
 }
 
 // v73.49: lehký cartoon spark effect při wall bounce — 4 mini shardy explodujou ven
