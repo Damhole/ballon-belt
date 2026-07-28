@@ -73,8 +73,10 @@ Po každém commitu `vXX: ...` **okamžitě**:
 **A) Bump verze na `vYY` v těchto místech:**
 1. `gamee/index.html` — `<title>Balloon Belt vYY</title>` + `<div id="version-badge">vYY</div>`
 2. `gamee/index_local.html` — totéž
-3. `gamee/js/game.js` — checksum string `'balloon-belt-vYY'` (4 výskyty, hledej `gamee.updateScore`)
+3. `gamee/js/game.js` — checksum string `'balloon-belt-vYY'` (4 výskyty, hledej `gamee.updateScore`) **+ `const BB_VERSION = 'vYY'`** (watchdog, řádek ~4)
 4. `gamee/sw.js` — `_VERSION = 'vYY'` (PWA cache name → bump invaliduje starý cache + nový SW se aktivuje)
+5. `gamee/index.html` — všechny `?v=YY` query stringy (css + 4 script tagy) + `window._BB_SOUND_V='YY'`; `gamee/index_local.html` — `window._BB_SOUND_V='YY'`
+6. `gamee/js/render3d.js` — `window.BB_VERSION_R3D = 'vYY'`; `gamee/js/render3d_bottom.js` — `window.BB_VERSION_R3DB = 'vYY'` (watchdog je porovnává proti BB_VERSION)
 
 **B) Zápis do [BACKLOG.md](BACKLOG.md):**
 - Přidej řádek do tabulky `## ✅ Hotovo` s commit hashem + datem
