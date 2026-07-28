@@ -27,6 +27,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | M8 | Sjednocený 3D grid | v72.0–82 | ✅ | Carrier inner depth, 3D walls (monolith ExtrudeGeometry, rounded corners, outline), 3D mystery carriers (animovaná ? texture, circular wipe reveal), cascade pop, denial shake. Empty slot 3D + Garage/Rocket 3D + falling animation **deferred**. |
 | M9 | 3D vizuál + brand "Plop!" | v73.0–346 | ✅ | Image area 3D frame, bottom unified frame, BG atmosphere, smoke puffs, 3D gun + muzzle flash, hole asset + suck animace, rounded frame corners, HD particle-canvas. Brand: hra pojmenovaná **Plop!**, comic-style PWA ikona (Bangers font, růžová/žlutá), visible badge "Plop! vX.Y". |
 | **Beta cycle** | Pre-release polishing + 2. test | **v74.0+** | 🚧 | Druhý test cyklus — feature complete, polishing pro release. Game brand = Plop!. |
+| M14 | Stabilizace & výkon (code review) | v75.0+ | 📋 | Nálezy z revize 2026-07-28: mystery soft-lock, version watchdog, aiming pipeline perf, 3D geometrie, first-load váha |
 | M10 | Replay & scrub | future | 📋 | Curve editor Úr. 1.5 — timeline scrubber, mini canvas, .webm export |
 | M11 | Editor polish | future | 💡 | Copy/paste bloků, multi-select, playtester mode, vizuální garáž |
 | M12 | Gameplay | future | 💡 | Adaptivní obtížnost, procedurální levely |
@@ -398,6 +399,66 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | P2 | 💡 | M | Polish | **Block outline — konkávní rohy** — L/T/+ bloky mají artefakt (tmavá linka) na vnitřních hranách tvaru. Aktuální stav: silhouette polygon funguje (v74.56), ale linka z MeshToonMaterial švu nebo Three.js hole winding bug. Čisté řešení: merge buněk bloku do jednoho BufferGeometry per blok (pak BackSide/stencil outline funguje bez seams), nebo stencil buffer approach. |
 | P2 | ✅ | XS | Polish | **Decentnější smoke z gun** ✅ done v74.53 — smoke puffs příliš výrazné; ztlumit opacity / scale |
 | P2 | 💡 | S | Infra | **Přímý link na level** — URL param `?level=ID` načte konkrétní level přímo; default (bez paramu) all-in-one pořadí zachováno |
+
+### M14: Stabilizace & výkon — nálezy z code review (2026-07-28) — 📋 planned
+
+**Cíl:** opravit funkční a výkonnostní slabiny z celkové revize kódu (4 paralelní review: game.js funkčnost, game.js výkon, render3d/render3d_bottom, shell/infra). Feature-freeze — žádné nové mechaniky, jen stabilita, výkon a first-load.
+
+**Větev:** `m14-stabilizace-01` (schváleno 2026-07-28). **Verze:** v75.00+.
+
+#### Etapa 1 — Quick wins (jednořádkovky s velkým dopadem)
+
+| Prio | Stav | Vel. | Téma | Nápad |
+|------|------|------|------|-------|
+| P0 | 📋 | XS | Infra | **`_BB_SOUND_V` definovat** — game.js:183 fallback `Date.now()` → ~1,9 MB zvuků se stahuje znovu při každém spuštění (obchází HTTP i SW cache) |
+| P0 | 📋 | XS | Infra | **`BB_VERSION` sync + watchdog fix** — game.js:4 je `v73.278` (stale) a badge text `"Plop! vX.Y"` se s konstantou nikdy nerovná → force-reload každé nové session. Přidat `BB_VERSION` do post-commit checklistu v CLAUDE.md |
+| P0 | 📋 | XS | Hra | **`dt` clamp v beltLoop** — game.js:8399 neclampnuté (jen `_animDt` má 0.05) → návrat z backgroundu = skok o sekundy (launch pointy, časovače) |
+| P1 | 📋 | XS | 3D | **Zrušit plate jitter** — render3d_bottom.js:3006 ±0.4px sin vibrace nutí full re-render bottom canvasu každý frame → dirty-skip z v74.79 se nikdy netrefí |
+| P1 | 📋 | XS | Infra | **Zip exclude list** — prod zip 10 MB, z toho ~5,9 MB balast (`js/.bak/` 5 MB, `levels (1).js`, PNG ikony 790 KB, debug.js, test_balloon.html, BufferGeometryUtils.js, .DS_Store) |
+
+#### Etapa 2 — Herní korektnost
+
+| Prio | Stav | Vel. | Téma | Nápad |
+|------|------|------|------|-------|
+| P0 | 📋 | S | Hra | **Mystery soft-lock** — game.js:7702 `hasBlockTarget` ignoruje mystery bloky (vs. :7728 + ammo účetnictví) → po vyčerpání pixelů barvy se koule sají do díry, mystery blok nejde dorazit → level neřešitelný |
+| P1 | 📋 | S | Hra | **Výjimková izolace beltLoop** — game.js:8694 throw kdekoli (vč. 4 neguardovaných `gamee.updateScore`) zabije rAF smyčku trvale; try/catch + rAF na začátek |
+| P1 | 📋 | S | Hra | **Restart races** — stale `setTimeout(()=>{if(running)endGame(true)},80)` (game.js:2297/2400/2475) + overlay timeout 1400 ms chytí `running` nového levelu → falešná výhra + druhý `gameOver` se skóre 0 |
+| P1 | 📋 | S | Hra | **Intro input locky prodloužit** — `_LEVEL_INTRO_DURATIONS` (game.js:1291) 2000–2200 ms vs. reálné intro ~4,2 s → výstřely během intra vzkřísí finální `grid=finalGrid` = promarněná munice |
+| P2 | 📋 | S | Hra | **Garáž→zeď polyká projektily** — game.js:6021 při `garageMode==='off'` se garage dlaždice mění na zdi, ale fronta už spotřebovala chunky barev → tichý deficit munice (a `_ENABLE_AMMO_AUDIT=false` to už nehlásí) |
+| P2 | 📋 | XS | Hra | **Raketa vs. gravitace** — game.js:2283 exploze maže pixely bez `applyGravityToCol` → plovoucí pixely, které solver nepředpovídá |
+| P2 | 📋 | XS | Hra | **Teleport-kill přes zeď** — game.js:2425 expanded collider posledního pixelu (v74.53) se aktivuje i při kolizi s cizí barvou |
+
+#### Etapa 3 — Výkon
+
+| Prio | Stav | Vel. | Téma | Nápad |
+|------|------|------|------|-------|
+| P1 | 📋 | M | Hra | **Aiming pipeline kanónu** — `gridVersion` counter: (a) plný `pickCannonShot` po každém výstřelu ~27×/s (game.js:1702, reset :8596), (b) revalidace locku ray-marchem každý frame (:8503), (c) `steerAfterBounce` 20 úhlů × 600 kroků v jednom framu (:2128). Největší CPU žrout |
+| P1 | 📋 | S | Hra | **`drawGrid()` dirty flag** — volá se per zásah z `updateParticles` (game.js:2289 aj.), při salvě až 10×/frame full přepis instance bufferu; batchnout na 1×/frame |
+| P1 | 📋 | S | 3D | **Pixel geometrie zředit** — render3d.js:563 `bevelSegments:6, curveSegments:6` ≈ 700–800 tris/kostka, s outline hull ~1,5 M tris/frame; 6→2 je vizuálně nerozeznatelné, ~10× méně vertexů |
+| P1 | 📋 | S | 3D | **updateCarriers layout thrash** — render3d_bottom.js:1358 write-then-read (`setProperty` + 4× `getBoundingClientRect`) každý frame animace = forced reflow; měřit jen při resize/level-start/theme |
+| P2 | 📋 | S | 3D | **Shadow double-compile při startu** — render3d.js:797 prewarm s `shadowMap.enabled=true`, pak `setQualityTier(1)` vše rekompiluje (iOS freeze, který měl prewarm řešit); tier 0 je nedosažitelný → shadow pipeline je mrtvá váha |
+| P2 | 📋 | S | Hra | **`_recomputeLastPxPos` event-driven** — game.js:2215 full-grid scan + alokace každý frame (tentýž scan, co v74.76/79 vypnul jinde) |
+| P2 | 📋 | S | Hra | **Funnel broad-phase** — game.js:7513 160 arch segmentů × ball × 4 substeps bez indexu; vybrat ±2 segmenty podle Y |
+| P2 | 📋 | XS | Hra | **Hot-path console.log za flag** — game.js:8601 `cannon FIRE` log 27×/s + diagnostické smyčky (:2376, :2440, :8541) |
+
+#### Etapa 4 — Infra, loading, úklid
+
+| Prio | Stav | Vel. | Téma | Nápad |
+|------|------|------|------|-------|
+| P2 | 📋 | S | 3D | **WebGL context loss recovery** — render3d.js:533 + render3d_bottom.js:489 bez listenerů → blank screen na iOS po memory pressure; `dispose()` v render3d.js navíc nekompletní (leakuje geometrie) |
+| P2 | 📋 | S | Infra | **levels.js minifikovaně z editoru** — 254 KB pretty-printed (gzip 9 KB), synchronní parse při startu; minifikace → ~70 KB + menší git diffy |
+| P2 | 📋 | S | Infra | **SW cache normalizace** — sw.js:44 každý unikátní `?t=`/`?v=` = nový záznam, nic se nemaže do bump verze; +3–4 MB na reload |
+| P2 | 📋 | S | Infra | **Google Fonts `@import` zrušit/self-host** — game.css:1 render-blocking řetěz; jediný DOM konzument trvale `display:none`, canvas text má font race |
+| P2 | 📋 | XS | Infra | **`backdrop-filter: blur` zrušit** — game.css:466 nad nekonečně animovaným pozadím (`bgGlow`) = trvalá kompozitorová práce i v idle |
+| P3 | 📋 | S | Infra | **CLAUDE.md aktualizace** — pravidlo „index.html = index_local až na SDK řádek" už neplatí (4 záměrné diff bloky); deployment cesta `~/Documents/GitHub/` je stará; `BB_VERSION` do checklistu |
+| P3 | 📋 | M | Hra | **Mrtvý kód promazat** — `remainingUnits` nedeklarované (latentní ReferenceError, game.js:1854/:7801), 2× duplicitní `_ptBlockedCells`/`_ptGetOpenEmptyCells` (:3522–3661), dead watchdogy (`cannonIdleT`, `_caBumpHeat`), `_renderMiterOffsetTest` (~95 ř.), `levels (1).js` |
+
+#### Mimo scope M14 (zaznamenáno, řeší se jinde/později)
+
+- **Unified-canvas** (jeden WebGL kontext místo dvou) — experiment v74.80 (`gamee-test/`) je správný směr, ale architektonická změna, ne fix. Po M14 zvážit jako samostatný milník.
+- **2D renderer perf** (drawBelt SVG rebuild, drawCannon flood-fill/frame) — 2D je fallback; řeší backlog Infra „Odstranit 2D renderer" (po release).
+- **`?diff=hardcore`** tiše padá do medium — chování ověřit s designem, ne bug fix.
+- **`gamee-test/` smazat** po skončení GH Pages testu (4,7 MB v git historii).
 
 ### M10: Replay & scrub — Curve editor Úr. 1.5 (v74+)
 
