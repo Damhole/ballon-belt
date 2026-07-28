@@ -424,7 +424,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | P1 | ✅ | S | Hra | **Výjimková izolace beltLoop** ✅ v75.07 — game.js:8694 throw kdekoli (vč. 4 neguardovaných `gamee.updateScore`) zabije rAF smyčku trvale; try/catch + rAF na začátek |
 | P1 | ✅ | S | Hra | **Restart races** ✅ v75.08 — stale `setTimeout(()=>{if(running)endGame(true)},80)` (game.js:2297/2400/2475) + overlay timeout 1400 ms chytí `running` nového levelu → falešná výhra + druhý `gameOver` se skóre 0 |
 | P1 | ✅ | S | Hra | **Intro input locky prodloužit** ✅ v75.09 (event-driven) — `_LEVEL_INTRO_DURATIONS` (game.js:1291) 2000–2200 ms vs. reálné intro ~4,2 s → výstřely během intra vzkřísí finální `grid=finalGrid` = promarněná munice |
-| P2 | 📋 | S | Hra | **Garáž→zeď polyká projektily** — game.js:6021 při `garageMode==='off'` se garage dlaždice mění na zdi, ale fronta už spotřebovala chunky barev → tichý deficit munice (a `_ENABLE_AMMO_AUDIT=false` to už nehlásí) |
+| P2 | ✅ | S | Hra | **Garáž→zeď polyká projektily** ✅ v75.10 — game.js:6021 při `garageMode==='off'` se garage dlaždice mění na zdi, ale fronta už spotřebovala chunky barev → tichý deficit munice (a `_ENABLE_AMMO_AUDIT=false` to už nehlásí) |
 | P2 | 📋 | XS | Hra | **Raketa vs. gravitace** — game.js:2283 exploze maže pixely bez `applyGravityToCol` → plovoucí pixely, které solver nepředpovídá |
 | P2 | 📋 | XS | Hra | **Teleport-kill přes zeď** — game.js:2425 expanded collider posledního pixelu (v74.53) se aktivuje i při kolizi s cizí barvou |
 
@@ -588,6 +588,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v75.10 | (pending) | 2026-07-28 | **E2.5 garáž mode off nepolyká projektily** — konverze garage→wall se dělá hned při stavbě (před konzumací colorChunks), ne až v postprocessu, kdy queue už chunky spotřebovala → tichý deficit munice. Postprocess větev zůstává jako pojistka. pxCounts logika nedotčena (známý quirk). |
 | v75.09 | (pending) | 2026-07-28 | **E2.4 intro lock event-driven** — tabulkové locky (2000–2500 ms) byly kratší než reálná intra (smiley ~4,2 s) → výstřely během intra vzkřísil finální grid swap = promarněná munice. `_introUnlock()` volané na skutečném konci všech 5 intro sekvencí (smiley/moon/starwars poslední swap final, frog konec riseStep, mondrian konec colorStep); startovní lock intro levelů = 15 s pojistka. |
 | v75.08 | (pending) | 2026-07-28 | **E2.3 restart races** — `_levelSeq` token (inkrement ve startLevel): 3× stale `setTimeout(endGame(true),80)`, overlay timeout (1400 ms) i confetti (280/560 ms) guardované — restart během win okna už nezpůsobí falešnou výhru nového levelu, druhý gameOver se skóre 0 ani overlay přes čerstvý level. |
 | v75.07 | (pending) | 2026-07-28 | **E2.2 výjimková izolace beltLoop** — tělo smyčky v try/catch, rAF ve finally (dřív poslední řádek těla → jakýkoli throw smyčku trvale zabil). 4× `gamee.updateScore` + `gamee.gameOver` přes `_safeGamee` helper (SDK chyba = warn, ne mrtvá hra). beltLoop nemá žádný return → finally nemění sémantiku. |

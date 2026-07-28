@@ -1,7 +1,7 @@
 // v73.278: VERSION CONSTANT + WATCHDOG (rozšířen na render3d moduly)
 // Porovnává HTML #version-badge + window.BB_VERSION_R3D + window.BB_VERSION_R3DB
 // proti BB_VERSION. Kterákoli mismatch → force reload (sessionStorage guard).
-const BB_VERSION = 'v75.09';
+const BB_VERSION = 'v75.10';
 (function _versionWatchdog(){
   function check(){
     var badge = document.getElementById('version-badge');
@@ -2303,7 +2303,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.09'));
+          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.10'));
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -5987,6 +5987,10 @@ function buildColsFromLayout(layout,pxCounts){
         continue;
       }
       if(t.type==='garage'){
+        // v75.10: mode off → zeď HNED, dřív než se spotřebují chunky barev.
+        // Konverze až v postprocessu nechala chunky spotřebované (queue si je
+        // vzala při stavbě) → tichý deficit projektilů → nevyhratelný level.
+        if(garageMode==='off'){ cols[c].push({wall:true}); continue; }
         // Directions spočítáme až v postprocessu (potřebujeme vědět sousedy).
         // Každý queue item dostane svou porci projektilů z colorChunks — stejné pravidlo
         // jako hlavní carrier slot. Při prázdných chunkech (designer dal barvu, kterou
@@ -7802,7 +7806,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.09'));
+    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.10'));
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7931,7 +7935,7 @@ function endGame(win){
   const _seq=_levelSeq; // v75.08: restart během win animace nesmí dostat overlay/confetti starého levelu
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.09'));
+  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.10'));
   _safeGamee(()=>gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined));
   if(win){
     spawnConfetti();
@@ -8880,7 +8884,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.09'));
+      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.10'));
       event.detail.callback();
     });
 
