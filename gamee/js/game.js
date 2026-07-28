@@ -1,7 +1,7 @@
 // v73.278: VERSION CONSTANT + WATCHDOG (rozšířen na render3d moduly)
 // Porovnává HTML #version-badge + window.BB_VERSION_R3D + window.BB_VERSION_R3DB
 // proti BB_VERSION. Kterákoli mismatch → force reload (sessionStorage guard).
-const BB_VERSION = 'v75.08';
+const BB_VERSION = 'v75.09';
 (function _versionWatchdog(){
   function check(){
     var badge = document.getElementById('version-badge');
@@ -1298,7 +1298,9 @@ const _SPEEDUP_MAX = 2.0;
 let _levelStartLockUntil = 0;
 const _LEVEL_START_LOCK_DEFAULT_MS = 700; // cascade pop ~0.55s + buffer
 const _LEVEL_INTRO_DURATIONS = {
-  // Časy jsou MAX duration intro animace + 200ms buffer (viz startLevel intro switch)
+  // v75.09: hodnoty už NEJSOU délka locku (byly kratší než reálná intra — smiley
+  // reálně ~4,2 s vs. 2000). Lock odemyká _introUnlock() na konci sekvence;
+  // tabulka slouží jen jako truthy marker „level má intro".
   smiley:   2000,
   moon:     2200,
   starwars: 2400,
@@ -1309,6 +1311,8 @@ const _LEVEL_INTRO_DURATIONS = {
 const _SLOWDOWN_START_PX = 40; // od kolika pixelů zbývajících začneme zpomalovat
 const _SLOWDOWN_END_PX   = 20; // při kolika pixelech jsme zpět na 1.0×
 let _remainingPxCache = null;  // updated v beltLoop tick
+// v75.09: event-driven unlock — volají intro sekvence na svém skutečném konci.
+function _introUnlock(){ _levelStartLockUntil = Date.now() + 200; }
 // v74.64: hold-to-boost — uživatel drží levou/pravou boost zónu → fade na 1.5× a zpět.
 let _userHoldActive = false;
 let _userHoldCurrent = 1.0;
@@ -2299,7 +2303,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.08'));
+          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.09'));
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7798,7 +7802,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.08'));
+    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.09'));
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7927,7 +7931,7 @@ function endGame(win){
   const _seq=_levelSeq; // v75.08: restart během win animace nesmí dostat overlay/confetti starého levelu
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.08'));
+  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.09'));
   _safeGamee(()=>gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined));
   if(win){
     spawnConfetti();
@@ -7967,7 +7971,8 @@ function startLevel(){
   if(typeof window!=='undefined') window._lastPxCountTime=0; // v74.79: force recount hned 1. tickem
   _userHoldActive=false; _userHoldCurrent=1.0; document.body.classList.remove('user-boost-active'); // v74.64
   // v74.62: lock délky podle intro animace levelu (mapping výše).
-  _levelStartLockUntil=Date.now()+(_LEVEL_INTRO_DURATIONS[currentLevel]||_LEVEL_START_LOCK_DEFAULT_MS);
+  // v75.09: intro levely drží lock do _introUnlock() na konci sekvence; 15 s je jen pojistka
+  _levelStartLockUntil=Date.now()+(_LEVEL_INTRO_DURATIONS[currentLevel]?15000:_LEVEL_START_LOCK_DEFAULT_MS);
   _resetMusicState(); // nový level = hudba zase od foundation kick
   _caCountdown=3+Math.floor(Math.random()*3); // v73.236 CA interval reset
   // v72.68: reset 3D carrier transition caches — jinak by se carriery nového levelu
@@ -8158,7 +8163,7 @@ function startLevel(){
         };
         at(350,()=>swap('final'));    // úsměv
         at(900,()=>swap('wink'));     // mrknutí
-        at(1250,()=>swap('final'));   // konec
+        at(1250,()=>{swap('final');_introUnlock();});   // konec intra → odemkni input
       }
     };
     setTimeout(step,120);
@@ -8201,7 +8206,7 @@ function startLevel(){
         at(380,()=>swap('final'));
         at(540,()=>swap('twinkle-b'));
         at(740,()=>swap('twinkle-a'));
-        at(900,()=>swap('final'));
+        at(900,()=>{swap('final');_introUnlock();});
       }
     };
     setTimeout(step,120);
@@ -8243,7 +8248,7 @@ function startLevel(){
         at(650,()=>swap('ha-open'));
         at(850,()=>swap('final'));
         at(1050,()=>swap('ha-open'));
-        at(1300,()=>swap('final'));
+        at(1300,()=>{swap('final');_introUnlock();});
       }
     };
     setTimeout(step,120);
@@ -8291,7 +8296,7 @@ function startLevel(){
       grid=ng;drawGrid();
       i++;
       if(i<offsets.length) setTimeout(riseStep,170);
-      else { grid=finalGrid; drawGrid(); }
+      else { grid=finalGrid; drawGrid(); _introUnlock(); }
     };
     setTimeout(waterStep,220);
   } else if(currentLevel==='mondrian'){
@@ -8322,7 +8327,7 @@ function startLevel(){
       const batch=10;
       for(let k=0;k<batch&&ci2<colors.length;k++,ci2++)grid[colors[ci2].y][colors[ci2].x]=colors[ci2].c;
       drawGrid();
-      if(ci2<colors.length)setTimeout(colorStep,35);
+      if(ci2<colors.length)setTimeout(colorStep,35); else _introUnlock();
     };
     setTimeout(lineStep,150);
   }
@@ -8875,7 +8880,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.08'));
+      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.09'));
       event.detail.callback();
     });
 
