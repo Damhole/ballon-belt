@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // v74.79: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.23';
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.24';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
@@ -1288,7 +1288,7 @@ function _buildUnifiedFrameGeom(W, p) {
 }
 
 // v73.77: extract hole path building do samostatné funkce (reuse mezi
-// _initUnifiedFrame a _renderMiterOffsetTest). Vrací THREE.Path (CW v Y-up).
+// _initUnifiedFrame). Vrací THREE.Path (CW v Y-up).
 function _buildHolePath(p) {
   const hole = new THREE.Path();
   // Radius zaoblení belt-skulina spojů (4 rohy: shoulder + skulina top, oba boky)
@@ -1773,100 +1773,7 @@ function _initUnifiedFrame() {
     '| band outer:', bandOuterPts.length, '| outline outer:', outlineOuterPts.length);
 }
 
-// v73.68: minimal safe test rendering — paralelní offset jako tenká bright ring.
-function _renderMiterOffsetTest(params, distance, colorHex) {
-  // Build hole path z params (stejně jako v _buildUnifiedFrameGeom)
-  const W = st.W;
-  const hole = new THREE.Path();
-  const p = params;
-  hole.moveTo(p.beltLeft,     p.beltTopW);
-  hole.lineTo(p.beltRight,    p.beltTopW);
-  hole.lineTo(p.beltRight,    p.beltBotW);
-  hole.lineTo(p.skulinaRight, p.skulinaTopW);
-  hole.lineTo(p.skulinaRight, p.skulinaBotW);
-  const arcW_r = p.arenaRight - p.skulinaRight;
-  const arcH_r = p.skulinaBotW - p.arenaTopW;
-  hole.bezierCurveTo(
-    p.skulinaRight,                    p.skulinaBotW,
-    p.skulinaRight + arcW_r * 0.505,  p.skulinaBotW - arcH_r * 0.130,
-    p.skulinaRight + arcW_r * 0.785,  p.skulinaBotW - arcH_r * 0.411
-  );
-  hole.bezierCurveTo(
-    p.skulinaRight + arcW_r * 0.959,  p.skulinaBotW - arcH_r * 0.637,
-    p.arenaRight,                       p.arenaTopW,
-    p.arenaRight,                       p.arenaTopW
-  );
-  hole.lineTo(p.arenaRight, p.arenaBotW + CORNER_R_BOT);
-  hole.bezierCurveTo(
-    p.arenaRight,                          p.arenaBotW + CORNER_R_BOT * 0.448,
-    p.arenaRight - CORNER_R_BOT * 0.448,  p.arenaBotW,
-    p.arenaRight - CORNER_R_BOT,           p.arenaBotW
-  );
-  hole.lineTo(p.arenaLeft + CORNER_R_BOT, p.arenaBotW);
-  hole.bezierCurveTo(
-    p.arenaLeft + CORNER_R_BOT * 0.448,   p.arenaBotW,
-    p.arenaLeft,                            p.arenaBotW + CORNER_R_BOT * 0.448,
-    p.arenaLeft,                            p.arenaBotW + CORNER_R_BOT
-  );
-  hole.lineTo(p.arenaLeft, p.arenaTopW);
-  const arcW_l = p.skulinaLeft - p.arenaLeft;
-  const arcH_l = p.skulinaBotW - p.arenaTopW;
-  hole.bezierCurveTo(
-    p.arenaLeft,                       p.arenaTopW,
-    p.arenaLeft + arcW_l * 0.041,     p.arenaTopW + arcH_l * 0.363,
-    p.arenaLeft + arcW_l * 0.215,     p.arenaTopW + arcH_l * 0.589
-  );
-  hole.bezierCurveTo(
-    p.arenaLeft + arcW_l * 0.495,     p.arenaTopW + arcH_l * 0.870,
-    p.skulinaLeft,                     p.skulinaBotW,
-    p.skulinaLeft,                     p.skulinaBotW
-  );
-  hole.lineTo(p.skulinaLeft,  p.skulinaTopW);
-  hole.lineTo(p.beltLeft,     p.beltBotW);
-  hole.lineTo(p.beltLeft,     p.beltTopW);
-
-  // Sample hole, offset, build thin ring shape
-  const innerPts = hole.getPoints(30);
-  let outerPts = _miterOffsetPolygon(innerPts, distance);
-  // v73.76: clip self-intersections (cross-overs mezi non-adjacent edges)
-  outerPts = _clipSelfIntersections(outerPts);
-
-  // Shape: outer = outerPts reversed (CCW), hole = innerPts (CW)
-  const ringShape = new THREE.Shape();
-  const outerReversed = outerPts.slice().reverse();
-  ringShape.moveTo(outerReversed[0].x, outerReversed[0].y);
-  for (let i = 1; i < outerReversed.length; i++) ringShape.lineTo(outerReversed[i].x, outerReversed[i].y);
-  const ringHole = new THREE.Path();
-  ringHole.moveTo(innerPts[0].x, innerPts[0].y);
-  for (let i = 1; i < innerPts.length; i++) ringHole.lineTo(innerPts[i].x, innerPts[i].y);
-  ringShape.holes.push(ringHole);
-
-  // Flat 2D geometry (ShapeGeometry → žádná hloubka, žádná triangulace složitosti)
-  const ringGeom = new THREE.ShapeGeometry(ringShape, 4);
-  const ringMat  = new THREE.MeshBasicMaterial({ color: colorHex });
-  const ringMesh = new THREE.Mesh(ringGeom, ringMat);
-  // Position v front of main frame ale za carriery
-  ringMesh.position.set(0, 0, -1);
-  ringMesh.renderOrder   = 50;
-  ringMesh.frustumCulled = false;
-  st.contentGroup.add(ringMesh);
-  st.miterTestMesh = ringMesh;
-
-  // v73.75: BLACK OUTLINE tracing přesně outer offset path — uvidíme kde se
-  // linie zlomí / přeskakuje (každý bod offset polygonu = vertex v line).
-  const outlineCoords = [];
-  for (const pt of outerPts) outlineCoords.push(pt.x, pt.y, 0);
-  outlineCoords.push(outerPts[0].x, outerPts[0].y, 0);  // close loop
-  const lineGeom = new THREE.BufferGeometry();
-  lineGeom.setAttribute('position', new THREE.Float32BufferAttribute(outlineCoords, 3));
-  const lineMat = new THREE.LineBasicMaterial({ color: 0x000000 });
-  const lineMesh = new THREE.Line(lineGeom, lineMat);
-  lineMesh.position.set(0, 0, -0.5);  // nad ring mesh (ke kameře)
-  lineMesh.renderOrder   = 51;
-  lineMesh.frustumCulled = false;
-  st.contentGroup.add(lineMesh);
-  st.miterTestOutline = lineMesh;
-}
+// v75.24: _renderMiterOffsetTest (~90 ř. dev vizualizace z v73.68) smazán — nevolaný.
 
 // v73.68: helper — proper polygon offset s miter joins (Blender Inset-style).
 // v73.69: Proper polygon offset s miter joins + SELF-INTERSECTION CLIPPING.

@@ -1,7 +1,7 @@
 // v73.278: VERSION CONSTANT + WATCHDOG (rozšířen na render3d moduly)
 // Porovnává HTML #version-badge + window.BB_VERSION_R3D + window.BB_VERSION_R3DB
 // proti BB_VERSION. Kterákoli mismatch → force reload (sessionStorage guard).
-const BB_VERSION = 'v75.23';
+const BB_VERSION = 'v75.24';
 (function _versionWatchdog(){
   function check(){
     var badge = document.getElementById('version-badge');
@@ -1857,46 +1857,8 @@ function pickCannonShotForceBlocked(ci,cannonXPos,cannonYPos){
   };
 }
 
-function launchBouncingParticles(matching,cm,onDone){
-  if(!matching.size){onDone();return;}
-  particlesFlying=true;
-  let popped=0,total=0;
-  let done=false;
-  const finish=()=>{if(done)return;done=true;particlesFlying=false;onDone();};
-  const safety=setTimeout(finish,2500);
-  const onPop=()=>{popped++;if(popped>=total){clearTimeout(safety);finish();}};
-
-  for(const c of matching){
-    // Spočítej kolik pixelů té barvy v gridu skutečně existuje
-    let pixelCount=0;
-    for(let y=0;y<IMG_GH;y++)for(let x=0;x<GW;x++)if(grid[y][x]===c)pixelCount++;
-    if(pixelCount===0)continue; // žádný cíl, přeskoč
-    const prev=remainingUnits[c]||0;
-    const budget=cm[c]*PPU+prev;
-    // Nikdy nevypusť víc projektilů než je cílů a než je MAX_PER_COLOR
-    const count=Math.min(budget,MAX_PER_COLOR,pixelCount);
-    // Přebytek uložit, ale taky ho ořezat na rozumný max (2× počet pixelů)
-    remainingUnits[c]=Math.min(budget-count, pixelCount*2);
-    for(let i=0;i<count;i++){
-      total++;
-      // Start ze středu pásu – spodní hrana canvasu, mírný rozptyl ±25px okolo středu
-      const spawnX=155+Math.random()*50;      // 155–205px ≈ střed pásu
-      const spawnY=GH*SCALE-2;               // úplný spodek canvasu (308px)
-      const angle=-Math.PI/2+(Math.random()-0.5)*Math.PI*0.7; // ±63° od svislice
-      particles.push({
-        x:spawnX, y:spawnY,
-        vx:Math.cos(angle)*PSPEED,
-        vy:Math.sin(angle)*PSPEED,
-        ci:c, color:COLORS[c],
-        phase:'fly',
-        stuckT:0,
-        popR:0, popX:0, popY:0,
-        onPop
-      });
-    }
-  }
-  if(total===0){clearTimeout(safety);finish();}
-}
+// v75.24: launchBouncingParticles smazána — mrtvý legacy kód (0 call sites),
+// navíc referencovala nedeklarované `remainingUnits` (latentní ReferenceError).
 
 function randomFreePos(){
   // Najdi náhodnou volnou pozici kdekoliv na canvasu
@@ -2323,7 +2285,7 @@ function updateParticles(dt){
           _gridMutated();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.23'));
+          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.24'));
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -3554,51 +3516,9 @@ function _ptEstimateBeltPeak(history){
 }
 // Block-free exposure check for simulation — ignores currentBlocks (live state),
 // so mystery-block-covered pixels are treated as reachable in the sim grid.
-// Block-aware helper: vrátí Set buněk uvnitř ŽIVÉHO bloku (HP > 0). Tester to používá
-// jako bariéru pro flood-fill + jako filtr pro accessibility pixelů a bloků.
-function _ptBlockedCells(blocks){
-  const blocked=new Set();
-  if(!blocks||!blocks.length)return blocked;
-  for(const b of blocks){
-    if(b.hp<=0)continue;
-    const m=b._mask;
-    if(!m)continue;
-    for(let dy=0;dy<b.h;dy++){
-      const row=m[dy];if(!row)continue;
-      for(let dx=0;dx<b.w;dx++){
-        if(!row[dx])continue;
-        const x=b.x+dx,y=b.y+dy;
-        if(x<0||x>=GW||y<0||y>=GH)continue;
-        blocked.add(y*GW+x);
-      }
-    }
-  }
-  return blocked;
-}
-// Block-aware varianta getOpenEmptyCells: flood-fill skrz pixely co jsou -1, ale
-// buňky uvnitř živého bloku NEJSOU "open" (blok je bariéra, i když pixely pod
-// ním jsou už -1 z clearSolidBlockFootprints).
-function _ptGetOpenEmptyCells(g,blocks){
-  const blocked=_ptBlockedCells(blocks);
-  const open=new Set();
-  const stack=[];
-  const push=(x,y)=>{
-    const k=y*GW+x;
-    if(open.has(k))return;
-    if(g[y][x]!==-1)return;
-    if(blocked.has(k))return;
-    open.add(k);stack.push([x,y]);
-  };
-  for(let x=0;x<GW;x++)push(x,GH-1);
-  while(stack.length){
-    const [x,y]=stack.pop();
-    if(x>0)push(x-1,y);
-    if(x<GW-1)push(x+1,y);
-    if(y>0)push(x,y-1);
-    if(y<GH-1)push(x,y+1);
-  }
-  return open;
-}
+// v75.24: duplicitní PRVNÍ definice _ptBlockedCells/_ptGetOpenEmptyCells smazány —
+// byly shadowované pozdějšími definicemi níž (function hoisting; platí verze s bounds
+// checkem v push). Chování beze změny.
 // Block accessible iff alespoň jedna jeho cell má neighbor v open zóně.
 // Mystery blok přijímá libovolnou barvu, solid jen matching color.
 function _ptAccessibleBlocks(blocks,g,color){
@@ -7837,7 +7757,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.23'));
+    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.24'));
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7848,20 +7768,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
   }
 }
-function destroyPixels(colors,cm){
-  for(const color of colors){
-    const prev=remainingUnits[color]||0;
-    let td=(cm[color]*PPU)+prev;
-    while(td>0){
-      const exp=getExposedPixelsOfColor(grid,color);
-      if(!exp.length)break;
-      exp.sort((a,b)=>b.y-a.y);
-      exp.slice(0,td).forEach(p=>{grid[p.y][p.x]=-1;});
-      td-=Math.min(exp.length,td);
-    }
-    remainingUnits[color]=td>0?td:0;
-  }
-}
+// v75.24: destroyPixels smazána — mrtvý legacy kód (0 call sites), nedeklarované `remainingUnits`.
 function computeAmmoDeficit(){
   const pxCounts=countPixelsAndBlocks(grid);
   const deficits=new Array(COLORS.length).fill(0);
@@ -7966,7 +7873,7 @@ function endGame(win){
   const _seq=_levelSeq; // v75.08: restart během win animace nesmí dostat overlay/confetti starého levelu
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.23'));
+  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.24'));
   _safeGamee(()=>gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined));
   if(win){
     spawnConfetti();
@@ -8929,7 +8836,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.23'));
+      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.24'));
       event.detail.callback();
     });
 

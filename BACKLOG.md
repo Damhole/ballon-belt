@@ -451,7 +451,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | P2 | ✅ | S | Infra | **Google Fonts `@import` zrušit/self-host** ✅ v75.23 (zrušeno) — game.css:1 render-blocking řetěz; jediný DOM konzument trvale `display:none`, canvas text má font race |
 | P2 | ✅ | XS | Infra | **`backdrop-filter: blur` zrušit** ✅ v75.23 — game.css:466 nad nekonečně animovaným pozadím (`bgGlow`) = trvalá kompozitorová práce i v idle |
 | P3 | 📋 | S | Infra | **CLAUDE.md aktualizace** — pravidlo „index.html = index_local až na SDK řádek" už neplatí (4 záměrné diff bloky); deployment cesta `~/Documents/GitHub/` je stará; `BB_VERSION` do checklistu |
-| P3 | 📋 | M | Hra | **Mrtvý kód promazat** — `remainingUnits` nedeklarované (latentní ReferenceError, game.js:1854/:7801), 2× duplicitní `_ptBlockedCells`/`_ptGetOpenEmptyCells` (:3522–3661), dead watchdogy (`cannonIdleT`, `_caBumpHeat`), `_renderMiterOffsetTest` (~95 ř.), `levels (1).js` |
+| P3 | ✅ | M | Hra | **Mrtvý kód promazat** ✅ v75.24 — `remainingUnits` nedeklarované (latentní ReferenceError, game.js:1854/:7801), 2× duplicitní `_ptBlockedCells`/`_ptGetOpenEmptyCells` (:3522–3661), dead watchdogy (`cannonIdleT`, `_caBumpHeat`), `_renderMiterOffsetTest` (~95 ř.), `levels (1).js` |
 
 #### Mimo scope M14 (zaznamenáno, řeší se jinde/později)
 
@@ -588,6 +588,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v75.24 | (pending) | 2026-07-28 | **E4.7 mrtvý kód** — smazány: `launchBouncingParticles` + `destroyPixels` (0 call sites, nedeklarované `remainingUnits` = latentní ReferenceError), první shadowované definice `_ptBlockedCells`/`_ptGetOpenEmptyCells` (hoisting — platily stejně ty druhé), `_renderMiterOffsetTest` (~90 ř. dev vizualizace), soubor `levels (1).js` (untracked balast v main repu, 116 KB v zipu). `gamee-test/` ponechán (čeká na pokyn). |
 | v75.23 | (pending) | 2026-07-28 | **E4.4+4.5 fonty & CSS** — Google Fonts @import (Bangers) pryč = render-blocking řetěz na first loadu; mrtvý #funnel-warning blok (CSS + div v obou HTML, 0 JS referencí) smazán; canvas text → Impact (Bangers stejně kvůli font race nikdy nestihl); backdrop-filter blur(2px) na .controls pryč (trvalá kompozitorová práce nad animovaným bgGlow). |
 | v75.22 | (pending) | 2026-07-28 | **E4.3 SW cache normalizace** — cache.put klíč bez volatile `?t=`/`?v=` paramů; dřív každý bust = nový záznam, cache uvnitř verze rostla bez limitu (~3–4 MB na dev reload). Offline match (ignoreSearch) normalizovaný klíč najde. |
 | v75.21 | (pending) | 2026-07-28 | **E4.1 WebGL context loss recovery** — oba renderery: preventDefault na contextlost + po contextrestored vynucený redraw (dirty flagy by jinak nechaly canvas prázdný — blank screen na iOS po memory pressure). `render3d.dispose()` dokompletován na traverse-dispose celé scény (dřív leakoval vše kromě pixelMesh). |
