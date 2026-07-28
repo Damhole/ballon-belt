@@ -61,7 +61,7 @@ function _makeChromeMatcap() {
 }
 
 // v74.79: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v75.20';
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v75.21';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
@@ -546,6 +546,12 @@ function init(canvas, opts) {
   // který měl prewarm řešit. Případný tier 0 si recompile udělá při přepnutí.
   state.renderer.shadowMap.enabled = false;
   state.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  // v75.21: WebGL context loss (iOS memory pressure) — Three.js drží CPU kopie
+  // geometrií/textur a po restore GL stav obnoví, ale náš dirty-flag skip by
+  // nechal canvas prázdný. preventDefault umožní restore, po něm vynuť redraw.
+  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); console.warn('[render3d] WebGL context lost'); });
+  canvas.addEventListener('webglcontextrestored', () => { console.warn('[render3d] WebGL context restored — force redraw'); state._dirty = true; });
 
   // InstancedMesh pro pixely — max GW*IMG_GH (jen image area, ne belt rows)
   const maxInstances = state.GW * state.IMG_GH; // 36*27 = 972
@@ -1624,11 +1630,15 @@ function setVisible(visible) {
 // ale připravené pro budoucí scene rebuild při webglcontextlost.
 function dispose() {
   if (!state.ready) return;
-  if (state.pixelMesh) {
-    state.pixelMesh.geometry.dispose();
-    state.pixelMesh.material.dispose();
-    state.scene.remove(state.pixelMesh);
-  }
+  // v75.21: traverse-dispose CELÉ scény (dřív jen pixelMesh — leakoval blockMesh,
+  // shard/ghost/dust/outline geometrie, textury, GLB gun). Vzor: render3d_bottom.dispose().
+  state.scene.traverse(obj => {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const m of mats) { if (m.map) m.map.dispose(); m.dispose(); }
+    }
+  });
   state.renderer.dispose();
   state.ready = false;
 }

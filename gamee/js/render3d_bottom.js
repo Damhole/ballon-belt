@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // v74.79: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.20';
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.21';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
@@ -487,6 +487,9 @@ function init() {
 
   // Three.js renderer — toon look nepotřebuje shadow mapy (cel-shading je flat)
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, stencil: true });
+  // v75.21: WebGL context loss — viz render3d.js; po restore vynuť redraw + přeměření.
+  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); console.warn('[render3dBottom] WebGL context lost'); });
+  canvas.addEventListener('webglcontextrestored', () => { console.warn('[render3dBottom] WebGL context restored — force redraw'); st._dirty = true; st._frameLayoutDirty = true; });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));  // v74.79: cap 1.5× (perf)
   renderer.setSize(canvasFullW, H, false);
   renderer.setClearColor(0, 0);
