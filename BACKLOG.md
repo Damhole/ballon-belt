@@ -446,7 +446,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | Prio | Stav | Vel. | Téma | Nápad |
 |------|------|------|------|-------|
 | P2 | ✅ | S | 3D | **WebGL context loss recovery** ✅ v75.21 — render3d.js:533 + render3d_bottom.js:489 bez listenerů → blank screen na iOS po memory pressure; `dispose()` v render3d.js navíc nekompletní (leakuje geometrie) |
-| P2 | 📋 | S | Infra | **levels.js minifikovaně z editoru** — 254 KB pretty-printed (gzip 9 KB), synchronní parse při startu; minifikace → ~70 KB + menší git diffy |
+| P2 | ✅ | S | Infra | **levels.js minifikovaně z editoru** ✅ v75.25 — 254 KB pretty-printed (gzip 9 KB), synchronní parse při startu; minifikace → ~70 KB + menší git diffy |
 | P2 | ✅ | S | Infra | **SW cache normalizace** ✅ v75.22 — sw.js:44 každý unikátní `?t=`/`?v=` = nový záznam, nic se nemaže do bump verze; +3–4 MB na reload |
 | P2 | ✅ | S | Infra | **Google Fonts `@import` zrušit/self-host** ✅ v75.23 (zrušeno) — game.css:1 render-blocking řetěz; jediný DOM konzument trvale `display:none`, canvas text má font race |
 | P2 | ✅ | XS | Infra | **`backdrop-filter: blur` zrušit** ✅ v75.23 — game.css:466 nad nekonečně animovaným pozadím (`bgGlow`) = trvalá kompozitorová práce i v idle |
@@ -588,6 +588,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v75.25 | (pending) | 2026-07-28 | **E4.2 editor publikuje levels.js kompaktně** — JSON.stringify bez indentu (254 KB/15,8k řádků, gzip 9 KB → ~70 KB + malé git diffy). Projeví se při příštím publish z editoru; `editor/levels.json` zůstává pretty (interní úložiště). |
 | v75.24 | (pending) | 2026-07-28 | **E4.7 mrtvý kód** — smazány: `launchBouncingParticles` + `destroyPixels` (0 call sites, nedeklarované `remainingUnits` = latentní ReferenceError), první shadowované definice `_ptBlockedCells`/`_ptGetOpenEmptyCells` (hoisting — platily stejně ty druhé), `_renderMiterOffsetTest` (~90 ř. dev vizualizace), soubor `levels (1).js` (untracked balast v main repu, 116 KB v zipu). `gamee-test/` ponechán (čeká na pokyn). |
 | v75.23 | (pending) | 2026-07-28 | **E4.4+4.5 fonty & CSS** — Google Fonts @import (Bangers) pryč = render-blocking řetěz na first loadu; mrtvý #funnel-warning blok (CSS + div v obou HTML, 0 JS referencí) smazán; canvas text → Impact (Bangers stejně kvůli font race nikdy nestihl); backdrop-filter blur(2px) na .controls pryč (trvalá kompozitorová práce nad animovaným bgGlow). |
 | v75.22 | (pending) | 2026-07-28 | **E4.3 SW cache normalizace** — cache.put klíč bez volatile `?t=`/`?v=` paramů; dřív každý bust = nový záznam, cache uvnitř verze rostla bez limitu (~3–4 MB na dev reload). Offline match (ignoreSearch) normalizovaný klíč najde. |

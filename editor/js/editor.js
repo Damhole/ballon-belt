@@ -480,7 +480,7 @@ async function writeGameLevelsJs(levels) {
     '// Pokud tento soubor chybí nebo je prázdný, hra automaticky použije\n' +
     '// LEVELS_FALLBACK z game.js (viz resolveLevels()).\n' +
     '// ═══════════════════════════════════════════════════════════════════════════\n' +
-    'window.LEVELS = ' + JSON.stringify(levels.filter(l => l && l.inGame !== false), null, 2) + ';\n';
+    'window.LEVELS = ' + JSON.stringify(levels.filter(l => l && l.inGame !== false)) + ';\n'; // v75.25: kompaktně — pretty-print dával 254 KB/15k řádků (gzip 9 KB) + obří git diffy
   await writable.write(content);
   await writable.close();
 }
