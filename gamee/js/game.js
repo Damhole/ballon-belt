@@ -1,7 +1,7 @@
 // v73.278: VERSION CONSTANT + WATCHDOG (rozšířen na render3d moduly)
 // Porovnává HTML #version-badge + window.BB_VERSION_R3D + window.BB_VERSION_R3DB
 // proti BB_VERSION. Kterákoli mismatch → force reload (sessionStorage guard).
-const BB_VERSION = 'v75.19';
+const BB_VERSION = 'v75.20';
 (function _versionWatchdog(){
   function check(){
     var badge = document.getElementById('version-badge');
@@ -1369,6 +1369,8 @@ let cannonIdleT=0;                // čas co kanon nevystřelil (watchdog proti 
 let introSeq=0;                   // token pro zrušení naplánovaného intra při resetu/přepnutí levelu
 let _levelSeq=0;                  // v75.08: token pro zrušení stale timeoutů (endGame/overlay/confetti) po restartu
 let _gridDrawPending=false;       // v75.13: destrukce v updateParticles jen flagují; drawGrid 1× za frame v beltLoop
+let _gridVersion=0;               // v75.20: bump při každé mutaci gridu/bloků — gate pro drahé LoS revalidace
+function _gridMutated(){ _gridVersion++; _gridDrawPending=true; }
 // === CHROMATIC ABERRATION RANDOM INTERVAL (v73.236) ===
 // CA se spustí každý 3.–5. zničený pixel (náhodně). Bez heat/streak.
 let _caCountdown=3+Math.floor(Math.random()*3); // 3..5
@@ -2143,12 +2145,20 @@ function steerAfterBounce(p){
   // úhel, který přes odraz od zdi stejně dorazí (simulace jako u děla).
   // Když takovou trajektorii objevíme, projektil ji převezme. Když ne,
   // rozptýlíme aktuální vektor proti zamrznutí.
-  const TRIES=20;
-  let bestA=null, bestAlign=-Infinity;
   const curA=Math.atan2(p.vy,p.vx);
+  // v75.20: cooldown po neúspěchu — zaseknutý projektil jinak platil
+  // TRIES × plnou simulaci při každém odrazu (klidně vícekrát za sekundu).
+  const _nowS=performance.now();
+  if(p._steerCdUntil&&_nowS<p._steerCdUntil){
+    const a=curA+(Math.random()-0.5)*Math.PI*0.18;
+    p.vx=Math.cos(a)*PSPEED; p.vy=Math.sin(a)*PSPEED;
+    return;
+  }
+  const TRIES=8; // v75.20: 20 → 8 pokusů, maxSteps 600 → 240 (dost pro bank shot, viz cannon LoS)
+  let bestA=null, bestAlign=-Infinity;
   for(let i=0;i<TRIES;i++){
     const a=Math.random()*Math.PI*2;
-    if(simulateShotReaches(p.x,p.y,a,p.ci)){
+    if(simulateShotReaches(p.x,p.y,a,p.ci,240)){
       // Preferuj úhel blízký aktuálnímu směru — odraz pak vypadá přirozeně,
       // ne jako ostré teleport-přemíření.
       const align=Math.cos(a-curA);
@@ -2160,6 +2170,7 @@ function steerAfterBounce(p){
     p.vy=Math.sin(bestA)*PSPEED;
     return;
   }
+  p._steerCdUntil=_nowS+250; // v75.20: neúspěch → 250 ms bez dalších simulací
   const a=curA+(Math.random()-0.5)*Math.PI*0.18;
   p.vx=Math.cos(a)*PSPEED;
   p.vy=Math.sin(a)*PSPEED;
@@ -2309,10 +2320,10 @@ function updateParticles(dt){
           for(const cx of _cols) applyGravityToCol(grid,cx);
         }
         if(destroyed){
-          _gridDrawPending=true;
+          _gridMutated();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.19'));
+          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.20'));
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -2380,7 +2391,7 @@ function updateParticles(dt){
           // Odhaleno! Pixely pod blokem zůstávají (blok je jen "sundáme").
           spawnBlockExplosion(hitBlock);
           currentBlocks=currentBlocks.filter(b=>b!==hitBlock);
-          _gridDrawPending=true;
+          _gridMutated();
           // Projektil pokračuje v letu za odhalenou plochu (odraz se neprovede,
           // když blok zmizel — jen přesměrujeme na nejbližší cíl své barvy).
           steerAfterBounce(p);
@@ -2391,7 +2402,7 @@ function updateParticles(dt){
           if(prevGy!==gy)p.vy=-p.vy;
           if(prevGx===gx&&prevGy===gy){p.vx=-p.vx;p.vy=-p.vy;}
           anyBounce=true;
-          _gridDrawPending=true; // překreslit HP číslo
+          _gridMutated(); // překreslit HP číslo
         }
       } else if(hitBlock.color===p.ci){
         // Solid blok, color match → blok utrpí 1 HP (1 projektil = 1 HP), projektil pop
@@ -2417,7 +2428,7 @@ function updateParticles(dt){
           spawnBlockExplosion(hitBlock);
           currentBlocks=currentBlocks.filter(b=>b!==hitBlock);
         }
-        _gridDrawPending=true;
+        _gridMutated();
         if(running&&!anyTargetLeft()){
           particles.forEach(q=>{if(q.phase==='fly'){q.phase='pop';q.popX=q.x;q.popY=q.y;}});
           {const _s=_levelSeq;setTimeout(()=>{if(running&&_s===_levelSeq)endGame(true);},80);}
@@ -2491,7 +2502,7 @@ function updateParticles(dt){
       }
       grid[gy][gx]=-1;
       if(gravityOn)applyGravityToCol(grid,gx);
-      _gridDrawPending=true;
+      _gridMutated();
       p.phase='pop'; p.popX=nx; p.popY=ny; p.onPop();
       // 2D pop shards layer — běží v obou módech (user chce kombinaci 2D + 3D).
       _playPop();
@@ -7826,7 +7837,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.19'));
+    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.20'));
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7955,7 +7966,7 @@ function endGame(win){
   const _seq=_levelSeq; // v75.08: restart během win animace nesmí dostat overlay/confetti starého levelu
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.19'));
+  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.20'));
   _safeGamee(()=>gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined));
   if(win){
     spawnConfetti();
@@ -8355,6 +8366,7 @@ function startLevel(){
     };
     setTimeout(lineStep,150);
   }
+  _gridVersion++; // v75.20: nový level = nový svět pro LoS cache
   _recomputeLastPxPos(); // v75.14: init pro nový level (jinak by expanded collider viděl stale pozici z minulého levelu)
   updateGarages();
   drawGrid();drawBelt();drawPending();drawCarriers();
@@ -8546,13 +8558,18 @@ function beltLoop(ts){
           if(!cannonLock.blockRef||cannonLock.blockRef.hp<=0) cannonLock=null;
         }
         else if(!grid[cannonLock.gy]||grid[cannonLock.gy][cannonLock.gx]!==item.ci) cannonLock=null;
-        // LoS revalidace — pokud cesta od hlavně k cíli už není čistá, zahoď.
-        if(cannonLock){
+        // LoS revalidace — v75.20: jen když se od minula změnil grid/bloky
+        // (_gridVersion gate). Dřív plný 240-krokový ray-march KAŽDÝ frame,
+        // i když se nic nezměnilo. Lock ukládá fixní idealX/angle, takže
+        // výsledek závisí jen na gridu/blocích → gate je exaktní.
+        if(cannonLock && cannonLock._gridV!==_gridVersion){
           const muzX=cannonLock.idealX+Math.cos(cannonLock.angle)*14;
           const muzY=CANNON_Y+Math.sin(cannonLock.angle)*14;
           const tblk=cannonLock.kind==='block'?cannonLock.blockRef:null;
           if(!simulateShotReaches(muzX,muzY,cannonLock.angle,item.ci,240,tblk)){
             cannonLock=null;
+          } else {
+            cannonLock._gridV=_gridVersion;
           }
         }
       }
@@ -8602,7 +8619,7 @@ function beltLoop(ts){
           }
           cannonLock={ci:item.ci,gx:Math.floor(picked.tx/SCALE),gy:Math.floor(picked.ty/SCALE),
                       idealX:picked.idealX,angle:picked.angle,type:picked.type,
-                      kind:picked.kind||'pixel',blockRef:picked.blockRef||null};
+                      kind:picked.kind||'pixel',blockRef:picked.blockRef||null,_gridV:_gridVersion};
           shot=cannonLock;
         } else {
           gunFireTimer=0;
@@ -8640,7 +8657,12 @@ function beltLoop(ts){
             gunFireTimer=0;
             cannonIdleT=0;
             gunQueue.shift();
-            cannonLock=null;
+            // v75.20: lock recykluj pro další kouli stejné barvy — pick je
+            // deterministický (žádný claimed-mechanismus neexistuje), re-pick
+            // by vrátil týž cíl. Plný pickCannonShot tak neběží po každém
+            // výstřelu (~27×/s). Po dopadu cíl zmizí → cheap check /
+            // _gridVersion revalidace lock samy zahodí.
+            if(!(gunQueue.length>0&&gunQueue[0].ci===item.ci)) cannonLock=null;
             cannonSideShots++;
             const a=cannonAngle+(Math.random()-0.5)*0.06;
             const muzzleX=cannonX+Math.cos(cannonAngle)*14;
@@ -8907,7 +8929,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.19'));
+      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.20'));
       event.detail.callback();
     });
 

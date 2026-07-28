@@ -432,7 +432,7 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 
 | Prio | Stav | Vel. | Téma | Nápad |
 |------|------|------|------|-------|
-| P1 | 📋 | M | Hra | **Aiming pipeline kanónu** — `gridVersion` counter: (a) plný `pickCannonShot` po každém výstřelu ~27×/s (game.js:1702, reset :8596), (b) revalidace locku ray-marchem každý frame (:8503), (c) `steerAfterBounce` 20 úhlů × 600 kroků v jednom framu (:2128). Největší CPU žrout |
+| P1 | ✅ | M | Hra | **Aiming pipeline kanónu** ✅ v75.20 — `gridVersion` counter: (a) plný `pickCannonShot` po každém výstřelu ~27×/s (game.js:1702, reset :8596), (b) revalidace locku ray-marchem každý frame (:8503), (c) `steerAfterBounce` 20 úhlů × 600 kroků v jednom framu (:2128). Největší CPU žrout |
 | P1 | ✅ | S | Hra | **`drawGrid()` dirty flag** ✅ v75.13 — volá se per zásah z `updateParticles` (game.js:2289 aj.), při salvě až 10×/frame full přepis instance bufferu; batchnout na 1×/frame |
 | P1 | ✅ | S | 3D | **Pixel geometrie zředit** ✅ v75.16 — render3d.js:563 `bevelSegments:6, curveSegments:6` ≈ 700–800 tris/kostka, s outline hull ~1,5 M tris/frame; 6→2 je vizuálně nerozeznatelné, ~10× méně vertexů |
 | P1 | ✅ | S | 3D | **updateCarriers layout thrash** ✅ v75.19 — render3d_bottom.js:1358 write-then-read (`setProperty` + 4× `getBoundingClientRect`) každý frame animace = forced reflow; měřit jen při resize/level-start/theme |
@@ -588,6 +588,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v75.20 | (pending) | 2026-07-28 | **E3.1 aiming pipeline** — (a) `_gridVersion` bump při každé mutaci gridu/bloků; (b) 240-krokový LoS ray-march locku běží jen po změně verze (dřív každý frame); (c) lock se recykluje pro další kouli stejné barvy (pick je deterministický, žádný claimed-mechanismus → identický cíl; plný pickCannonShot dřív ~27×/s); (d) steerAfterBounce: 20→8 úhlů, 600→240 kroků, 250 ms cooldown po neúspěchu. Největší CPU win dispatch bucketu. |
 | v75.19 | (pending) | 2026-07-28 | **E3.4 updateCarriers layout thrash** — _rebuildUnifiedFrame dělal write (`--carriers-pad-top`) + 4× getBoundingClientRect KAŽDÝ frame carrier animace = forced reflow (memo klíč se testoval až PO měření). Teď gated: `invalidateFrameLayout()` z drawCarriers (level start/resize/garáže) + 500ms self-healing fallback. |
 | v75.18 | (pending) | 2026-07-28 | **E3.7 funnel broad-phase** — Y-range reject před plným testem segmentu (projekce+hypot). Dřív 160 arch segmentů × koule × 4 substeps naplno (~10k hypot/frame při 16 koulích); teď 2 porovnání pro >95 % segmentů. Bez předpokladu monotonie = identická korektnost. |
 | v75.17 | (pending) | 2026-07-28 | **E3.5 shadow double-compile fix** — init zapínal shadowMap, prewarm zkompiloval USE_SHADOWMAP varianty, a okamžitý setQualityTier(1) je vypnul → shadowsChanged → recompile všech materiálů (druhá plná kompilace = startup freeze, který měl prewarm řešit). Init teď startuje shadows OFF v souladu s default MED tierem. |
