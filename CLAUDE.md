@@ -91,16 +91,17 @@ Další akce podle typu změny:
 ## Gamee deployment
 
 ```bash
-cd ~/Documents/GitHub/ballon-belt/gamee
+cd ~/CodeProjects/ballon-belt/gamee
 rm -f ../balloon-belt-gamee.zip
-zip -r ../balloon-belt-gamee.zip . -x "index_local.html" "lib/gamee-js-stub.js" "manifest.json" "sw.js" "assets/icon-*.svg" "assets/icons/*"
+zip -r ../balloon-belt-gamee.zip . -x "index_local.html" "lib/gamee-js-stub.js" "manifest.json" "sw.js" "assets/icon-*.svg" "assets/icons/*" "assets/icon-*.png" "js/.bak/*" "js/levels (1).js" "js/debug.js" "test_balloon.html" "utils/*" "*.DS_Store"
 ```
 
 Upload `balloon-belt-gamee.zip` do Gamee admin (zip má `index.html` v rootu, to Gamee admin vyžaduje).
 
-**Pozn. exclude list**: manifest.json + sw.js + assets/icon-*.svg + assets/icons/ jsou
-PWA-only (install z `index_local.html`). Gamee iframe je nepoužívá → výsledný zip je
-čistší a menší o ~70 KB.
+**Pozn. exclude list** (rozšířeno v75.05): manifest.json + sw.js + ikony jsou PWA-only
+(install z `index_local.html`), Gamee iframe je nepoužívá. `js/.bak/` (~5 MB rotujících
+záloh levels.js), `levels (1).js`, `debug.js`, `test_balloon.html` a `utils/` jsou
+dev-only balast — bez exclude měl zip ~10 MB, s ním ~4 MB.
 
 ## Konvence
 
