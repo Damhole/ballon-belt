@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // v74.79: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.13';
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.14';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox

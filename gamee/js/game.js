@@ -1,7 +1,7 @@
 // v73.278: VERSION CONSTANT + WATCHDOG (rozšířen na render3d moduly)
 // Porovnává HTML #version-badge + window.BB_VERSION_R3D + window.BB_VERSION_R3DB
 // proti BB_VERSION. Kterákoli mismatch → force reload (sessionStorage guard).
-const BB_VERSION = 'v75.13';
+const BB_VERSION = 'v75.14';
 (function _versionWatchdog(){
   function check(){
     var badge = document.getElementById('version-badge');
@@ -2227,7 +2227,6 @@ function _recomputeLastPxPos(){
 }
 
 function updateParticles(dt){
-  _recomputeLastPxPos();
   for(let i=shards.length-1;i>=0;i--){
     const s=shards[i];
     s.life+=dt;
@@ -2310,7 +2309,7 @@ function updateParticles(dt){
           _gridDrawPending=true;
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.13'));
+          _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.14'));
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7816,7 +7815,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.13'));
+    _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.14'));
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7945,7 +7944,7 @@ function endGame(win){
   const _seq=_levelSeq; // v75.08: restart během win animace nesmí dostat overlay/confetti starého levelu
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.13'));
+  _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.14'));
   _safeGamee(()=>gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined));
   if(win){
     spawnConfetti();
@@ -8345,6 +8344,7 @@ function startLevel(){
     };
     setTimeout(lineStep,150);
   }
+  _recomputeLastPxPos(); // v75.14: init pro nový level (jinak by expanded collider viděl stale pozici z minulého levelu)
   updateGarages();
   drawGrid();drawBelt();drawPending();drawCarriers();
   setStatus('Klikni na aktivní nosič');
@@ -8662,7 +8662,7 @@ function beltLoop(ts){
     const _tu0=performance.now();
     updateParticles(dtAdj);  // v74.62: projektily zrychlí s speedMul
     // v75.13: batch — salva 10 projektilů dřív = až 10× full přepis instance bufferu za frame
-    if(_gridDrawPending){_gridDrawPending=false;drawGrid();}
+    if(_gridDrawPending){_gridDrawPending=false;_recomputeLastPxPos();drawGrid();} // v75.14: recompute jen při změně gridu (dřív full-grid scan každý frame)
     const _tu1=performance.now();
     updatePending(dtAdj);    // v74.62: pending balls zrychlí s speedMul
     const _tu2=performance.now();
@@ -8896,7 +8896,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.13'));
+      _safeGamee(()=>gamee.updateScore(score,playTime,'balloon-belt-v75.14'));
       event.detail.callback();
     });
 
