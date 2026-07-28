@@ -64,7 +64,7 @@ function _makeChromeMatcap() {
 }
 
 // v74.79: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v76.05';
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v76.06';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
@@ -1651,12 +1651,20 @@ function updateGrid(grid, COLORS) {
 // levný kompozitní quad + dynamika (dělo, projektily, shardy, ghosty, dust).
 // Mi A1: let projektilů dřív rasterizoval 972+972 instancí toon shaderu každý
 // frame (47 → 27 fps), teď 1 texture fetch na fragment.
-function _staticMeshList() {
-  // v76.05: LOW tier — pixel outline hull vynechán z RT passu (2× instancí/overdraw)
-  const list = [state.pixelMesh, state._noPixelOutline ? null : state.pixelOutlineMesh,
-                state.blockMesh, state.shadowGround, state.imageFrame];
+// v76.06: SUPERSADA všech statik — epilog RT passu ji zhasíná CELOU, bez ohledu
+// na aktuální výběr. Jinak mesh vyřazený z aktivního seznamu (outline na LOW
+// tieru) zůstal na initovém visible=true a kreslil se v main passu přes quad
+// (972 černých hullů = černý obraz; race — projevilo se jen když tier přepnul
+// dřív, než proběhl první RT pass).
+function _staticMeshSuperset() {
+  const list = [state.pixelMesh, state.pixelOutlineMesh, state.blockMesh,
+                state.shadowGround, state.imageFrame];
   if (state.blockOutlineMeshes) list.push(...state.blockOutlineMeshes);
   return list.filter(Boolean);
+}
+function _staticMeshList() {
+  // v76.05: LOW tier — pixel outline hull vynechán z RT passu (2× instancí/overdraw)
+  return _staticMeshSuperset().filter(m => !(state._noPixelOutline && m === state.pixelOutlineMesh));
 }
 function _dynamicMeshList() {
   return [state.gunGroup, state.projectileMesh, state.projectileOutlineMesh,
@@ -1673,17 +1681,28 @@ function _renderStaticToRT() {
     state.compositeQuad.material.map = state.staticRT.texture;
     state.compositeQuad.material.needsUpdate = true;
   } else if (state.staticRT.width !== size.x || state.staticRT.height !== size.y) {
-    state.staticRT.setSize(size.x, size.y); // tier change (pixelRatio) / resize
+    // v76.06: NEresizovat — setSize na MSAA targetu nechal quad samplovat starou
+    // GL texturu → celý canvas černý (nalezeno testem vynuceného LOW tieru).
+    // Zahodit a příští if-blok vytvoří čerstvý RT + přepojí mapu quadu.
+    state.staticRT.dispose();
+    state.staticRT = null;
+    state.staticRT = new THREE.WebGLRenderTarget(size.x, size.y, {
+      samples: r.capabilities.isWebGL2 ? 4 : 0,
+      depthBuffer: true,
+    });
+    state.compositeQuad.material.map = state.staticRT.texture;
+    state.compositeQuad.material.needsUpdate = true;
   }
-  const statics = _staticMeshList(), dynamics = _dynamicMeshList();
-  for (const m of statics) m.visible = true;
+  const superset = _staticMeshSuperset(), statics = _staticMeshList(), dynamics = _dynamicMeshList();
+  for (const m of superset) m.visible = false;   // v76.06: nejdřív zhasnout VŠE statické
+  for (const m of statics) m.visible = true;     // ...pak rozsvítit jen aktivní podmnožinu
   for (const m of dynamics) m.visible = false;
   state.compositeQuad.visible = false;
   r.setRenderTarget(state.staticRT);
   r.clear();
   r.render(state.scene, state.camera);
   r.setRenderTarget(null);
-  for (const m of statics) m.visible = false;
+  for (const m of superset) m.visible = false;   // v76.06: epilog zhasíná supersadu
   for (const m of dynamics) m.visible = true;
   state.compositeQuad.visible = true;
   state._staticDirty = false;

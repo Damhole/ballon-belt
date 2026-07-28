@@ -602,6 +602,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v76.06 | (pending) | 2026-07-28 | **Fix 2 latentních bugů RTT cache** (nalezeno testem vynuceného LOW tieru): (a) mesh vyřazený z aktivního RT seznamu (outline na LOW) mohl zůstat na initovém visible=true → 972 černých hullů přes quad = černý obraz; epilog teď zhasíná SUPERSADU statik. (b) setSize na MSAA render targetu při tier change → quad sampluje starou GL texturu; RT se místo resize zahazuje a vytváří čerstvý. Ověřeno oběma směry tier 2↔1 vč. worst case (přepnutí před prvním renderem). |
 | v76.05 | (pending) | 2026-07-28 | **LOW tier → pixel outline OFF** — inverted hull zdvojuje instance i overdraw statické scény; na LOW se vynechává z RT passu (v legacy módu přes visible). Projeví se při každém cache rebuildu (destrukce/vlny/intro). Vizuální trade-off jen na slabých telefonech. |
 | v76.04 | (pending) | 2026-07-28 | **Projektily 12×8 → 8×6** (168 → 80 tris/kus, outline sdílí geom) — na přání uživatele; siluetu za letu posoudit na zařízení (headless nešlo zachytit), případný návrat = jednořádkovka. |
 | v76.03 | (pending) | 2026-07-28 | **Tier upgrade zrušen (sticky-down)** — návrat nahoru osciloval: fps se zvedlo díky úsporám LOW → upgrade → propad → degrade. Tier klesá na celou session (jako _shadowsStuckOff); manuální přepnutí v dev overlay funguje dál. Odklizeny PERF_FPS_UP/PERF_UP_HOLD_MS/_perfHighSince. |
