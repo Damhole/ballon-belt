@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // v74.79: version stamp pro watchdog
-if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.18';
+if (typeof window !== 'undefined') window.BB_VERSION_R3DB = 'v75.19';
 
 // ─── Konstanty (musí odpovídat game.js) ──────────────────────────────────────
 const BELT_SVG_H      = 64;    // výška #belt-svg viewBox
@@ -1416,6 +1416,15 @@ function _setCarriersPadTop() {
 // klíčové měření nezměnilo, skip.
 function _rebuildUnifiedFrame() {
   if (!st.ready) return;
+  // v75.19: _setCarriersPadTop (write) + _measureFramePositions (4× gBCR read)
+  // = forced reflow — a běželo to KAŽDÝ frame carrier animace (updateCarriers
+  // per frame z beltLoop). Plné měření teď jen když je layout dirty
+  // (invalidateFrameLayout z drawCarriers: level start / resize / garáže)
+  // nebo 1× za 500 ms jako self-healing pojistka.
+  const _now = performance.now();
+  if (!st._frameLayoutDirty && _now < (st._frameNextCheck || 0)) return;
+  st._frameLayoutDirty = false;
+  st._frameNextCheck = _now + 500;
   _setCarriersPadTop();  // nastav CSS var PŘED měřením
   _measureFramePositions();
   // Memoization key — pokud nezměnilo, skip
@@ -3720,5 +3729,7 @@ function setQualityTier(tier){
   }
 }
 function getQualityTier(){ return st.qualityTier || 0; }
-window.render3dBottom = { init, updateCarriers, updateWalls, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, triggerCarrierRipple, triggerHoleSuck, triggerFunnelWarning, hideFunnelWarning, refreshFunnelWarningTheme, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor, setQualityTier, getQualityTier, invalidateSlotCache, refreshBeltTint };
+function invalidateFrameLayout() { st._frameLayoutDirty = true; } // v75.19
+
+window.render3dBottom = { init, updateCarriers, updateWalls, invalidateFrameLayout, updatePending, updateBelt, triggerCarrierFire, triggerCarrierDenial, triggerCarrierRipple, triggerHoleSuck, triggerFunnelWarning, hideFunnelWarning, refreshFunnelWarningTheme, _hasActiveCarrierAnim, canvasYtoFunY, render, isReady, dispose, clearCarrierState, resize, setBottomFrameColor, getBottomFrameColor, setOutlineColor, getOutlineColor, rebuildMysteryTexture, refreshFloorColor, refreshWallColor, setMysteryBaseColor, getMysteryBaseColor, setQualityTier, getQualityTier, invalidateSlotCache, refreshBeltTint };
 window._r3dBState = st;  // debug
