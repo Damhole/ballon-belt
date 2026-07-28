@@ -1,7 +1,7 @@
 // v73.278: VERSION CONSTANT + WATCHDOG (rozšířen na render3d moduly)
 // Porovnává HTML #version-badge + window.BB_VERSION_R3D + window.BB_VERSION_R3DB
 // proti BB_VERSION. Kterákoli mismatch → force reload (sessionStorage guard).
-const BB_VERSION = 'v75.02';
+const BB_VERSION = 'v75.03';
 (function _versionWatchdog(){
   function check(){
     var badge = document.getElementById('version-badge');
@@ -2294,7 +2294,7 @@ function updateParticles(dt){
           drawGrid();
           score+=destroyed*10;
           document.getElementById('score').textContent=score;
-          gamee.updateScore(score,playTime,'balloon-belt-v75.02');
+          gamee.updateScore(score,playTime,'balloon-belt-v75.03');
         }
         // Rázová vlna
         particles.push({phase:'pop',ci:p.ci,color:p.color,popR:0,popX:p.tx,popY:p.ty,maxPopR:42,onPop:()=>{}});
@@ -7790,7 +7790,7 @@ function checkLaunchPoint(prevAnim, curAnim){
     }
     score+=10;
     document.getElementById('score').textContent=score;
-    gamee.updateScore(score,playTime,'balloon-belt-v75.02');
+    gamee.updateScore(score,playTime,'balloon-belt-v75.03');
     setStatus('Zásah!');
 
     if(beltIsEmpty()&&anyLeft(grid)){
@@ -7918,7 +7918,7 @@ function setStatus(m){document.getElementById('status').textContent=m;}
 function endGame(win){
   running=false;
   if(playTimer){clearInterval(playTimer);playTimer=null;}
-  gamee.updateScore(score,playTime,'balloon-belt-v75.02');
+  gamee.updateScore(score,playTime,'balloon-belt-v75.03');
   gamee.gameOver(undefined,JSON.stringify({score:score,level:currentLevel,difficulty:difficulty}),undefined);
   if(win){
     spawnConfetti();
@@ -8401,7 +8401,7 @@ function beltLoop(ts){
   // i když je hra paused (game over screen). Clamp na 0.05 s pro tab-switch.
   const _animDt = (lastBeltTime!==null) ? Math.min(0.05, (ts-lastBeltTime)/1000) : 1/60;
   if(lastBeltTime!==null&&!paused){
-    const dt=(ts-lastBeltTime)/1000;
+    const dt=Math.min(0.05,(ts-lastBeltTime)/1000); // v75.03: clamp — návrat z backgroundu nesmí skočit o sekundy
     // v74.62: detekce vyklízených carriers — nastav timestamp pro speed-up rampu
     if(_carriersClearedAt===null && running && cntCarriers()===0) _carriersClearedAt=performance.now();
     // v74.64: tick user hold fade (vstup pro _speedMul())
@@ -8859,7 +8859,7 @@ function initGame(){
       event.detail.callback();
     });
     gamee.emitter.addEventListener('submit',function(event){
-      gamee.updateScore(score,playTime,'balloon-belt-v75.02');
+      gamee.updateScore(score,playTime,'balloon-belt-v75.03');
       event.detail.callback();
     });
 
