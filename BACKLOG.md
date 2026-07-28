@@ -27,7 +27,8 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | M8 | Sjednocený 3D grid | v72.0–82 | ✅ | Carrier inner depth, 3D walls (monolith ExtrudeGeometry, rounded corners, outline), 3D mystery carriers (animovaná ? texture, circular wipe reveal), cascade pop, denial shake. Empty slot 3D + Garage/Rocket 3D + falling animation **deferred**. |
 | M9 | 3D vizuál + brand "Plop!" | v73.0–346 | ✅ | Image area 3D frame, bottom unified frame, BG atmosphere, smoke puffs, 3D gun + muzzle flash, hole asset + suck animace, rounded frame corners, HD particle-canvas. Brand: hra pojmenovaná **Plop!**, comic-style PWA ikona (Bangers font, růžová/žlutá), visible badge "Plop! vX.Y". |
 | **Beta cycle** | Pre-release polishing + 2. test | **v74.0+** | 🚧 | Druhý test cyklus — feature complete, polishing pro release. Game brand = Plop!. |
-| M14 | Stabilizace & výkon (code review) | v75.0+ | 📋 | Nálezy z revize 2026-07-28: mystery soft-lock, version watchdog, aiming pipeline perf, 3D geometrie, first-load váha |
+| M14 | Stabilizace & výkon (code review) | v75.00–v75.34 | ✅ | Hotovo, merged PR #1 (2026-07-28). Revize fixes + mobilní perf: Mi A1 idle 24 → 47 fps. |
+| M15 | Render pipeline | v76.00+ | 🚧 | RTT cache statických pixelů (let projektilů 27 → cíl ~40 fps na Mi A1); později row-merge, unified canvas |
 | M10 | Replay & scrub | future | 📋 | Curve editor Úr. 1.5 — timeline scrubber, mini canvas, .webm export |
 | M11 | Editor polish | future | 💡 | Copy/paste bloků, multi-select, playtester mode, vizuální garáž |
 | M12 | Gameplay | future | 💡 | Adaptivní obtížnost, procedurální levely |
@@ -400,7 +401,20 @@ Single-screen puzzle hra pro Gamee platformu (vanilla JS, canvas). Hráč kliká
 | P2 | ✅ | XS | Polish | **Decentnější smoke z gun** ✅ done v74.53 — smoke puffs příliš výrazné; ztlumit opacity / scale |
 | P2 | 💡 | S | Infra | **Přímý link na level** — URL param `?level=ID` načte konkrétní level přímo; default (bez paramu) all-in-one pořadí zachováno |
 
-### M14: Stabilizace & výkon — nálezy z code review (2026-07-28) — 📋 planned
+### M15: Render pipeline (v76.00+) — 🚧 in progress
+
+**Cíl:** srazit cenu render smyčky na slabých telefonech. Vychází z Mi A1 profilace v M14
+(idle 47 fps po fixech, ale let projektilů = 27 fps, protože se celá statická pixel scéna
+rasterizuje každý frame). Větev `m15-render-01`.
+
+| Prio | Stav | Vel. | Téma | Nápad |
+|------|------|------|------|-------|
+| P1 | 📋 | L | 3D | **RTT cache statických pixelů** — statická scéna (pixely+outline+bloky+frame) do WebGLRenderTarget, per frame jen quad + dynamika (dělo/projektily/shardy). Invalidace: destrukce, wave, intro, theme, resize, tier. Diag `?diag=nortt` pro A/B. Detail: plán bright-roaming-matsumoto.md |
+| P2 | 💡 | L | 3D | **Row-merge carrier řad** — 7 řad × 7 InstancedMesh → 1 mesh per typ (~50–70 → ~10 draw calls na bottom canvasu), vrstvení přes Z-bias per row |
+| P2 | 💡 | XL | 3D | **Unified canvas** — jeden WebGL kontext místo dvou (experiment v74.80 v gamee-test/); zabije 2× present/composite |
+| P3 | 💡 | S | 3D | **Audit `_dirty = true` setů v render3d_bottom** — v M14 nalezeny 3 výskyty vzoru „bezpodmínečné dirty" (belt, warning, dělo); systematicky projít zbytek |
+
+### M14: Stabilizace & výkon — nálezy z code review (2026-07-28) — ✅ done (PR #1)
 
 **Cíl:** opravit funkční a výkonnostní slabiny z celkové revize kódu (4 paralelní review: game.js funkčnost, game.js výkon, render3d/render3d_bottom, shell/infra). Feature-freeze — žádné nové mechaniky, jen stabilita, výkon a first-load.
 
@@ -588,6 +602,7 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
+| v76.00 | (pending) | 2026-07-28 | **M15 založení** — M14 merged (PR #1, 37 commitů, Mi A1 idle 24 → 47 fps). Nová větev m15-render-01, Pages přepnuty na ni. Scope M15: RTT cache statických pixelů, později row-merge + unified canvas. |
 | v75.34 | (pending) | 2026-07-28 | **LOW tier → top canvas DPR 1.5** — rasterizace statické pixel scény při DPR 2 + antialias je hlavní cena top canvasu během letu projektilů (geometrie po E3.3 už hrdlo není — 140 tris/pixel). Tier 0/1 drží 2×; auto-degrade aktivuje na slabých telefonech sám. Protikus v75.30 (bottom 1.0). |
 | v75.33 | a896654 | 2026-07-28 | **setCannonPosition — dirty jen při pohybu** — volané každý frame s bezpodmínečným dirty → top canvas (972 px + 972 outline) se kreslil na 60 fps i v klidu. Potvrzeno diag testem na Mi A1: nopixels 40 fps vs baseline 24 → viník top canvas, ne nosiče (falešná korelace). Epsilon prahy (0.02 px / 0.03 st.) ukončí asymptotické easing lerpy. Třetí výskyt vzoru bezpodmínečného dirty (belt jitter v75.04, funnel warning v75.28). |
 | v75.32 | (pending) | 2026-07-28 | **Diag módy pro mobilní profiling** — `?diag=nocarriers` (zhasne carrier meshe + přeskočí jejich per-frame práci) a `?diag=nopixels` (zhasne pixel/blok meshe na top canvasu). A/B izolace viníka fps floor na Mi A1. |
