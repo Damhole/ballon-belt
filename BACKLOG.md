@@ -602,7 +602,8 @@ Pravděpodobně nebude potřeba, viz user note výše.
 
 | Verze | Commit | Datum | Co |
 |-------|--------|-------|----|
-| v76.04 | (pending) | 2026-07-28 | **Projektily 12×8 → 8×6** (168 → 80 tris/kus, outline sdílí geom) — na přání uživatele; vizuál ověřen screenshotem. |
+| v76.05 | (pending) | 2026-07-28 | **LOW tier → pixel outline OFF** — inverted hull zdvojuje instance i overdraw statické scény; na LOW se vynechává z RT passu (v legacy módu přes visible). Projeví se při každém cache rebuildu (destrukce/vlny/intro). Vizuální trade-off jen na slabých telefonech. |
+| v76.04 | (pending) | 2026-07-28 | **Projektily 12×8 → 8×6** (168 → 80 tris/kus, outline sdílí geom) — na přání uživatele; siluetu za letu posoudit na zařízení (headless nešlo zachytit), případný návrat = jednořádkovka. |
 | v76.03 | (pending) | 2026-07-28 | **Tier upgrade zrušen (sticky-down)** — návrat nahoru osciloval: fps se zvedlo díky úsporám LOW → upgrade → propad → degrade. Tier klesá na celou session (jako _shadowsStuckOff); manuální přepnutí v dev overlay funguje dál. Odklizeny PERF_FPS_UP/PERF_UP_HOLD_MS/_perfHighSince. |
 | v76.02 | (pending) | 2026-07-28 | **Auto-degrade hold 10 s → 4 s** — slabý telefon čekal 10 s pod prahem (29 fps), než naskočil LOW tier s DPR úsporami (v75.30/34). Proti tier-flappingu dál drží 5 s change cooldown + 8 s up-hold. |
 | v76.01 | (pending) | 2026-07-28 | **RTT cache statických pixelů** — statická scéna (pixely+outline+bloky+frame) do WebGLRenderTarget (MSAA 4×, WebGL2), per frame jen kompozitní quad + dynamika. Změřeno: dynamický pass 5 calls / 1 146 tris vs. legacy 8 calls / 273 946 tris (238× méně). Invalidace přes _staticDirty (updateGrid/Blocks/Outlines, triggery, theme, tier, context restore); wave jde přes updateGrid → beze změny chování. `?diag=nortt` = legacy A/B. Debug: window._r3dState. |

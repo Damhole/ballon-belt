@@ -64,7 +64,7 @@ function _makeChromeMatcap() {
 }
 
 // v74.79: version stamp pro watchdog — game.js compare proti tomuto
-if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v76.04';
+if (typeof window !== 'undefined') window.BB_VERSION_R3D = 'v76.05';
 
 const SCALE = 10;
 const PIXEL_DEPTH = 28;       // v73.15: baseline hloubka pixel-kostky (18 → 28)
@@ -1652,8 +1652,9 @@ function updateGrid(grid, COLORS) {
 // Mi A1: let projektilů dřív rasterizoval 972+972 instancí toon shaderu každý
 // frame (47 → 27 fps), teď 1 texture fetch na fragment.
 function _staticMeshList() {
-  const list = [state.pixelMesh, state.pixelOutlineMesh, state.blockMesh,
-                state.shadowGround, state.imageFrame];
+  // v76.05: LOW tier — pixel outline hull vynechán z RT passu (2× instancí/overdraw)
+  const list = [state.pixelMesh, state._noPixelOutline ? null : state.pixelOutlineMesh,
+                state.blockMesh, state.shadowGround, state.imageFrame];
   if (state.blockOutlineMeshes) list.push(...state.blockOutlineMeshes);
   return list.filter(Boolean);
 }
@@ -1905,6 +1906,10 @@ if (typeof window !== 'undefined') {
         });
         if (state.renderer) state.renderer.shadowMap.needsUpdate = true;
       }
+      // v76.05: LOW tier — pixel outline OFF (v RTT módu přes _staticMeshList,
+      // v legacy/?diag=nortt módu přímo přes visible).
+      state._noPixelOutline = (t >= 2);
+      if (state.pixelOutlineMesh && !state.compositeQuad) state.pixelOutlineMesh.visible = !state._noPixelOutline;
       state._dirty = true; state._staticDirty = true; // v74.79/v76.01: tier change → refresh vč. RT (změna pixelRatio → resize v _renderStaticToRT)
       // Cleanup particles při downgrade na LOW
       if (t >= 2) {
